@@ -1,0 +1,6 @@
+{
+  "name": "Dansk Sti",
+  "description": "Dansk Sti is a native hiking and trekking companion for Denmark featuring offline trails, shelters, fri teltning areas, and GPS route navigation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

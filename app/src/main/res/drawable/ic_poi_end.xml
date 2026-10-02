@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="44dp"
+    android:height="44dp"
+    android:viewportWidth="44"
+    android:viewportHeight="44">
+    <!-- Drop shadow -->
+    <path
+        android:fillColor="#40000000"
+        android:pathData="M22,3 C13.7,3 7,9.7 7,18 C7,29 22,41 22,41 C22,41 37,29 37,18 C37,9.7 30.3,3 22,3 Z" />
+    <!-- White outer border -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M22,2 C13.2,2 6,9.2 6,18 C6,29.5 22,41 22,41 C22,41 38,29.5 38,18 C38,9.2 30.8,2 22,2 Z" />
+    <!-- Red body -->
+    <path
+        android:fillColor="#DC2626"
+        android:pathData="M22,4 C14.3,4 8,10.3 8,18 C8,28 22,38.5 22,38.5 C22,38.5 36,28 36,18 C36,10.3 29.7,4 22,4 Z" />
+    <!-- Inner circle -->
+    <path
+        android:fillColor="#B91C1C"
+        android:pathData="M22,6 A12,12 0 1,0 22,30 A12,12 0 1,0 22,6 Z" />
+    <!-- Bold 'B' letter / Finish -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M17,11 L23,11 C25.2,11 26.8,12 26.8,13.8 C26.8,14.9 26.1,15.8 25.2,16.3 C26.5,16.8 27.4,17.9 27.4,19.5 C27.4,21.6 25.5,23 23,23 L17,23 L17,11 Z M20,13.5 L20,15.8 L22.6,15.8 C23.4,15.8 24,15.3 24,14.6 C24,14 23.4,13.5 22.6,13.5 L20,13.5 Z M20,18.2 L20,20.8 L23,20.8 C23.9,20.8 24.6,20.2 24.6,19.5 C24.6,18.8 23.9,18.2 23,18.2 L20,18.2 Z" />
+</vector>

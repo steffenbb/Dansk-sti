@@ -1,0 +1,21 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="44dp"
+    android:height="44dp"
+    android:viewportWidth="44"
+    android:viewportHeight="44">
+    <!-- Outer halo ring -->
+    <path
+        android:fillColor="#3338BDF8"
+        android:pathData="M22,2 C33.05,2 42,10.95 42,22 C42,33.05 33.05,42 22,42 C10.95,42 2,33.05 2,22 C2,10.95 10.95,2 22,2 Z" />
+    <!-- Inner solid blue circle -->
+    <path
+        android:fillColor="#0284C7"
+        android:pathData="M22,8 C29.73,8 36,14.27 36,22 C36,29.73 29.73,36 22,36 C14.27,36 8,29.73 8,22 C8,14.27 14.27,8 22,8 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M22,10 C28.63,10 34,15.37 34,22 C34,28.63 28.63,34 22,34 C15.37,34 10,28.63 10,22 C10,15.37 15.37,10 22,10 Z" />
+    <!-- Crisp directional arrow pointing UP (bearing 0) -->
+    <path
+        android:fillColor="#0284C7"
+        android:pathData="M22,13 L29,27 L22,24 L15,27 Z" />
+</vector>

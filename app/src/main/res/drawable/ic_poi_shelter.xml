@@ -1,0 +1,29 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="44dp"
+    android:height="44dp"
+    android:viewportWidth="44"
+    android:viewportHeight="44">
+    <!-- Drop shadow -->
+    <path
+        android:fillColor="#40000000"
+        android:pathData="M22,3 C13.7,3 7,9.7 7,18 C7,29 22,41 22,41 C22,41 37,29 37,18 C37,9.7 30.3,3 22,3 Z" />
+    <!-- White outer border for contrast -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M22,2 C13.2,2 6,9.2 6,18 C6,29.5 22,41 22,41 C22,41 38,29.5 38,18 C38,9.2 30.8,2 22,2 Z" />
+    <!-- Shelter Brown body -->
+    <path
+        android:fillColor="#8D4925"
+        android:pathData="M22,4 C14.3,4 8,10.3 8,18 C8,28 22,38.5 22,38.5 C22,38.5 36,28 36,18 C36,10.3 29.7,4 22,4 Z" />
+    <!-- Inner circle -->
+    <path
+        android:fillColor="#6D3213"
+        android:pathData="M22,6 A12,12 0 1,0 22,30 A12,12 0 1,0 22,6 Z" />
+    <!-- Shelter lean-to silhouette in pure white -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M13,23 L31,23 L31,20.5 L18,11.5 L13,23 Z M17,21 L27.5,21 L20,15.5 L17,21 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,23 L20,16 L22,16 L22,23 Z" />
+</vector>
