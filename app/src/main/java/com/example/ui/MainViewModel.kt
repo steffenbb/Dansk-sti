@@ -12,23 +12,21 @@ import com.example.data.model.GeoPointDto
 import com.example.data.model.HazardType
 import com.example.data.model.OvernightType
 import com.example.data.model.PoiEntity
-import com.example.data.model.ResupplyPoint
 import com.example.data.model.ShelterEntity
 import com.example.data.model.TrailEntity
-import com.example.data.model.TrailSurfaceStats
-import com.example.data.model.TransitStation
 import com.example.data.model.TripPlanEntity
 import com.example.data.model.TripProgressEntity
 import com.example.data.model.TripStage
-import com.example.data.model.UserHazardNote
+import com.example.data.model.UserHazardNoteEntity
 import com.example.data.remote.TrailWeatherInfo
 import com.example.data.repository.DanskStiRepository
 import com.example.service.NavigationLiveState
 import com.example.service.NavigationTrackingService
-import com.example.util.DownloadProgress
+import com.example.data.model.DownloadedTrailEntity
 import com.example.util.GeoUtils
 import com.example.util.GpxExporter
-import com.example.util.OfflineTileDownloader
+import com.example.util.OfflineDownloadManager
+import com.example.util.OfflineEstimateResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -45,7 +43,8 @@ enum class AppScreen {
     TRAIL_DETAIL,
     TRIP_PLANNER,
     NAVIGATION_MODE,
-    SAVED_PLANS
+    SAVED_PLANS,
+    OFFLINE_DOWNLOADS
 }
 
 data class NearestPoiResult(
@@ -75,16 +74,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedRegion = MutableStateFlow("Alle")
     val selectedRegion: StateFlow<String> = _selectedRegion.asStateFlow()
 
-    private val _isSyncing = MutableStateFlow(false)
-    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
-
     val filteredTrails: StateFlow<List<TrailEntity>> = combine(allTrails, _searchQuery, _selectedRegion) { trails, query, region ->
         trails.filter { trail ->
             val matchesQuery = query.isBlank() ||
                     trail.name.contains(query, ignoreCase = true) ||
                     trail.description.contains(query, ignoreCase = true) ||
-                    trail.region.contains(query, ignoreCase = true)
-            val matchesRegion = region == "Alle" || trail.region.equals(region, ignoreCase = true)
+                    trail.region.contains(query, ignoreCase = true) ||
+                    trail.parentRegion.contains(query, ignoreCase = true)
+            val matchesRegion = region == "Alle" || trail.parentRegion.equals(region, ignoreCase = true)
             matchesQuery && matchesRegion
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -95,6 +92,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _selectedTrailPoints = MutableStateFlow<List<GeoPointDto>>(emptyList())
     val selectedTrailPoints: StateFlow<List<GeoPointDto>> = _selectedTrailPoints.asStateFlow()
+
+    private val _selectedTrailGeometry = MutableStateFlow<com.example.data.model.TrailGeometryDto?>(null)
+    val selectedTrailGeometry: StateFlow<com.example.data.model.TrailGeometryDto?> = _selectedTrailGeometry.asStateFlow()
 
     private val _corridorShelters = MutableStateFlow<List<ShelterEntity>>(emptyList())
     val corridorShelters: StateFlow<List<ShelterEntity>> = _corridorShelters.asStateFlow()
@@ -133,7 +133,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isCalculatingStages = MutableStateFlow(false)
     val isCalculatingStages: StateFlow<Boolean> = _isCalculatingStages.asStateFlow()
 
-    val tileDownloadProgress: StateFlow<DownloadProgress> = OfflineTileDownloader.progress
+    // Offline Trails (Phase 4)
+    val downloadedTrails: StateFlow<List<DownloadedTrailEntity>> = (application as DanskStiApp)
+        .database.dao().getAllDownloadedTrails()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _offlineEstimate = MutableStateFlow<OfflineEstimateResult?>(null)
+    val offlineEstimate: StateFlow<OfflineEstimateResult?> = _offlineEstimate.asStateFlow()
+
+    private val _isEstimatingOffline = MutableStateFlow(false)
+    val isEstimatingOffline: StateFlow<Boolean> = _isEstimatingOffline.asStateFlow()
+
+    private val _selectedCorridorKm = MutableStateFlow(1.0)
+    val selectedCorridorKm: StateFlow<Double> = _selectedCorridorKm.asStateFlow()
+
+    private val _isNetworkAvailable = MutableStateFlow(true)
+    val isNetworkAvailable: StateFlow<Boolean> = _isNetworkAvailable.asStateFlow()
 
     // Saved Plans
     val savedPlans: StateFlow<List<TripPlanEntity>> = repository.getAllTripPlans()
@@ -158,32 +173,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showWater = MutableStateFlow(true)
     val showWater: StateFlow<Boolean> = _showWater.asStateFlow()
 
-    // Resupply & Provisioning Radar (New Feature 4)
-    private val _showResupply = MutableStateFlow(true)
-    val showResupply: StateFlow<Boolean> = _showResupply.asStateFlow()
-
-    private val _corridorResupply = MutableStateFlow<List<ResupplyPoint>>(emptyList())
-    val corridorResupply: StateFlow<List<ResupplyPoint>> = _corridorResupply.asStateFlow()
-
-    // Transit Hub Connectors (Enhancement 13)
-    private val _showTransit = MutableStateFlow(true)
-    val showTransit: StateFlow<Boolean> = _showTransit.asStateFlow()
-
-    private val _corridorTransit = MutableStateFlow<List<TransitStation>>(emptyList())
-    val corridorTransit: StateFlow<List<TransitStation>> = _corridorTransit.asStateFlow()
-
-    // Trail Hazards (Enhancement 7)
+    // Trail Hazards (Enhancement 7) - Mine noter
     private val _showHazards = MutableStateFlow(true)
     val showHazards: StateFlow<Boolean> = _showHazards.asStateFlow()
 
-    private val _corridorHazards = MutableStateFlow<List<UserHazardNote>>(emptyList())
-    val corridorHazards: StateFlow<List<UserHazardNote>> = _corridorHazards.asStateFlow()
+    private val _corridorHazards = MutableStateFlow<List<UserHazardNoteEntity>>(emptyList())
+    val corridorHazards: StateFlow<List<UserHazardNoteEntity>> = _corridorHazards.asStateFlow()
+    private var hazardsJob: kotlinx.coroutines.Job? = null
 
-    // Trail Surface & Footwear Advisor (New Feature 1)
-    private val _trailSurfaceStats = MutableStateFlow<TrailSurfaceStats?>(null)
-    val trailSurfaceStats: StateFlow<TrailSurfaceStats?> = _trailSurfaceStats.asStateFlow()
-
-    // Danish 112 SOS & Rescue Post (Enhancement 14)
+    // Danish 112 SOS (Enhancement 14)
     private val _emergencyInfo = MutableStateFlow<DanishEmergencyInfo?>(null)
     val emergencyInfo: StateFlow<DanishEmergencyInfo?> = _emergencyInfo.asStateFlow()
 
@@ -199,30 +197,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isBatterySaverMode = MutableStateFlow(false)
     val isBatterySaverMode: StateFlow<Boolean> = _isBatterySaverMode.asStateFlow()
 
-    // Day & Night Map Theme (Enhancement 8)
-    private val _isDarkMapMode = MutableStateFlow(false)
-    val isDarkMapMode: StateFlow<Boolean> = _isDarkMapMode.asStateFlow()
+    // Mit tempo setting in km/h (Requirement A & F, default 4.0)
+    private val _mitTempoKmh = MutableStateFlow(4.0)
+    val mitTempoKmh: StateFlow<Double> = _mitTempoKmh.asStateFlow()
+    val hikingSpeedKmh: StateFlow<Double> get() = _mitTempoKmh.asStateFlow()
 
-    // DMI Rain Radar (Enhancement 11)
-    private val _showRainRadar = MutableStateFlow(false)
-    val showRainRadar: StateFlow<Boolean> = _showRainRadar.asStateFlow()
+    private val _plannerMaxDetourKm = MutableStateFlow(1.5) // default 1.5, options 0.5, 1.5, 3.0
+    val plannerMaxDetourKm: StateFlow<Double> = _plannerMaxDetourKm.asStateFlow()
 
-    private val _rainRadarTimeMinutes = MutableStateFlow(0) // 0 to 90 min
-    val rainRadarTimeMinutes: StateFlow<Int> = _rainRadarTimeMinutes.asStateFlow()
-
-    // Granular Offline Buffer & Preview (Enhancement 10)
-    private val _offlineCorridorBufferKm = MutableStateFlow(1.0)
-    val offlineCorridorBufferKm: StateFlow<Double> = _offlineCorridorBufferKm.asStateFlow()
-
-    private val _estimatedDownloadMb = MutableStateFlow(145)
-    val estimatedDownloadMb: StateFlow<Int> = _estimatedDownloadMb.asStateFlow()
-
-    // Stage Pace & Cadence Adjuster (Enhancement 9)
-    private val _hikingSpeedKmh = MutableStateFlow(4.2)
-    val hikingSpeedKmh: StateFlow<Double> = _hikingSpeedKmh.asStateFlow()
-
-    private val _packWeightKg = MutableStateFlow(12.0)
-    val packWeightKg: StateFlow<Double> = _packWeightKg.asStateFlow()
+    private val _plannerStartTime = MutableStateFlow("09:00") // default 09:00
+    val plannerStartTime: StateFlow<String> = _plannerStartTime.asStateFlow()
 
     // Selected POI for bottom sheet display
     private val _selectedPoiDetails = MutableStateFlow<Any?>(null) // ShelterEntity, FriTeltningEntity, or PoiEntity
@@ -251,6 +235,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.initializePreseededDataIfEmpty()
         }
+        val cm = application.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+        if (cm != null) {
+            val netReq = android.net.NetworkRequest.Builder().build()
+            cm.registerNetworkCallback(netReq, object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    _isNetworkAvailable.value = true
+                }
+                override fun onLost(network: android.net.Network) {
+                    _isNetworkAvailable.value = false
+                }
+            })
+            val activeNet = cm.activeNetwork
+            val caps = cm.getNetworkCapabilities(activeNet)
+            _isNetworkAvailable.value = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        }
     }
 
     fun navigateTo(screen: AppScreen) {
@@ -268,102 +267,99 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun selectTrail(trail: TrailEntity) {
         _selectedTrail.value = trail
         viewModelScope.launch {
-            val points = repository.parseTrailPoints(trail)
+            val points = repository.getTrailPoints(trail)
+            val updatedTrail = repository.getTrailById(trail.id) ?: trail
+            val geom = repository.getTrailGeometry(trail.id)
+            _selectedTrail.value = updatedTrail
             _selectedTrailPoints.value = points
+            _selectedTrailGeometry.value = geom
             _plannerStartKm.value = 0.0
-            _plannerWalkDistanceKm.value = trail.lengthKm
-            _plannerEndKm.value = trail.lengthKm
+            _plannerWalkDistanceKm.value = if (updatedTrail.lengthKm > 0) updatedTrail.lengthKm else 25.0
+            _plannerEndKm.value = if (updatedTrail.lengthKm > 0) updatedTrail.lengthKm else 25.0
             _isWalkingReverse.value = false
-            _plannerDays.value = maxOf(1, (trail.lengthKm / 15.0).toInt())
+            _plannerDays.value = maxOf(1, (updatedTrail.lengthKm / 15.0).toInt())
             _tappedMapPointKm.value = null
 
             // Load corridor data
             _corridorShelters.value = repository.getSheltersForTrail(trail.id)
             _corridorFriTeltning.value = repository.getFriTeltningForTrail(trail.id)
             _corridorPois.value = repository.getPoisForTrail(trail.id)
-            _corridorResupply.value = repository.getResupplyPointsForTrail(trail.id)
-            _corridorTransit.value = repository.getTransitStationsForTrail(trail.id)
-            _corridorHazards.value = repository.getHazardsForTrail(trail.id)
-            _trailSurfaceStats.value = repository.getSurfaceStatsForTrail(trail.id)
+
+            hazardsJob?.cancel()
+            hazardsJob = viewModelScope.launch {
+                repository.getHazardNotesForTrail(trail.id).collect {
+                    _corridorHazards.value = it
+                }
+            }
 
             // Fetch live weather & severe weather alerts for trail coordinates
-            val firstPt = points.firstOrNull() ?: GeoPointDto(55.67, 12.56)
+            val firstPt = points.firstOrNull() ?: GeoPointDto(0.0, 0.0)
             val weather = repository.getTrailWeather(firstPt.lat, firstPt.lng)
             _trailWeather.value = weather
 
-            _emergencyInfo.value = repository.getEmergencyInfo(firstPt.lat, firstPt.lng, trail.name)
-            _gearChecklist.value = repository.getDefaultGearChecklist(_plannerOvernightType.value, weather.tempC)
+            _emergencyInfo.value = repository.getEmergencyInfo(firstPt.lat, firstPt.lng)
+            _gearChecklist.value = repository.getDefaultGearChecklist(_plannerOvernightType.value, weather.tempC ?: 10.0)
 
             // Trigger POI corridor sync from Overpass in background
-            repository.syncCorridorPois(trail)
+            repository.syncCorridorPois(updatedTrail)
             _corridorShelters.value = repository.getSheltersForTrail(trail.id)
             _corridorPois.value = repository.getPoisForTrail(trail.id)
+            _selectedTrailGeometry.value = repository.getTrailGeometry(trail.id)
 
             recalculateStages()
         }
         _currentScreen.value = AppScreen.TRAIL_DETAIL
     }
 
-    // --- Enhanced Feature Controls ---
+    // --- Feature Controls ---
     fun setScrubbedElevationKm(km: Double?) {
         _scrubbedElevationKm.value = km
-    }
-
-    fun toggleResupply() {
-        _showResupply.value = !_showResupply.value
     }
 
     fun toggleBatterySaverMode() {
         _isBatterySaverMode.value = !_isBatterySaverMode.value
     }
 
-    fun toggleDarkMapMode() {
-        _isDarkMapMode.value = !_isDarkMapMode.value
-    }
-
-    fun toggleRainRadar() {
-        _showRainRadar.value = !_showRainRadar.value
-    }
-
-    fun setRainRadarTime(minutes: Int) {
-        _rainRadarTimeMinutes.value = minutes.coerceIn(0, 90)
-    }
-
-    fun setOfflineBufferKm(km: Double) {
-        _offlineCorridorBufferKm.value = km
-        _estimatedDownloadMb.value = when {
-            km <= 0.6 -> 75
-            km <= 1.5 -> 145
-            else -> 320
-        }
+    fun setMitTempoKmh(tempo: Double) {
+        _mitTempoKmh.value = tempo.coerceIn(2.0, 7.0)
+        recalculateStages()
     }
 
     fun setHikingSpeedKmh(speed: Double) {
-        _hikingSpeedKmh.value = speed.coerceIn(2.5, 6.5)
+        setMitTempoKmh(speed)
     }
 
-    fun setPackWeightKg(weight: Double) {
-        _packWeightKg.value = weight.coerceIn(0.0, 30.0)
+    fun setPlannerMaxDetourKm(detour: Double) {
+        _plannerMaxDetourKm.value = detour
+        recalculateStages()
     }
 
-    fun startAtTransitStation(station: TransitStation) {
-        setPlannerStartKm(station.kmAlongTrail)
-        Toast.makeText(getApplication(), "Start rute sat ved: ${station.name} (km ${String.format("%.1f", station.kmAlongTrail)})", Toast.LENGTH_SHORT).show()
+    fun setPlannerStartTime(time: String) {
+        _plannerStartTime.value = time
+        recalculateStages()
     }
 
     fun addHazard(type: HazardType, title: String, description: String, lat: Double, lng: Double) {
         val trail = _selectedTrail.value ?: return
-        val note = UserHazardNote(trailId = trail.id, lat = lat, lng = lng, type = type, title = title, description = description)
-        repository.addHazardNote(note)
-        _corridorHazards.value = repository.getHazardsForTrail(trail.id)
-        Toast.makeText(getApplication(), "Farepunkt rapporteret og tilføjet kortet!", Toast.LENGTH_SHORT).show()
+        val note = UserHazardNoteEntity(
+            trailId = trail.id,
+            lat = lat,
+            lng = lng,
+            type = type.name,
+            title = title,
+            description = description
+        )
+        viewModelScope.launch {
+            repository.addHazardNote(note)
+            Toast.makeText(getApplication(), "Note tilføjet!", Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun removeHazard(id: String) {
-        val trail = _selectedTrail.value ?: return
-        repository.removeHazardNote(id)
-        _corridorHazards.value = repository.getHazardsForTrail(trail.id)
-        Toast.makeText(getApplication(), "Farepunkt fjernet.", Toast.LENGTH_SHORT).show()
+        viewModelScope.launch {
+            repository.removeHazardNote(id)
+            Toast.makeText(getApplication(), "Note slettet.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun toggleGearItem(itemId: String) {
@@ -386,14 +382,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             _plannerStages.value = currentStages
         }
-    }
-
-    fun reportWaterStatus(isWorking: Boolean) {
-        Toast.makeText(
-            getApplication(),
-            if (isWorking) "Mange tak! Status opdateret: Drikkevandspost bekræftet aktiv i dag." else "Tak for melding! Status opdateret: Vandpost meldt lukket / ude af drift.",
-            Toast.LENGTH_LONG
-        ).show()
     }
 
     fun exportTripGpx(context: android.content.Context) {
@@ -474,19 +462,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         saveCurrentPlanAndStart(startNavigation = true)
     }
 
-    fun syncLiveTrails() {
-        viewModelScope.launch {
-            _isSyncing.value = true
-            val res = repository.syncTrailsFromOverpass()
-            _isSyncing.value = false
-            res.onSuccess { count ->
-                Toast.makeText(getApplication(), "Opdateret: $count nye stier fra Overpass", Toast.LENGTH_SHORT).show()
-            }.onFailure {
-                Toast.makeText(getApplication(), "Kunne ikke hente live stier: offline data bevaret", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     // Trip Planner Controls
     fun setPlannerStartKm(km: Double) {
         val trail = _selectedTrail.value ?: return
@@ -555,8 +530,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPlannerDays(days: Int) {
         _plannerDays.value = days
-        val dist = kotlin.math.abs(_plannerEndKm.value - _plannerStartKm.value)
-        _plannerDailyKm.value = if (days > 0) dist / days else 15.0
         recalculateStages()
     }
 
@@ -567,10 +540,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPlannerDailyKm(km: Double) {
         _plannerDailyKm.value = km
-        val dist = kotlin.math.abs(_plannerEndKm.value - _plannerStartKm.value)
-        if (km > 0) {
-            _plannerDays.value = maxOf(1, kotlin.math.ceil(dist / km).toInt())
-        }
         recalculateStages()
     }
 
@@ -585,11 +554,138 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isReverse = _plannerStartKm.value > _plannerEndKm.value,
                 days = _plannerDays.value,
                 overnightType = _plannerOvernightType.value,
-                preferredDailyKm = _plannerDailyKm.value
+                dailyTargetKm = _plannerDailyKm.value,
+                paceKmh = _mitTempoKmh.value,
+                maxDetourKm = _plannerMaxDetourKm.value,
+                startTime = _plannerStartTime.value,
+                sunsetTime = _trailWeather.value?.sunset
             )
             _plannerStages.value = stages
             _isCalculatingStages.value = false
         }
+    }
+
+    fun changeStageCandidate(stageIndex: Int, candidate: com.example.util.OvernightCandidate) {
+        val trail = _selectedTrail.value ?: return
+        val currentStages = _plannerStages.value
+        if (stageIndex !in currentStages.indices) return
+
+        viewModelScope.launch {
+            val rawPoints = repository.getTrailPoints(trail)
+            val plannedRouteRepo = com.example.data.repository.PlannedRouteRepository(getApplication())
+            val plannedRoute = plannedRouteRepo.buildPlannedRoute(
+                planId = 0L,
+                trail = trail,
+                rawTrailPoints = rawPoints,
+                startKm = _plannerStartKm.value,
+                endKm = _plannerEndKm.value,
+                isReverse = _plannerStartKm.value > _plannerEndKm.value,
+                stages = emptyList()
+            )
+
+            val shelters = repository.getSheltersForTrail(trail.id)
+            val friTeltnings = repository.getFriTeltningForTrail(trail.id)
+            val pois = repository.getPoisForTrail(trail.id)
+
+            val updated = com.example.util.StagePlanner.recomputeStagesFrom(
+                currentStages = currentStages,
+                changedStageIndex = stageIndex,
+                newCandidate = candidate,
+                plannedRoute = plannedRoute,
+                trail = trail,
+                paceKmh = _mitTempoKmh.value,
+                dailyTargetKm = _plannerDailyKm.value,
+                overnightType = _plannerOvernightType.value,
+                maxDetourKm = _plannerMaxDetourKm.value,
+                startTime = _plannerStartTime.value,
+                shelters = shelters,
+                friTeltnings = friTeltnings,
+                pois = pois,
+                sunsetTime = _trailWeather.value?.sunset
+            )
+            _plannerStages.value = updated
+        }
+    }
+
+    fun adjustStageEndKm(stageIndex: Int, newEndKm: Double) {
+        val trail = _selectedTrail.value ?: return
+        val currentStages = _plannerStages.value
+        if (stageIndex !in currentStages.indices) return
+
+        viewModelScope.launch {
+            val rawPoints = repository.getTrailPoints(trail)
+            val plannedRouteRepo = com.example.data.repository.PlannedRouteRepository(getApplication())
+            val plannedRoute = plannedRouteRepo.buildPlannedRoute(
+                planId = 0L,
+                trail = trail,
+                rawTrailPoints = rawPoints,
+                startKm = _plannerStartKm.value,
+                endKm = _plannerEndKm.value,
+                isReverse = _plannerStartKm.value > _plannerEndKm.value,
+                stages = emptyList()
+            )
+
+            val shelters = repository.getSheltersForTrail(trail.id)
+            val friTeltnings = repository.getFriTeltningForTrail(trail.id)
+            val pois = repository.getPoisForTrail(trail.id)
+
+            val updated = com.example.util.StagePlanner.recomputeStagesFromKm(
+                currentStages = currentStages,
+                changedStageIndex = stageIndex,
+                newEndKm = newEndKm,
+                plannedRoute = plannedRoute,
+                trail = trail,
+                paceKmh = _mitTempoKmh.value,
+                dailyTargetKm = _plannerDailyKm.value,
+                overnightType = _plannerOvernightType.value,
+                maxDetourKm = _plannerMaxDetourKm.value,
+                startTime = _plannerStartTime.value,
+                shelters = shelters,
+                friTeltnings = friTeltnings,
+                pois = pois,
+                sunsetTime = _trailWeather.value?.sunset
+            )
+            _plannerStages.value = updated
+        }
+    }
+
+    suspend fun getNearestCandidatesForStage(stageIndex: Int): List<com.example.util.OvernightCandidate> {
+        val trail = _selectedTrail.value ?: return emptyList()
+        val stages = _plannerStages.value
+        val currentStage = stages.getOrNull(stageIndex) ?: return emptyList()
+
+        val rawPoints = repository.getTrailPoints(trail)
+        val plannedRouteRepo = com.example.data.repository.PlannedRouteRepository(getApplication())
+        val plannedRoute = plannedRouteRepo.buildPlannedRoute(
+            planId = 0L,
+            trail = trail,
+            rawTrailPoints = rawPoints,
+            startKm = _plannerStartKm.value,
+            endKm = _plannerEndKm.value,
+            isReverse = _plannerStartKm.value > _plannerEndKm.value,
+            stages = emptyList()
+        )
+
+        val shelters = repository.getSheltersForTrail(trail.id)
+        val friTeltnings = repository.getFriTeltningForTrail(trail.id)
+        val pois = repository.getPoisForTrail(trail.id)
+        val waterPois = pois.filter { it.type == "water" }
+        val toiletPois = pois.filter { it.type == "toilet" }
+
+        val prevEnd = if (stageIndex > 0) stages[stageIndex - 1].endKm else 0.0
+        val targetKm = prevEnd + _plannerDailyKm.value
+
+        return com.example.util.StagePlanner.findNearestCandidates(
+            plannedRoute = plannedRoute,
+            shelters = shelters,
+            friTeltnings = friTeltnings,
+            waterPois = waterPois,
+            toiletPois = toiletPois,
+            targetKm = targetKm,
+            overnightType = _plannerOvernightType.value,
+            maxDetourKm = 3.0,
+            count = 10
+        )
     }
 
     fun updateStageStop(index: Int, newName: String, newType: String, lat: Double, lng: Double, bookingReq: Boolean) {
@@ -623,6 +719,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveCurrentPlanAndStart(startNavigation: Boolean) {
         val trail = _selectedTrail.value ?: return
         viewModelScope.launch {
+            val rawPoints = repository.getTrailPoints(trail)
+            val plannedRouteRepo = com.example.data.repository.PlannedRouteRepository(getApplication())
+
             val planId = repository.saveTripPlan(
                 trail = trail,
                 startKm = _plannerStartKm.value,
@@ -631,13 +730,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 days = _plannerDays.value,
                 overnightType = _plannerOvernightType.value,
                 preferredDailyKm = _plannerDailyKm.value,
-                stages = _plannerStages.value
+                stages = _plannerStages.value,
+                paceKmh = _mitTempoKmh.value,
+                maxDetourKm = _plannerMaxDetourKm.value,
+                startTime = _plannerStartTime.value
             )
             val savedPlan = repository.getTripPlanById(planId)
             _activeTripPlan.value = savedPlan
 
+            // Build PlannedRoute and save to filesDir/plans/<planId>.json.gz
+            val plannedRoute = plannedRouteRepo.buildPlannedRoute(
+                planId = planId,
+                trail = trail,
+                rawTrailPoints = rawPoints,
+                startKm = _plannerStartKm.value,
+                endKm = _plannerEndKm.value,
+                isReverse = _plannerStartKm.value > _plannerEndKm.value,
+                stages = _plannerStages.value
+            )
+            plannedRouteRepo.savePlannedRoute(plannedRoute)
+
             if (startNavigation) {
-                startNavigationService(planId, trail, _plannerStages.value)
+                NavigationTrackingService.start(getApplication(), planId)
                 _currentScreen.value = AppScreen.NAVIGATION_MODE
             } else {
                 Toast.makeText(getApplication(), "Vandreplan gemt!", Toast.LENGTH_SHORT).show()
@@ -646,32 +760,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun startOfflineCacheDownload() {
+    fun setOfflineCorridorKm(km: Double) {
+        _selectedCorridorKm.value = km
+        refreshOfflineEstimate()
+    }
+
+    fun refreshOfflineEstimate() {
         val points = _selectedTrailPoints.value
-        if (points.isEmpty()) {
-            Toast.makeText(getApplication(), "Vælg en sti først", Toast.LENGTH_SHORT).show()
-            return
-        }
+        if (points.isEmpty()) return
         viewModelScope.launch {
-            Toast.makeText(getApplication(), "Henter offline kortfelter...", Toast.LENGTH_SHORT).show()
-            OfflineTileDownloader.downloadRouteTiles(getApplication(), points)
-            Toast.makeText(getApplication(), "Offline kort gemt for ruten!", Toast.LENGTH_SHORT).show()
+            _isEstimatingOffline.value = true
+            _offlineEstimate.value = OfflineDownloadManager.estimateDownload(points, _selectedCorridorKm.value)
+            _isEstimatingOffline.value = false
         }
     }
 
+    fun startOfflineDownload(corridorKm: Double = _selectedCorridorKm.value) {
+        val trail = _selectedTrail.value ?: return
+        OfflineDownloadManager.enqueueDownload(getApplication(), trail.id, trail.name, corridorKm)
+        Toast.makeText(getApplication(), "Henter ${trail.name} til offline...", Toast.LENGTH_SHORT).show()
+    }
+
+    fun deleteDownloadedTrail(trailId: String) {
+        viewModelScope.launch {
+            OfflineDownloadManager.deleteOfflineTrail(getApplication(), trailId)
+            Toast.makeText(getApplication(), "Offline rutedata slettet", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun updateDownloadedTrail(trail: DownloadedTrailEntity) {
+        OfflineDownloadManager.enqueueDownload(getApplication(), trail.trailId, trail.trailName, trail.corridorKm)
+        Toast.makeText(getApplication(), "Opdaterer ${trail.trailName}...", Toast.LENGTH_SHORT).show()
+    }
+
     // Navigation Controls
-    fun startNavigationService(planId: Long, trail: TrailEntity, stages: List<TripStage>) {
-        val pointsJson = trail.pointsJson
-        val stagesJson = repository.serializeStages(stages)
+    fun startNavigationService(planId: Long) {
         NavigationTrackingService.start(
             context = getApplication(),
-            planId = planId,
-            trailName = trail.name,
-            currentDay = 1,
-            totalTripKm = kotlin.math.abs(_plannerEndKm.value - _plannerStartKm.value),
-            todayEndKm = stages.firstOrNull()?.endKm ?: 15.0,
-            pointsJson = pointsJson,
-            stagesJson = stagesJson
+            planId = planId
         )
     }
 
@@ -685,7 +811,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _activeTripPlan.value = plan
             val trail = repository.getTrailById(plan.trailId) ?: return@launch
             _selectedTrail.value = trail
-            _selectedTrailPoints.value = repository.parseTrailPoints(trail)
+            val rawPoints = repository.getTrailPoints(trail)
+            _selectedTrailPoints.value = rawPoints
             _corridorShelters.value = repository.getSheltersForTrail(trail.id)
             _corridorFriTeltning.value = repository.getFriTeltningForTrail(trail.id)
             _corridorPois.value = repository.getPoisForTrail(trail.id)
@@ -697,18 +824,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _plannerDays.value = plan.targetDays
             _plannerWalkDistanceKm.value = plan.totalDistanceKm
 
-            val state = navLiveState.value
-            val progress = repository.resumeTrip(plan.id, state.currentLat, state.currentLng)
+            val plannedRouteRepo = com.example.data.repository.PlannedRouteRepository(getApplication())
+            if (plannedRouteRepo.loadPlannedRoute(plan.id) == null) {
+                val plannedRoute = plannedRouteRepo.buildPlannedRoute(
+                    planId = plan.id,
+                    trail = trail,
+                    rawTrailPoints = rawPoints,
+                    startKm = plan.startKm,
+                    endKm = plan.endKm,
+                    isReverse = plan.isReverse,
+                    stages = stages
+                )
+                plannedRouteRepo.savePlannedRoute(plannedRoute)
+            }
 
             NavigationTrackingService.start(
                 context = getApplication(),
-                planId = plan.id,
-                trailName = plan.trailName,
-                currentDay = progress?.currentDay ?: 1,
-                totalTripKm = plan.totalDistanceKm,
-                todayEndKm = stages.getOrNull((progress?.currentDay ?: 1) - 1)?.endKm ?: 15.0,
-                pointsJson = trail.pointsJson,
-                stagesJson = plan.stagesJson
+                planId = plan.id
             )
             _currentScreen.value = AppScreen.NAVIGATION_MODE
         }
@@ -726,7 +858,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleFriTeltning() { _showFriTeltning.value = !_showFriTeltning.value }
     fun toggleToilets() { _showToilets.value = !_showToilets.value }
     fun toggleWater() { _showWater.value = !_showWater.value }
-    fun toggleTransit() { _showTransit.value = !_showTransit.value }
     fun toggleHazards() { _showHazards.value = !_showHazards.value }
 
     fun selectPoiForDetails(item: Any?) {
@@ -742,6 +873,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun findNearest(type: String) {
         val userLat = navLiveState.value.currentLat
         val userLng = navLiveState.value.currentLng
+
+        if (userLat == null || userLng == null) {
+            Toast.makeText(getApplication(), "Venter på GPS-position...", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         when (type.lowercase()) {
             "toilet" -> {

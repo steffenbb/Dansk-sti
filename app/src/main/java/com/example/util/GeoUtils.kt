@@ -31,6 +31,24 @@ object GeoUtils {
     }
 
     /**
+     * Initial bearing from coordinate (lat1, lon1) to (lat2, lon2) in degrees [0, 360).
+     */
+    fun calculateBearing(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+        val phi1 = Math.toRadians(lat1)
+        val phi2 = Math.toRadians(lat2)
+        val deltaLambda = Math.toRadians(lon2 - lon1)
+
+        val y = sin(deltaLambda) * cos(phi2)
+        val x = cos(phi1) * sin(phi2) - sin(phi1) * cos(phi2) * cos(deltaLambda)
+        val theta = atan2(y, x)
+        val bearing = Math.toDegrees(theta)
+        return ((bearing + 360.0) % 360.0).toFloat()
+    }
+
+    fun bearing(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float =
+        calculateBearing(lat1, lon1, lat2, lon2)
+
+    /**
      * Total length of a polyline in kilometers.
      */
     fun calculatePolylineLengthKm(points: List<GeoPointDto>): Double {
@@ -151,6 +169,56 @@ object GeoUtils {
     }
 
     /**
+     * Projects a point onto the polyline, returning (kmOnRoute, detourMeters).
+     */
+    fun projectPointOnPolyline(
+        point: GeoPointDto,
+        polyline: List<GeoPointDto>
+    ): Pair<Double, Double> {
+        if (polyline.isEmpty()) return Pair(0.0, Double.MAX_VALUE)
+        if (polyline.size == 1) return Pair(0.0, distanceMeters(point, polyline[0]))
+
+        var minDist = Double.MAX_VALUE
+        var bestIndex = 0
+        var bestProjPoint = polyline[0]
+
+        for (i in 0 until polyline.size - 1) {
+            val a = polyline[i]
+            val b = polyline[i + 1]
+
+            val dx = (b.lng - a.lng) * cos(Math.toRadians((a.lat + b.lat) / 2))
+            val dy = b.lat - a.lat
+            val denom = dx * dx + dy * dy
+
+            val t = if (denom > 0.0) {
+                val x = (point.lng - a.lng) * cos(Math.toRadians((a.lat + b.lat) / 2))
+                val y = point.lat - a.lat
+                ((x * dx + y * dy) / denom).coerceIn(0.0, 1.0)
+            } else {
+                0.0
+            }
+
+            val projLat = a.lat + t * (b.lat - a.lat)
+            val projLng = a.lng + t * (b.lng - a.lng)
+            val dist = distanceMeters(point.lat, point.lng, projLat, projLng)
+
+            if (dist < minDist) {
+                minDist = dist
+                bestIndex = i
+                bestProjPoint = GeoPointDto(projLat, projLng)
+            }
+        }
+
+        var accumulatedKm = 0.0
+        for (i in 0 until bestIndex) {
+            accumulatedKm += distanceMeters(polyline[i], polyline[i + 1]) / 1000.0
+        }
+        accumulatedKm += distanceMeters(polyline[bestIndex], bestProjPoint) / 1000.0
+
+        return Pair(accumulatedKm, minDist)
+    }
+
+    /**
      * Cumulative distance along polyline at each node in km.
      */
     fun getCumulativeDistancesKm(polyline: List<GeoPointDto>): DoubleArray {
@@ -171,7 +239,7 @@ object GeoUtils {
         polyline: List<GeoPointDto>,
         targetKm: Double
     ): GeoPointDto {
-        if (polyline.isEmpty()) return GeoPointDto(55.6761, 12.5683)
+        if (polyline.isEmpty()) return GeoPointDto(0.0, 0.0)
         if (targetKm <= 0.0 || polyline.size == 1) return polyline.first()
 
         var accumulated = 0.0

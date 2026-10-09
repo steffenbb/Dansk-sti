@@ -49,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -58,11 +59,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.FriTeltningEntity
 import com.example.data.model.PoiEntity
-import com.example.data.model.ResupplyPoint
-import com.example.data.model.ResupplyType
 import com.example.data.model.ShelterEntity
-import com.example.data.model.TransitStation
-import com.example.data.model.UserHazardNote
+import com.example.data.model.UserHazardNoteEntity
 import com.example.data.model.HazardType
 import com.example.ui.NearestPoiResult
 import com.example.ui.theme.AlertRed
@@ -79,40 +77,55 @@ import com.example.ui.theme.ShelterBrown
 @Composable
 fun OffTrailBanner(
     distanceMeters: Double,
+    bearingToPointAhead: Float = 0f,
+    userBearing: Float = 0f,
     modifier: Modifier = Modifier
 ) {
+    val relativeAngle = (bearingToPointAhead - userBearing + 360f) % 360f
+
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
             .testTag("off_trail_warning_banner"),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = AlertRed)
+        colors = CardDefaults.cardColors(containerColor = AlertRed),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.Warning,
-                contentDescription = "Advarsel",
-                tint = Color.White,
-                modifier = Modifier.size(32.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(Color.White.copy(alpha = 0.2f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Navigation,
+                    contentDescription = "Pil mod ruten",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(26.dp)
+                        .rotate(relativeAngle)
+                )
+            }
             Spacer(modifier = Modifier.width(12.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Du er afveget fra ruten!",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                    fontSize = 15.sp
                 )
                 Text(
-                    text = "${distanceMeters.toInt()} m fra den planlagte sti",
-                    color = Color.White.copy(alpha = 0.9f),
-                    fontSize = 13.sp
+                    text = "${distanceMeters.toInt()} m fra ruten • Følg pilen mod stien",
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
@@ -197,8 +210,6 @@ fun NearestPoiOverlayCard(
 fun PoiDetailBottomSheet(
     item: Any,
     onDismiss: () -> Unit,
-    onStartAtStation: ((TransitStation) -> Unit)? = null,
-    onReportWater: ((Boolean) -> Unit)? = null,
     onDeleteHazard: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -239,8 +250,11 @@ fun PoiDetailBottomSheet(
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold
                             )
+                            val sourceLabel = if (item.source == "osm") "OpenStreetMap" else "GeoFA"
+                            val dateStr = java.text.SimpleDateFormat("dd. MMM yyyy", java.util.Locale("da")).format(java.util.Date(item.fetchedAt))
+                            val ownerStr = item.ownership ?: "Ukendt"
                             Text(
-                                text = "Kilde: ${item.source} (${item.ownership})",
+                                text = "$sourceLabel ($ownerStr) • Hentet: $dateStr",
                                 color = Color(0xFFAAAAAA),
                                 fontSize = 13.sp
                             )
@@ -249,7 +263,7 @@ fun PoiDetailBottomSheet(
 
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(
-                        text = item.description,
+                        text = item.description?.ifBlank { null } ?: "Ukendt",
                         color = Color(0xFFDDDDDD),
                         fontSize = 14.sp,
                         lineHeight = 20.sp
@@ -287,7 +301,7 @@ fun PoiDetailBottomSheet(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             StatusChip(
-                                label = "Plads: ${item.capacity} personer",
+                                label = if (item.capacity != null && item.capacity > 0) "Plads: ${item.capacity} pers." else "Plads: Ukendt",
                                 isHighlight = false,
                                 color = NordicBlue,
                                 modifier = Modifier.weight(1f)
@@ -305,13 +319,13 @@ fun PoiDetailBottomSheet(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             StatusChip(
-                                label = if (item.hasWaterNearby) "💧 Drikkevand <1 km" else "💧 Ingen vandhane",
+                                label = if (item.hasWaterNearby) "💧 Drikkevand <500 m" else "💧 Intet vand <500 m",
                                 isHighlight = false,
                                 color = if (item.hasWaterNearby) NordicBlue else Color.Gray,
                                 modifier = Modifier.weight(1f)
                             )
                             StatusChip(
-                                label = if (item.hasToiletNearby) "🚻 Toilet <1 km" else "🚻 Intet toilet",
+                                label = if (item.hasToiletNearby) "🚻 Toilet <500 m" else "🚻 Intet toilet <500 m",
                                 isHighlight = false,
                                 color = if (item.hasToiletNearby) ForestGreenPrimary else Color.Gray,
                                 modifier = Modifier.weight(1f)
@@ -500,18 +514,50 @@ fun PoiDetailBottomSheet(
 
                 is PoiEntity -> {
                     val isToilet = item.type == "toilet"
+                    val isWater = item.type == "water"
+                    val isShop = item.type == "shop"
+                    val isStation = item.type == "station"
+                    val isFerry = item.type == "ferry"
+
+                    val icon = when {
+                        isToilet -> Icons.Default.Wc
+                        isWater -> Icons.Default.LocalDrink
+                        isShop -> Icons.Default.ShoppingBag
+                        isStation -> Icons.Default.DirectionsTransit
+                        isFerry -> Icons.Default.Navigation
+                        else -> Icons.Default.Forest
+                    }
+
+                    val iconColor = when {
+                        isToilet -> ForestGreenPrimary
+                        isWater -> NordicBlue
+                        isShop -> AmberAccent
+                        isStation -> Color(0xFF90CAF9)
+                        isFerry -> Color(0xFF80DEEA)
+                        else -> ForestGreenPrimary
+                    }
+
+                    val typeLabel = when {
+                        isToilet -> "Offentligt toilet"
+                        isWater -> "Drikkevandspost"
+                        isShop -> "Indkøb / Forsyning"
+                        isStation -> "Togstation"
+                        isFerry -> "Færgeforbindelse"
+                        else -> "Interessepunkt"
+                    }
+
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
                                 .size(48.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (isToilet) ForestGreenPrimary.copy(alpha = 0.2f) else NordicBlue.copy(alpha = 0.2f)),
+                                .background(iconColor.copy(alpha = 0.2f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = if (isToilet) Icons.Default.Wc else Icons.Default.LocalDrink,
+                                imageVector = icon,
                                 contentDescription = item.type,
-                                tint = if (isToilet) ForestGreenPrimary else NordicBlue,
+                                tint = iconColor,
                                 modifier = Modifier.size(28.dp)
                             )
                         }
@@ -523,8 +569,10 @@ fun PoiDetailBottomSheet(
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold
                             )
+                            val sourceLabel = if (item.source == "osm") "OpenStreetMap" else "GeoFA"
+                            val dateStr = java.text.SimpleDateFormat("dd. MMM yyyy", java.util.Locale("da")).format(java.util.Date(item.fetchedAt))
                             Text(
-                                text = if (isToilet) "Offentligt toilet" else "Drikkevandspost",
+                                text = "$typeLabel • $sourceLabel • Hentet: $dateStr",
                                 color = Color(0xFFAAAAAA),
                                 fontSize = 13.sp
                             )
@@ -532,28 +580,102 @@ fun PoiDetailBottomSheet(
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = "Adgang: ${item.access.replaceFirstChar { it.uppercase() }} • Gebyr: ${if (item.fee) "Betaling" else "Gratis"}",
-                        color = Color(0xFFCCCCCC),
-                        fontSize = 14.sp
-                    )
 
-                    // Water Point Reliability & Seasonal Winter Cutoff Indicators (Enhancement 5)
-                    if (!isToilet) {
+                    // Opening hours if available (Labelled "ifølge OpenStreetMap" as required)
+                    if (!item.openingHours.isNullOrBlank()) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = ForestDarkBg),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "Åbningstider",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = item.openingHours,
+                                    color = Color(0xFFDDDDDD),
+                                    fontSize = 13.sp
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "ifølge OpenStreetMap",
+                                    color = Color(0xFF888888),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    // Operator / Access / Fee details
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(ForestDarkBg, RoundedCornerShape(10.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (!item.operator.isNullOrBlank()) {
+                            Text(
+                                text = "Operatør: ${item.operator}",
+                                color = Color(0xFFCCCCCC),
+                                fontSize = 13.sp
+                            )
+                        }
+                        val accessStr = item.access?.let { "Adgang: $it" } ?: "Adgang: Almindelig offentlig adgang"
+                        val feeStr = if (item.fee) "Gebyr: Betaling" else "Gebyr: Gratis"
+                        Text(
+                            text = "$accessStr • $feeStr",
+                            color = Color(0xFFAAAAAA),
+                            fontSize = 13.sp
+                        )
+                    }
+
+                    // Website button if present
+                    if (!item.website.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val url = if (item.website.startsWith("http://") || item.website.startsWith("https://")) {
+                                        item.website
+                                    } else {
+                                        "https://${item.website}"
+                                    }
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = NordicBlue)
+                        ) {
+                            Icon(Icons.Default.OpenInBrowser, contentDescription = "Website", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Besøg hjemmeside")
+                        }
+                    }
+
+                    // Water Point Reliability
+                    if (isWater) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Card(
                             colors = CardDefaults.cardColors(containerColor = ForestDarkBg),
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "Sæson-status: Helårs frostsikret post",
-                                        color = NordicBlue,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    )
-                                }
+                                Text(
+                                    text = "Sæson-status: Helårs frostsikret post",
+                                    color = NordicBlue,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = "I Danmark er kirkegårds- og naturhaner normalt åbne hele året, men primitive sommerhaner kan være lukket nov–apr for at hindre frostsprængning.",
@@ -561,157 +683,13 @@ fun PoiDetailBottomSheet(
                                     fontSize = 11.sp,
                                     lineHeight = 15.sp
                                 )
-
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Text("Er der vand i hanen i dag? Hjælp andre vandrere:", color = Color.White, fontSize = 12.sp)
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedButton(
-                                        onClick = { onReportWater?.invoke(true) },
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.weight(1f).height(38.dp)
-                                    ) {
-                                        Icon(Icons.Default.ThumbUp, contentDescription = null, tint = ForestGreenLight, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Vand OK", color = ForestGreenLight, fontSize = 12.sp)
-                                    }
-                                    OutlinedButton(
-                                        onClick = { onReportWater?.invoke(false) },
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.weight(1f).height(38.dp)
-                                    ) {
-                                        Icon(Icons.Default.ThumbDown, contentDescription = null, tint = AlertRed, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Meld lukket", color = AlertRed, fontSize = 12.sp)
-                                    }
-                                }
                             }
                         }
                     }
                 }
 
-                // Resupply & Provisioning Radar (New Feature 4)
-                is ResupplyPoint -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(AmberAccent.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ShoppingBag,
-                                contentDescription = "Proviant",
-                                tint = AmberAccent,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column {
-                            Text(
-                                text = item.name,
-                                color = Color.White,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = when (item.type) {
-                                    ResupplyType.GROCERY -> "Supermarked / Købmand"
-                                    ResupplyType.FARM_STALL -> "Vejbod (Selvbetjening)"
-                                    ResupplyType.BAKERY_CAFE -> "Bageri / Café"
-                                },
-                                color = AmberAccent,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = item.description,
-                        color = Color(0xFFDDDDDD),
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = ForestDarkBg),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(text = "Åbningstider: ${item.openingHours}", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            if (item.hasMobilePay) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Payment, contentDescription = null, tint = NordicBlue, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("MobilePay understøttet i boden", color = NordicBlue, fontSize = 12.sp)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Public Transit Station (Enhancement 13)
-                is TransitStation -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF9333EA).copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.DirectionsTransit,
-                                contentDescription = "Offentlig transport",
-                                tint = Color(0xFFC084FC),
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column {
-                            Text(
-                                text = item.name,
-                                color = Color.White,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "${item.type} • km ${String.format("%.1f", item.kmAlongTrail)}",
-                                color = Color(0xFFC084FC),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = "Forbindelser: ${item.lines}",
-                        color = Color(0xFFDDDDDD),
-                        fontSize = 14.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = {
-                            onStartAtStation?.invoke(item)
-                            onDismiss()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7E22CE)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(46.dp)
-                    ) {
-                        Text("Start vandretur ved denne station", fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                // User Hazard Field Note (Enhancement 7)
-                is UserHazardNote -> {
+                // User Hazard Field Note (Mine noter)
+                is UserHazardNoteEntity -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
@@ -737,10 +715,11 @@ fun PoiDetailBottomSheet(
                             )
                             Text(
                                 text = when (item.type) {
-                                    HazardType.FLOODED_BOARDWALK -> "Oversvømmet sti / spang"
-                                    HazardType.FALLEN_TREE -> "Væltet træ over stien"
-                                    HazardType.CATTLE_ENCLOSURE -> "Nærgående kvæg i indhegning"
-                                    HazardType.TRAIL_DETOUR -> "Midlertidig omlægning"
+                                    "FLOODED_BOARDWALK" -> "Oversvømmet sti / spang"
+                                    "FALLEN_TREE" -> "Væltet træ over stien"
+                                    "CATTLE_ENCLOSURE" -> "Nærgående kvæg i indhegning"
+                                    "TRAIL_DETOUR" -> "Midlertidig omlægning"
+                                    else -> "Observation: ${item.type}"
                                 },
                                 color = AlertRed,
                                 fontSize = 13.sp,

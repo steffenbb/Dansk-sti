@@ -1,58 +1,55 @@
 package com.example
 
 import com.example.data.local.PreseededData
-import org.junit.Assert.assertFalse
+import com.example.data.model.GeoPointDto
+import com.example.util.GeoUtils
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class ShelterFriTeltningDataTest {
+class Phase2DataTest {
 
     @Test
-    fun testAllTrailsHaveSheltersAndFriTeltning() {
+    fun testPreseededTrailsOnlyContainMetadataAndRelationIds() {
         val trails = PreseededData.getInitialTrails()
-        val shelters = PreseededData.getInitialShelters()
-        val friTeltnings = PreseededData.getInitialFriTeltning()
 
         assertTrue("Should have at least 12 Danish national trails", trails.size >= 12)
-        assertTrue("Should have extensive shelters database", shelters.size >= 25)
-        assertTrue("Should have extensive Fri Teltning zones", friTeltnings.size >= 15)
 
-        // Verify all 12 trails have associated shelters or fri teltning
         for (trail in trails) {
-            val hasShelter = shelters.any { it.trailCorridorId == trail.id }
-            val hasFriTeltning = friTeltnings.any { it.trailCorridorId == trail.id }
-            assertTrue(
-                "Trail ${trail.name} (${trail.id}) must have shelters or fri teltning zones",
-                hasShelter || hasFriTeltning
-            )
+            assertNotNull(trail.id)
+            assertTrue("Trail ${trail.name} id must start with trail_", trail.id.startsWith("trail_"))
+            assertTrue("Trail ${trail.name} must have a name", trail.name.isNotBlank())
+            assertTrue("Trail ${trail.name} must have a description", trail.description.isNotBlank())
+            assertNotNull("Trail ${trail.name} must have an osmRelationId", trail.osmRelationId)
+            assertTrue("Trail ${trail.name} osmRelationId must be positive", trail.osmRelationId!! > 0L)
         }
+
+        val ohavsstien = trails.find { it.id == "trail_ohavsstien" }
+        assertNotNull("Øhavsstien must be present", ohavsstien)
+        assertEquals(1202410L, ohavsstien?.osmRelationId)
     }
 
     @Test
-    fun testShelterAttributesAreComplete() {
-        val shelters = PreseededData.getInitialShelters()
-        for (sh in shelters) {
-            assertNotNull(sh.id)
-            assertTrue("Shelter ${sh.name} has invalid lat", sh.lat in 54.0..58.0)
-            assertTrue("Shelter ${sh.name} has invalid lng", sh.lng in 8.0..16.0)
-            assertTrue("Shelter ${sh.name} must have positive capacity", sh.capacity > 0)
-            assertFalse("Shelter ${sh.name} description cannot be empty", sh.description.isBlank())
-            assertFalse("Shelter ${sh.name} shelterType cannot be empty", sh.shelterType.isBlank())
-        }
-    }
+    fun testProjectPointOnPolyline() {
+        val polyline = listOf(
+            GeoPointDto(55.0, 10.0),
+            GeoPointDto(55.0, 10.1),
+            GeoPointDto(55.0, 10.2)
+        )
 
-    @Test
-    fun testFriTeltningAttributesAreComplete() {
-        val friTeltnings = PreseededData.getInitialFriTeltning()
-        for (ft in friTeltnings) {
-            assertNotNull(ft.id)
-            assertTrue("Fri teltning ${ft.name} has invalid centerLat", ft.centerLat in 54.0..58.0)
-            assertTrue("Fri teltning ${ft.name} has invalid centerLng", ft.centerLng in 8.0..16.0)
-            assertTrue("Fri teltning ${ft.name} must have rules summary", ft.rulesSummary.isNotBlank())
-            assertTrue("Fri teltning ${ft.name} must have rulesUrl", ft.rulesUrl.startsWith("https://"))
-            assertTrue("Fri teltning ${ft.name} must specify zoneType", ft.zoneType.isNotBlank())
-            assertTrue("Fri teltning ${ft.name} must have polygon coordinates", ft.polygonJson.contains("lat"))
-        }
+        // Point directly on the middle
+        val onPoint = GeoPointDto(55.0, 10.1)
+        val (kmOnRoute1, detour1) = GeoUtils.projectPointOnPolyline(onPoint, polyline)
+        val totalKm = GeoUtils.calculatePolylineLengthKm(polyline)
+        assertEquals(totalKm / 2.0, kmOnRoute1, 0.2)
+        assertEquals(0.0, detour1, 1.0)
+
+        // Point 500m north of middle
+        // ~0.0045 degrees lat is ~500m
+        val offsetPoint = GeoPointDto(55.0045, 10.1)
+        val (kmOnRoute2, detour2) = GeoUtils.projectPointOnPolyline(offsetPoint, polyline)
+        assertEquals(totalKm / 2.0, kmOnRoute2, 0.2)
+        assertTrue("Detour should be approximately 500m", detour2 in 450.0..550.0)
     }
 }

@@ -41,17 +41,17 @@ data class DailyWeatherDto(
 )
 
 data class TrailWeatherInfo(
-    val tempC: Double = 15.0,
-    val windSpeedMs: Double = 4.5,
-    val windGustsMs: Double = 7.0,
-    val precipitationMm: Double = 0.0,
-    val conditionDescription: String = "Let skyet",
-    val weatherIcon: String = "🌤️",
+    val tempC: Double? = null,
+    val windSpeedMs: Double? = null,
+    val windGustsMs: Double? = null,
+    val precipitationMm: Double? = null,
+    val conditionDescription: String? = null,
+    val weatherIcon: String? = null,
     val severeAlert: String? = null,
-    val sunrise: String = "07:10",
-    val sunset: String = "18:50",
-    val twilightEnd: String = "19:25",
-    val daylightDurationText: String = "11 t 40 min"
+    val sunrise: String? = null,
+    val sunset: String? = null,
+    val twilightEnd: String? = null,
+    val daylightDurationText: String? = null
 )
 
 interface WeatherApiService {
@@ -94,28 +94,29 @@ object WeatherInterpreter {
         val curr = response.current
         val daily = response.daily
 
-        val temp = curr?.temperature ?: 14.0
-        val windMs = (curr?.windSpeedKmh ?: 16.0) / 3.6
-        val gustsMs = (curr?.windGustsKmh ?: 25.0) / 3.6
-        val precip = curr?.precipitation ?: 0.0
-        val code = curr?.weatherCode ?: 1
+        val temp = curr?.temperature
+        val windMs = curr?.windSpeedKmh?.let { it / 3.6 }
+        val gustsMs = curr?.windGustsKmh?.let { it / 3.6 }
+        val precip = curr?.precipitation
+        val code = curr?.weatherCode
 
-        val (description, icon) = interpretWmoCode(code)
+        val (description, icon) = if (code != null) interpretWmoCode(code) else Pair(null, null)
 
-        // Check severe weather alerts
-        // Denmark: Wind > 14 m/s is kuling (moderate gale), > 20 m/s is stormende kuling/storm
-        // Precip > 15 mm is kraftig regn/skybrud
-        // Weather codes 95, 96, 99 are thunderstorms
         var alert: String? = null
-        if (windMs >= 17.0 || gustsMs >= 24.0) {
-            alert = "⚠️ Vejrvarsel: Stormende kuling med vindstød op til ${String.format("%.0f", gustsMs)} m/s. Træfald kan forekomme i skovområder!"
-        } else if (windMs >= 13.0) {
-            alert = "⚠️ Vejrvarsel: Kuling med vindstød på ${String.format("%.0f", gustsMs)} m/s. Sørg for solid bardunopsætning."
-        } else if (precip > 10.0 || (daily?.precipSums?.firstOrNull() ?: 0.0) > 15.0) {
+        if (windMs != null && gustsMs != null) {
+            if (windMs >= 17.0 || gustsMs >= 24.0) {
+                alert = "⚠️ Vejrvarsel: Stormende kuling med vindstød op til ${String.format(java.util.Locale.US, "%.0f", gustsMs)} m/s. Træfald kan forekomme i skovområder!"
+            } else if (windMs >= 13.0) {
+                alert = "⚠️ Vejrvarsel: Kuling med vindstød på ${String.format(java.util.Locale.US, "%.0f", gustsMs)} m/s. Sørg for solid bardunopsætning."
+            }
+        }
+        if (alert == null && precip != null && (precip > 10.0 || (daily?.precipSums?.firstOrNull() ?: 0.0) > 15.0)) {
             alert = "⚠️ Vejrvarsel: Kraftig regn og risiko for lokale oversvømmelser på lavtliggende stier."
-        } else if (code in listOf(95, 96, 99)) {
+        }
+        if (alert == null && code in listOf(95, 96, 99)) {
             alert = "⚠️ Vejrvarsel: Tordenvejr og lynvarsel! Undgå åbne marker og ophold under høje enkeltstående træer."
-        } else if (temp <= 0.0) {
+        }
+        if (alert == null && temp != null && temp <= 0.0) {
             alert = "⚠️ Kuldevarsel: Temperatur under frysepunktet. Risiko for glatte stier og forfrysning."
         }
 
@@ -123,11 +124,15 @@ object WeatherInterpreter {
         val rawSunrise = daily?.sunrise?.firstOrNull()
         val rawSunset = daily?.sunset?.firstOrNull()
 
-        val sunriseStr = rawSunrise?.substringAfter("T")?.take(5) ?: "07:10"
-        val sunsetStr = rawSunset?.substringAfter("T")?.take(5) ?: "18:50"
+        val sunriseStr = rawSunrise?.substringAfter("T")?.take(5)
+        val sunsetStr = rawSunset?.substringAfter("T")?.take(5)
 
         // Calculate daylight duration and twilight end
-        val (durationText, twilightStr) = calculateSunMetrics(sunriseStr, sunsetStr)
+        val (durationText, twilightStr) = if (sunriseStr != null && sunsetStr != null) {
+            calculateSunMetrics(sunriseStr, sunsetStr)
+        } else {
+            Pair(null, null)
+        }
 
         return TrailWeatherInfo(
             tempC = temp,

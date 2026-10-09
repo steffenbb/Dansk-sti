@@ -1,0 +1,651 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 6,
+    "identityHash": "49d10c696f3bd11b1f5ece470fb7e722",
+    "entities": [
+      {
+        "tableName": "trails",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `description` TEXT NOT NULL, `region` TEXT NOT NULL, `parentRegion` TEXT NOT NULL, `osmRelationId` INTEGER, `computedWalkingKm` REAL NOT NULL, `gapsOver200m` INTEGER NOT NULL, `osmTimestamp` TEXT, `bboxNorth` REAL, `bboxSouth` REAL, `bboxEast` REAL, `bboxWest` REAL, `isGeometryDownloaded` INTEGER NOT NULL, `lastUpdated` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "region",
+            "columnName": "region",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentRegion",
+            "columnName": "parentRegion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "osmRelationId",
+            "columnName": "osmRelationId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "computedWalkingKm",
+            "columnName": "computedWalkingKm",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gapsOver200m",
+            "columnName": "gapsOver200m",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "osmTimestamp",
+            "columnName": "osmTimestamp",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "bboxNorth",
+            "columnName": "bboxNorth",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "bboxSouth",
+            "columnName": "bboxSouth",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "bboxEast",
+            "columnName": "bboxEast",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "bboxWest",
+            "columnName": "bboxWest",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "isGeometryDownloaded",
+            "columnName": "isGeometryDownloaded",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUpdated",
+            "columnName": "lastUpdated",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "shelters",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `lat` REAL NOT NULL, `lng` REAL NOT NULL, `description` TEXT NOT NULL, `bookingRequired` INTEGER NOT NULL, `ownership` TEXT NOT NULL, `capacity` INTEGER NOT NULL, `hasWaterNearby` INTEGER NOT NULL, `hasToiletNearby` INTEGER NOT NULL, `source` TEXT NOT NULL, `trailCorridorId` TEXT, `bookingUrl` TEXT, `hasFireRing` INTEGER NOT NULL, `hasFirewood` INTEGER NOT NULL, `fee` INTEGER NOT NULL, `priceDkk` INTEGER NOT NULL, `maxNights` INTEGER NOT NULL, `accessibility` TEXT NOT NULL, `shelterType` TEXT NOT NULL, `hasElectricity` INTEGER NOT NULL, `dogAllowed` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lat",
+            "columnName": "lat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lng",
+            "columnName": "lng",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookingRequired",
+            "columnName": "bookingRequired",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownership",
+            "columnName": "ownership",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "capacity",
+            "columnName": "capacity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasWaterNearby",
+            "columnName": "hasWaterNearby",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasToiletNearby",
+            "columnName": "hasToiletNearby",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trailCorridorId",
+            "columnName": "trailCorridorId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "bookingUrl",
+            "columnName": "bookingUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "hasFireRing",
+            "columnName": "hasFireRing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasFirewood",
+            "columnName": "hasFirewood",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fee",
+            "columnName": "fee",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "priceDkk",
+            "columnName": "priceDkk",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxNights",
+            "columnName": "maxNights",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accessibility",
+            "columnName": "accessibility",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shelterType",
+            "columnName": "shelterType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasElectricity",
+            "columnName": "hasElectricity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dogAllowed",
+            "columnName": "dogAllowed",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "fri_teltning",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `centerLat` REAL NOT NULL, `centerLng` REAL NOT NULL, `polygonJson` TEXT NOT NULL, `rulesSummary` TEXT NOT NULL, `rulesUrl` TEXT NOT NULL, `areaHa` REAL NOT NULL, `trailCorridorId` TEXT, `forestType` TEXT NOT NULL, `maxTents` INTEGER NOT NULL, `maxPersonsPerTent` INTEGER NOT NULL, `openFireAllowed` INTEGER NOT NULL, `waterDistanceMeters` INTEGER NOT NULL, `toiletDistanceMeters` INTEGER NOT NULL, `zoneType` TEXT NOT NULL, `hammockFriendly` INTEGER NOT NULL, `source` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "centerLat",
+            "columnName": "centerLat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "centerLng",
+            "columnName": "centerLng",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "polygonJson",
+            "columnName": "polygonJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rulesSummary",
+            "columnName": "rulesSummary",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rulesUrl",
+            "columnName": "rulesUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "areaHa",
+            "columnName": "areaHa",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trailCorridorId",
+            "columnName": "trailCorridorId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "forestType",
+            "columnName": "forestType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxTents",
+            "columnName": "maxTents",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxPersonsPerTent",
+            "columnName": "maxPersonsPerTent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "openFireAllowed",
+            "columnName": "openFireAllowed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "waterDistanceMeters",
+            "columnName": "waterDistanceMeters",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "toiletDistanceMeters",
+            "columnName": "toiletDistanceMeters",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "zoneType",
+            "columnName": "zoneType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hammockFriendly",
+            "columnName": "hammockFriendly",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "pois",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `type` TEXT NOT NULL, `name` TEXT NOT NULL, `lat` REAL NOT NULL, `lng` REAL NOT NULL, `access` TEXT NOT NULL, `fee` INTEGER NOT NULL, `trailCorridorId` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lat",
+            "columnName": "lat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lng",
+            "columnName": "lng",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "access",
+            "columnName": "access",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fee",
+            "columnName": "fee",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trailCorridorId",
+            "columnName": "trailCorridorId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "trip_plans",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `trailId` TEXT NOT NULL, `trailName` TEXT NOT NULL, `startKm` REAL NOT NULL, `endKm` REAL NOT NULL, `isReverse` INTEGER NOT NULL, `totalDistanceKm` REAL NOT NULL, `targetDays` INTEGER NOT NULL, `overnightType` TEXT NOT NULL, `preferredDailyKm` REAL NOT NULL, `stagesJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trailId",
+            "columnName": "trailId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trailName",
+            "columnName": "trailName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startKm",
+            "columnName": "startKm",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endKm",
+            "columnName": "endKm",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isReverse",
+            "columnName": "isReverse",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalDistanceKm",
+            "columnName": "totalDistanceKm",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetDays",
+            "columnName": "targetDays",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "overnightType",
+            "columnName": "overnightType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "preferredDailyKm",
+            "columnName": "preferredDailyKm",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stagesJson",
+            "columnName": "stagesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "trip_progress",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`planId` INTEGER NOT NULL, `currentDay` INTEGER NOT NULL, `distanceWalkedTodayKm` REAL NOT NULL, `totalDistanceWalkedKm` REAL NOT NULL, `currentSnappedLat` REAL NOT NULL, `currentSnappedLng` REAL NOT NULL, `remainingDistanceTripKm` REAL NOT NULL, `remainingDistanceTodayKm` REAL NOT NULL, `isPaused` INTEGER NOT NULL, `isCompleted` INTEGER NOT NULL, `lastActiveTimestamp` INTEGER NOT NULL, PRIMARY KEY(`planId`))",
+        "fields": [
+          {
+            "fieldPath": "planId",
+            "columnName": "planId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentDay",
+            "columnName": "currentDay",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "distanceWalkedTodayKm",
+            "columnName": "distanceWalkedTodayKm",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalDistanceWalkedKm",
+            "columnName": "totalDistanceWalkedKm",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentSnappedLat",
+            "columnName": "currentSnappedLat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentSnappedLng",
+            "columnName": "currentSnappedLng",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remainingDistanceTripKm",
+            "columnName": "remainingDistanceTripKm",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remainingDistanceTodayKm",
+            "columnName": "remainingDistanceTodayKm",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isPaused",
+            "columnName": "isPaused",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isCompleted",
+            "columnName": "isCompleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastActiveTimestamp",
+            "columnName": "lastActiveTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "planId"
+          ]
+        }
+      },
+      {
+        "tableName": "user_hazard_notes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `trailId` TEXT NOT NULL, `lat` REAL NOT NULL, `lng` REAL NOT NULL, `type` TEXT NOT NULL, `title` TEXT NOT NULL, `description` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trailId",
+            "columnName": "trailId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lat",
+            "columnName": "lat",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lng",
+            "columnName": "lng",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '49d10c696f3bd11b1f5ece470fb7e722')"
+    ]
+  }
+}

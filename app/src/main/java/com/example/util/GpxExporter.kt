@@ -5,7 +5,7 @@ import com.example.data.model.ShelterEntity
 import com.example.data.model.TrailEntity
 import com.example.data.model.TripPlanEntity
 import com.example.data.model.TripStage
-import com.example.data.model.UserHazardNote
+import com.example.data.model.UserHazardNoteEntity
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -18,7 +18,7 @@ object GpxExporter {
         stages: List<TripStage>,
         trailPoints: List<GeoPointDto>,
         shelters: List<ShelterEntity> = emptyList(),
-        hazards: List<UserHazardNote> = emptyList()
+        hazards: List<UserHazardNoteEntity> = emptyList()
     ): String {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
         val nowIso = dateFormat.format(Date())
@@ -40,7 +40,9 @@ object GpxExporter {
         shelters.forEach { sh ->
             sb.append("  <wpt lat=\"${sh.lat}\" lon=\"${sh.lng}\">\n")
             sb.append("    <name>${escapeXml(sh.name)}</name>\n")
-            sb.append("    <desc>${escapeXml(sh.ownership)} • Plads: ${sh.capacity} • Booking: ${if (sh.bookingRequired) "Ja" else "Fri"}</desc>\n")
+            val capStr = sh.capacity?.toString() ?: "Ukendt"
+            val ownerStr = sh.ownership ?: "Ukendt"
+            sb.append("    <desc>${escapeXml(ownerStr)} • Plads: $capStr • Booking: ${if (sh.bookingRequired) "Ja" else "Fri"}</desc>\n")
             sb.append("    <sym>Campground</sym>\n")
             sb.append("    <type>Shelter</type>\n")
             sb.append("  </wpt>\n")

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,15 +25,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cabin
-import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Forest
+import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
@@ -44,13 +47,9 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -60,10 +59,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,7 +76,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.OvernightType
 import com.example.data.model.TripStage
-import com.example.ui.AppScreen
 import com.example.ui.MainViewModel
 import com.example.ui.components.StatusChip
 import com.example.ui.theme.AlertRed
@@ -89,6 +89,9 @@ import com.example.ui.theme.ForestSurfaceVariant
 import com.example.ui.theme.GlassBorderSubtle
 import com.example.ui.theme.NordicBlue
 import com.example.ui.theme.ShelterBrown
+import com.example.util.OvernightCandidate
+import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -97,38 +100,43 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TripPlannerScreen(
+    trailId: String = "",
     viewModel: MainViewModel,
+    onBack: () -> Unit = {},
+    onStartTrip: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    LaunchedEffect(trailId) {
+        if (trailId.isNotBlank()) {
+            val found = viewModel.allTrails.value.find { it.id == trailId }
+            if (found != null) {
+                viewModel.selectTrail(found)
+            }
+        }
+    }
+
     val trail by viewModel.selectedTrail.collectAsState()
     val startKm by viewModel.plannerStartKm.collectAsState()
     val endKm by viewModel.plannerEndKm.collectAsState()
     val days by viewModel.plannerDays.collectAsState()
     val overnightType by viewModel.plannerOvernightType.collectAsState()
     val dailyKm by viewModel.plannerDailyKm.collectAsState()
+    val mitTempo by viewModel.mitTempoKmh.collectAsState()
+    val maxDetour by viewModel.plannerMaxDetourKm.collectAsState()
+    val startTime by viewModel.plannerStartTime.collectAsState()
     val stages by viewModel.plannerStages.collectAsState()
     val isCalculating by viewModel.isCalculatingStages.collectAsState()
-    val downloadProgress by viewModel.tileDownloadProgress.collectAsState()
-    val missingFriTeltningDays by viewModel.stagesMissingFriTeltning.collectAsState()
-    val showDisclaimerDialog by viewModel.showFriTeltningDisclaimer.collectAsState()
     val weather by viewModel.trailWeather.collectAsState()
     val walkDistanceKm by viewModel.plannerWalkDistanceKm.collectAsState()
     val isWalkingReverse by viewModel.isWalkingReverse.collectAsState()
-    val hikingSpeed by viewModel.hikingSpeedKmh.collectAsState()
-    val packWeight by viewModel.packWeightKg.collectAsState()
-    val offlineBufferKm by viewModel.offlineCorridorBufferKm.collectAsState()
-    val estimatedDownloadMb by viewModel.estimatedDownloadMb.collectAsState()
 
-    val effectiveSpeed = (hikingSpeed - (packWeight * 0.03)).coerceAtLeast(2.0)
-    val hoursPerDay = dailyKm / effectiveSpeed
-    val wholeHours = hoursPerDay.toInt()
-    val minutes = ((hoursPerDay - wholeHours) * 60).roundToInt()
-
-    var editingStageIndex by remember { mutableStateOf<Int?>(null) }
-    var editStopName by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    var candidatePickerStageIndex by remember { mutableStateOf<Int?>(null) }
+    var availableCandidates by remember { mutableStateOf<List<OvernightCandidate>>(emptyList()) }
+    var isLoadingCandidates by remember { mutableStateOf(false) }
 
     BackHandler {
-        viewModel.navigateTo(AppScreen.TRAIL_DETAIL)
+        onBack()
     }
 
     if (trail == null) {
@@ -140,6 +148,16 @@ fun TripPlannerScreen(
 
     val currentTrail = trail!!
     val totalLength = currentTrail.lengthKm
+
+    // Function to open candidate picker dialog
+    val openCandidatePicker: (Int) -> Unit = { stageIndex ->
+        candidatePickerStageIndex = stageIndex
+        isLoadingCandidates = true
+        scope.launch {
+            availableCandidates = viewModel.getNearestCandidatesForStage(stageIndex)
+            isLoadingCandidates = false
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -156,7 +174,7 @@ fun TripPlannerScreen(
                 },
                 navigationIcon = {
                     IconButton(
-                        onClick = { viewModel.navigateTo(AppScreen.TRAIL_DETAIL) },
+                        onClick = onBack,
                         modifier = Modifier.testTag("planner_back_button")
                     ) {
                         Icon(
@@ -211,7 +229,10 @@ fun TripPlannerScreen(
                     }
 
                     Button(
-                        onClick = { viewModel.requestStartNavigation() },
+                        onClick = {
+                            viewModel.requestStartNavigation()
+                            onStartTrip(viewModel.activeTripPlan.value?.id ?: 0L)
+                        },
                         modifier = Modifier
                             .weight(1.4f)
                             .height(52.dp)
@@ -234,7 +255,7 @@ fun TripPlannerScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Severe Weather Alert Banner (If Any)
+            // Severe Weather Alert Banner
             if (weather?.severeAlert != null) {
                 item {
                     Card(
@@ -264,44 +285,7 @@ fun TripPlannerScreen(
                 }
             }
 
-            // Fri Teltning Availability Disclaimer Banner (If any stop lacks Fri Teltning)
-            if (missingFriTeltningDays.isNotEmpty() && (overnightType == OvernightType.TENT || overnightType == OvernightType.MIXED)) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().testTag("planner_fri_teltning_disclaimer_card"),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = ForestSurfaceVariant),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, AmberAccent)
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Warning,
-                                    contentDescription = "Advarsel",
-                                    tint = AmberAccent,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Overnatnings-disclaimer (Fri teltning)",
-                                    color = AmberAccent,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Fri teltning er IKKE tilgængelig på alle dine etaper (mangler på Dag ${missingFriTeltningDays.map { it.dayNumber }.joinToString(", ")}). I Danmark er teltning kun tilladt i udpegede Fri Teltningsskove eller på etablerede lejrpladser. På disse stop skal shelter benyttes eller lejrplads bookes forud.",
-                                color = Color(0xFFDDDDDD),
-                                fontSize = 12.sp,
-                                lineHeight = 17.sp
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Unified Interactive Route Segment & Interval Card
+            // Route Segment Card
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth().testTag("planner_route_segment_card"),
@@ -324,7 +308,7 @@ fun TripPlannerScreen(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Start (A): km ${String.format("%.1f", startKm)}  ➔  Slut (B): km ${String.format("%.1f", endKm)}",
+                                    text = "Start (A): km ${String.format(Locale.US, "%.1f", startKm)}  ➔  Slut (B): km ${String.format(Locale.US, "%.1f", endKm)}",
                                     color = ForestGreenLight,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -336,7 +320,7 @@ fun TripPlannerScreen(
                                 border = BorderStroke(1.dp, AmberAccent.copy(alpha = 0.5f))
                             ) {
                                 Text(
-                                    text = "${String.format("%.1f", walkDistanceKm)} km",
+                                    text = "${String.format(Locale.US, "%.1f", walkDistanceKm)} km",
                                     color = AmberAccent,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
@@ -347,7 +331,7 @@ fun TripPlannerScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Interactive Dual-Thumb RangeSlider to easily adjust segment
+                        // Dual-Thumb RangeSlider
                         val curStart = min(startKm, endKm).toFloat()
                         val curEnd = max(startKm, endKm).toFloat()
                         RangeSlider(
@@ -359,7 +343,7 @@ fun TripPlannerScreen(
                                     viewModel.setPlannerRange(range.start.toDouble(), range.endInclusive.toDouble())
                                 }
                             },
-                            valueRange = 0f..totalLength.toFloat(),
+                            valueRange = 0f..max(1.0f, totalLength.toFloat()),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(32.dp)
@@ -434,10 +418,10 @@ fun TripPlannerScreen(
                 }
             }
 
-            // Days & Daily Distance
+            // Planner Inputs Card: Days & Daily Target Km (Requirements A, F)
             item {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("planner_days_target_card"),
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = ForestSurface)
                 ) {
@@ -480,7 +464,7 @@ fun TripPlannerScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "Foretrukken daglig distance: ${dailyKm.roundToInt()} km/dag",
+                            text = "Dagligt mål: ${dailyKm.roundToInt()} km/dag",
                             color = Color.LightGray,
                             fontSize = 13.sp
                         )
@@ -502,10 +486,68 @@ fun TripPlannerScreen(
                 }
             }
 
-            // Overnight Type Selection
+            // Single "Mit tempo" Setting Card (Requirement A & F)
             item {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("mit_tempo_card"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = ForestSurface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Speed, contentDescription = null, tint = AmberAccent, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Mit tempo",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                            }
+                            Surface(shape = RoundedCornerShape(6.dp), color = AmberAccent.copy(alpha = 0.2f)) {
+                                Text(
+                                    text = "${String.format(Locale.US, "%.1f", mitTempo)} km/t",
+                                    color = AmberAccent,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Dit personlige vandretempo anvendes til tidsestimering på alle etaper:",
+                            color = Color.LightGray,
+                            fontSize = 12.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Slider(
+                            value = mitTempo.toFloat(),
+                            onValueChange = { viewModel.setMitTempoKmh(it.toDouble()) },
+                            valueRange = 2.5f..6.0f,
+                            steps = 34,
+                            modifier = Modifier.fillMaxWidth().testTag("mit_tempo_slider"),
+                            colors = SliderDefaults.colors(
+                                thumbColor = AmberAccent,
+                                activeTrackColor = AmberAccent,
+                                inactiveTrackColor = ForestSurfaceVariant
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Overnight Preference & Max Detour (Requirement A)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("planner_preferences_card"),
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = ForestSurface)
                 ) {
@@ -532,288 +574,135 @@ fun TripPlannerScreen(
                             OvernightChip(
                                 label = "Fri Teltning",
                                 icon = Icons.Default.Forest,
-                                isSelected = overnightType == OvernightType.TENT,
-                                onClick = { viewModel.setPlannerOvernightType(OvernightType.TENT) },
+                                isSelected = overnightType == OvernightType.FRI_TELTNING,
+                                onClick = { viewModel.setPlannerOvernightType(OvernightType.FRI_TELTNING) },
                                 modifier = Modifier.weight(1f)
                             )
                             OvernightChip(
-                                label = "Blandet",
+                                label = "Begge",
                                 icon = Icons.Default.Navigation,
-                                isSelected = overnightType == OvernightType.MIXED,
-                                onClick = { viewModel.setPlannerOvernightType(OvernightType.MIXED) },
+                                isSelected = overnightType == OvernightType.BOTH,
+                                onClick = { viewModel.setPlannerOvernightType(OvernightType.BOTH) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            OvernightChip(
+                                label = "Lejrplads",
+                                icon = Icons.Default.Hotel,
+                                isSelected = overnightType == OvernightType.CAMPSITE,
+                                onClick = { viewModel.setPlannerOvernightType(OvernightType.CAMPSITE) },
                                 modifier = Modifier.weight(1f)
                             )
                         }
-                    }
-                }
-            }
 
-            // 1. Stage Pace & Cadence Adjuster (Enhancement 9)
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth().testTag("pace_adjuster_card"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = ForestSurface)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Speed, contentDescription = null, tint = AmberAccent, modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Vandretempo & Oppakning",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
-                                )
-                            }
-                            Surface(shape = RoundedCornerShape(6.dp), color = AmberAccent.copy(alpha = 0.2f)) {
-                                Text(
-                                    text = "${String.format("%.1f", effectiveSpeed)} km/t effektiv",
-                                    color = AmberAccent,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
-                        }
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        // Max Detour options: 0.5 km, 1.5 km (default), 3.0 km (Requirement A)
                         Text(
-                            text = "Juster dit tempo og rygsækvægt for præcis estimering af dagsetaper:",
-                            color = Color.LightGray,
-                            fontSize = 12.sp
+                            text = "Maksimal omvej til overnatning",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
                         )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Grundtempo: ${String.format("%.1f", hikingSpeed)} km/t", color = Color.White, fontSize = 13.sp)
-                            Text("Rygsæk: ${packWeight.toInt()} kg", color = Color.White, fontSize = 13.sp)
-                        }
-
-                        Slider(
-                            value = hikingSpeed.toFloat(),
-                            onValueChange = { viewModel.setHikingSpeedKmh(it.toDouble()) },
-                            valueRange = 3.0f..6.0f,
-                            steps = 30,
-                            modifier = Modifier.fillMaxWidth().testTag("hiking_speed_slider"),
-                            colors = SliderDefaults.colors(
-                                thumbColor = AmberAccent,
-                                activeTrackColor = AmberAccent,
-                                inactiveTrackColor = ForestSurfaceVariant
-                            )
-                        )
-
-                        Slider(
-                            value = packWeight.toFloat(),
-                            onValueChange = { viewModel.setPackWeightKg(it.toDouble()) },
-                            valueRange = 0f..25f,
-                            steps = 25,
-                            modifier = Modifier.fillMaxWidth().testTag("pack_weight_slider"),
-                            colors = SliderDefaults.colors(
-                                thumbColor = NordicBlue,
-                                activeTrackColor = NordicBlue,
-                                inactiveTrackColor = ForestSurfaceVariant
-                            )
-                        )
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = ForestDarkBg,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("⏱️", fontSize = 16.sp)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Estimeret vandretid: ~$wholeHours t $minutes min aktiv gang pr. dag",
-                                    color = ForestGreenLight,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 2. Daylight & Twilight Hiking Window Calculator (Enhancement 2)
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth().testTag("daylight_calculator_card"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = ForestSurface)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.WbSunny, contentDescription = null, tint = AmberAccent, modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Dagslys & Skumring (DMI)",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
-                                )
-                            }
-                            Surface(shape = RoundedCornerShape(6.dp), color = ForestSurfaceVariant) {
-                                Text(
-                                    text = weather?.daylightDurationText ?: "11 t 40 min dagslys",
-                                    color = ForestGreenLight,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-                        val sunriseTime = weather?.sunrise ?: "07:10"
-                        val sunsetTime = weather?.sunset ?: "18:50"
-                        val twilightTime = weather?.twilightEnd ?: "19:25"
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            DaylightStatItem(label = "Solopgang", time = sunriseTime, icon = "🌅")
-                            DaylightStatItem(label = "Solnedgang", time = sunsetTime, icon = "🌇")
-                            DaylightStatItem(label = "Tusmørke", time = twilightTime, icon = "🌌")
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-                        val sunsetHour = sunsetTime.substringBefore(":").toIntOrNull() ?: 18
-                        val sunsetMin = sunsetTime.substringAfter(":").toIntOrNull() ?: 50
-                        val totalSunsetMinutes = sunsetHour * 60 + sunsetMin
-                        val hikeMinutesWithBuffer = (wholeHours * 60 + minutes + 60)
-                        val latestStartMinutes = (totalSunsetMinutes - hikeMinutesWithBuffer).coerceIn(6 * 60, 16 * 60)
-                        val latestStartHour = latestStartMinutes / 60
-                        val latestStartMin = latestStartMinutes % 60
-                        val latestStartFormatted = String.format("%02d:%02d", latestStartHour, latestStartMin)
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = ForestDarkBg,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "🛡️ Råd: Start senest kl. $latestStartFormatted for at nå sikkert frem til lejrpladsen i god tid før solnedgang ($sunsetTime).",
-                                color = Color.LightGray,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(10.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 3. Offline Download Button with Granular Buffer (Enhancement 10)
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth().testTag("offline_corridor_card"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = ForestSurfaceVariant)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Offline Kort & Data (Korridor)",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
-                                )
-                                Text(
-                                    text = "Kortfelter for ruten • Estimeret: ~$estimatedDownloadMb MB",
-                                    color = Color.LightGray,
-                                    fontSize = 12.sp
-                                )
-                            }
-                            Button(
-                                onClick = { viewModel.startOfflineCacheDownload() },
-                                enabled = !downloadProgress.isDownloading,
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                                modifier = Modifier.testTag("download_offline_tiles_button")
-                            ) {
-                                if (downloadProgress.isDownloading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        color = Color.White,
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    Icon(imageVector = Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Hent")
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(text = "Vælg korridorbredde omkring stien:", color = Color.Gray, fontSize = 11.sp)
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            listOf(0.5 to "500 m (75 MB)", 1.0 to "1,0 km (145 MB)", 2.0 to "2,0 km (320 MB)").forEach { (bufKm, label) ->
-                                val isSelected = kotlin.math.abs(offlineBufferKm - bufKm) < 0.1
+                            listOf(0.5, 1.5, 3.0).forEach { option ->
+                                val isSelected = abs(maxDetour - option) < 0.1
+                                val label = when (option) {
+                                    1.5 -> "1.5 km (Standard)"
+                                    else -> "$option km"
+                                }
                                 Surface(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .clickable { viewModel.setOfflineBufferKm(bufKm) }
-                                        .testTag("buffer_chip_${bufKm}"),
-                                    color = if (isSelected) ForestGreenPrimary else ForestDarkBg
+                                        .clickable { viewModel.setPlannerMaxDetourKm(option) }
+                                        .testTag("max_detour_${option.toString().replace(".", "_")}"),
+                                    color = if (isSelected) ForestGreenPrimary else ForestSurfaceVariant,
+                                    shape = RoundedCornerShape(8.dp)
                                 ) {
                                     Text(
                                         text = label,
                                         color = if (isSelected) Color.White else Color.LightGray,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.padding(vertical = 8.dp),
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
                                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                     )
                                 }
                             }
                         }
 
-                        if (downloadProgress.isDownloading || downloadProgress.isComplete) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            LinearProgressIndicator(
-                                progress = { downloadProgress.percent / 100f },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp)
-                                    .clip(RoundedCornerShape(3.dp)),
-                                color = ForestGreenLight,
-                                trackColor = ForestDarkBg
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Start Time Setting (default 09:00 - Requirement D)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = if (downloadProgress.isComplete) "✓ Offline kort gemt i cache ($estimatedDownloadMb MB)" else "Henter kort: ${downloadProgress.percent}% (${downloadProgress.downloadedCount}/${downloadProgress.totalCount})",
-                                color = if (downloadProgress.isComplete) ForestGreenLight else Color.LightGray,
-                                fontSize = 11.sp
+                                text = "Starttidspunkt: kl. $startTime",
+                                color = Color.LightGray,
+                                fontSize = 13.sp
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("08:00", "09:00", "10:00").forEach { t ->
+                                    val isSelected = startTime == t
+                                    Surface(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { viewModel.setPlannerStartTime(t) }
+                                            .testTag("start_time_$t"),
+                                        color = if (isSelected) ForestGreenPrimary else ForestSurfaceVariant,
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = t,
+                                            color = if (isSelected) Color.White else Color.LightGray,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Daylight & Open-Meteo Sunset Banner (Requirement D)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("daylight_info_card"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = ForestSurface)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.WbSunny, contentDescription = null, tint = AmberAccent, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Soltider & Dagslys (Open-Meteo)",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                            Text(
+                                text = "🌇 Solnedgang: ${weather?.sunset ?: "18:50"}",
+                                color = AmberAccent,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
                             )
                         }
                     }
@@ -828,14 +717,14 @@ fun TripPlannerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Foreslået Etapeplan ($days dage)",
+                        text = "Etapeplan ($days dage)",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp
                     )
                     if (isCalculating) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(18.dp),
                             color = ForestGreenLight,
                             strokeWidth = 2.dp
                         )
@@ -843,134 +732,115 @@ fun TripPlannerScreen(
                 }
             }
 
-            // Day-by-Day Stages
+            // Day-by-Day Stages (Requirement D & E)
             itemsIndexed(stages, key = { index, _ -> "stage_$index" }) { index, stage ->
                 StageItemCard(
                     stage = stage,
-                    onEditStop = {
-                        editingStageIndex = index
-                        editStopName = stage.stopName
-                    }
+                    totalRouteKm = totalLength,
+                    onChangeOvernight = { openCandidatePicker(index) },
+                    onWalkShorter = { viewModel.adjustStageEndKm(index, max(stage.startKm + 0.5, stage.endKm - 3.0)) },
+                    onWalkLonger = { viewModel.adjustStageEndKm(index, min(totalLength, stage.endKm + 3.0)) },
+                    onAdjustEndKm = { newKm -> viewModel.adjustStageEndKm(index, newKm) }
                 )
             }
         }
     }
 
-    // Edit Stage Stop Dialog
-    if (editingStageIndex != null) {
-        val currentStage = stages.getOrNull(editingStageIndex!!)
-        if (currentStage != null) {
-            AlertDialog(
-                onDismissRequest = { editingStageIndex = null },
-                containerColor = ForestSurface,
-                title = { Text("Rediger stop for Dag ${currentStage.dayNumber}", color = Color.White) },
-                text = {
-                    Column {
-                        Text("Angiv overnatningsstedets navn eller placering:", color = Color.LightGray, fontSize = 13.sp)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedTextField(
-                            value = editStopName,
-                            onValueChange = { editStopName = it },
-                            label = { Text("Stedets navn") },
-                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("edit_stop_name_input")
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            viewModel.updateStageStop(
-                                index = editingStageIndex!!,
-                                newName = editStopName,
-                                newType = currentStage.stopType,
-                                lat = currentStage.stopLat,
-                                lng = currentStage.stopLng,
-                                bookingReq = currentStage.bookingRequired
-                            )
-                            editingStageIndex = null
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                        modifier = Modifier.testTag("confirm_edit_stop_button")
-                    ) {
-                        Text("Gem")
-                    }
-                },
-                dismissButton = {
-                    Button(
-                        onClick = { editingStageIndex = null },
-                        colors = ButtonDefaults.buttonColors(containerColor = ForestSurfaceVariant)
-                    ) {
-                        Text("Annuller", color = Color.White)
-                    }
-                }
-            )
-        }
-    }
+    // Candidate Picker Dialog ("Skift overnatning" & "Vælg nærmeste overnatningssted" - Requirement C & E)
+    if (candidatePickerStageIndex != null) {
+        val stageIdx = candidatePickerStageIndex!!
+        val currentStage = stages.getOrNull(stageIdx)
 
-    // Fri Teltning Disclaimer Dialog before starting route
-    if (showDisclaimerDialog) {
         AlertDialog(
-            onDismissRequest = { viewModel.dismissFriTeltningDisclaimer() },
+            onDismissRequest = { candidatePickerStageIndex = null },
             containerColor = ForestSurface,
             shape = RoundedCornerShape(18.dp),
             title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = AmberAccent,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Overnatnings-disclaimer",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp
-                    )
-                }
+                Text(
+                    text = "Vælg overnatning for Dag ${currentStage?.dayNumber ?: (stageIdx + 1)}",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
             },
             text = {
-                Column {
-                    Text(
-                        text = "Vigtigt inden du starter turen:",
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Der er IKKE Fri Teltning tilgængelig på alle dine etaper (mangler på Dag ${missingFriTeltningDays.map { it.dayNumber }.joinToString(", ")}).\n\nIfølge dansk naturbeskyttelseslov må du kun slå telt op i statens udpegede Fri Teltningsskove eller på godkendte lejrpladser.\n\nPå disse stop skal du benytte shelter eller booke officiel lejrplads på forhånd.",
-                        color = Color(0xFFDDDDDD),
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp
-                    )
+                if (isLoadingCandidates) {
+                    Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = ForestGreenLight)
+                    }
+                } else if (availableCandidates.isEmpty()) {
+                    Text("Ingen overnatningssteder fundet i dette område.", color = Color.LightGray, fontSize = 13.sp)
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().height(320.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(availableCandidates) { cand ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = ForestSurfaceVariant,
+                                border = BorderStroke(1.dp, GlassBorderSubtle),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.changeStageCandidate(stageIdx, cand)
+                                        candidatePickerStageIndex = null
+                                    }
+                                    .testTag("candidate_item_${cand.id}")
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = cand.name,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = if (cand.type == "SHELTER") ShelterBrown else ForestGreenPrimary
+                                        ) {
+                                            Text(
+                                                text = if (cand.type == "SHELTER") "Shelter" else if (cand.type == "FRI_TELTNING") "Fri teltning" else "Lejrplads",
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "km ${String.format(Locale.US, "%.1f", cand.walkKm)}  (omvej ${cand.detourMeters.roundToInt()} m)",
+                                            color = ForestGreenLight,
+                                            fontSize = 11.sp
+                                        )
+                                        if (cand.bookingRequired) {
+                                            Text("Booking påkrævet", color = AmberAccent, fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             },
-            confirmButton = {
-                Button(
-                    onClick = { viewModel.confirmStartHikingWithDisclaimer() },
-                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.testTag("confirm_disclaimer_start_button")
-                ) {
-                    Text("Jeg forstår - Start ruten", fontWeight = FontWeight.Bold)
-                }
-            },
+            confirmButton = {},
             dismissButton = {
                 OutlinedButton(
-                    onClick = { viewModel.dismissFriTeltningDisclaimer() },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.testTag("cancel_disclaimer_button")
+                    onClick = { candidatePickerStageIndex = null },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                 ) {
-                    Text("Tilpas etaper")
+                    Text("Luk")
                 }
             }
         )
@@ -994,7 +864,7 @@ fun OvernightChip(
         shape = RoundedCornerShape(10.dp)
     ) {
         Row(
-            modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+            modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
@@ -1004,30 +874,51 @@ fun OvernightChip(
                 tint = if (isSelected) Color.White else Color.LightGray,
                 modifier = Modifier.size(16.dp)
             )
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = label,
                 color = if (isSelected) Color.White else Color.LightGray,
-                fontSize = 12.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                fontSize = 11.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1
             )
         }
     }
 }
 
+/**
+ * Stage Item Card showing all details specified in Requirement D:
+ * day, from-to place names, km, ascent/descent, estimated walking time (+1 min per 10m ascent),
+ * tonight's spot with type, booking flag and detour, water and shops passed that day,
+ * sunset time at camp, and sunset warning.
+ */
 @Composable
 fun StageItemCard(
     stage: TripStage,
-    onEditStop: () -> Unit
+    totalRouteKm: Double,
+    onChangeOvernight: () -> Unit,
+    onWalkShorter: () -> Unit,
+    onWalkLonger: () -> Unit,
+    onAdjustEndKm: (Double) -> Unit
 ) {
+    val walkHours = stage.estimatedWalkMinutes / 60
+    val walkMins = stage.estimatedWalkMinutes % 60
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("stage_card_${stage.dayNumber}"),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = ForestSurface)
+        colors = CardDefaults.cardColors(
+            containerColor = if (stage.isWarningNoOvernight) ForestSurface.copy(alpha = 0.95f) else ForestSurface
+        ),
+        border = BorderStroke(
+            1.dp,
+            if (stage.isWarningNoOvernight) AlertRed else GlassBorderSubtle
+        )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // Header Row: Day, Distance, Elevation, Walking Time
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1037,7 +928,7 @@ fun StageItemCard(
                     Box(
                         modifier = Modifier
                             .size(28.dp)
-                            .background(ForestGreenPrimary, CircleShape),
+                            .background(if (stage.isWarningNoOvernight) AlertRed else ForestGreenPrimary, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -1056,106 +947,233 @@ fun StageItemCard(
                     )
                 }
 
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = ForestSurfaceVariant
+                    ) {
+                        Text(
+                            text = String.format(Locale.US, "%.1f km", stage.stageKm),
+                            color = ForestGreenLight,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = ForestSurfaceVariant
+                    ) {
+                        Text(
+                            text = "~$walkHours t $walkMins m",
+                            color = AmberAccent,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // From - To Place Names (Requirement D)
+            Text(
+                text = "${stage.fromName}  ➔  ${stage.toName}",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Elevation (Phase 2 ascent/descent - Requirement D)
+            Text(
+                text = "Højde: ↗ ${stage.ascentMeters.roundToInt()} m stigning   ↘ ${stage.descentMeters.roundToInt()} m fald",
+                color = Color.LightGray,
+                fontSize = 11.sp
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Tonight's Spot Section
+            if (stage.isWarningNoOvernight) {
+                // Requirement C: Mark "Ingen overnatning fundet nær km X" in red and offer:
+                // walk shorter, walk longer, or pick from a list of the nearest spots.
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = ForestSurfaceVariant
+                    shape = RoundedCornerShape(10.dp),
+                    color = AlertRed.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, AlertRed),
+                    modifier = Modifier.fillMaxWidth().testTag("no_overnight_warning_card")
                 ) {
-                    Text(
-                        text = String.format("%.1f km", stage.stageKm),
-                        color = ForestGreenLight,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = AlertRed, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stage.warningMessage ?: "Ingen overnatning fundet",
+                                color = AlertRed,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Der er ingen lejrpladser i standardvinduet. Vælg en løsning:",
+                            color = Color.White,
+                            fontSize = 11.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Button(
+                                onClick = onWalkShorter,
+                                colors = ButtonDefaults.buttonColors(containerColor = ForestSurfaceVariant),
+                                modifier = Modifier.weight(1f).testTag("walk_shorter_button"),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Gå kortere", fontSize = 11.sp, color = Color.White)
+                            }
+                            Button(
+                                onClick = onWalkLonger,
+                                colors = ButtonDefaults.buttonColors(containerColor = ForestSurfaceVariant),
+                                modifier = Modifier.weight(1f).testTag("walk_longer_button"),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Gå længere", fontSize = 11.sp, color = Color.White)
+                            }
+                            Button(
+                                onClick = onChangeOvernight,
+                                colors = ButtonDefaults.buttonColors(containerColor = AlertRed),
+                                modifier = Modifier.weight(1.2f).testTag("pick_nearest_spot_button"),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Vælg fra liste", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Normal Overnight Spot Display
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = ForestSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            val icon = when (stage.stopType) {
+                                "SHELTER" -> Icons.Default.Cabin
+                                "FRI_TELTNING" -> Icons.Default.Forest
+                                "CAMPSITE" -> Icons.Default.Hotel
+                                else -> Icons.Default.Navigation
+                            }
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = if (stage.stopType == "SHELTER") ShelterBrown else ForestGreenLight,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = stage.stopName,
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    val typeLabel = when (stage.stopType) {
+                                        "SHELTER" -> "Shelter"
+                                        "FRI_TELTNING" -> "Fri teltning"
+                                        "CAMPSITE" -> "Lejrplads"
+                                        else -> "Mål"
+                                    }
+                                    Text(typeLabel, color = ForestGreenLight, fontSize = 11.sp)
+                                    Text("•", color = Color.Gray, fontSize = 11.sp)
+                                    Text("Omvej: ${stage.detourMeters.roundToInt()} m", color = Color.LightGray, fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        // "Skift overnatning" button (Requirement E)
+                        OutlinedButton(
+                            onClick = onChangeOvernight,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, ForestGreenLight.copy(alpha = 0.6f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            modifier = Modifier.testTag("change_overnight_button_${stage.dayNumber}")
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Skift", fontSize = 11.sp)
+                        }
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Overnight stop info
+            // Amenities passed that day (Water, Shops) & Camp Sunset (Requirement D)
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val icon = when (stage.stopType) {
-                    "SHELTER" -> Icons.Default.Cabin
-                    "FRI_TELTNING" -> Icons.Default.Forest
-                    else -> Icons.Default.Navigation
+                StatusChip(
+                    label = if (stage.waterCount > 0) "💧 ${stage.waterCount} vand" else "Ingen vand",
+                    isHighlight = false,
+                    color = if (stage.waterCount > 0) NordicBlue else Color.Gray
+                )
+                StatusChip(
+                    label = if (stage.shopCount > 0) "🛒 ${stage.shopCount} indkøb" else "Ingen butik",
+                    isHighlight = false,
+                    color = if (stage.shopCount > 0) ForestGreenPrimary else Color.Gray
+                )
+                if (stage.bookingRequired) {
+                    StatusChip(
+                        label = "Booking påkrævet",
+                        isHighlight = true,
+                        color = AmberAccent
+                    )
                 }
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = if (stage.stopType == "SHELTER") ShelterBrown else ForestGreenLight,
-                    modifier = Modifier.size(18.dp)
+                StatusChip(
+                    label = "🌇 Solnedgang ${stage.sunsetTime}",
+                    isHighlight = false,
+                    color = ForestSurfaceVariant
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stage.stopName,
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(
-                    onClick = onEditStop,
-                    modifier = Modifier.size(28.dp)
+            }
+
+            // Warning: Arrival after sunset (Requirement D)
+            if (stage.isAfterSunset) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = AlertRed.copy(alpha = 0.2f),
+                    border = BorderStroke(1.dp, AlertRed),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Flyt/rediger stop",
-                        tint = Color.Gray,
-                        modifier = Modifier.size(16.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = AlertRed, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "⚠️ Ankomst efter solnedgang (lejr solnedgang kl. ${stage.sunsetTime})",
+                            color = AlertRed,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Amenities & Booking Badges
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (stage.stopType == "SHELTER") {
-                    StatusChip(
-                        label = if (stage.bookingRequired) "Booking påkrævet" else "Fri afbenyttelse",
-                        isHighlight = stage.bookingRequired,
-                        color = if (stage.bookingRequired) AmberAccent else ForestGreenPrimary
-                    )
-                }
-                if (stage.hasWaterNearby) {
-                    StatusChip(
-                        label = "Vand <1 km",
-                        isHighlight = false,
-                        color = NordicBlue
-                    )
-                }
-                if (stage.hasToiletNearby) {
-                    StatusChip(
-                        label = "Toilet <1 km",
-                        isHighlight = false,
-                        color = ForestGreenPrimary
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DaylightStatItem(label: String, time: String, icon: String) {
-    Surface(
-        color = ForestDarkBg,
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(text = icon, fontSize = 16.sp)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(text = label, color = Color.Gray, fontSize = 10.sp)
-            Text(text = time, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
     }
 }

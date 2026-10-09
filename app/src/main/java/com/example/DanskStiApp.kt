@@ -16,18 +16,41 @@ class DanskStiApp : Application() {
     lateinit var repository: DanskStiRepository
         private set
 
+    lateinit var settingsRepository: com.example.data.local.SettingsRepository
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+        settingsRepository = com.example.data.local.SettingsRepository(this)
 
-        // Configure osmdroid user agent & preferences
-        val sharedPrefs = getSharedPreferences("osmdroid_prefs", MODE_PRIVATE)
-        Configuration.getInstance().load(this, sharedPrefs)
-        Configuration.getInstance().userAgentValue = "DanskStiApp/1.0 (Android; Hiking in Denmark)"
+        // Configure osmdroid user agent & internal directories safely
+        try {
+            val sharedPrefs = getSharedPreferences("osmdroid_prefs", MODE_PRIVATE)
+            val osmdroidDir = java.io.File(filesDir, "osmdroid").apply { if (!exists()) mkdirs() }
+            val osmdroidCache = java.io.File(cacheDir, "osmdroid_tiles").apply { if (!exists()) mkdirs() }
+            Configuration.getInstance().load(this, sharedPrefs)
+            Configuration.getInstance().osmdroidBasePath = osmdroidDir
+            Configuration.getInstance().osmdroidTileCache = osmdroidCache
+            Configuration.getInstance().userAgentValue = "DanskStiApp/1.0 (Android; Hiking in Denmark)"
+        } catch (e: Exception) {
+            android.util.Log.e("DanskStiApp", "Failed to configure osmdroid: ${e.message}", e)
+        }
 
-        // Setup Room Database
-        database = DanskStiDatabase.getInstance(this)
-        repository = DanskStiRepository(database.dao(), this)
+        // Setup Room Database with auto-recovery
+        try {
+            database = DanskStiDatabase.getInstance(this)
+            repository = DanskStiRepository(database.dao(), this)
+        } catch (e: Exception) {
+            android.util.Log.e("DanskStiApp", "Database init failed, recreating: ${e.message}", e)
+            try {
+                deleteDatabase("dansk_sti.db")
+                database = DanskStiDatabase.getInstance(this)
+                repository = DanskStiRepository(database.dao(), this)
+            } catch (fatal: Exception) {
+                android.util.Log.e("DanskStiApp", "Fatal database error: ${fatal.message}", fatal)
+            }
+        }
 
         createNotificationChannels()
     }

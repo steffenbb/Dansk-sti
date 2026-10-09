@@ -7,13 +7,20 @@ import com.squareup.moshi.JsonClass
 @JsonClass(generateAdapter = true)
 data class GeoPointDto(
     val lat: Double,
-    val lng: Double
+    val lng: Double,
+    val ele: Double = 0.0
 )
 
 enum class OvernightType {
-    TENT,
     SHELTER,
-    MIXED
+    FRI_TELTNING,
+    BOTH,
+    CAMPSITE;
+
+    companion object {
+        val TENT = FRI_TELTNING
+        val MIXED = BOTH
+    }
 }
 
 enum class PoiType {
@@ -30,30 +37,150 @@ data class TripStage(
     val endKm: Double,
     val stageKm: Double,
     var stopName: String,
-    var stopType: String, // "SHELTER", "FRI_TELTNING", "CUSTOM"
+    var stopType: String, // "SHELTER", "FRI_TELTNING", "CAMPSITE", "DESTINATION", "NONE"
     var stopLat: Double,
     var stopLng: Double,
     var bookingRequired: Boolean = false,
     var hasWaterNearby: Boolean = false,
-    var hasToiletNearby: Boolean = false
+    var hasToiletNearby: Boolean = false,
+    val startTrailKm: Double = 0.0,
+    val endTrailKm: Double = 0.0,
+    var fromName: String = "",
+    var toName: String = "",
+    var detourMeters: Double = 0.0,
+    var ascentMeters: Double = 0.0,
+    var descentMeters: Double = 0.0,
+    var estimatedWalkMinutes: Int = 0,
+    var waterCount: Int = 0,
+    var shopCount: Int = 0,
+    var sunsetTime: String = "",
+    var isAfterSunset: Boolean = false,
+    var spotId: String? = null,
+    var isWarningNoOvernight: Boolean = false,
+    var warningMessage: String? = null
+) {
+    val startWalkKm: Double get() = startKm
+    val endWalkKm: Double get() = endKm
+
+    fun toEntity(planId: Long): TripStageEntity {
+        return TripStageEntity(
+            planId = planId,
+            dayNumber = dayNumber,
+            startKm = startKm,
+            endKm = endKm,
+            stageKm = stageKm,
+            stopName = stopName,
+            stopType = stopType,
+            stopLat = stopLat,
+            stopLng = stopLng,
+            bookingRequired = bookingRequired,
+            hasWaterNearby = hasWaterNearby,
+            hasToiletNearby = hasToiletNearby,
+            startTrailKm = startTrailKm,
+            endTrailKm = endTrailKm,
+            fromName = fromName,
+            toName = toName,
+            detourMeters = detourMeters,
+            ascentMeters = ascentMeters,
+            descentMeters = descentMeters,
+            estimatedWalkMinutes = estimatedWalkMinutes,
+            waterCount = waterCount,
+            shopCount = shopCount,
+            sunsetTime = sunsetTime,
+            isAfterSunset = isAfterSunset,
+            spotId = spotId,
+            isWarningNoOvernight = isWarningNoOvernight,
+            warningMessage = warningMessage
+        )
+    }
+}
+
+@Entity(
+    tableName = "trip_stages",
+    primaryKeys = ["planId", "dayNumber"]
 )
+data class TripStageEntity(
+    val planId: Long,
+    val dayNumber: Int,
+    val startKm: Double,
+    val endKm: Double,
+    val stageKm: Double,
+    val stopName: String,
+    val stopType: String,
+    val stopLat: Double,
+    val stopLng: Double,
+    val bookingRequired: Boolean = false,
+    val hasWaterNearby: Boolean = false,
+    val hasToiletNearby: Boolean = false,
+    val startTrailKm: Double = 0.0,
+    val endTrailKm: Double = 0.0,
+    val fromName: String = "",
+    val toName: String = "",
+    val detourMeters: Double = 0.0,
+    val ascentMeters: Double = 0.0,
+    val descentMeters: Double = 0.0,
+    val estimatedWalkMinutes: Int = 0,
+    val waterCount: Int = 0,
+    val shopCount: Int = 0,
+    val sunsetTime: String = "",
+    val isAfterSunset: Boolean = false,
+    val spotId: String? = null,
+    val isWarningNoOvernight: Boolean = false,
+    val warningMessage: String? = null
+) {
+    fun toTripStage(): TripStage {
+        return TripStage(
+            dayNumber = dayNumber,
+            startKm = startKm,
+            endKm = endKm,
+            stageKm = stageKm,
+            stopName = stopName,
+            stopType = stopType,
+            stopLat = stopLat,
+            stopLng = stopLng,
+            bookingRequired = bookingRequired,
+            hasWaterNearby = hasWaterNearby,
+            hasToiletNearby = hasToiletNearby,
+            startTrailKm = startTrailKm,
+            endTrailKm = endTrailKm,
+            fromName = fromName,
+            toName = toName,
+            detourMeters = detourMeters,
+            ascentMeters = ascentMeters,
+            descentMeters = descentMeters,
+            estimatedWalkMinutes = estimatedWalkMinutes,
+            waterCount = waterCount,
+            shopCount = shopCount,
+            sunsetTime = sunsetTime,
+            isAfterSunset = isAfterSunset,
+            spotId = spotId,
+            isWarningNoOvernight = isWarningNoOvernight,
+            warningMessage = warningMessage
+        )
+    }
+}
 
 @Entity(tableName = "trails")
 data class TrailEntity(
     @PrimaryKey val id: String,
     val name: String,
     val description: String,
-    val lengthKm: Double,
     val region: String,
-    val elevationGainM: Int,
-    val pointsJson: String, // JSON list of GeoPointDto
-    val bboxNorth: Double,
-    val bboxSouth: Double,
-    val bboxEast: Double,
-    val bboxWest: Double,
+    val parentRegion: String,
     val osmRelationId: Long? = null,
+    val computedWalkingKm: Double = 0.0,
+    val gapsOver200m: Int = 0,
+    val osmTimestamp: String? = null,
+    val bboxNorth: Double? = null,
+    val bboxSouth: Double? = null,
+    val bboxEast: Double? = null,
+    val bboxWest: Double? = null,
+    val isGeometryDownloaded: Boolean = false,
     val lastUpdated: Long = System.currentTimeMillis()
-)
+) {
+    val lengthKm: Double
+        get() = computedWalkingKm
+}
 
 @Entity(tableName = "shelters")
 data class ShelterEntity(
@@ -61,13 +188,13 @@ data class ShelterEntity(
     val name: String,
     val lat: Double,
     val lng: Double,
-    val description: String,
-    val bookingRequired: Boolean,
-    val ownership: String, // "Naturstyrelsen", "Kommune", "Offentlig stiftelse", "Den Danske Naturfond"
-    val capacity: Int,
-    val hasWaterNearby: Boolean,
-    val hasToiletNearby: Boolean,
-    val source: String, // "udinaturen", "bookenshelter", "osm"
+    val description: String? = null,
+    val bookingRequired: Boolean = false,
+    val ownership: String? = null, // "Naturstyrelsen", "Kommune", "Offentlig stiftelse", "Den Danske Naturfond"
+    val capacity: Int? = null,
+    val hasWaterNearby: Boolean = false,
+    val hasToiletNearby: Boolean = false,
+    val source: String = "geofa", // "geofa", "osm"
     val trailCorridorId: String? = null,
     val bookingUrl: String? = null,
     val hasFireRing: Boolean = true,
@@ -78,7 +205,8 @@ data class ShelterEntity(
     val accessibility: String = "Til fods / cykel",
     val shelterType: String = "Klassisk træshelter",
     val hasElectricity: Boolean = false,
-    val dogAllowed: Boolean = true
+    val dogAllowed: Boolean = true,
+    val fetchedAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "fri_teltning")
@@ -88,7 +216,7 @@ data class FriTeltningEntity(
     val centerLat: Double,
     val centerLng: Double,
     val polygonJson: String, // JSON list of GeoPointDto representing boundary
-    val rulesSummary: String,
+    val rulesSummary: String? = null,
     val rulesUrl: String = "https://naturstyrelsen.dk/aktiviteter-i-naturen/overnatning-i-naturen/fri-teltning/",
     val areaHa: Double = 0.0,
     val trailCorridorId: String? = null,
@@ -99,19 +227,37 @@ data class FriTeltningEntity(
     val waterDistanceMeters: Int = 500,
     val toiletDistanceMeters: Int = 800,
     val zoneType: String = "Fri teltningsskov (1-2-3 reglen)",
-    val hammockFriendly: Boolean = true
+    val hammockFriendly: Boolean = true,
+    val source: String = "geofa",
+    val fetchedAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "pois")
 data class PoiEntity(
     @PrimaryKey val id: String,
-    val type: String, // "toilet", "water"
+    val type: String, // "toilet", "water", "shop", "station", "ferry"
     val name: String,
     val lat: Double,
     val lng: Double,
-    val access: String,
+    val access: String? = null,
     val fee: Boolean = false,
-    val trailCorridorId: String? = null
+    val trailCorridorId: String? = null,
+    val openingHours: String? = null,
+    val operator: String? = null,
+    val website: String? = null,
+    val source: String = "geofa",
+    val fetchedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "trail_pois",
+    primaryKeys = ["trailId", "poiId"]
+)
+data class TrailPoiEntity(
+    val trailId: String,
+    val poiId: String,
+    val kmOnRoute: Double,
+    val detourMeters: Double
 )
 
 @Entity(tableName = "trip_plans")
@@ -127,7 +273,10 @@ data class TripPlanEntity(
     val overnightType: String, // TENT, SHELTER, MIXED
     val preferredDailyKm: Double,
     val stagesJson: String, // JSON list of TripStage
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val paceKmh: Double = 4.0,
+    val maxDetourKm: Double = 1.5,
+    val startTime: String = "09:00"
 )
 
 @Entity(tableName = "trip_progress")
@@ -145,49 +294,6 @@ data class TripProgressEntity(
     val lastActiveTimestamp: Long = System.currentTimeMillis()
 )
 
-// --- Trail Surface & Footwear Advisor (New Feature 1) ---
-data class TrailSurfaceStats(
-    val forestSoilPct: Int,    // Skovsti (jord/rødder)
-    val gravelPct: Int,        // Grusvej
-    val asphaltPct: Int,       // Asfalt / cykelsti
-    val sandBeachPct: Int,     // Strand / sand / klit
-    val recommendedFootwear: String, // e.g. "Trail runners anbefales" / "Vandrestøvler med stiv sål"
-    val blisterRisk: String,   // "Lav", "Mellem", "Høj (pga. 28% asfalt)"
-    val footwearTip: String
-)
-
-// --- Resupply & Provisioning Radar (New Feature 4) ---
-enum class ResupplyType {
-    GROCERY,      // Supermarked (Netto, Brugsen, Spar, Coop365)
-    FARM_STALL,   // Vejbod med frugt, grønt, æg, MobilePay
-    BAKERY_CAFE   // Bageri / Café / Kiosk
-}
-
-data class ResupplyPoint(
-    val id: String,
-    val trailId: String,
-    val name: String,
-    val type: ResupplyType,
-    val lat: Double,
-    val lng: Double,
-    val distanceKmFromStart: Double,
-    val openingHours: String,
-    val hasMobilePay: Boolean = true,
-    val description: String
-)
-
-// --- Public Transit Hub Connectors (Enhancement 13) ---
-data class TransitStation(
-    val id: String,
-    val trailId: String,
-    val name: String,
-    val type: String, // "DSB Tog", "Regionalbus"
-    val lat: Double,
-    val lng: Double,
-    val kmAlongTrail: Double,
-    val lines: String
-)
-
 // --- Custom Waypoint / Trail Hazards (Enhancement 7) ---
 enum class HazardType {
     FLOODED_BOARDWALK, // 🌊 Oversvømmet sti/spang
@@ -196,15 +302,16 @@ enum class HazardType {
     TRAIL_DETOUR       // 🚧 Midlertidig omlægning
 }
 
-data class UserHazardNote(
-    val id: String = java.util.UUID.randomUUID().toString(),
+@Entity(tableName = "user_hazard_notes")
+data class UserHazardNoteEntity(
+    @PrimaryKey val id: String = java.util.UUID.randomUUID().toString(),
     val trailId: String,
     val lat: Double,
     val lng: Double,
-    val type: HazardType,
+    val type: String,
     val title: String,
     val description: String,
-    val reportedAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 // --- Trekking Gear Checklist (Enhancement 15) ---
@@ -217,12 +324,36 @@ data class GearChecklistItem(
     var isChecked: Boolean = false
 )
 
-// --- Danish 112 SOS & Red Rescue Post (Enhancement 14) ---
+// --- Danish 112 SOS (Enhancement 14) ---
 data class DanishEmergencyInfo(
     val decimalCoords: String,
-    val spokenWgs84: String,       // e.g. "55 grader 03 minutter 42 sekunder Nord, 10 grader 36 minutter 18 sekunder Øst"
-    val nearestRedPostCode: String,// e.g. "K104"
-    val nearestRedPostLocation: String, // e.g. "Svanninge Bjerge Vest, stiudmunding"
-    val distanceToPostMeters: Int
+    val spokenWgs84: String        // e.g. "55 grader 03 minutter 42 sekunder Nord, 10 grader 36 minutter 18 sekunder Øst"
+)
+
+@Entity(tableName = "downloaded_trails")
+data class DownloadedTrailEntity(
+    @PrimaryKey val trailId: String,
+    val trailName: String,
+    val downloadedAt: Long = System.currentTimeMillis(),
+    val sizeBytes: Long = 0L,
+    val tileCount: Int = 0,
+    val corridorKm: Double = 1.0,
+    val minZoom: Int = 8,
+    val maxZoom: Int = 16
+)
+
+@Entity(tableName = "saved_trails")
+data class SavedTrailEntity(
+    @PrimaryKey val trailId: String,
+    val savedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "trip_gear_items")
+data class TripGearItemEntity(
+    @PrimaryKey val id: String = java.util.UUID.randomUUID().toString(),
+    val planId: Long,
+    val category: String, // "Ly & Søvn", "Vand & Mad", "Sikkerhed & Førstehjælp", "Navigation & Energi", "Beklædning"
+    val title: String,
+    val isPacked: Boolean = false
 )
 
