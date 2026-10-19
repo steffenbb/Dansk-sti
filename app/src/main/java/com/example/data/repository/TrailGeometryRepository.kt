@@ -34,23 +34,49 @@ class TrailGeometryRepository(private val context: Context) {
     private val geometryAdapter = moshi.adapter(TrailGeometryDto::class.java)
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(20, TimeUnit.SECONDS)
         .build()
 
     private val trailsDir: File
         get() = File(context.filesDir, "trails").apply { if (!exists()) mkdirs() }
 
+    val routesDir: File
+        get() = File(context.filesDir, "routes").apply { if (!exists()) mkdirs() }
+
     fun getGeometryFile(trailId: String): File {
         return File(trailsDir, "$trailId.json.gz")
     }
 
+    fun getRouteGeometryFile(routeId: String): File {
+        val cleanId = routeId.removePrefix("custom_route_").removePrefix("route_")
+        return File(routesDir, "$cleanId.json.gz")
+    }
+
     suspend fun isGeometryCached(trailId: String): Boolean = withContext(Dispatchers.IO) {
-        getGeometryFile(trailId).exists()
+        getRouteGeometryFile(trailId).exists() || getGeometryFile(trailId).exists()
     }
 
     suspend fun loadGeometry(trailId: String): TrailGeometryDto? = withContext(Dispatchers.IO) {
+        // 1. Check custom routes directory first
+        val routeFile = getRouteGeometryFile(trailId)
+        if (routeFile.exists()) {
+            try {
+                routeFile.inputStream().use { fis ->
+                    GZIPInputStream(fis).use { gis ->
+                        gis.source().buffer().use { bufferedSource ->
+                            val dto = geometryAdapter.fromJson(bufferedSource)
+                            if (dto != null) return@withContext dto
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("TrailGeometry", "Failed to load cached route geometry for $trailId", e)
+            }
+        }
+
+        // 2. Check trails directory
         val file = getGeometryFile(trailId)
         if (file.exists()) {
             try {
@@ -66,21 +92,6 @@ class TrailGeometryRepository(private val context: Context) {
                 Log.e("TrailGeometry", "Failed to load cached geometry for $trailId", e)
             }
         }
-
-        // Fallback to bundled asset
-        try {
-            context.assets.open("trails/$trailId.json.gz").use { fis ->
-                GZIPInputStream(fis).use { gis ->
-                    gis.source().buffer().use { bufferedSource ->
-                        val dto = geometryAdapter.fromJson(bufferedSource)
-                        if (dto != null) {
-                            saveGeometry(dto)
-                            return@withContext dto
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
 
         null
     }
@@ -100,6 +111,21 @@ class TrailGeometryRepository(private val context: Context) {
         }
     }
 
+    suspend fun saveRouteGeometry(routeId: String, geometry: TrailGeometryDto) = withContext(Dispatchers.IO) {
+        val file = getRouteGeometryFile(routeId)
+        try {
+            file.outputStream().use { fos ->
+                GZIPOutputStream(fos).use { gos ->
+                    gos.sink().buffer().use { bufferedSink ->
+                        geometryAdapter.toJson(bufferedSink, geometry)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("TrailGeometry", "Failed to save route geometry for $routeId", e)
+        }
+    }
+
     suspend fun fetchAndProcessTrail(
         trailId: String,
         trailName: String,
@@ -107,10 +133,18 @@ class TrailGeometryRepository(private val context: Context) {
     ): TrailGeometryDto? = withContext(Dispatchers.IO) {
         val relationId = osmRelationId ?: findRelationByName(trailName) ?: return@withContext null
         val rawElements = mutableMapOf<Long, Map<String, Any>>()
-        downloadRelationRecursive(relationId, rawElements)
+        
+        // 1. Download via direct OSM 0.6 API first (official, canonical, responsive in ~1-2s)
+        downloadRelationDirectOsm(relationId, rawElements)
+
+        // 2. If direct OSM returned no elements, fall back to Overpass mirrors
+        if (rawElements.isEmpty()) {
+            Log.i("TrailGeometry", "Direct OSM API returned no data for relation $relationId ($trailName). Trying Overpass mirrors.")
+            downloadRelationRecursive(relationId, rawElements)
+        }
 
         if (rawElements.isEmpty()) {
-            Log.e("TrailGeometry", "No elements downloaded for relation $relationId ($trailName)")
+            Log.e("TrailGeometry", "No elements downloaded for relation $relationId ($trailName) from any source")
             return@withContext null
         }
 
@@ -118,91 +152,197 @@ class TrailGeometryRepository(private val context: Context) {
     }
 
     private fun findRelationByName(name: String): Long? {
+        val cleanName = name.replace(Regex("\\s*\\(.*\\)"), "").trim()
         val query = """
-            [out:json][timeout:60];
-            area["ISO3166-1"="DK"][admin_level=2]->.dk;
-            relation["type"="route"]["route"~"hiking|foot"]["name"~"$name",i](area.dk);
+            [out:json][timeout:10];
+            relation["type"="route"]["route"~"hiking|foot"]["name"~"$cleanName",i](54.5,7.5,58.0,15.5);
             out tags bb;
         """.trimIndent()
 
-        try {
-            val url = "https://overpass-api.de/api/interpreter"
-            val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
-            val request = Request.Builder().url(url).post(body).header("User-Agent", "DanskSti/1.0").build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val jsonStr = response.body?.string() ?: return null
-                val root = moshi.adapter(Map::class.java).fromJson(jsonStr)
-                @Suppress("UNCHECKED_CAST")
-                val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
+        val mirrors = listOf(
+            "https://overpass-api.de/api/interpreter",
+            "https://lz4.overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter"
+        )
 
-                Log.i("TrailGeometry", "=== Overpass search matches for \"$name\" (${elements.size} found) ===")
-                var bestId: Long? = null
-                for (el in elements) {
-                    val id = (el["id"] as? Number)?.toLong()
+        for (url in mirrors) {
+            try {
+                val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
+                val request = Request.Builder().url(url).post(body).header("User-Agent", "DanskSti/1.0").build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use
+                    val jsonStr = response.body?.string() ?: return@use
+                    val root = moshi.adapter(Map::class.java).fromJson(jsonStr)
                     @Suppress("UNCHECKED_CAST")
-                    val tags = el["tags"] as? Map<String, String> ?: emptyMap()
-                    val matchName = tags["name"] ?: ""
-                    val type = tags["type"] ?: ""
-                    val route = tags["route"] ?: ""
-                    val dist = tags["distance"] ?: ""
-                    Log.i("TrailGeometry", "  ID: $id, name: \"$matchName\", type: \"$type\", route: \"$route\", dist: \"$dist\"")
-                    if (bestId == null && id != null) {
-                        bestId = id
+                    val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
+
+                    Log.i("TrailGeometry", "=== Overpass search matches for \"$name\" (${elements.size} found on $url) ===")
+                    for (el in elements) {
+                        val id = (el["id"] as? Number)?.toLong()
+                        @Suppress("UNCHECKED_CAST")
+                        val tags = el["tags"] as? Map<String, String> ?: emptyMap()
+                        val matchName = tags["name"] ?: ""
+                        val type = tags["type"] ?: ""
+                        val route = tags["route"] ?: ""
+                        val dist = tags["distance"] ?: ""
+                        Log.i("TrailGeometry", "  ID: $id, name: \"$matchName\", type: \"$type\", route: \"$route\", dist: \"$dist\"")
+                    }
+                    if (elements.size == 1) {
+                        return (elements[0]["id"] as? Number)?.toLong()
+                    } else {
+                        if (elements.size > 1) {
+                            Log.w("TrailGeometry", "Multiple relation matches (${elements.size}) for \"$name\". Returning null.")
+                        }
+                        return null
                     }
                 }
-                return bestId
+            } catch (e: Exception) {
+                Log.w("TrailGeometry", "Error searching relation for $name on $url: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.e("TrailGeometry", "Error searching relation for $name", e)
-            return null
         }
+        return null
     }
 
     private fun downloadRelationRecursive(relationId: Long, collected: MutableMap<Long, Map<String, Any>>) {
         if (collected.containsKey(relationId)) return
         val query = """
-            [out:json][timeout:180];
+            [out:json][timeout:60];
             relation($relationId);
             out geom;
         """.trimIndent()
 
-        for (attempt in 1..3) {
+        val overpassMirrors = listOf(
+            "https://overpass-api.de/api/interpreter",
+            "https://lz4.overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter"
+        )
+
+        for (url in overpassMirrors) {
             try {
-                val url = "https://overpass-api.de/api/interpreter"
                 val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
                 val request = Request.Builder().url(url).post(body).header("User-Agent", "DanskSti/1.0").build()
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
-                        val jsonStr = response.body?.string() ?: return
+                        val jsonStr = response.body?.string() ?: return@use
                         @Suppress("UNCHECKED_CAST")
                         val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
                         @Suppress("UNCHECKED_CAST")
                         val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
-                        for (el in elements) {
-                            val id = (el["id"] as? Number)?.toLong()
-                            val type = el["type"] as? String
-                            if (id != null && type == "relation") {
-                                collected[id] = el
-                                @Suppress("UNCHECKED_CAST")
-                                val members = el["members"] as? List<Map<String, Any>> ?: emptyList()
-                                for (m in members) {
-                                    val mType = m["type"] as? String
-                                    val mRef = (m["ref"] as? Number)?.toLong()
-                                    if (mType == "relation" && mRef != null) {
-                                        downloadRelationRecursive(mRef, collected)
+                        if (elements.isNotEmpty()) {
+                            for (el in elements) {
+                                val id = (el["id"] as? Number)?.toLong()
+                                val type = el["type"] as? String
+                                if (id != null && type == "relation") {
+                                    collected[id] = el
+                                    @Suppress("UNCHECKED_CAST")
+                                    val members = el["members"] as? List<Map<String, Any>> ?: emptyList()
+                                    for (m in members) {
+                                        val mType = m["type"] as? String
+                                        val mRef = (m["ref"] as? Number)?.toLong()
+                                        if (mType == "relation" && mRef != null) {
+                                            downloadRelationRecursive(mRef, collected)
+                                        }
                                     }
                                 }
                             }
+                            return
                         }
-                        return
                     }
                 }
             } catch (e: Exception) {
-                Log.w("TrailGeometry", "Attempt $attempt failed for relation $relationId: ${e.message}")
-                if (attempt == 3) return
-                Thread.sleep((attempt * 2000).toLong())
+                Log.w("TrailGeometry", "Overpass mirror $url failed for relation $relationId: ${e.message}")
             }
+        }
+    }
+
+    private fun downloadRelationDirectOsm(relationId: Long, collected: MutableMap<Long, Map<String, Any>>) {
+        if (collected.containsKey(relationId)) return
+        val url = "https://api.openstreetmap.org/api/0.6/relation/$relationId/full.json"
+        try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "DanskSti/1.0")
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w("TrailGeometry", "Direct OSM API returned ${response.code} for relation $relationId")
+                    return
+                }
+                val jsonStr = response.body?.string() ?: return
+                @Suppress("UNCHECKED_CAST")
+                val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
+                @Suppress("UNCHECKED_CAST")
+                val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
+
+                val nodeMap = mutableMapOf<Long, Map<String, Double>>()
+                val wayMap = mutableMapOf<Long, MutableMap<String, Any>>()
+                val relMap = mutableMapOf<Long, MutableMap<String, Any>>()
+
+                for (el in elements) {
+                    val id = (el["id"] as? Number)?.toLong() ?: continue
+                    val type = el["type"] as? String
+                    when (type) {
+                        "node" -> {
+                            val lat = (el["lat"] as? Number)?.toDouble() ?: 0.0
+                            val lon = (el["lon"] as? Number)?.toDouble() ?: 0.0
+                            nodeMap[id] = mapOf("lat" to lat, "lon" to lon)
+                        }
+                        "way" -> {
+                            wayMap[id] = el.toMutableMap()
+                        }
+                        "relation" -> {
+                            relMap[id] = el.toMutableMap()
+                        }
+                    }
+                }
+
+                // Resolve way node coordinates into inline geometry
+                for ((_, way) in wayMap) {
+                    @Suppress("UNCHECKED_CAST")
+                    val nodeRefs = (way["nodes"] as? List<Number>)?.map { it.toLong() } ?: emptyList()
+                    val wayGeom = nodeRefs.mapNotNull { nodeMap[it] }
+                    way["geometry"] = wayGeom
+                }
+
+                val currentRel = relMap[relationId] ?: return
+                @Suppress("UNCHECKED_CAST")
+                val rawMembers = currentRel["members"] as? List<Map<String, Any>> ?: emptyList()
+                val resolvedMembers = mutableListOf<Map<String, Any>>()
+                val childRelIds = mutableListOf<Long>()
+
+                for (m in rawMembers) {
+                    val mType = m["type"] as? String
+                    val mRef = (m["ref"] as? Number)?.toLong()
+                    if (mType == "way" && mRef != null) {
+                        val fullWay = wayMap[mRef]
+                        val memberCopy = m.toMutableMap()
+                        if (fullWay != null) {
+                            @Suppress("UNCHECKED_CAST")
+                            val geom = fullWay["geometry"] as? List<Map<String, Double>> ?: emptyList()
+                            memberCopy["geometry"] = geom
+                            @Suppress("UNCHECKED_CAST")
+                            val tags = fullWay["tags"] as? Map<String, String> ?: emptyMap()
+                            memberCopy["tags"] = tags
+                        }
+                        resolvedMembers.add(memberCopy)
+                    } else if (mType == "relation" && mRef != null) {
+                        resolvedMembers.add(m)
+                        childRelIds.add(mRef)
+                    } else {
+                        resolvedMembers.add(m)
+                    }
+                }
+
+                currentRel["members"] = resolvedMembers
+                collected[relationId] = currentRel
+
+                // Recursively fetch child relations
+                for (cid in childRelIds) {
+                    downloadRelationDirectOsm(cid, collected)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("TrailGeometry", "Error fetching direct OSM relation $relationId: ${e.message}", e)
         }
     }
 
@@ -277,13 +417,14 @@ class TrailGeometryRepository(private val context: Context) {
             InternalSegment(seg.type, douglasPeucker(seg.points, 4.0).toMutableList())
         }
 
-        // Resample every 100m and fetch elevation from Open-Meteo (Copernicus DEM)
-        val finalSegments = resampleAndFetchElevation(simplifiedMain)
-        val finalSideBranches = resampleAndFetchElevation(simplifiedSide)
+        // Keep Douglas-Peucker (4m) points as route geometry; resample 100m ONLY for elevation lookup
+        val finalSegments = applyElevationToSegments(simplifiedMain)
+        val finalSideBranches = applyElevationToSegments(simplifiedSide)
 
         var totalWalkingKm = 0.0
         var totalAscent = 0.0
         var totalDescent = 0.0
+        var hasElevationData = false
         var minLat = 90.0
         var maxLat = -90.0
         var minLng = 180.0
@@ -294,11 +435,16 @@ class TrailGeometryRepository(private val context: Context) {
                 totalWalkingKm += seg.lengthKm
                 val pts = seg.points
                 for (i in 0 until pts.size - 1) {
-                    val diff = pts[i + 1].ele - pts[i].ele
-                    if (diff > 3.0) {
-                        totalAscent += diff
-                    } else if (diff < -3.0) {
-                        totalDescent += -diff
+                    val e1 = pts[i].ele
+                    val e2 = pts[i + 1].ele
+                    if (e1 != null && e2 != null) {
+                        hasElevationData = true
+                        val diff = e2 - e1
+                        if (diff > 3.0) {
+                            totalAscent += diff
+                        } else if (diff < -3.0) {
+                            totalDescent += -diff
+                        }
                     }
                 }
             }
@@ -320,8 +466,8 @@ class TrailGeometryRepository(private val context: Context) {
             sideBranches = finalSideBranches,
             gaps = gaps,
             totalWalkingKm = roundTo1Decimal(totalWalkingKm),
-            totalAscentM = totalAscent.toInt(),
-            totalDescentM = totalDescent.toInt(),
+            totalAscentM = if (hasElevationData) totalAscent.toInt() else null,
+            totalDescentM = if (hasElevationData) totalDescent.toInt() else null,
             gapsOver200mCount = gapsOver200mCount,
             bboxNorth = if (maxLat > -90.0) maxLat else 56.0,
             bboxSouth = if (minLat < 90.0) minLat else 54.0,
@@ -392,53 +538,74 @@ class TrailGeometryRepository(private val context: Context) {
         return Pair(segments, gaps)
     }
 
-    private fun resampleAndFetchElevation(segments: List<InternalSegment>): List<TrailSegmentDto> {
-        val resampledSegments = mutableListOf<TrailSegmentDto>()
+    /**
+     * Preserves Douglas-Peucker (4m) points as the real route geometry.
+     * Uses 100m resampling ONLY to query elevation from Open-Meteo,
+     * then interpolates elevation onto the real points.
+     * If elevation lookup fails, stores null and never pads with a value.
+     */
+    private fun applyElevationToSegments(segments: List<InternalSegment>): List<TrailSegmentDto> {
+        val resultSegments = mutableListOf<TrailSegmentDto>()
 
         for (seg in segments) {
-            val pts = seg.points
-            if (pts.isEmpty()) continue
+            val realPts = seg.points
+            if (realPts.isEmpty()) continue
 
-            if (seg.type == TrailSegmentType.FERRY || pts.size < 2) {
-                resampledSegments.add(
+            val km = calculateSegmentKm(realPts)
+
+            if (seg.type == TrailSegmentType.FERRY || realPts.size < 2) {
+                resultSegments.add(
                     TrailSegmentDto(
                         type = seg.type,
-                        points = pts.map { GeoPointDto(it.lat, it.lng, 0.0) },
-                        lengthKm = calculateSegmentKm(pts)
+                        points = realPts.map { GeoPointDto(it.lat, it.lng, null) },
+                        lengthKm = km
                     )
                 )
                 continue
             }
 
+            // 1. Resample every 100m ONLY to look up elevation
             val resampled = mutableListOf<GeoPointDto>()
-            resampled.add(pts.first())
-            var accumulatedDist = 0.0
-            val targetInterval = 100.0 // 100 meters
-            var nextTarget = targetInterval
+            val resampledDistances = mutableListOf<Double>()
+            resampled.add(realPts.first())
+            resampledDistances.add(0.0)
 
-            for (i in 0 until pts.size - 1) {
-                val p1 = pts[i]
-                val p2 = pts[i + 1]
-                val d = distanceMeters(p1, p2)
-                var currentSegmentCovered = 0.0
+            var distFromLastSample = 0.0
+            var totalDist = 0.0
+            val targetInterval = 100.0
 
-                while (d > 0.0 && currentSegmentCovered + d >= nextTarget - accumulatedDist) {
-                    val rem = nextTarget - accumulatedDist
-                    val ratio = (rem / d).coerceIn(0.0, 1.0)
+            for (i in 0 until realPts.size - 1) {
+                val p1 = realPts[i]
+                val p2 = realPts[i + 1]
+                val segLen = distanceMeters(p1, p2)
+                if (segLen <= 0.0) continue
+
+                var segPos = 0.0
+                while (distFromLastSample + (segLen - segPos) >= targetInterval) {
+                    val needed = targetInterval - distFromLastSample
+                    segPos += needed
+                    val ratio = (segPos / segLen).coerceIn(0.0, 1.0)
                     val interpLat = p1.lat + ratio * (p2.lat - p1.lat)
                     val interpLng = p1.lng + ratio * (p2.lng - p1.lng)
-                    resampled.add(GeoPointDto(interpLat, interpLng, 0.0))
-                    currentSegmentCovered += rem
-                    accumulatedDist = nextTarget
-                    nextTarget += targetInterval
+                    totalDist += needed
+                    resampled.add(GeoPointDto(interpLat, interpLng, null))
+                    resampledDistances.add(totalDist)
+                    distFromLastSample = 0.0
                 }
-                accumulatedDist += d - currentSegmentCovered
-            }
-            if (resampled.last() != pts.last()) {
-                resampled.add(pts.last())
+                val remaining = segLen - segPos
+                distFromLastSample += remaining
+                totalDist += remaining
             }
 
+            if (resampled.size < 2 || resampled.last() != realPts.last()) {
+                resampled.add(realPts.last())
+                resampledDistances.add(totalDist)
+            }
+
+            // 2. Query Open-Meteo for resampled coordinates
             val elevations = mutableListOf<Double>()
+            var lookupFailed = false
+
             for (chunk in resampled.chunked(100)) {
                 val lats = chunk.joinToString(",") { it.lat.toString() }
                 val lons = chunk.joinToString(",") { it.lng.toString() }
@@ -452,24 +619,40 @@ class TrailGeometryRepository(private val context: Context) {
                                 val root = moshi.adapter(Map::class.java).fromJson(jsonStr)
                                 @Suppress("UNCHECKED_CAST")
                                 val eleList = root?.get("elevation") as? List<Number>
-                                if (eleList != null) {
+                                if (eleList != null && eleList.size == chunk.size) {
                                     for (e in eleList) {
                                         elevations.add(e.toDouble())
                                     }
+                                } else {
+                                    lookupFailed = true
                                 }
+                            } else {
+                                lookupFailed = true
                             }
+                        } else {
+                            lookupFailed = true
                         }
                     }
                 } catch (e: Exception) {
                     Log.w("TrailGeometry", "Elevation fetch failed: ${e.message}")
+                    lookupFailed = true
                 }
+                if (lookupFailed) break
             }
 
-            while (elevations.size < resampled.size) {
-                elevations.add(elevations.lastOrNull() ?: 0.0)
+            if (lookupFailed || elevations.size != resampled.size) {
+                // If elevation lookup fails, store null and never pad with a value
+                resultSegments.add(
+                    TrailSegmentDto(
+                        type = seg.type,
+                        points = realPts.map { GeoPointDto(it.lat, it.lng, null) },
+                        lengthKm = km
+                    )
+                )
+                continue
             }
 
-            // 5-point moving average smoothing
+            // 5-point moving average smoothing on resampled elevations
             val smoothedElevations = mutableListOf<Double>()
             val windowSize = 5
             for (i in elevations.indices) {
@@ -479,53 +662,87 @@ class TrailGeometryRepository(private val context: Context) {
                 smoothedElevations.add(avg)
             }
 
-            val finalPts = resampled.indices.map { i ->
-                GeoPointDto(resampled[i].lat, resampled[i].lng, smoothedElevations.getOrElse(i) { 0.0 })
+            // 3. Interpolate elevation onto the real Douglas-Peucker points
+            val realDistances = DoubleArray(realPts.size)
+            var curDist = 0.0
+            realDistances[0] = 0.0
+            for (i in 0 until realPts.size - 1) {
+                curDist += distanceMeters(realPts[i], realPts[i + 1])
+                realDistances[i + 1] = curDist
             }
 
-            val km = calculateSegmentKm(finalPts)
-            resampledSegments.add(TrailSegmentDto(type = seg.type, points = finalPts, lengthKm = km))
+            var rIdx = 0
+            val finalRealPoints = realPts.mapIndexed { idx, pt ->
+                val d = realDistances[idx]
+                while (rIdx < resampledDistances.size - 2 && resampledDistances[rIdx + 1] < d) {
+                    rIdx++
+                }
+                val d0 = resampledDistances[rIdx]
+                val d1 = resampledDistances[rIdx + 1]
+                val span = d1 - d0
+                val ratio = if (span > 0.0) ((d - d0) / span).coerceIn(0.0, 1.0) else 0.0
+                val ele = if (smoothedElevations.isNotEmpty()) {
+                    val e0 = smoothedElevations.getOrElse(rIdx) { smoothedElevations.last() }
+                    val e1 = smoothedElevations.getOrElse(rIdx + 1) { e0 }
+                    e0 + ratio * (e1 - e0)
+                } else null
+                GeoPointDto(pt.lat, pt.lng, ele)
+            }
+
+            resultSegments.add(TrailSegmentDto(type = seg.type, points = finalRealPoints, lengthKm = km))
         }
 
-        return resampledSegments
+        return resultSegments
     }
 
     private fun douglasPeucker(points: List<GeoPointDto>, epsilon: Double): List<GeoPointDto> {
         if (points.size <= 2) return points
-        var dMax = 0.0
-        var index = 0
-        val a = points.first()
-        val b = points.last()
+        val keep = BooleanArray(points.size) { false }
+        keep[0] = true
+        keep[points.size - 1] = true
 
-        val dx = (b.lng - a.lng) * cos(Math.toRadians((a.lat + b.lat) / 2)) * 111320.0
-        val dy = (b.lat - a.lat) * 110540.0
-        val denom = dx * dx + dy * dy
+        val stack = java.util.ArrayDeque<Pair<Int, Int>>()
+        stack.push(0 to points.size - 1)
 
-        for (i in 1 until points.size - 1) {
-            val p = points[i]
-            val d = if (denom == 0.0) {
-                distanceMeters(p, a)
-            } else {
-                val x = (p.lng - a.lng) * cos(Math.toRadians((a.lat + b.lat) / 2)) * 111320.0
-                val y = (p.lat - a.lat) * 110540.0
-                val t = max(0.0, min(1.0, (x * dx + y * dy) / denom))
-                val projLon = a.lng + t * (b.lng - a.lng)
-                val projLat = a.lat + t * (b.lat - a.lat)
-                distanceMeters(p.lat, p.lng, projLat, projLon)
+        while (stack.isNotEmpty()) {
+            val (startIndex, endIndex) = stack.pop()
+            if (endIndex <= startIndex + 1) continue
+
+            val a = points[startIndex]
+            val b = points[endIndex]
+            val dx = (b.lng - a.lng) * cos(Math.toRadians((a.lat + b.lat) / 2)) * 111320.0
+            val dy = (b.lat - a.lat) * 110540.0
+            val denom = dx * dx + dy * dy
+
+            var dMax = 0.0
+            var maxIdx = startIndex
+
+            for (i in startIndex + 1 until endIndex) {
+                val p = points[i]
+                val d = if (denom == 0.0) {
+                    distanceMeters(p, a)
+                } else {
+                    val x = (p.lng - a.lng) * cos(Math.toRadians((a.lat + b.lat) / 2)) * 111320.0
+                    val y = (p.lat - a.lat) * 110540.0
+                    val t = max(0.0, min(1.0, (x * dx + y * dy) / denom))
+                    val projLon = a.lng + t * (b.lng - a.lng)
+                    val projLat = a.lat + t * (b.lat - a.lat)
+                    distanceMeters(p.lat, p.lng, projLat, projLon)
+                }
+                if (d > dMax) {
+                    maxIdx = i
+                    dMax = d
+                }
             }
-            if (d > dMax) {
-                index = i
-                dMax = d
+
+            if (dMax > epsilon) {
+                keep[maxIdx] = true
+                stack.push(startIndex to maxIdx)
+                stack.push(maxIdx to endIndex)
             }
         }
 
-        return if (dMax > epsilon) {
-            val rec1 = douglasPeucker(points.subList(0, index + 1), epsilon)
-            val rec2 = douglasPeucker(points.subList(index, points.size), epsilon)
-            rec1.dropLast(1) + rec2
-        } else {
-            listOf(a, b)
-        }
+        return points.filterIndexed { index, _ -> keep[index] }
     }
 
     private fun distanceMeters(p1: GeoPointDto, p2: GeoPointDto): Double {

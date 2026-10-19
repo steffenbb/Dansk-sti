@@ -419,13 +419,18 @@ class StagePlannerTest {
             java.io.File("src/main/assets/$relativePath"),
             java.io.File("app/src/main/assets/$relativePath"),
             java.io.File("../app/src/main/assets/$relativePath"),
-            java.io.File("../src/main/assets/$relativePath")
+            java.io.File("../src/main/assets/$relativePath"),
+            java.io.File("src/test/resources/$relativePath"),
+            java.io.File("app/src/test/resources/$relativePath"),
+            java.io.File("../app/src/test/resources/$relativePath")
         )
         for (f in candidates) {
             if (f.exists()) return f.inputStream()
         }
         val clStream = javaClass.classLoader?.getResourceAsStream("assets/$relativePath")
             ?: javaClass.getResourceAsStream("/assets/$relativePath")
+            ?: javaClass.classLoader?.getResourceAsStream(relativePath)
+            ?: javaClass.getResourceAsStream("/$relativePath")
         if (clStream != null) return clStream
         throw java.io.FileNotFoundException("Could not find asset $relativePath in $candidates")
     }
@@ -459,9 +464,7 @@ class StagePlannerTest {
             if (i > 0) {
                 val prev = pointsToUse[i - 1]
                 val d = GeoUtils.distanceMeters(prev.lat, prev.lng, pt.lat, pt.lng)
-                if (d <= 8000.0) {
-                    cumWalkM += d
-                }
+                cumWalkM += d
             }
             routePoints.add(
                 RoutePoint(

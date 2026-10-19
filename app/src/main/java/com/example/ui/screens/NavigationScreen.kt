@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Wc
@@ -62,11 +63,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.ui.navigation.NavigationMapOverlayManager
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -119,15 +125,37 @@ fun NavigationScreen(
     val nextToilet by viewModel.nextToilet.collectAsState()
     val nextShop by viewModel.nextShop.collectAsState()
     val aheadItems by viewModel.aheadItems.collectAsState()
-    val routePoints by viewModel.routePoints.collectAsState()
+    val plannedRoute by viewModel.plannedRoute.collectAsState()
     val isBatterySaverMode by viewModel.isBatterySaverMode.collectAsState()
     val showSosSheet by viewModel.showSosSheet.collectAsState()
     val emergencyInfo by viewModel.emergencyInfo.collectAsState()
 
+    // Phase 7a: Recorded GPS Track & Day stats
+    val allRecordedDayStats by viewModel.allRecordedDayStats.collectAsState()
+    val currentDayStat by viewModel.currentDayStat.collectAsState()
+
     var isDrawerExpanded by remember { mutableStateOf(false) }
     var isFollowingUser by remember { mutableStateOf(true) }
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+    var overlayManagerRef by remember { mutableStateOf<NavigationMapOverlayManager?>(null) }
     val isDark = isSystemInDarkTheme()
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, mapViewRef) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> mapViewRef?.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapViewRef?.onPause()
+                Lifecycle.Event.ON_DESTROY -> mapViewRef?.onDetach()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            mapViewRef?.onDetach()
+        }
+    }
 
     BackHandler {
         onBack()
@@ -255,39 +283,109 @@ fun NavigationScreen(
                             }
                         }
                     }
+
+                    // Recorded day stats in battery saver mode (Phase 7a)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val movSecs = currentDayStat?.movingTimeSeconds ?: 0L
+                            Text(
+                                text = formatMovingTime(movSecs),
+                                color = Color.White,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Aktiv tid",
+                                color = Color.Gray,
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val ascent = currentDayStat?.ascentMeters ?: 0
+                            Text(
+                                text = "+$ascent m",
+                                color = ForestGreenLight,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Stigning",
+                                color = Color.Gray,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
                 }
 
-                // Bottom row: Small red SOS button & Emergency Coords
+                // Bottom row: Small red SOS button, Share position & Emergency Coords
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Small red SOS button
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = AlertRed,
-                        modifier = Modifier
-                            .clickable { viewModel.setSosSheet(true) }
-                            .testTag("battery_mode_sos_button")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        // Small red SOS button
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = AlertRed,
+                            modifier = Modifier
+                                .clickable { viewModel.setSosSheet(true) }
+                                .testTag("battery_mode_sos_button")
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Call,
-                                contentDescription = "SOS Nødkald",
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "SOS 112",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Call,
+                                    contentDescription = "SOS Nødkald",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "SOS 112",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Share position button (Phase 7d)
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF222222),
+                            border = BorderStroke(1.dp, Color(0xFF444444)),
+                            modifier = Modifier
+                                .clickable { viewModel.shareCurrentLocation(context) }
+                                .testTag("battery_mode_share_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Del position",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
 
@@ -313,33 +411,33 @@ fun NavigationScreen(
                         zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
                         DanskStiTileSource.applyTo(this, isDark)
                         controller.setZoom(15.0)
+
+                        setOnTouchListener { _, event ->
+                            if (event.action == android.view.MotionEvent.ACTION_DOWN ||
+                                event.action == android.view.MotionEvent.ACTION_MOVE
+                            ) {
+                                isFollowingUser = false
+                            }
+                            false
+                        }
+
+                        val mgr = NavigationMapOverlayManager(
+                            mapView = this,
+                            context = ctx,
+                            onSelectPoi = { /* POI clicked */ }
+                        )
+                        overlayManagerRef = mgr
                     }
                 },
                 update = { mapView ->
                     DanskStiTileSource.applyTo(mapView, isDark)
 
-                    // Draw route line
-                    if (routePoints.isNotEmpty()) {
-                        mapView.overlays.removeAll { it is Polyline }
-                        val polyline = Polyline(mapView).apply {
-                            setPoints(routePoints.map { GeoPoint(it.lat, it.lng) })
-                            outlinePaint.color = AndroidColor.rgb(35, 83, 63)
-                            outlinePaint.strokeWidth = 10f
-                            outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
-                        }
-                        mapView.overlays.add(0, polyline)
+                    plannedRoute?.let { route ->
+                        overlayManagerRef?.setPlannedRoute(route)
                     }
 
-                    // Update GPS marker & center
-                    val lat = liveState.currentLat
-                    val lng = liveState.currentLng
-                    if (lat != null && lng != null) {
-                        val userGeo = GeoPoint(lat, lng)
-                        if (isFollowingUser) {
-                            mapView.controller.animateTo(userGeo)
-                        }
-                    }
-                    mapView.invalidate()
+                    overlayManagerRef?.updateTonightCamp(liveState.currentStage, emptyList())
+                    overlayManagerRef?.onLocationTick(liveState, isFollowingUser)
                 },
                 modifier = Modifier
                     .fillMaxSize()
@@ -421,6 +519,21 @@ fun NavigationScreen(
                         )
                     }
 
+                    // Share current location button (Phase 7d)
+                    IconButton(
+                        onClick = { viewModel.shareCurrentLocation(context) },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("nav_share_location_top_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Del min position",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
                     // Red small SOS button
                     Surface(
                         shape = RoundedCornerShape(10.dp),
@@ -437,6 +550,47 @@ fun NavigationScreen(
                             fontWeight = FontWeight.Black,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
+                    }
+                }
+            }
+
+            // 2b. Private Forest Sunset Alert Banner (Phase 10 Requirement D)
+            liveState.privateForestSunsetWarning?.let { warningText ->
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = AmberAccent.copy(alpha = 0.95f),
+                    shadowElevation = 4.dp,
+                    border = BorderStroke(1.dp, Color.Black.copy(alpha = 0.2f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                        .padding(top = 80.dp, start = 16.dp, end = 16.dp)
+                        .testTag("nav_sunset_warning_banner")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = warningText,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color.Black
+                            )
+                            Text(
+                                text = "I privat skov må du kun færdes på stier fra kl. 06:00 til solnedgang.",
+                                fontSize = 11.sp,
+                                color = Color.Black.copy(alpha = 0.85f)
+                            )
+                        }
                     }
                 }
             }
@@ -459,7 +613,7 @@ fun NavigationScreen(
                         .size(44.dp)
                         .clip(CircleShape)
                         .clickable {
-                            isFollowingUser = !isFollowingUser
+                            isFollowingUser = true
                             val lat = liveState.currentLat
                             val lng = liveState.currentLng
                             if (lat != null && lng != null) {
@@ -669,6 +823,7 @@ fun NavigationScreen(
                             )
 
                             // Elevation profile with current position cursor
+                            val routePoints = plannedRoute?.points?.map { GeoPointDto(it.lat, it.lng, it.ele) } ?: emptyList()
                             ElevationPositionCanvas(
                                 points = routePoints,
                                 progressFraction = if (routePoints.isEmpty()) 0f else (liveState.distanceWalkedTodayKm / (distanceRemainingToday + liveState.distanceWalkedTodayKm).coerceAtLeast(0.1)).toFloat().coerceIn(0f, 1f),
@@ -689,6 +844,166 @@ fun NavigationScreen(
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     aheadItems.take(5).forEach { item ->
                                         AheadItemRow(item = item)
+                                    }
+                                }
+                            }
+
+                            // Phase 7a: Recorded GPS Track & Day Stats Card
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+                                modifier = Modifier.fillMaxWidth().testTag("recorded_day_stats_card")
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Optaget GPS-spor (Dag $currentDay)",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = ForestGreenPrimary.copy(alpha = 0.15f)
+                                        ) {
+                                            Text(
+                                                text = "${currentDayStat?.pointCount ?: 0} punkter",
+                                                fontSize = 11.sp,
+                                                color = ForestGreenPrimary,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // 3 Key Stats: Distance, Moving Time, Ascent
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        // Distance
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Distance",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            val dist = currentDayStat?.distanceKm ?: liveState.distanceWalkedTodayKm
+                                            Text(
+                                                text = "${String.format(Locale.US, "%.1f", dist)} km",
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+
+                                        // Moving time
+                                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(
+                                                text = "Bevægelsestid",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            val movSecs = currentDayStat?.movingTimeSeconds ?: 0L
+                                            Text(
+                                                text = formatMovingTime(movSecs),
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+
+                                        // Ascent
+                                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                                            Text(
+                                                text = "Stigning",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            val ascent = currentDayStat?.ascentMeters ?: 0
+                                            Text(
+                                                text = "+$ascent m",
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ForestGreenPrimary
+                                            )
+                                        }
+                                    }
+
+                                    // GPX Export Buttons (Phase 7a)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { viewModel.exportDayGpx(context, currentDay) },
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1f).testTag("export_day_gpx_button"),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Dags-spor GPX", fontSize = 11.sp, maxLines = 1)
+                                        }
+
+                                        Button(
+                                            onClick = { viewModel.exportWholeTripGpx(context) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1f).testTag("export_whole_trip_gpx_button"),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Hele turen GPX", fontSize = 11.sp, maxLines = 1)
+                                        }
+                                    }
+
+                                    // Del min position button (Phase 7d)
+                                    OutlinedButton(
+                                        onClick = { viewModel.shareCurrentLocation(context) },
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth().testTag("share_current_location_button"),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp), tint = NordicBlue)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Del min aktuelle position (kortlink)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                                    }
+
+                                    // Multi-day history
+                                    if (allRecordedDayStats.size > 1) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Tidligere dages optagede spor:",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        allRecordedDayStats.filter { it.dayNumber != currentDay }.forEach { dayStat ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "Dag ${dayStat.dayNumber}: ${String.format(Locale.US, "%.1f", dayStat.distanceKm)} km · ${formatMovingTime(dayStat.movingTimeSeconds)} · +${dayStat.ascentMeters}m",
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                IconButton(
+                                                    onClick = { viewModel.exportDayGpx(context, dayStat.dayNumber) },
+                                                    modifier = Modifier.size(28.dp).testTag("export_day_${dayStat.dayNumber}_button")
+                                                ) {
+                                                    Icon(Icons.Default.Share, contentDescription = "Eksporter dag ${dayStat.dayNumber}", modifier = Modifier.size(14.dp), tint = ForestGreenPrimary)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -869,8 +1184,11 @@ fun ElevationPositionCanvas(
         Canvas(modifier = Modifier.fillMaxSize().padding(8.dp)) {
             if (points.size < 2) return@Canvas
 
-            val minEle = points.minOf { it.ele }
-            val maxEle = points.maxOf { it.ele }
+            val validElevations = points.mapNotNull { it.ele }
+            if (validElevations.isEmpty()) return@Canvas
+
+            val minEle = validElevations.minOrNull() ?: 0.0
+            val maxEle = validElevations.maxOrNull() ?: 0.0
             val dEle = (maxEle - minEle).coerceAtLeast(10.0)
 
             val step = size.width / (points.size - 1)
@@ -878,7 +1196,8 @@ fun ElevationPositionCanvas(
 
             points.forEachIndexed { i, pt ->
                 val x = i * step
-                val y = ((1.0 - (pt.ele - minEle) / dEle) * size.height).toFloat().coerceIn(0f, size.height)
+                val eleVal = pt.ele ?: minEle
+                val y = ((1.0 - (eleVal - minEle) / dEle) * size.height).toFloat().coerceIn(0f, size.height)
                 if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
 
@@ -891,10 +1210,18 @@ fun ElevationPositionCanvas(
             // Current position dot on profile
             val curX = (size.width * progressFraction).coerceIn(0f, size.width)
             val pointIdx = (progressFraction * (points.size - 1)).toInt().coerceIn(0, points.size - 1)
-            val curEle = points[pointIdx].ele
+            val curEle = points[pointIdx].ele ?: minEle
             val curY = ((1.0 - (curEle - minEle) / dEle) * size.height).toFloat().coerceIn(0f, size.height)
 
             drawCircle(color = NordicBlue, radius = 5.dp.toPx(), center = Offset(curX, curY))
         }
     }
 }
+
+private fun formatMovingTime(seconds: Long): String {
+    if (seconds <= 0L) return "0 min"
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    return if (hours > 0) "${hours}t ${minutes}m" else "${minutes} min"
+}
+

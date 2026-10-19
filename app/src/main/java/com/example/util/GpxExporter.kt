@@ -18,7 +18,8 @@ object GpxExporter {
         stages: List<TripStage>,
         trailPoints: List<GeoPointDto>,
         shelters: List<ShelterEntity> = emptyList(),
-        hazards: List<UserHazardNoteEntity> = emptyList()
+        hazards: List<UserHazardNoteEntity> = emptyList(),
+        customWaypoints: List<com.example.data.model.UserCustomWaypointEntity> = emptyList()
     ): String {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
         val nowIso = dateFormat.format(Date())
@@ -70,6 +71,18 @@ object GpxExporter {
             sb.append("  </wpt>\n")
         }
 
+        // 4. Waypoints: User Custom Waypoints (Phase 12 Feature 6: Mine punkter)
+        customWaypoints.forEach { wp ->
+            sb.append("  <wpt lat=\"${wp.lat}\" lon=\"${wp.lng}\">\n")
+            sb.append("    <name>${escapeXml(wp.name)}</name>\n")
+            if (wp.note.isNotBlank()) {
+                sb.append("    <desc>${escapeXml(wp.note)}</desc>\n")
+            }
+            sb.append("    <sym>Custom</sym>\n")
+            sb.append("    <type>UserWaypoint</type>\n")
+            sb.append("  </wpt>\n")
+        }
+
         // 4. Tracks: Multi-segment by Day if stages exist, or continuous track
         if (stages.isNotEmpty() && trailPoints.isNotEmpty()) {
             stages.forEach { stage ->
@@ -98,6 +111,126 @@ object GpxExporter {
 
         sb.append("</gpx>\n")
         return sb.toString()
+    }
+
+    /**
+     * Phase 7a: Generates GPX for recorded GPS tracks (either a specific day or whole trip).
+     */
+    fun generateRecordedTrackGpx(
+        trailName: String,
+        planId: Long,
+        dayNumber: Int?,
+        points: List<com.example.data.model.RecordedTrackPointEntity>,
+        dayStats: List<com.example.data.model.RecordedDayStatEntity> = emptyList()
+    ): String {
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+        val nowIso = dateFormat.format(Date())
+
+        val sb = StringBuilder()
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+        sb.append("<gpx version=\"1.1\" creator=\"DanskSti - Optaget GPS spor\"\n")
+        sb.append("     xmlns=\"http://www.topografix.com/GPX/1/1\"\n")
+        sb.append("     xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n")
+        sb.append("     xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\n")
+
+        sb.append("  <metadata>\n")
+        val title = if (dayNumber != null) "$trailName - Optaget spor Dag $dayNumber" else "$trailName - Optaget vandretur"
+        sb.append("    <name>${escapeXml(title)}</name>\n")
+        sb.append("    <desc>GPS spor optaget i Dansk Sti appen</desc>\n")
+        sb.append("    <time>$nowIso</time>\n")
+        sb.append("  </metadata>\n\n")
+
+        val grouped = points.groupBy { it.dayNumber }
+        grouped.keys.sorted().forEach { day ->
+            val dayPts = grouped[day] ?: emptyList()
+            val stat = dayStats.find { it.dayNumber == day }
+            val kmStr = stat?.let { String.format(Locale.US, "%.1f km", it.distanceKm) } ?: ""
+            val ascentStr = stat?.let { ", +${it.ascentMeters} m" } ?: ""
+
+            sb.append("  <trk>\n")
+            sb.append("    <name>Dag $day $kmStr$ascentStr</name>\n")
+            sb.append("    <trkseg>\n")
+            dayPts.forEach { pt ->
+                val timeIso = dateFormat.format(Date(pt.timestamp))
+                val eleAttr = if (pt.altitude != null) "\n        <ele>${String.format(Locale.US, "%.1f", pt.altitude)}</ele>" else ""
+                sb.append("      <trkpt lat=\"${pt.lat}\" lon=\"${pt.lng}\">$eleAttr\n        <time>$timeIso</time>\n      </trkpt>\n")
+            }
+            sb.append("    </trkseg>\n")
+            sb.append("  </trk>\n")
+        }
+
+        sb.append("</gpx>\n")
+        return sb.toString()
+    }
+
+    /**
+     * Writes GPX content to a file in cache/exports and shares it via Android Share Sheet using FileProvider.
+     * Mime type: application/gpx+xml
+     */
+    fun exportAndShareGpxFile(
+        context: android.content.Context,
+        fileName: String,
+        gpxContent: String,
+        shareTitle: String
+    ) {
+        try {
+            val exportDir = java.io.File(context.cacheDir, "exports").apply { if (!exists()) mkdirs() }
+            val cleanFileName = if (fileName.endsWith(".gpx")) fileName else "$fileName.gpx"
+            val file = java.io.File(exportDir, cleanFileName)
+            file.writeText(gpxContent, Charsets.UTF_8)
+
+            val authority = "${context.packageName}.fileprovider"
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, authority, file)
+
+            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "application/gpx+xml"
+                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                clipData = android.content.ClipData.newRawUri(shareTitle, uri)
+                putExtra(android.content.Intent.EXTRA_SUBJECT, shareTitle)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = android.content.Intent.createChooser(shareIntent, shareTitle).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            android.util.Log.e("GpxExporter", "Failed to export and share GPX file: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Phase 12 Feature 7: Del rute as both GPX file and plain text summary.
+     */
+    fun exportAndShareGpxWithSummary(
+        context: android.content.Context,
+        fileName: String,
+        gpxContent: String,
+        shareTitle: String,
+        textSummary: String
+    ) {
+        try {
+            val exportDir = java.io.File(context.cacheDir, "exports").apply { if (!exists()) mkdirs() }
+            val file = java.io.File(exportDir, fileName)
+            file.writeText(gpxContent, Charsets.UTF_8)
+
+            val authority = "${context.packageName}.fileprovider"
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, authority, file)
+
+            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "application/gpx+xml"
+                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                putExtra(android.content.Intent.EXTRA_TEXT, textSummary)
+                clipData = android.content.ClipData.newRawUri(shareTitle, uri)
+                putExtra(android.content.Intent.EXTRA_SUBJECT, shareTitle)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = android.content.Intent.createChooser(shareIntent, shareTitle).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            android.util.Log.e("GpxExporter", "Failed to export and share GPX with summary: ${e.message}", e)
+        }
     }
 
     private fun escapeXml(str: String): String {

@@ -63,7 +63,47 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
     private val _selectedTrailForPeek = MutableStateFlow<TrailEntity?>(null)
     val selectedTrailForPeek: StateFlow<TrailEntity?> = _selectedTrailForPeek.asStateFlow()
 
+    // Phase 10: Access Layer (Naturbeskyttelsesloven)
+    private val _isAccessLayerVisible = MutableStateFlow(false)
+    val isAccessLayerVisible: StateFlow<Boolean> = _isAccessLayerVisible.asStateFlow()
+
+    private val _accessPolygons = MutableStateFlow<List<com.example.data.model.access.AccessPolygon>>(emptyList())
+    val accessPolygons: StateFlow<List<com.example.data.model.access.AccessPolygon>> = _accessPolygons.asStateFlow()
+
+    private val _selectedAccessPolygon = MutableStateFlow<com.example.data.model.access.AccessPolygon?>(null)
+    val selectedAccessPolygon: StateFlow<com.example.data.model.access.AccessPolygon?> = _selectedAccessPolygon.asStateFlow()
+
+    fun toggleAccessLayer() {
+        val next = !_isAccessLayerVisible.value
+        _isAccessLayerVisible.value = next
+        if (next && _accessPolygons.value.isEmpty()) {
+            loadAccessPolygons(54.5, 57.8, 8.0, 15.2)
+        }
+    }
+
+    fun selectAccessPolygon(poly: com.example.data.model.access.AccessPolygon?) {
+        _selectedAccessPolygon.value = poly
+    }
+
+    fun loadAccessPolygons(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double) {
+        viewModelScope.launch {
+            try {
+                val polys = repository.getAccessPolygons(minLat, maxLat, minLng, maxLng)
+                _accessPolygons.value = polys
+            } catch (e: Exception) {
+                android.util.Log.w("ExploreViewModel", "Failed to load access polygons: ${e.message}")
+            }
+        }
+    }
+
     init {
+        viewModelScope.launch {
+            try {
+                repository.initializePreseededDataIfEmpty()
+            } catch (e: Exception) {
+                android.util.Log.e("ExploreViewModel", "Failed to initialize preseeded data: ${e.message}", e)
+            }
+        }
         loadOvernightCountsAndGeometries()
     }
 
@@ -72,9 +112,8 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
             allTrails.collect { trails ->
                 if (trails.isNotEmpty()) {
                     withContext(Dispatchers.IO) {
+                        // 1. Immediately calculate and publish overnight counts from local Room DB
                         val countsMap = mutableMapOf<String, TrailOvernightCounts>()
-                        val geomMap = mutableMapOf<String, List<GeoPointDto>>()
-
                         for (trail in trails) {
                             try {
                                 val shelters = repository.getSheltersForTrail(trail.id)
@@ -84,16 +123,25 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                                     friTeltningCount = friTeltning.size
                                 )
                             } catch (_: Exception) {}
-
-                            try {
-                                val pts = repository.getTrailPoints(trail)
-                                if (pts.isNotEmpty()) {
-                                    geomMap[trail.id] = pts
-                                }
-                            } catch (_: Exception) {}
                         }
                         _trailCounts.value = countsMap
-                        _allTrailGeometries.value = geomMap
+
+                        // 2. Populate cached trail geometries (do not flood OSM network on startup)
+                        val currentGeoms = _allTrailGeometries.value.toMutableMap()
+                        for (trail in trails) {
+                            if (currentGeoms.containsKey(trail.id)) continue
+
+                            try {
+                                val geom = repository.getTrailGeometry(trail.id)
+                                val pts = geom?.segments?.flatMap { it.points } ?: emptyList()
+                                if (pts.isNotEmpty()) {
+                                    currentGeoms[trail.id] = pts
+                                    _allTrailGeometries.value = currentGeoms.toMap()
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.w("ExploreViewModel", "Error loading cached points for ${trail.id}: ${e.message}")
+                            }
+                        }
                     }
                 }
             }
@@ -173,5 +221,112 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
 
     fun selectTrailForPeek(trail: TrailEntity?) {
         _selectedTrailForPeek.value = trail
+    }
+
+    // --- Phase 7b: Shelters Near Me (< 10 km) ---
+    private val _nearbySpots = MutableStateFlow<List<com.example.data.model.NearbyOvernightSpot>>(emptyList())
+    val nearbySpots: StateFlow<List<com.example.data.model.NearbyOvernightSpot>> = _nearbySpots.asStateFlow()
+
+    private val _isSearchingNearby = MutableStateFlow(false)
+    val isSearchingNearby: StateFlow<Boolean> = _isSearchingNearby.asStateFlow()
+
+    private val _showNearbySheet = MutableStateFlow(false)
+    val showNearbySheet: StateFlow<Boolean> = _showNearbySheet.asStateFlow()
+
+    fun setShowNearbySheet(show: Boolean) {
+        _showNearbySheet.value = show
+    }
+
+    fun findNearbyOvernights(lat: Double, lng: Double) {
+        viewModelScope.launch {
+            _isSearchingNearby.value = true
+            _showNearbySheet.value = true
+            val spots = repository.getNearbyOvernightSpots(lat, lng, 10.0)
+            _nearbySpots.value = spots
+            _isSearchingNearby.value = false
+        }
+    }
+
+    // --- Phase 13: Map Layers & Marked Routes ---
+    val settingsRepository = com.example.data.local.SettingsRepository(getApplication())
+    val mapLayersState: StateFlow<com.example.data.local.MapLayersState> = settingsRepository.mapLayersFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.local.MapLayersState())
+
+    private val _showLayersSheet = MutableStateFlow(false)
+    val showLayersSheet: StateFlow<Boolean> = _showLayersSheet.asStateFlow()
+
+    private val _selectedMarkedRoute = MutableStateFlow<com.example.data.model.MarkedRouteDto?>(null)
+    val selectedMarkedRoute: StateFlow<com.example.data.model.MarkedRouteDto?> = _selectedMarkedRoute.asStateFlow()
+
+    fun setShowLayersSheet(show: Boolean) {
+        _showLayersSheet.value = show
+    }
+
+    fun selectMarkedRoute(route: com.example.data.model.MarkedRouteDto?) {
+        _selectedMarkedRoute.value = route
+    }
+
+    fun setBaseMap(type: com.example.data.local.BaseMapType) {
+        viewModelScope.launch {
+            settingsRepository.setBaseMap(type)
+        }
+    }
+
+    fun setOverlayMarkedRoutes(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setOverlayMarkedRoutes(enabled)
+        }
+    }
+
+    fun setOverlayAccess(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setOverlayAccess(enabled)
+        }
+    }
+
+    fun setOverlayShelters(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setOverlayShelters(enabled)
+        }
+    }
+
+    fun setOverlayFriTeltning(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setOverlayFriTeltning(enabled)
+        }
+    }
+
+    fun setOverlayWater(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setOverlayWater(enabled)
+        }
+    }
+
+    fun setOverlayToilets(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setOverlayToilets(enabled)
+        }
+    }
+
+    fun setOverlayShops(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setOverlayShops(enabled)
+        }
+    }
+
+    fun setOverlayTransport(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setOverlayTransport(enabled)
+        }
+    }
+
+    fun setOverlayMyPoints(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setOverlayMyPoints(enabled)
+        }
+    }
+
+    suspend fun saveMarkedRouteAsTrail(markedRoute: com.example.data.model.MarkedRouteDto): Result<TrailEntity> {
+        return repository.saveMarkedRouteAsTrail(markedRoute)
     }
 }

@@ -75,7 +75,7 @@ fun DanskStiBottomBar(
     if (isTripActive) {
         items.add(
             NavItem(
-                route = Screen.Navigation.route,
+                route = Screen.Navigation.createRoute(null),
                 label = "Navigér",
                 selectedIcon = Icons.Filled.Navigation,
                 unselectedIcon = Icons.Outlined.Navigation,
@@ -102,7 +102,7 @@ fun DanskStiBottomBar(
         tonalElevation = 6.dp
     ) {
         items.forEach { item ->
-            val isSelected = currentRoute == item.route
+            val isSelected = currentRoute == item.route || (item.route.startsWith("navigation") && currentRoute?.startsWith("navigation") == true)
             NavigationBarItem(
                 selected = isSelected,
                 onClick = { onNavigate(item.route) },

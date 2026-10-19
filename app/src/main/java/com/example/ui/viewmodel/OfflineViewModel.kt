@@ -37,7 +37,7 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 val trail = repository.getTrailById(trailId) ?: return@withContext
-                val points = repository.getTrailPoints(trail)
+                val points = repository.getTrailPoints(trail).flatMap { it.points }
                 val est = OfflineDownloadManager.estimateDownload(points, corridorKm)
                 _currentEstimate.value = est
             }
@@ -51,7 +51,7 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
             withContext(Dispatchers.IO) {
                 try {
                     val trail = repository.getTrailById(trailId) ?: return@withContext
-                    val points = repository.getTrailPoints(trail)
+                    val points = repository.getTrailPoints(trail).flatMap { it.points }
                     val est = OfflineDownloadManager.estimateDownload(points, corridorKm)
 
                     OfflineDownloadManager.enqueueDownload(

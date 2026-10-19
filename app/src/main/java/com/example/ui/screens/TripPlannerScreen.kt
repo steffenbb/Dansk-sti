@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Warning
@@ -72,11 +73,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.OvernightType
 import com.example.data.model.TripStage
-import com.example.ui.MainViewModel
 import com.example.ui.components.StatusChip
 import com.example.ui.theme.AlertRed
 import com.example.ui.theme.AmberAccent
@@ -87,8 +88,11 @@ import com.example.ui.theme.ForestGreenPrimary
 import com.example.ui.theme.ForestSurface
 import com.example.ui.theme.ForestSurfaceVariant
 import com.example.ui.theme.GlassBorderSubtle
+import android.content.Context
+import android.content.Intent
 import com.example.ui.theme.NordicBlue
 import com.example.ui.theme.ShelterBrown
+import com.example.ui.viewmodel.PlannerViewModel
 import com.example.util.OvernightCandidate
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -101,21 +105,22 @@ import kotlin.math.roundToInt
 @Composable
 fun TripPlannerScreen(
     trailId: String = "",
-    viewModel: MainViewModel,
+    viewModel: PlannerViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onBack: () -> Unit = {},
     onStartTrip: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var hasInitiatedLoad by remember(trailId) { mutableStateOf(false) }
+
     LaunchedEffect(trailId) {
         if (trailId.isNotBlank()) {
-            val found = viewModel.allTrails.value.find { it.id == trailId }
-            if (found != null) {
-                viewModel.selectTrail(found)
-            }
+            hasInitiatedLoad = true
+            viewModel.initTrail(trailId)
         }
     }
 
     val trail by viewModel.selectedTrail.collectAsState()
+    val isTrailNotFound by viewModel.isTrailNotFound.collectAsState()
     val startKm by viewModel.plannerStartKm.collectAsState()
     val endKm by viewModel.plannerEndKm.collectAsState()
     val days by viewModel.plannerDays.collectAsState()
@@ -130,6 +135,7 @@ fun TripPlannerScreen(
     val walkDistanceKm by viewModel.plannerWalkDistanceKm.collectAsState()
     val isWalkingReverse by viewModel.isWalkingReverse.collectAsState()
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var candidatePickerStageIndex by remember { mutableStateOf<Int?>(null) }
     var availableCandidates by remember { mutableStateOf<List<OvernightCandidate>>(emptyList()) }
@@ -139,9 +145,112 @@ fun TripPlannerScreen(
         onBack()
     }
 
-    if (trail == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Ingen sti valgt", color = Color.White)
+    val isCurrentTrailLoaded = trail != null && (trailId.isBlank() || trail?.id == trailId)
+
+    if (!isCurrentTrailLoaded) {
+        Scaffold(
+            modifier = modifier.fillMaxSize(),
+            containerColor = ForestDarkBg,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "Turplanlægger",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier.testTag("planner_back_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Tilbage",
+                                tint = Color.White
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = ForestDarkBg)
+                )
+            }
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                if (trailId.isNotBlank() && !isTrailNotFound) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(32.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            color = ForestGreenPrimary,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("planner_loading_indicator")
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Text(
+                            text = "Indlæser rute",
+                            style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Beregner etaper, overnatningssteder og vejr...",
+                            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.7f),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                } else {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Navigation,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = if (trailId.isNotBlank()) "Stien kunne ikke findes" else "Ingen sti valgt",
+                            style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (trailId.isNotBlank()) {
+                                "Den valgte sti kunne ikke indlæses fra databasen."
+                            } else {
+                                "Vælg en sti fra oversigten for at planlægge en tur."
+                            },
+                            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.7f),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = onBack,
+                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Gå tilbage til ruter", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
         }
         return
     }
@@ -185,8 +294,28 @@ fun TripPlannerScreen(
                     }
                 },
                 actions = {
+                    if (stages.isNotEmpty()) {
+                        IconButton(
+                            onClick = {
+                                shareTripPlanAsText(context, currentTrail.name, stages, mitTempo)
+                            },
+                            modifier = Modifier.testTag("share_trip_plan_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Del turplan",
+                                tint = Color.White
+                            )
+                        }
+                    }
+
                     IconButton(
-                        onClick = { viewModel.saveCurrentPlanAndStart(startNavigation = false) },
+                        onClick = {
+                            scope.launch {
+                                viewModel.savePlan()
+                                onBack()
+                            }
+                        },
                         modifier = Modifier.testTag("save_plan_only_button")
                     ) {
                         Icon(
@@ -214,7 +343,12 @@ fun TripPlannerScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     OutlinedButton(
-                        onClick = { viewModel.saveCurrentPlanAndStart(startNavigation = false) },
+                        onClick = {
+                            scope.launch {
+                                viewModel.savePlan()
+                                onBack()
+                            }
+                        },
                         modifier = Modifier
                             .weight(1f)
                             .height(52.dp)
@@ -230,8 +364,10 @@ fun TripPlannerScreen(
 
                     Button(
                         onClick = {
-                            viewModel.requestStartNavigation()
-                            onStartTrip(viewModel.activeTripPlan.value?.id ?: 0L)
+                            scope.launch {
+                                val planId = viewModel.savePlan()
+                                onStartTrip(planId)
+                            }
                         },
                         modifier = Modifier
                             .weight(1.4f)
@@ -699,7 +835,7 @@ fun TripPlannerScreen(
                                 )
                             }
                             Text(
-                                text = "🌇 Solnedgang: ${weather?.sunset ?: "18:50"}",
+                                text = "🌇 Solnedgang: ${weather?.sunset ?: "Solnedgang ukendt"}",
                                 color = AmberAccent,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp
@@ -1177,3 +1313,43 @@ fun StageItemCard(
         }
     }
 }
+
+// Phase 7d: Share trip plan as text
+private fun shareTripPlanAsText(
+    context: Context,
+    trailName: String,
+    stages: List<TripStage>,
+    mitTempo: Double
+) {
+    val totalKm = stages.sumOf { it.stageKm }
+    val days = stages.size
+    val sb = StringBuilder()
+    sb.append("🥾 Min turplan: $trailName\n")
+    sb.append("Samlet distance: ${String.format(Locale.US, "%.1f", totalKm)} km over $days ${if (days == 1) "dag" else "dage"}\n")
+    sb.append("Planlagt tempo: ${String.format(Locale.US, "%.1f", mitTempo)} km/t\n\n")
+    sb.append("📍 Dags-etaper & overnatning:\n")
+    stages.forEach { stage ->
+        val bookStr = if (stage.bookingRequired) " (Kræver booking)" else ""
+        sb.append("• Dag ${stage.dayNumber}: ${String.format(Locale.US, "%.1f", stage.stageKm)} km")
+        if (stage.estimatedWalkMinutes > 0) {
+            val h = stage.estimatedWalkMinutes / 60
+            val m = stage.estimatedWalkMinutes % 60
+            sb.append(" (~${if (h > 0) "${h}t " else ""}${m}m)")
+        }
+        sb.append("\n")
+        sb.append("   Overnatning: ${stage.stopName} [${stage.stopType}]$bookStr\n")
+        if (stage.sunsetTime.isNotBlank()) {
+            sb.append("   Solnedgang: ${stage.sunsetTime}\n")
+        }
+    }
+    sb.append("\nPlanlagt med Dansk Sti")
+
+    val sendIntent = Intent().apply {
+        action = Intent.ACTION_SEND
+        putExtra(Intent.EXTRA_TEXT, sb.toString())
+        putExtra(Intent.EXTRA_SUBJECT, "Turplan: $trailName")
+        type = "text/plain"
+    }
+    context.startActivity(Intent.createChooser(sendIntent, "Del turplan"))
+}
+

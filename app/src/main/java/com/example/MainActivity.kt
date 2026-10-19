@@ -36,7 +36,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.service.NavigationTrackingService
-import com.example.ui.MainViewModel
 import com.example.ui.navigation.DanskStiBottomBar
 import com.example.ui.navigation.Screen
 import com.example.ui.screens.FullscreenMapScreen
@@ -56,8 +55,6 @@ import com.example.ui.viewmodel.TrailViewModel
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-
-    private val mainViewModel: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,7 +80,7 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        DanskStiAppNav(mainViewModel = mainViewModel)
+                        DanskStiAppNav()
 
                         if (showPermissionDialog) {
                             LocationPermissionsDialog(
@@ -102,7 +99,6 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun DanskStiAppNav(
-    mainViewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
     val navController = rememberNavController()
@@ -172,6 +168,21 @@ fun DanskStiAppNav(
                     viewModel = exploreViewModel,
                     onTrailClick = { trailId ->
                         navController.navigate(Screen.TrailDetail.createRoute(trailId))
+                    },
+                    onOpenDiagnostics = {
+                        navController.navigate(Screen.Diagnostics.route)
+                    },
+                    onOpenCredits = {
+                        navController.navigate(Screen.DataCredits.route)
+                    },
+                    onOpenRouteBuilder = { destLat, destLng, destName ->
+                        navController.navigate(
+                            Screen.RouteBuilder.createRoute(
+                                destLat = destLat,
+                                destLng = destLng,
+                                destName = destName
+                            )
+                        )
                     }
                 )
             }
@@ -185,15 +196,34 @@ fun DanskStiAppNav(
                         navController.navigate(Screen.TrailDetail.createRoute(trailId))
                     },
                     onResumeTrip = { planId ->
-                        navController.navigate(Screen.Navigation.route)
+                        navController.navigate(Screen.Navigation.createRoute(planId))
+                    },
+                    onEditCustomRoute = { customRouteId ->
+                        navController.navigate(Screen.RouteBuilder.createRoute(routeId = customRouteId))
+                    },
+                    onNewCustomRoute = {
+                        navController.navigate(Screen.RouteBuilder.createRoute())
                     },
                     onShowSnackbar = showSnackbar
                 )
             }
 
             // 3. Navigér (Navigation Screen)
-            composable(Screen.Navigation.route) {
+            composable(
+                route = Screen.Navigation.route,
+                arguments = listOf(
+                    navArgument("planId") {
+                        type = NavType.LongType
+                        defaultValue = -1L
+                    }
+                )
+            ) { backStackEntry ->
+                val planIdArg = backStackEntry.arguments?.getLong("planId") ?: -1L
+                val planId = if (planIdArg > 0L) planIdArg else null
                 val navViewModel: NavigationViewModel = viewModel()
+                LaunchedEffect(planId) {
+                    navViewModel.initPlan(planId)
+                }
                 NavigationScreen(
                     viewModel = navViewModel,
                     onBack = {
@@ -212,6 +242,9 @@ fun DanskStiAppNav(
                     },
                     onTrailClick = { trailId ->
                         navController.navigate(Screen.TrailDetail.createRoute(trailId))
+                    },
+                    onOpenCredits = {
+                        navController.navigate(Screen.DataCredits.route)
                     }
                 )
             }
@@ -232,14 +265,26 @@ fun DanskStiAppNav(
                     onPlanTrip = { tid ->
                         navController.navigate(Screen.TripPlanner.createRoute(tid))
                     },
-                    onStartNavigation = {
-                        navController.navigate(Screen.Navigation.route)
+                    onStartNavigation = { planId ->
+                        navController.navigate(Screen.Navigation.createRoute(planId))
                     },
                     onOpenFullscreenMap = { tid ->
                         navController.navigate(Screen.FullscreenMap.createRoute(tid))
                     },
                     onDownloadOffline = { tid ->
                         navController.navigate(Screen.Offline.route)
+                    },
+                    onOpenDiagnostics = {
+                        navController.navigate(Screen.Diagnostics.route)
+                    },
+                    onOpenRouteBuilder = { destLat, destLng, destName ->
+                        navController.navigate(
+                            Screen.RouteBuilder.createRoute(
+                                destLat = destLat,
+                                destLng = destLng,
+                                destName = destName
+                            )
+                        )
                     }
                 )
             }
@@ -250,14 +295,15 @@ fun DanskStiAppNav(
                 arguments = listOf(navArgument("trailId") { type = NavType.StringType })
             ) { backStackEntry ->
                 val trailId = backStackEntry.arguments?.getString("trailId") ?: ""
+                val plannerViewModel: com.example.ui.viewmodel.PlannerViewModel = viewModel()
                 TripPlannerScreen(
                     trailId = trailId,
-                    viewModel = mainViewModel,
+                    viewModel = plannerViewModel,
                     onBack = {
                         navController.popBackStack()
                     },
                     onStartTrip = { planId ->
-                        navController.navigate(Screen.Navigation.route) {
+                        navController.navigate(Screen.Navigation.createRoute(planId)) {
                             popUpTo(Screen.Explore.route)
                         }
                     }
@@ -276,6 +322,79 @@ fun DanskStiAppNav(
                     viewModel = trailViewModel,
                     onBack = {
                         navController.popBackStack()
+                    }
+                )
+            }
+
+            // 8. API & Network Diagnostics
+            composable(Screen.Diagnostics.route) {
+                val diagViewModel: com.example.ui.viewmodel.DiagnosticsViewModel = viewModel()
+                com.example.ui.screens.ApiDiagnosticsScreen(
+                    viewModel = diagViewModel,
+                    onBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            // 9. Datakreditter & Licenser (Phase 7e)
+            composable(Screen.DataCredits.route) {
+                com.example.ui.screens.DataCreditsScreen(
+                    onBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            // 10. Rutebygger (Phase 9)
+            composable(
+                route = Screen.RouteBuilder.route,
+                arguments = listOf(
+                    navArgument("routeId") {
+                        type = NavType.LongType
+                        defaultValue = -1L
+                    },
+                    navArgument("destLat") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("destLng") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("destName") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                )
+            ) { backStackEntry ->
+                val rIdArg = backStackEntry.arguments?.getLong("routeId") ?: -1L
+                val rId = if (rIdArg > 0L) rIdArg else null
+                val dLat = backStackEntry.arguments?.getString("destLat")?.toDoubleOrNull()
+                val dLng = backStackEntry.arguments?.getString("destLng")?.toDoubleOrNull()
+                val dNameRaw = backStackEntry.arguments?.getString("destName")
+                val dName = if (!dNameRaw.isNullOrBlank()) {
+                    try { java.net.URLDecoder.decode(dNameRaw, "UTF-8") } catch (_: Exception) { dNameRaw }
+                } else null
+
+                val routeBuilderViewModel: com.example.ui.viewmodel.RouteBuilderViewModel = viewModel()
+                com.example.ui.screens.RouteBuilderScreen(
+                    routeId = rId,
+                    destLat = dLat,
+                    destLng = dLng,
+                    destName = dName,
+                    viewModel = routeBuilderViewModel,
+                    onBack = {
+                        navController.popBackStack()
+                    },
+                    onSavedSuccessfully = {
+                        navController.popBackStack()
+                    },
+                    onPlanStages = { trailRouteId ->
+                        navController.navigate(Screen.TripPlanner.createRoute(trailRouteId))
                     }
                 )
             }

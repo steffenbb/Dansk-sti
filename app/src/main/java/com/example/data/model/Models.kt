@@ -1,6 +1,7 @@
 package com.example.data.model
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.squareup.moshi.JsonClass
 
@@ -8,7 +9,7 @@ import com.squareup.moshi.JsonClass
 data class GeoPointDto(
     val lat: Double,
     val lng: Double,
-    val ele: Double = 0.0
+    val ele: Double? = null
 )
 
 enum class OvernightType {
@@ -229,6 +230,7 @@ data class FriTeltningEntity(
     val zoneType: String = "Fri teltningsskov (1-2-3 reglen)",
     val hammockFriendly: Boolean = true,
     val source: String = "geofa",
+    val cvrNavn: String? = null,
     val fetchedAt: Long = System.currentTimeMillis()
 )
 
@@ -251,13 +253,15 @@ data class PoiEntity(
 
 @Entity(
     tableName = "trail_pois",
-    primaryKeys = ["trailId", "poiId"]
+    primaryKeys = ["trailId", "poiId"],
+    indices = [Index(value = ["routeId"])]
 )
 data class TrailPoiEntity(
     val trailId: String,
     val poiId: String,
     val kmOnRoute: Double,
-    val detourMeters: Double
+    val detourMeters: Double,
+    val routeId: String? = null
 )
 
 @Entity(tableName = "trip_plans")
@@ -356,4 +360,55 @@ data class TripGearItemEntity(
     val title: String,
     val isPacked: Boolean = false
 )
+
+// --- Phase 7a: Recorded GPS Track Points (Accuracy-filtered) ---
+@Entity(
+    tableName = "recorded_track_points",
+    indices = [Index(value = ["planId", "dayNumber", "timestamp"])]
+)
+data class RecordedTrackPointEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+    val planId: Long,
+    val dayNumber: Int,
+    val lat: Double,
+    val lng: Double,
+    val altitude: Double? = null,
+    val accuracy: Float,
+    val speedKmh: Double,
+    val timestamp: Long
+)
+
+// --- Phase 7a: Daily summary of recorded track ---
+@Entity(
+    tableName = "recorded_day_stats",
+    primaryKeys = ["planId", "dayNumber"]
+)
+data class RecordedDayStatEntity(
+    val planId: Long,
+    val dayNumber: Int,
+    val distanceKm: Double = 0.0,
+    val movingTimeSeconds: Long = 0L,
+    val ascentMeters: Int = 0,
+    val pointCount: Int = 0,
+    val lastTimestamp: Long = 0L
+)
+
+// --- Phase 7b: Overnight spots near me (< 10 km) ---
+data class NearbyOvernightSpot(
+    val id: String,
+    val name: String,
+    val type: String, // "SHELTER" or "FRI_TELTNING"
+    val lat: Double,
+    val lng: Double,
+    val distanceMeters: Double,
+    val bookingRequired: Boolean = false,
+    val bookingUrl: String? = null,
+    val hasWaterNearby: Boolean = false,
+    val hasToiletNearby: Boolean = false,
+    val description: String? = null
+) {
+    val distanceKm: Double
+        get() = distanceMeters / 1000.0
+}
+
 

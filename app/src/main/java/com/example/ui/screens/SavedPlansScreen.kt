@@ -31,13 +31,19 @@ import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -81,10 +87,14 @@ fun SavedPlansScreen(
     viewModel: SavedViewModel = viewModel(),
     onTrailClick: (String) -> Unit,
     onResumeTrip: (Long) -> Unit,
+    onEditCustomRoute: (Long) -> Unit = {},
+    onNewCustomRoute: () -> Unit = {},
     onShowSnackbar: (String, String?, () -> Unit) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val savedTrails by viewModel.savedTrails.collectAsState()
+    val customRoutes by viewModel.customRoutes.collectAsState()
     val savedPlans by viewModel.savedPlans.collectAsState()
     val selectedPlanForGear by viewModel.selectedPlanForGear.collectAsState()
     val gearItems by viewModel.gearItems.collectAsState()
@@ -130,7 +140,7 @@ fun SavedPlansScreen(
                 onClick = { selectedTabIndex = 0 },
                 text = {
                     Text(
-                        text = "Gemte ruter (${savedTrails.size})",
+                        text = "Gemte ruter (${savedTrails.size + customRoutes.size})",
                         fontSize = 14.sp,
                         fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium
                     )
@@ -155,7 +165,7 @@ fun SavedPlansScreen(
 
         when (selectedTabIndex) {
             0 -> { // Gemte ruter
-                if (savedTrails.isEmpty()) {
+                if (savedTrails.isEmpty() && customRoutes.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -179,10 +189,20 @@ fun SavedPlansScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Find en rute under Udforsk og tryk på 'Gem' for at se den her.",
+                                text = "Find en rute under Udforsk eller byg din egen rute med Rutebygger.",
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Button(
+                                onClick = onNewCustomRoute,
+                                colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                                modifier = Modifier.testTag("plan_new_route_empty_button")
+                            ) {
+                                Icon(Icons.Default.Route, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Planlæg ny rute")
+                            }
                         }
                     }
                 } else {
@@ -193,12 +213,70 @@ fun SavedPlansScreen(
                         contentPadding = PaddingValues(bottom = 96.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(savedTrails, key = { it.trail.id }) { item ->
-                            SavedTrailCard(
-                                item = item,
-                                onClick = { onTrailClick(item.trail.id) },
-                                onRemove = { viewModel.removeSavedTrail(item.trail.id) }
-                            )
+                        // 1. Egne ruter fra Rutebygger (Phase 9)
+                        if (customRoutes.isNotEmpty()) {
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Egne ruter (${customRoutes.size})",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    TextButton(onClick = onNewCustomRoute) {
+                                        Icon(Icons.Default.Route, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Ny rute", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+
+                            items(customRoutes, key = { "custom_${it.id}" }) { route ->
+                                CustomRouteCard(
+                                    route = route,
+                                    onNavigate = {
+                                        viewModel.startNavigationForCustomRoute(route.id) { planId ->
+                                            onResumeTrip(planId)
+                                        }
+                                    },
+                                    onEdit = { onEditCustomRoute(route.id) },
+                                    onDelete = { viewModel.deleteCustomRoute(route.id) },
+                                    onDownloadOffline = {
+                                        viewModel.downloadCustomRouteOffline(route)
+                                        onShowSnackbar("Henter kortfliser og rute offline...", null) {}
+                                    },
+                                    onExportGpx = {
+                                        viewModel.exportCustomRouteGpx(route)
+                                    }
+                                )
+                            }
+                        }
+
+                        // 2. Standard gemte stier
+                        if (savedTrails.isNotEmpty()) {
+                            if (customRoutes.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        text = "Gemte stier (${savedTrails.size})",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+                                    )
+                                }
+                            }
+
+                            items(savedTrails, key = { it.trail.id }) { item ->
+                                SavedTrailCard(
+                                    item = item,
+                                    onClick = { onTrailClick(item.trail.id) },
+                                    onRemove = { viewModel.removeSavedTrail(item.trail.id) }
+                                )
+                            }
                         }
                     }
                 }
@@ -248,6 +326,7 @@ fun SavedPlansScreen(
                                 plan = plan,
                                 onResume = { onResumeTrip(plan.id) },
                                 onOpenGear = { viewModel.selectPlanForGear(plan) },
+                                onShare = { viewModel.shareTripPlan(context, plan) },
                                 onDelete = {
                                     viewModel.deletePlan(plan.id) { deleted ->
                                         onShowSnackbar(
@@ -433,6 +512,7 @@ fun SavedTripPlanCard(
     plan: TripPlanEntity,
     onResume: () -> Unit,
     onOpenGear: () -> Unit,
+    onShare: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
@@ -450,7 +530,7 @@ fun SavedTripPlanCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Header: Trail name + Delete button
+            // Header: Trail name + Share & Delete buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -470,16 +550,30 @@ fun SavedTripPlanCard(
                     )
                 }
 
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.testTag("delete_plan_${plan.id}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Slet plan",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier.size(20.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onShare,
+                        modifier = Modifier.testTag("share_plan_${plan.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Del turplan",
+                            tint = ForestGreenPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.testTag("delete_plan_${plan.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Slet plan",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 
@@ -601,6 +695,153 @@ fun GearChecklistItemRow(
                 fontWeight = if (item.isPacked) FontWeight.Medium else FontWeight.Normal,
                 color = if (item.isPacked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+fun CustomRouteCard(
+    route: com.example.data.model.CustomRouteEntity,
+    onNavigate: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onDownloadOffline: () -> Unit = {},
+    onExportGpx: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, ForestGreenPrimary.copy(alpha = 0.4f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("custom_route_card_${route.id}")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Route,
+                        contentDescription = null,
+                        tint = ForestGreenPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = route.name,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1
+                    )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onDownloadOffline,
+                        modifier = Modifier.size(28.dp).testTag("download_custom_route_${route.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = "Hent offline",
+                            tint = ForestGreenPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onExportGpx,
+                        modifier = Modifier.size(28.dp).testTag("export_gpx_custom_route_${route.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Del GPX",
+                            tint = ForestGreenPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(28.dp).testTag("delete_custom_route_${route.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Slet rute",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = String.format(
+                    java.util.Locale.GERMANY,
+                    "%.1f km · +%.0f m · %.0f %% sti",
+                    route.totalKm,
+                    route.ascentM,
+                    route.pathSharePct
+                ),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = onEdit,
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.testTag("edit_custom_route_${route.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "Rediger", fontSize = 13.sp)
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Button(
+                    onClick = onNavigate,
+                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    modifier = Modifier.testTag("navigate_custom_route_${route.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Navigation,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "Navigér", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }

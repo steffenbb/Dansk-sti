@@ -21,8 +21,12 @@ class Phase2DataTest {
             assertTrue("Trail ${trail.name} id must start with trail_", trail.id.startsWith("trail_"))
             assertTrue("Trail ${trail.name} must have a name", trail.name.isNotBlank())
             assertTrue("Trail ${trail.name} must have a description", trail.description.isNotBlank())
-            assertNotNull("Trail ${trail.name} must have an osmRelationId", trail.osmRelationId)
-            assertTrue("Trail ${trail.name} osmRelationId must be positive", trail.osmRelationId!! > 0L)
+            if (trail.id !in listOf("trail_camoenoen", "trail_bornholm_kyststi", "trail_amarminoen")) {
+                assertNotNull("Trail ${trail.name} must have an osmRelationId", trail.osmRelationId)
+                assertTrue("Trail ${trail.name} osmRelationId must be positive", trail.osmRelationId!! > 0L)
+            } else {
+                assertTrue("Trail ${trail.name} must have null osmRelationId so it is found by name", trail.osmRelationId == null)
+            }
         }
 
         val ohavsstien = trails.find { it.id == "trail_ohavsstien" }

@@ -6,6 +6,7 @@ import com.example.data.model.GeoPointDto
 import com.example.data.model.PlannedRoute
 import com.example.data.model.RoutePoint
 import com.example.data.model.TrailEntity
+import com.example.data.model.TrailSegmentDto
 import com.example.data.model.TrailSegmentType
 import com.example.data.model.TripStage
 import com.example.util.GeoUtils
@@ -91,22 +92,21 @@ class PlannedRouteRepository(private val context: Context) {
     }
 
     /**
-     * Builds a PlannedRoute from the full trail geometry slice.
-     * Slices the route from startKm to endKm in the direction of walking.
-     * walkKm starts strictly at 0.0.
-     * Maps walkKm <-> trailKm for each point.
-     * Updates stage startKm and endKm to match walkKm.
+     * Builds a PlannedRoute from trail segments.
+     * Keeps segments separate end to end: points carry their real segmentType (WALK/FERRY) and segmentIndex.
+     * Gaps between segments are never counted as walked km.
+     * Stage ends use the walkKm of the camp the stage planner chose, not re-spaced stage lengths.
      */
     fun buildPlannedRoute(
         planId: Long,
         trail: TrailEntity,
-        rawTrailPoints: List<GeoPointDto>,
+        segments: List<TrailSegmentDto>,
         startKm: Double,
         endKm: Double,
         isReverse: Boolean,
         stages: List<TripStage>
     ): PlannedRoute {
-        if (rawTrailPoints.isEmpty()) {
+        if (segments.isEmpty()) {
             return PlannedRoute(
                 planId = planId,
                 trailId = trail.id,
@@ -120,113 +120,91 @@ class PlannedRouteRepository(private val context: Context) {
             )
         }
 
-        // 1. Calculate cumulative trail distance for every raw point along full trail
-        val trailDistances = DoubleArray(rawTrailPoints.size)
+        data class TaggedPoint(
+            val pt: GeoPointDto,
+            val segIdx: Int,
+            val segType: TrailSegmentType,
+            val trailDistKm: Double
+        )
+
+        val taggedPoints = mutableListOf<TaggedPoint>()
         var cumulativeTrailM = 0.0
-        trailDistances[0] = 0.0
-        for (i in 0 until rawTrailPoints.size - 1) {
-            val d = GeoUtils.distanceMeters(
-                rawTrailPoints[i].lat, rawTrailPoints[i].lng,
-                rawTrailPoints[i + 1].lat, rawTrailPoints[i + 1].lng
-            )
-            if (d <= 8000.0) {
-                cumulativeTrailM += d
+
+        for ((sIdx, seg) in segments.withIndex()) {
+            val pts = seg.points
+            if (pts.isEmpty()) continue
+
+            for (i in pts.indices) {
+                if (i > 0) {
+                    val d = GeoUtils.distanceMeters(pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng)
+                    cumulativeTrailM += d
+                }
+                taggedPoints.add(
+                    TaggedPoint(
+                        pt = pts[i],
+                        segIdx = sIdx,
+                        segType = seg.type,
+                        trailDistKm = cumulativeTrailM / 1000.0
+                    )
+                )
             }
-            trailDistances[i + 1] = cumulativeTrailM / 1000.0
         }
 
         val minTargetTrailKm = min(startKm, endKm)
         val maxTargetTrailKm = max(startKm, endKm)
 
-        // Find slice of raw points intersecting [minTargetTrailKm, maxTargetTrailKm]
         var startIdx = 0
-        var endIdx = rawTrailPoints.size - 1
+        var endIdx = taggedPoints.size - 1
 
-        for (i in trailDistances.indices) {
-            if (trailDistances[i] <= minTargetTrailKm) {
+        for (i in taggedPoints.indices) {
+            if (taggedPoints[i].trailDistKm <= minTargetTrailKm) {
                 startIdx = i
             }
-            if (trailDistances[i] >= maxTargetTrailKm) {
+            if (taggedPoints[i].trailDistKm >= maxTargetTrailKm) {
                 endIdx = i
                 break
             }
         }
 
         if (endIdx <= startIdx) {
-            endIdx = min(rawTrailPoints.size - 1, startIdx + 1)
+            endIdx = min(taggedPoints.size - 1, startIdx + 1)
         }
 
-        val slicedRaw = rawTrailPoints.subList(startIdx, endIdx + 1)
-        val slicedTrailDistances = trailDistances.slice(startIdx..endIdx)
+        val sliced = taggedPoints.subList(startIdx, endIdx + 1)
+        val ordered = if (isReverse) sliced.reversed() else sliced
 
-        // If reverse, reverse the sliced points so direction of walking is forward
-        val pointsInWalkOrder = if (isReverse) slicedRaw.reversed() else slicedRaw
-        val trailKmInWalkOrder = if (isReverse) slicedTrailDistances.reversed() else slicedTrailDistances
-
-        // Compute walkKm starting at 0.0
-        val routePoints = ArrayList<RoutePoint>(pointsInWalkOrder.size)
+        // Calculate walkKm starting at 0.0
+        // Gaps across segments are never counted as walked km
+        // Ferry segments are not counted as walked km
+        val routePoints = ArrayList<RoutePoint>(ordered.size)
         var cumulativeWalkM = 0.0
 
-        for (i in pointsInWalkOrder.indices) {
-            val pt = pointsInWalkOrder[i]
+        for (i in ordered.indices) {
+            val cur = ordered[i]
             if (i > 0) {
-                val prev = pointsInWalkOrder[i - 1]
-                val d = GeoUtils.distanceMeters(prev.lat, prev.lng, pt.lat, pt.lng)
-                if (d <= 8000.0) {
+                val prev = ordered[i - 1]
+                if (cur.segIdx == prev.segIdx && cur.segType == TrailSegmentType.WALK) {
+                    val d = GeoUtils.distanceMeters(prev.pt.lat, prev.pt.lng, cur.pt.lat, cur.pt.lng)
                     cumulativeWalkM += d
                 }
             }
             val currentWalkKm = cumulativeWalkM / 1000.0
             routePoints.add(
                 RoutePoint(
-                    lat = pt.lat,
-                    lng = pt.lng,
-                    ele = pt.ele,
+                    lat = cur.pt.lat,
+                    lng = cur.pt.lng,
+                    ele = cur.pt.ele,
                     walkKm = currentWalkKm,
-                    trailKm = trailKmInWalkOrder[i],
-                    segmentType = TrailSegmentType.WALK
+                    trailKm = cur.trailDistKm,
+                    segmentType = cur.segType,
+                    segmentIndex = cur.segIdx
                 )
             )
         }
 
         val totalWalkKm = routePoints.lastOrNull()?.walkKm ?: 0.0
 
-        // Adapt stages to walkKm (Day 1 starts at 0.0)
-        val updatedStages = mutableListOf<TripStage>()
-        var currentWalkStart = 0.0
-
-        for (stage in stages) {
-            val stageLength = max(0.1, stage.stageKm)
-            val stageWalkEnd = min(totalWalkKm, currentWalkStart + stageLength)
-
-            // Approximate corresponding trail km
-            val startRatio = if (totalWalkKm > 0.0) (currentWalkStart / totalWalkKm).coerceIn(0.0, 1.0) else 0.0
-            val endRatio = if (totalWalkKm > 0.0) (stageWalkEnd / totalWalkKm).coerceIn(0.0, 1.0) else 1.0
-
-            val stageStartTrailKm = if (isReverse) {
-                maxTargetTrailKm - startRatio * (maxTargetTrailKm - minTargetTrailKm)
-            } else {
-                minTargetTrailKm + startRatio * (maxTargetTrailKm - minTargetTrailKm)
-            }
-
-            val stageEndTrailKm = if (isReverse) {
-                maxTargetTrailKm - endRatio * (maxTargetTrailKm - minTargetTrailKm)
-            } else {
-                minTargetTrailKm + endRatio * (maxTargetTrailKm - minTargetTrailKm)
-            }
-
-            updatedStages.add(
-                stage.copy(
-                    startKm = currentWalkStart,
-                    endKm = stageWalkEnd,
-                    stageKm = stageWalkEnd - currentWalkStart,
-                    startTrailKm = stageStartTrailKm,
-                    endTrailKm = stageEndTrailKm
-                )
-            )
-            currentWalkStart = stageWalkEnd
-        }
-
+        // Stage ends use the walkKm of the camp the stage planner chose, not re-spaced stage lengths
         return PlannedRoute(
             planId = planId,
             trailId = trail.id,
@@ -236,7 +214,7 @@ class PlannedRouteRepository(private val context: Context) {
             endTrailKm = endKm,
             totalWalkKm = totalWalkKm,
             points = routePoints,
-            stages = updatedStages
+            stages = stages
         )
     }
 

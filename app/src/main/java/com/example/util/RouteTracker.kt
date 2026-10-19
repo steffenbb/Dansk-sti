@@ -261,7 +261,7 @@ class RouteTracker(
         val nextStage = stages.getOrNull(currentDay - 1)
 
         val remainingTripKm = max(0.0, plannedRoute.totalWalkKm - currentWalkKm)
-        val remainingTodayKm = nextStage?.stageKm ?: 15.0
+        val remainingTodayKm = nextStage?.stageKm ?: 0.0
 
         val lastPt = plannedRoute.points.minByOrNull { abs(it.walkKm - currentWalkKm) }
 
@@ -298,6 +298,11 @@ class RouteTracker(
         for (i in 0 until pts.size - 1) {
             val p1 = pts[i]
             val p2 = pts[i + 1]
+
+            // Skip gap between separate segments
+            if (p1.segmentIndex != p2.segmentIndex) {
+                continue
+            }
 
             // Check if segment overlaps [minKm, maxKm]
             val segMinKm = min(p1.walkKm, p2.walkKm)

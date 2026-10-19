@@ -1,0 +1,132 @@
+# DanskSti - Dansk Vandring BRouter Profile
+# Custom hiking profile tailored for Danish outdoor trekking and trails
+
+---context:global
+
+# Global configuration parameters
+assign avoid_roads = 0.5            # 0.0 to 1.0 (scales penalty for motor roads)
+assign prefer_nature = true         # prefer forest and low noise/traffic
+assign allow_ferries = false        # allow ferry routes
+assign consider_elevation = true
+
+# Mild uphill penalty only (Denmark is flat; do not detour for small hills)
+assign uphillcost = 10
+assign downhillcost = 0
+assign uphillcutoff = 3
+assign downhillcutoff = 3
+
+# Routing parameters
+assign validForFoot = 1
+assign cost_of_unknown = 2
+assign turnInstructionMode = 1
+
+---context:way
+
+# Paved vs unpaved surface classification
+assign ispaved = surface=paved|asphalt|concrete|paving_stones
+assign isunpaved = surface=unpaved|compacted|fine_gravel|gravel|ground|dirt|grass|earth|sand
+
+# Sidewalk detection
+assign has_sidewalk = sidewalk=both|left|right|yes|separate
+
+# Hiking route relation check (official BRouter relation tags)
+assign is_hiking_route = or route=hiking ( or route_hiking_iwn=yes ( or route_hiking_nwn=yes ( or route_hiking_rwn=yes ( or route_hiking_lwn=yes ( or route_hiking_=yes ( or route_foot_=yes ( or route_foot_nwn=yes ( or route_foot_rwn=yes route_foot_lwn=yes ) ) ) ) ) ) ) )
+
+# Check if inside forest using estimated_forest_class
+assign is_in_forest = estimated_forest_class=1|2|3|4|5|6
+
+# Forbidden access rules:
+# 1. Motorways and trunks and their links
+assign is_forbidden_motorway = highway=motorway|motorway_link|trunk|trunk_link
+
+# 2. Access restrictions: access=no/private unless foot=yes/designated, or foot=no
+assign is_forbidden_access = switch foot=yes|designated false ( switch foot=no true ( switch access=no|private true false ) )
+
+# 3. Ferries when not allowed
+assign is_forbidden_ferry = and route=ferry ( not allow_ferries )
+
+assign is_forbidden = or is_forbidden_motorway ( or is_forbidden_access is_forbidden_ferry )
+
+# Base cost by highway type
+# Cheapest: path, footway, bridleway; track grade2-grade5; hiking routes
+assign base_cost =
+  if is_forbidden then 100000
+  else if route=ferry then ( if allow_ferries then 2.5 else 100000 )
+  else if highway=path|footway|bridleway then 1.05
+  else if and ( highway=track ) ( tracktype=grade2|grade3|grade4|grade5 ) then 1.15
+  else if highway=track then 1.25
+  else if and ( highway=service ) is_in_forest then 1.30
+  else if highway=living_street|pedestrian then 1.30
+  else if highway=residential then 1.70
+  else if highway=unclassified then 1.80
+  else if highway=service then 1.90
+  else if highway=tertiary|tertiary_link then 2.30
+  else if highway=secondary|secondary_link then 3.80
+  else if highway=primary|primary_link then 5.50
+  else if highway=cycleway then 1.20
+  else if highway=steps then 1.40
+  else if highway= then 100000
+  else cost_of_unknown
+
+# Scaled road avoidance penalty for motorized roads
+# Scale residential/unclassified/tertiary and primary/secondary by avoid_roads (0.0 to 1.0)
+assign road_penalty =
+  if highway=primary|primary_link then ( multiply avoid_roads 12.0 )
+  else if highway=secondary|secondary_link then ( multiply avoid_roads 8.0 )
+  else if highway=tertiary|tertiary_link then ( multiply avoid_roads 4.0 )
+  else if highway=residential|unclassified then ( multiply avoid_roads 2.5 )
+  else if highway=service then ( multiply avoid_roads 1.5 )
+  else 0.0
+
+# Sidewalk discount for roads (slightly cheaper with sidewalk)
+assign sidewalk_discount =
+  if and has_sidewalk ( highway=primary|secondary|tertiary|unclassified|residential ) then -0.30
+  else 0.0
+
+# Surface modifier: unpaved slightly cheaper than paved for hikers
+assign surface_modifier =
+  if isunpaved then -0.10
+  else if ispaved then 0.15
+  else 0.0
+
+# Hiking route bonus: make hiking route relations even cheaper
+assign hiking_route_bonus =
+  if is_hiking_route then -0.20
+  else 0.0
+
+# Nature preference: cheaper with high forest class, more expensive with high noise/traffic
+assign nature_modifier =
+  if not prefer_nature then 0.0
+  else
+    add ( switch estimated_forest_class= 0 switch estimated_forest_class=1 -0.05 switch estimated_forest_class=2 -0.10 switch estimated_forest_class=3 -0.15 switch estimated_forest_class=4 -0.20 switch estimated_forest_class=5 -0.25 switch estimated_forest_class=6 -0.30 0 )
+    add ( switch estimated_noise_class= 0 switch estimated_noise_class=1 0.10 switch estimated_noise_class=2 0.20 switch estimated_noise_class=3 0.35 switch estimated_noise_class=4 0.50 switch estimated_noise_class=5 0.70 switch estimated_noise_class=6 1.00 0 )
+        ( switch estimated_traffic_class= 0 switch estimated_traffic_class=1 0.10 switch estimated_traffic_class=2 0.20 switch estimated_traffic_class=3 0.35 switch estimated_traffic_class=4 0.50 switch estimated_traffic_class=5 0.70 switch estimated_traffic_class=6 1.00 0 )
+
+# Compute final costfactor
+assign costfactor =
+  if is_forbidden then 100000
+  else
+    max 1.0
+      add base_cost
+      add road_penalty
+      add sidewalk_discount
+      add surface_modifier
+      add hiking_route_bonus
+          nature_modifier
+
+# Set uphill and downhill costfactors
+assign uphillcostfactor = costfactor
+assign downhillcostfactor = costfactor
+
+---context:node
+
+assign defaultaccess =
+  switch access= 1
+  switch access=private|no 0 1
+
+assign footaccess =
+  switch foot= defaultaccess
+  switch foot=private|no 0 1
+
+assign initialcost =
+  switch footaccess 0 1000000

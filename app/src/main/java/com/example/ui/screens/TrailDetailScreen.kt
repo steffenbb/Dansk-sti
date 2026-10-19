@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.content.Intent
+import android.net.Uri
 import android.graphics.Color as AndroidColor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Cabin
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DirectionsTransit
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Forest
@@ -39,12 +41,15 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Wc
+import com.example.ui.components.ApiKeyPromptDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -53,6 +58,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
@@ -86,6 +92,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.model.GeoPointDto
 import com.example.data.model.TrailEntity
+import com.example.data.model.TrailGeometryDto
+import com.example.data.model.TrailSegmentDto
+import com.example.data.model.TrailSegmentType
 import com.example.data.remote.TrailWeatherInfo
 import com.example.ui.theme.AmberAccent
 import com.example.ui.theme.ForestGreenLight
@@ -109,14 +118,17 @@ fun TrailDetailScreen(
     viewModel: TrailViewModel = viewModel(),
     onBack: () -> Unit,
     onPlanTrip: (String) -> Unit,
-    onStartNavigation: () -> Unit,
+    onStartNavigation: (Long) -> Unit,
     onOpenFullscreenMap: (String) -> Unit,
     onDownloadOffline: (String) -> Unit,
+    onOpenDiagnostics: () -> Unit = {},
+    onOpenRouteBuilder: (destLat: Double?, destLng: Double?, destName: String?) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val trail by viewModel.trail.collectAsState()
     val points by viewModel.trailPoints.collectAsState()
+    val trailGeometry by viewModel.trailGeometry.collectAsState()
     val overnightSpots by viewModel.overnightSpots.collectAsState()
     val waterAndToilets by viewModel.waterAndToilets.collectAsState()
     val shops by viewModel.shops.collectAsState()
@@ -128,9 +140,23 @@ fun TrailDetailScreen(
     val weatherEnd by viewModel.weatherEnd.collectAsState()
     val isSaved by viewModel.isSaved.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val routeError by viewModel.routeError.collectAsState()
+    val isFetchingLiveRoute by viewModel.isFetchingLiveRoute.collectAsState()
+
+    var showApiKeyPrompt by remember { mutableStateOf(!DanskStiTileSource.hasValidKey && !DanskStiTileSource.userConfirmedOsmFallback) }
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     val isDark = isSystemInDarkTheme()
+
+    if (showApiKeyPrompt) {
+        ApiKeyPromptDialog(
+            onDismiss = { showApiKeyPrompt = false },
+            onUseOsmFallback = {
+                DanskStiTileSource.userConfirmedOsmFallback = true
+                showApiKeyPrompt = false
+            }
+        )
+    }
 
     LaunchedEffect(trailId) {
         viewModel.loadTrail(trailId)
@@ -140,23 +166,43 @@ fun TrailDetailScreen(
         onBack()
     }
 
-    if (trail == null && isLoading) {
+    if (trail == null) {
         Box(
             modifier = modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator(color = ForestGreenPrimary)
-                Spacer(modifier = Modifier.height(12.dp))
-                Text("Henter ruteoplysninger...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (isLoading) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = ForestGreenPrimary)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Henter ruteoplysninger...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(24.dp)
+                ) {
+                    Text(
+                        text = routeError ?: "Ruten blev ikke fundet i databasen.",
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = onBack,
+                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary)
+                    ) {
+                        Text("Gå tilbage")
+                    }
+                }
             }
         }
         return
     }
 
-    val t = trail ?: return
+    val t = trail!!
 
     val totalKm = t.computedWalkingKm
     val estimatedHours = (totalKm / 4.0).toInt()
@@ -193,35 +239,152 @@ fun TrailDetailScreen(
                     DanskStiTileSource.applyTo(mapView, isDark)
                     mapView.overlays.removeAll { it is Polyline }
 
-                    if (points.isNotEmpty()) {
-                        val polyline = Polyline(mapView).apply {
-                            setPoints(points.map { GeoPoint(it.lat, it.lng) })
-                            outlinePaint.color = AndroidColor.rgb(35, 83, 63)
-                            outlinePaint.strokeWidth = 8f
-                            outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                    val segments: List<TrailSegmentDto> = trailGeometry?.segments ?: if (points.isNotEmpty()) listOf(TrailSegmentDto(type = TrailSegmentType.WALK, points = points)) else emptyList()
+                    if (segments.isNotEmpty()) {
+                        for (seg in segments) {
+                            val polyline = Polyline(mapView).apply {
+                                setPoints(seg.points.map { GeoPoint(it.lat, it.lng) })
+                                outlinePaint.color = if (seg.type == TrailSegmentType.FERRY) {
+                                    AndroidColor.rgb(2, 136, 209)
+                                } else {
+                                    AndroidColor.rgb(35, 83, 63)
+                                }
+                                outlinePaint.strokeWidth = if (seg.type == TrailSegmentType.FERRY) 6f else 8f
+                                outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                                if (seg.type == TrailSegmentType.FERRY) {
+                                    outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(15f, 15f), 0f)
+                                }
+                            }
+                            mapView.overlays.add(polyline)
                         }
-                        mapView.overlays.add(polyline)
 
-                        val minLat = points.minOf { it.lat }
-                        val maxLat = points.maxOf { it.lat }
-                        val minLng = points.minOf { it.lng }
-                        val maxLng = points.maxOf { it.lng }
-                        mapView.zoomToBoundingBox(
-                            BoundingBox(maxLat + 0.02, maxLng + 0.02, minLat - 0.02, minLng - 0.02),
-                            false
-                        )
+                        val allSegmentPoints = segments.flatMap { it.points }.filter { it.lat > 10.0 && it.lng > 0.0 }
+                        if (allSegmentPoints.isNotEmpty()) {
+                            val minLat = allSegmentPoints.minOf { it.lat }
+                            val maxLat = allSegmentPoints.maxOf { it.lat }
+                            val minLng = allSegmentPoints.minOf { it.lng }
+                            val maxLng = allSegmentPoints.maxOf { it.lng }
+                            val bbox = BoundingBox(
+                                (maxLat + 0.02).coerceAtMost(85.0),
+                                (maxLng + 0.02).coerceAtMost(180.0),
+                                (minLat - 0.02).coerceAtLeast(-85.0),
+                                (minLng - 0.02).coerceAtLeast(-180.0)
+                            )
+                            if (mapView.width > 0 && mapView.height > 0) {
+                                try {
+                                    mapView.zoomToBoundingBox(bbox, false)
+                                } catch (e: Exception) {
+                                    android.util.Log.w("TrailDetail", "zoomToBoundingBox failed: ${e.message}")
+                                }
+                            } else {
+                                mapView.post {
+                                    try {
+                                        mapView.zoomToBoundingBox(bbox, false)
+                                    } catch (e: Exception) {
+                                        android.util.Log.w("TrailDetail", "zoomToBoundingBox post failed: ${e.message}")
+                                    }
+                                }
+                            }
+                        }
                     }
                     mapView.invalidate()
                 },
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Transparent overlay to capture all gestures and route to fullscreen
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable { onOpenFullscreenMap(trailId) }
-            )
+            // Transparent overlay to capture map tap and route to fullscreen (only when no error is displayed)
+            if (routeError == null || points.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable { onOpenFullscreenMap(trailId) }
+                )
+            }
+
+            // Live fetching indicator from OpenStreetMap
+            if (isFetchingLiveRoute) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = ForestGreenPrimary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Henter live rutedata fra OpenStreetMap...",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+
+            // Error banner overlay when live OSM route fetching fails
+            if (routeError != null && points.isEmpty() && !isLoading && !isFetchingLiveRoute) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(20.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudOff,
+                            contentDescription = "Netværksfejl",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Kunne ikke hente live rutedata",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Tjek internetforbindelsen for at hente ruten fra OpenStreetMap.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = { viewModel.retryLoadRoute() },
+                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                            shape = RoundedCornerShape(20.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                            modifier = Modifier.testTag("retry_osm_route_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Prøv igen", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
 
             // Top action buttons (Back & Fullscreen hint)
             Row(
@@ -250,28 +413,115 @@ fun TrailDetailScreen(
                     }
                 }
 
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        shadowElevation = 4.dp,
+                        modifier = Modifier.clickable { onOpenDiagnostics() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Explore,
+                                contentDescription = "API Status",
+                                tint = ForestGreenPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Netværk",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        shadowElevation = 4.dp,
+                        modifier = Modifier.clickable { onOpenFullscreenMap(trailId) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fullscreen,
+                                contentDescription = "Fuldskærmskort",
+                                tint = ForestGreenPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Fuldskærm",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Live OpenStreetMap loading & status badge on the map
+            val segmentsCount = trailGeometry?.segments?.size ?: 0
+            if (segmentsCount == 0 && isLoading) {
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                    shadowElevation = 4.dp,
-                    modifier = Modifier.clickable { onOpenFullscreenMap(trailId) }
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 12.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Fullscreen,
-                            contentDescription = "Fuldskærmskort",
-                            tint = ForestGreenPrimary,
-                            modifier = Modifier.size(16.dp)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = ForestGreenPrimary
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Fuldskærm",
+                            text = "Henter rutedata live fra OpenStreetMap...",
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            } else if (segmentsCount > 0) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 8.dp, end = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(androidx.compose.ui.graphics.Color(0xFF4CAF50))
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Live OSM • $segmentsCount ${if (segmentsCount == 1) "del" else "dele"}",
+                            fontSize = 11.sp,
+                            color = androidx.compose.ui.graphics.Color.White
                         )
                     }
                 }
@@ -364,15 +614,31 @@ fun TrailDetailScreen(
 
                         RoundActionButton(
                             icon = Icons.Default.Share,
-                            label = "Del",
+                            label = "GPX / Del",
                             tint = MaterialTheme.colorScheme.onSurface,
                             onClick = {
-                                val sendIntent = Intent().apply {
-                                    action = Intent.ACTION_SEND
-                                    putExtra(Intent.EXTRA_TEXT, "Tjek vandreruten ${t.name} ($totalKm km) i Dansk Sti!")
-                                    type = "text/plain"
+                                if (points.isNotEmpty()) {
+                                    val gpxContent = com.example.util.GpxExporter.generateMultiSegmentGpx(
+                                        trail = t,
+                                        plan = null,
+                                        stages = emptyList(),
+                                        trailPoints = points,
+                                        shelters = emptyList()
+                                    )
+                                    com.example.util.GpxExporter.exportAndShareGpxFile(
+                                        context = context,
+                                        fileName = "${t.name.replace(" ", "_")}.gpx",
+                                        gpxContent = gpxContent,
+                                        shareTitle = "Eksporter ${t.name} som GPX"
+                                    )
+                                } else {
+                                    val sendIntent = Intent().apply {
+                                        action = Intent.ACTION_SEND
+                                        putExtra(Intent.EXTRA_TEXT, "Tjek vandreruten ${t.name} ($totalKm km) i Dansk Sti!")
+                                        type = "text/plain"
+                                    }
+                                    context.startActivity(Intent.createChooser(sendIntent, "Del rute"))
                                 }
-                                context.startActivity(Intent.createChooser(sendIntent, "Del rute"))
                             },
                             testTag = "action_share_trail"
                         )
@@ -381,7 +647,13 @@ fun TrailDetailScreen(
                             icon = Icons.Default.Navigation,
                             label = "Navigér",
                             tint = ForestGreenPrimary,
-                            onClick = onStartNavigation,
+                            onClick = {
+                                viewModel.onNavigateClicked(
+                                    trailId = trailId,
+                                    onNavigate = onStartNavigation,
+                                    onOpenPlanner = { onPlanTrip(trailId) }
+                                )
+                            },
                             testTag = "action_navigate_trail"
                         )
                     }
@@ -396,10 +668,12 @@ fun TrailDetailScreen(
                         contentColor = ForestGreenPrimary,
                         edgePadding = 16.dp,
                         indicator = { tabPositions ->
-                            TabRowDefaults.SecondaryIndicator(
-                                Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
-                                color = ForestGreenPrimary
-                            )
+                            if (selectedTabIndex < tabPositions.size) {
+                                TabRowDefaults.SecondaryIndicator(
+                                    Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
+                                    color = ForestGreenPrimary
+                                )
+                            }
                         }
                     ) {
                         tabs.forEachIndexed { index, title ->
@@ -440,20 +714,22 @@ fun TrailDetailScreen(
                                 )
 
                                 // Elevation Profile
-                                Text(
-                                    text = "Højdeprofil",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                ElevationProfileCanvas(
-                                    points = points,
-                                    gainM = elevationGain,
-                                    lossM = elevationLoss,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(130.dp)
-                                )
+                                if (points.any { it.ele != null }) {
+                                    Text(
+                                        text = "Højdeprofil",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    ElevationProfileCanvas(
+                                        points = points,
+                                        gainM = elevationGain,
+                                        lossM = elevationLoss,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(130.dp)
+                                    )
+                                }
 
                                 // Surface Mix
                                 Text(
@@ -686,18 +962,20 @@ fun ElevationProfileCanvas(
             Spacer(modifier = Modifier.height(8.dp))
 
             Canvas(modifier = Modifier.fillMaxSize()) {
-                if (points.size < 2) return@Canvas
+                val elePoints = points.mapNotNull { it.ele }
+                if (elePoints.size < 2) return@Canvas
 
-                val minEle = points.minOf { it.ele }
-                val maxEle = points.maxOf { it.ele }
+                val minEle = elePoints.minOrNull() ?: 0.0
+                val maxEle = elePoints.maxOrNull() ?: 0.0
                 val dEle = (maxEle - minEle).coerceAtLeast(10.0)
 
                 val step = size.width / (points.size - 1)
                 val path = Path()
 
                 points.forEachIndexed { i, pt ->
+                    val ele = pt.ele ?: minEle
                     val x = i * step
-                    val y = ((1.0 - (pt.ele - minEle) / dEle) * size.height).toFloat().coerceIn(0f, size.height)
+                    val y = ((1.0 - (ele - minEle) / dEle) * size.height).toFloat().coerceIn(0f, size.height)
                     if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 }
 
@@ -713,9 +991,13 @@ fun ElevationProfileCanvas(
 
 @Composable
 fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
-    val stiPct = surfaceMix["Sti"] ?: 70
-    val grusPct = surfaceMix["Grus"] ?: 20
-    val asfaltPct = surfaceMix["Asfalt"] ?: 10
+    val stiPct = (surfaceMix["Sti"] ?: 70).coerceAtLeast(0)
+    val grusPct = (surfaceMix["Grus"] ?: 20).coerceAtLeast(0)
+    val asfaltPct = (surfaceMix["Asfalt"] ?: 10).coerceAtLeast(0)
+
+    val validSti = if (stiPct > 0) stiPct.toFloat() else 0.001f
+    val validGrus = if (grusPct > 0) grusPct.toFloat() else 0.001f
+    val validAsfalt = if (asfaltPct > 0) asfaltPct.toFloat() else 0.001f
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -726,17 +1008,17 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
         ) {
             Box(
                 modifier = Modifier
-                    .weight(stiPct.toFloat())
+                    .weight(validSti)
                     .background(ForestGreenPrimary)
             )
             Box(
                 modifier = Modifier
-                    .weight(grusPct.toFloat())
+                    .weight(validGrus)
                     .background(AmberAccent)
             )
             Box(
                 modifier = Modifier
-                    .weight(asfaltPct.toFloat())
+                    .weight(validAsfalt)
                     .background(Color.Gray)
             )
         }
@@ -766,6 +1048,7 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
 
 @Composable
 fun OvernightSpotCard(spot: OvernightSpotItem) {
+    val context = LocalContext.current
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -774,67 +1057,114 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = if (spot.type == "SHELTER") ForestGreenPrimary.copy(alpha = 0.15f) else AmberAccent.copy(alpha = 0.15f),
-                modifier = Modifier.size(40.dp)
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = if (spot.type == "SHELTER") Icons.Default.Cabin else Icons.Default.Forest,
-                        contentDescription = null,
-                        tint = if (spot.type == "SHELTER") ForestGreenPrimary else AmberAccent,
-                        modifier = Modifier.size(20.dp)
-                    )
+                Surface(
+                    shape = CircleShape,
+                    color = if (spot.type == "SHELTER") ForestGreenPrimary.copy(alpha = 0.15f) else AmberAccent.copy(alpha = 0.15f),
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (spot.type == "SHELTER") Icons.Default.Cabin else Icons.Default.Forest,
+                            contentDescription = null,
+                            tint = if (spot.type == "SHELTER") ForestGreenPrimary else AmberAccent,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(12.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = spot.name,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = if (spot.detourMeters > 50) "${spot.detourMeters.toInt()}m afstikker" else "Direkte på ruten",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (spot.bookingRequired) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Booking påkrævet",
-                        fontSize = 11.sp,
-                        color = AmberAccent,
-                        fontWeight = FontWeight.Medium
+                        text = spot.name,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (spot.detourMeters > 50) "${spot.detourMeters.toInt()}m afstikker" else "Direkte på ruten",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (spot.bookingRequired) {
+                        Text(
+                            text = "Kræver booking",
+                            fontSize = 12.sp,
+                            color = AmberAccent,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        text = "km ${String.format(Locale.US, "%.1f", spot.kmOnRoute)}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ForestGreenPrimary,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
             }
 
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant
-            ) {
-                Text(
-                    text = "km ${String.format(Locale.US, "%.1f", spot.kmOnRoute)}",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = ForestGreenPrimary,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
+            // Phase 7c: Booking action if required
+            if (spot.bookingRequired) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Tjek ledighed hos udbyder",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    val targetUrl = if (!spot.bookingUrl.isNullOrBlank()) {
+                        spot.bookingUrl
+                    } else {
+                        "https://udinaturen.dk/soeg?q=${android.net.Uri.encode(spot.name)}"
+                    }
+                    val buttonLabel = if (!spot.bookingUrl.isNullOrBlank()) "Åbn booking" else "Book via udinaturen.dk"
+
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                android.util.Log.e("TrailDetail", "Cannot open booking URL: ${e.message}")
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AmberAccent),
+                        border = BorderStroke(1.dp, AmberAccent),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(34.dp).testTag("shelter_booking_button_${spot.id}")
+                    ) {
+                        Text(text = buttonLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-fun PoiItemCard(poi: PoiSpotItem) {
+fun PoiItemCard(
+    poi: PoiSpotItem,
+    onRouteHerTil: (() -> Unit)? = null
+) {
     val icon = when (poi.type) {
         "water" -> Icons.Default.LocalDrink
         "toilet" -> Icons.Default.Wc
@@ -884,6 +1214,20 @@ fun PoiItemCard(poi: PoiSpotItem) {
                 fontWeight = FontWeight.SemiBold,
                 color = ForestGreenPrimary
             )
+            if (onRouteHerTil != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(
+                    onClick = onRouteHerTil,
+                    modifier = Modifier.size(32.dp).testTag("poi_route_here_${poi.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Route,
+                        contentDescription = "Rute hertil",
+                        tint = ForestGreenPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }

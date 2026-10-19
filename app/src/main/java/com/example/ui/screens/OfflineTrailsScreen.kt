@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -69,6 +70,7 @@ fun OfflineTrailsScreen(
     viewModel: OfflineViewModel = viewModel(),
     onBack: () -> Unit,
     onTrailClick: (String) -> Unit,
+    onOpenCredits: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val downloadedTrails by viewModel.downloadedTrails.collectAsState()
@@ -114,6 +116,18 @@ fun OfflineTrailsScreen(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Tilbage",
                             tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = onOpenCredits,
+                        modifier = Modifier.testTag("offline_credits_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "Datakreditter & Kilder",
+                            tint = ForestGreenPrimary
                         )
                     }
                 },

@@ -6,10 +6,11 @@ import com.squareup.moshi.JsonClass
 data class RoutePoint(
     val lat: Double,
     val lng: Double,
-    val ele: Double = 0.0,
+    val ele: Double? = null,
     val walkKm: Double,       // Distance from planned route start (0.0 to totalWalkKm)
     val trailKm: Double,      // Original distance along full trail
-    val segmentType: TrailSegmentType = TrailSegmentType.WALK
+    val segmentType: TrailSegmentType = TrailSegmentType.WALK,
+    val segmentIndex: Int = 0
 )
 
 @JsonClass(generateAdapter = true)
@@ -40,7 +41,7 @@ data class PlannedRoute(
         for (i in 0 until points.size - 1) {
             val a = points[i]
             val b = points[i + 1]
-            if (com.example.util.GeoUtils.distanceMeters(a.lat, a.lng, b.lat, b.lng) > 8000.0) continue
+            if (a.segmentIndex != b.segmentIndex) continue
             val midLatRad = Math.toRadians((a.lat + lat) / 2.0)
             val cosLat = Math.cos(midLatRad)
             val px = (lng - a.lng) * cosLat * 111320.0

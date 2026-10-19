@@ -41,6 +41,70 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val customRoutes: StateFlow<List<com.example.data.model.CustomRouteEntity>> = repository.getAllCustomRoutes()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun deleteCustomRoute(id: Long) {
+        viewModelScope.launch {
+            repository.deleteCustomRoute(id)
+        }
+    }
+
+    fun startNavigationForCustomRoute(routeId: Long, onReady: (Long) -> Unit) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                val cr = repository.getCustomRoute(routeId) ?: return@withContext
+                val planId = repository.ensureTripPlanForCustomRoute(cr)
+                withContext(Dispatchers.Main) {
+                    onReady(planId)
+                }
+            }
+        }
+    }
+
+    fun downloadCustomRouteOffline(route: com.example.data.model.CustomRouteEntity) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                com.example.util.OfflineDownloadManager.enqueueDownload(
+                    context = getApplication(),
+                    trailId = "route_${route.id}",
+                    trailName = route.name,
+                    corridorKm = 1.0
+                )
+            }
+        }
+    }
+
+    fun exportCustomRouteGpx(route: com.example.data.model.CustomRouteEntity) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                val cr = repository.getCustomRoute(route.id) ?: return@withContext
+                val geom = repository.getTrailGeometry("route_${route.id}")
+                val points = geom?.segments?.flatMap { it.points } ?: emptyList()
+                val dummyTrail = TrailEntity(
+                    id = "route_${cr.id}",
+                    name = cr.name,
+                    description = "Brugerskabt rute (${String.format(java.util.Locale.US, "%.1f", cr.totalKm)} km)",
+                    region = "Danmark",
+                    parentRegion = "Danmark",
+                    computedWalkingKm = cr.totalKm
+                )
+                val gpxStr = com.example.util.GpxExporter.generateMultiSegmentGpx(
+                    trail = dummyTrail,
+                    plan = null,
+                    stages = emptyList(),
+                    trailPoints = points
+                )
+                com.example.util.GpxExporter.exportAndShareGpxFile(
+                    context = getApplication(),
+                    fileName = "${cr.name.replace(" ", "_")}.gpx",
+                    gpxContent = gpxStr,
+                    shareTitle = "Del rute: ${cr.name}"
+                )
+            }
+        }
+    }
+
     private val _selectedPlanForGear = MutableStateFlow<TripPlanEntity?>(null)
     val selectedPlanForGear: StateFlow<TripPlanEntity?> = _selectedPlanForGear.asStateFlow()
 
@@ -109,6 +173,39 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
+        }
+    }
+
+    // Phase 7d: Share trip plan as text (stages, nights, dates/tempo)
+    fun shareTripPlan(context: android.content.Context, plan: TripPlanEntity) {
+        viewModelScope.launch {
+            val stages = repository.getStagesForPlan(plan.id)
+            val totalKm = plan.totalDistanceKm
+            val days = plan.targetDays
+            val sb = StringBuilder()
+            sb.append("🥾 Min vandretur: ${plan.trailName}\n")
+            sb.append("Samlet distance: ${String.format(java.util.Locale.US, "%.1f", totalKm)} km over $days ${if (days == 1) "dag" else "dage"}\n")
+            sb.append("Planlagt tempo: ${String.format(java.util.Locale.US, "%.1f", plan.paceKmh)} km/t\n\n")
+            sb.append("📍 Dags-etaper & overnatning:\n")
+            if (stages.isNotEmpty()) {
+                stages.forEach { stage ->
+                    val bookStr = if (stage.bookingRequired) " (Kræver booking)" else ""
+                    sb.append("• Dag ${stage.dayNumber}: ${String.format(java.util.Locale.US, "%.1f", stage.stageKm)} km\n")
+                    sb.append("   Overnatning: ${stage.stopName} [${stage.stopType}]$bookStr\n")
+                }
+            } else {
+                sb.append("• Overnatningstype: ${plan.overnightType}\n")
+                sb.append("• Start: km ${String.format(java.util.Locale.US, "%.1f", plan.startKm)} -> Slut: km ${String.format(java.util.Locale.US, "%.1f", plan.endKm)}\n")
+            }
+            sb.append("\nPlanlagt med Dansk Sti")
+
+            val sendIntent = android.content.Intent().apply {
+                action = android.content.Intent.ACTION_SEND
+                putExtra(android.content.Intent.EXTRA_TEXT, sb.toString())
+                putExtra(android.content.Intent.EXTRA_SUBJECT, "Turplan: ${plan.trailName}")
+                type = "text/plain"
+            }
+            context.startActivity(android.content.Intent.createChooser(sendIntent, "Del turplan"))
         }
     }
 }

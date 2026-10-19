@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import android.content.Context
 import android.util.Log
+import com.example.data.model.GeoPointDto
 import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
 import com.squareup.moshi.Moshi
@@ -21,6 +22,13 @@ data class OsmPoiResult(
 )
 
 class OsmPoiRepository(private val context: Context) {
+    companion object {
+        val OVERPASS_ENDPOINTS = listOf(
+            "https://overpass-api.de/api/interpreter",
+            "https://lz4.overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter"
+        )
+    }
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -101,6 +109,78 @@ class OsmPoiRepository(private val context: Context) {
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * Requirement B: Fetch POIs along a custom route polyline using Overpass around:<m>,lat1,lon1,lat2,lon2,...
+     * Simplifies the route to about 1 point per 200 m, uses the exact same filters as Phase 2, and sends as POST.
+     */
+    suspend fun fetchPoisForPolyline(points: List<GeoPointDto>): OsmPoiResult = withContext(Dispatchers.IO) {
+        if (points.isEmpty()) return@withContext OsmPoiResult()
+
+        val simplified = simplifyPointsForCorridor(points, minDistanceMeters = 200.0)
+        val query = buildOverpassPolylineQuery(simplified)
+
+        for (endpoint in OVERPASS_ENDPOINTS) {
+            try {
+                val requestBody = query.toRequestBody("text/plain".toMediaType())
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .header("User-Agent", "DanskSti/1.8 (https://dansksti.app; contact@dansksti.app)")
+                    .post(requestBody)
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string() ?: return@use
+                        val parsed = parseOverpassJson(body)
+                        if (parsed.shelters.isNotEmpty() || parsed.pois.isNotEmpty()) {
+                            return@withContext parsed
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("OsmPoiRepo", "Overpass polyline corridor query failed on $endpoint: ${e.message}")
+            }
+        }
+
+        OsmPoiResult()
+    }
+
+    fun simplifyPointsForCorridor(points: List<GeoPointDto>, minDistanceMeters: Double = 200.0): List<GeoPointDto> {
+        if (points.size <= 2) return points
+        val simplified = mutableListOf<GeoPointDto>()
+        simplified.add(points.first())
+        var lastAdded = points.first()
+
+        for (i in 1 until points.size - 1) {
+            val pt = points[i]
+            val d = com.example.util.GeoUtils.distanceMeters(lastAdded.lat, lastAdded.lng, pt.lat, pt.lng)
+            if (d >= minDistanceMeters) {
+                simplified.add(pt)
+                lastAdded = pt
+            }
+        }
+        simplified.add(points.last())
+        return simplified
+    }
+
+    fun buildOverpassPolylineQuery(simplifiedPoints: List<GeoPointDto>): String {
+        val coordStr = simplifiedPoints.joinToString(",") { "${it.lat},${it.lng}" }
+        return """
+            [out:json][timeout:180];
+            (
+              nwr["shop"~"^(supermarket|convenience|bakery|farm|kiosk|greengrocer)$"](around:2000,$coordStr);
+              nwr["amenity"="drinking_water"](around:3000,$coordStr);
+              nwr["man_made"="water_tap"]["drinking_water"="yes"](around:3000,$coordStr);
+              nwr["amenity"="toilets"]["access"!~"private|customers"](around:3000,$coordStr);
+              nwr["amenity"="shelter"]["shelter_type"~"^(basic_hut|lean_to|weather_shelter)$"](around:3000,$coordStr);
+              nwr["tourism"~"^(camp_site|wilderness_hut)$"](around:3000,$coordStr);
+              nwr["railway"="station"](around:3000,$coordStr);
+              nwr["amenity"="ferry_terminal"](around:3000,$coordStr);
+            );
+            out center tags;
+        """.trimIndent()
     }
 
     private fun buildOverpassQuery(relationId: Long, childRelationIds: List<Long>): String {

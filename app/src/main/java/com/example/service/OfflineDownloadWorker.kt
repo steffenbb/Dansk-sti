@@ -48,13 +48,24 @@ class OfflineDownloadWorker(
             // 1. Download & cache trail geometry (Phase 1)
             val trail = repo.getTrailById(trailId)
                 ?: return@withContext Result.failure(workDataOf("error" to "Rute ikke fundet for $trailName"))
-            val points = repo.getTrailPoints(trail)
+            val points = repo.getTrailPoints(trail).flatMap { it.points }
             if (points.isEmpty()) {
                 return@withContext Result.failure(workDataOf("error" to "Ingen rutepunkter fundet for $trailName"))
             }
 
             // 2. Download & cache TrailPoi items (Phase 2)
             repo.syncCorridorPois(trail)
+
+            // 2b. Download & cache Access polygons (Danmarks Miljøportal WFS + OSM access areas)
+            try {
+                val minLat = points.minOf { it.lat } - 0.02
+                val maxLat = points.maxOf { it.lat } + 0.02
+                val minLng = points.minOf { it.lng } - 0.02
+                val maxLng = points.maxOf { it.lng } + 0.02
+                repo.getAccessPolygons(minLat, maxLat, minLng, maxLng)
+            } catch (e: Exception) {
+                // Non-fatal if access polygons download encounters network issues
+            }
 
             // 3. Compute tile coordinates (Phase 4): Zoom 8-13 bbox + Zoom 14-16 corridor
             val tileIndices = OfflineDownloadManager.calculateTiles(points, corridorKm).toList()

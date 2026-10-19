@@ -6,6 +6,9 @@ import android.app.NotificationManager
 import android.os.Build
 import com.example.data.local.DanskStiDatabase
 import com.example.data.repository.DanskStiRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 
 class DanskStiApp : Application() {
@@ -41,13 +44,29 @@ class DanskStiApp : Application() {
         try {
             database = DanskStiDatabase.getInstance(this)
             repository = DanskStiRepository(database.dao(), this)
-        } catch (e: Exception) {
+            // Seed database asynchronously on app start
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    repository.initializePreseededDataIfEmpty()
+                } catch (t: Throwable) {
+                    android.util.Log.e("DanskStiApp", "Failed to seed preseeded data on startup: ${t.message}", t)
+                }
+            }
+        } catch (e: Throwable) {
             android.util.Log.e("DanskStiApp", "Database init failed, recreating: ${e.message}", e)
             try {
+                DanskStiDatabase.resetInstance()
                 deleteDatabase("dansk_sti.db")
                 database = DanskStiDatabase.getInstance(this)
                 repository = DanskStiRepository(database.dao(), this)
-            } catch (fatal: Exception) {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    try {
+                        repository.initializePreseededDataIfEmpty()
+                    } catch (t: Throwable) {
+                        android.util.Log.e("DanskStiApp", "Failed to seed preseeded data on recovery: ${t.message}", t)
+                    }
+                }
+            } catch (fatal: Throwable) {
                 android.util.Log.e("DanskStiApp", "Fatal database error: ${fatal.message}", fatal)
             }
         }

@@ -29,9 +29,17 @@ import com.example.data.model.UserHazardNoteEntity
         UserHazardNoteEntity::class,
         com.example.data.model.DownloadedTrailEntity::class,
         com.example.data.model.SavedTrailEntity::class,
-        com.example.data.model.TripGearItemEntity::class
+        com.example.data.model.TripGearItemEntity::class,
+        com.example.data.model.RecordedTrackPointEntity::class,
+        com.example.data.model.RecordedDayStatEntity::class,
+        com.example.data.model.CachedRouteLegEntity::class,
+        com.example.data.model.CustomRouteEntity::class,
+        com.example.data.model.AccessPolygonEntity::class,
+        com.example.data.model.UserCustomWaypointEntity::class,
+        com.example.data.model.MarkedRouteEntity::class,
+        com.example.data.model.MarkedRouteCacheBoxEntity::class
     ],
-    version = 12,
+    version = 20,
     exportSchema = true
 )
 abstract class DanskStiDatabase : RoomDatabase() {
@@ -237,6 +245,180 @@ abstract class DanskStiDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS recorded_track_points (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        planId INTEGER NOT NULL,
+                        dayNumber INTEGER NOT NULL,
+                        lat REAL NOT NULL,
+                        lng REAL NOT NULL,
+                        altitude REAL,
+                        accuracy REAL NOT NULL,
+                        speedKmh REAL NOT NULL,
+                        timestamp INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_recorded_track_points_planId_dayNumber_timestamp ON recorded_track_points(planId, dayNumber, timestamp)")
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS recorded_day_stats (
+                        planId INTEGER NOT NULL,
+                        dayNumber INTEGER NOT NULL,
+                        distanceKm REAL NOT NULL DEFAULT 0.0,
+                        movingTimeSeconds INTEGER NOT NULL DEFAULT 0,
+                        ascentMeters INTEGER NOT NULL DEFAULT 0,
+                        pointCount INTEGER NOT NULL DEFAULT 0,
+                        lastTimestamp INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(planId, dayNumber)
+                    )
+                """.trimIndent())
+            }
+        }
+
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS cached_route_legs (
+                        cacheKey TEXT NOT NULL PRIMARY KEY,
+                        fromLat REAL NOT NULL,
+                        fromLng REAL NOT NULL,
+                        toLat REAL NOT NULL,
+                        toLng REAL NOT NULL,
+                        avoidRoads REAL NOT NULL,
+                        preferNature INTEGER NOT NULL,
+                        allowFerries INTEGER NOT NULL,
+                        alternative INTEGER NOT NULL,
+                        lengthKm REAL NOT NULL,
+                        ascentM REAL NOT NULL,
+                        descentM REAL NOT NULL,
+                        pointsJson TEXT NOT NULL,
+                        wayInfoJson TEXT NOT NULL,
+                        sourceName TEXT NOT NULL,
+                        cachedAt INTEGER NOT NULL,
+                        expiresAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_cached_route_legs_expiresAt ON cached_route_legs(expiresAt)")
+            }
+        }
+
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS custom_routes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        optionsJson TEXT NOT NULL,
+                        waypointsJson TEXT NOT NULL,
+                        totalKm REAL NOT NULL,
+                        ascentM REAL NOT NULL,
+                        descentM REAL NOT NULL,
+                        pathSharePct REAL NOT NULL,
+                        roadKm REAL NOT NULL,
+                        geometryFile TEXT NOT NULL,
+                        sourceName TEXT NOT NULL,
+                        fetchedAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_custom_routes_updatedAt ON custom_routes(updatedAt)")
+            }
+        }
+
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS access_polygons (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        name TEXT,
+                        type TEXT NOT NULL,
+                        coordinatesJson TEXT NOT NULL,
+                        minLat REAL NOT NULL,
+                        maxLat REAL NOT NULL,
+                        minLng REAL NOT NULL,
+                        maxLng REAL NOT NULL,
+                        source TEXT NOT NULL,
+                        operatorOrOwner TEXT,
+                        fetchedAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_access_polygons_bbox ON access_polygons(minLat, maxLat, minLng, maxLng)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_access_polygons_type ON access_polygons(type)")
+            }
+        }
+
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE fri_teltning ADD COLUMN cvrNavn TEXT")
+            }
+        }
+
+        val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE trail_pois ADD COLUMN routeId TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_trail_pois_routeId ON trail_pois(routeId)")
+            }
+        }
+
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS user_custom_waypoints (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        routeId INTEGER,
+                        lat REAL NOT NULL,
+                        lng REAL NOT NULL,
+                        name TEXT NOT NULL,
+                        note TEXT NOT NULL,
+                        photoPath TEXT,
+                        createdAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_user_custom_waypoints_routeId ON user_custom_waypoints(routeId)")
+            }
+        }
+
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS marked_routes (
+                        osmRelationId INTEGER PRIMARY KEY NOT NULL,
+                        name TEXT NOT NULL,
+                        lengthKm REAL NOT NULL,
+                        operator TEXT,
+                        routeType TEXT NOT NULL,
+                        network TEXT,
+                        symbol TEXT,
+                        colorHex TEXT NOT NULL,
+                        segmentsJson TEXT NOT NULL,
+                        minLat REAL NOT NULL,
+                        maxLat REAL NOT NULL,
+                        minLng REAL NOT NULL,
+                        maxLng REAL NOT NULL,
+                        cachedAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_marked_routes_bbox ON marked_routes(minLat, maxLat, minLng, maxLng)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_marked_routes_routeType ON marked_routes(routeType)")
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS marked_route_cache_boxes (
+                        boxKey TEXT PRIMARY KEY NOT NULL,
+                        minLat REAL NOT NULL,
+                        maxLat REAL NOT NULL,
+                        minLng REAL NOT NULL,
+                        maxLng REAL NOT NULL,
+                        fetchedAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+            }
+        }
+
+        fun resetInstance() {
+            INSTANCE = null
+        }
+
         fun getInstance(context: Context): DanskStiDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -246,7 +428,9 @@ abstract class DanskStiDatabase : RoomDatabase() {
                 ).addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
                     MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
-                    MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12
+                    MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13,
+                    MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
+                    MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20
                 )
                     .build()
                 INSTANCE = instance

@@ -10,6 +10,8 @@ import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
 import com.example.data.model.TrailEntity
 import com.example.data.model.TrailGeometryDto
+import com.example.data.model.TrailSegmentDto
+import com.example.data.model.TrailSegmentType
 import com.example.data.remote.TrailWeatherInfo
 import com.example.data.repository.DanskStiRepository
 import com.example.util.GeoUtils
@@ -29,6 +31,7 @@ data class OvernightSpotItem(
     val kmOnRoute: Double,
     val detourMeters: Double,
     val bookingRequired: Boolean,
+    val bookingUrl: String? = null,
     val hasWaterNearby: Boolean,
     val hasToiletNearby: Boolean,
     val lat: Double,
@@ -92,11 +95,29 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _routeError = MutableStateFlow<String?>(null)
+    val routeError: StateFlow<String?> = _routeError.asStateFlow()
+
+    private val _isFetchingLiveRoute = MutableStateFlow(false)
+    val isFetchingLiveRoute: StateFlow<Boolean> = _isFetchingLiveRoute.asStateFlow()
+
+    private var currentTrailId: String? = null
+
+    fun retryLoadRoute() {
+        val tid = currentTrailId ?: _trail.value?.id ?: return
+        loadTrail(tid)
+    }
+
     fun loadTrail(trailId: String) {
+        currentTrailId = trailId
         viewModelScope.launch {
             _isLoading.value = true
+            _routeError.value = null
             withContext(Dispatchers.IO) {
-                val entity = repository.getTrailById(trailId) ?: return@withContext
+                val entity = repository.getTrailById(trailId) ?: run {
+                    _routeError.value = "Ruten blev ikke fundet i databasen"
+                    return@withContext
+                }
                 _trail.value = entity
 
                 // Observe isSaved
@@ -106,97 +127,134 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                // Points & Geometry
-                val points = repository.getTrailPoints(entity)
+                // Points & Geometry from OSM live or disk cache
+                _isFetchingLiveRoute.value = !repository.geometryRepository.isGeometryCached(trailId)
+                val segments = try {
+                    repository.getTrailPoints(entity)
+                } catch (e: Exception) {
+                    android.util.Log.e("TrailViewModel", "Failed to get points for ${entity.name}: ${e.message}", e)
+                    emptyList()
+                } finally {
+                    _isFetchingLiveRoute.value = false
+                }
+
+                val points = segments.flatMap { it.points }
                 _trailPoints.value = points
                 val geom = repository.getTrailGeometry(trailId)
                 _trailGeometry.value = geom
 
-                // Elevation ascent/descent
-                var gain = 0.0
-                var loss = 0.0
-                for (i in 0 until points.size - 1) {
-                    val diff = points[i + 1].ele - points[i].ele
-                    if (diff > 0) gain += diff else loss += kotlin.math.abs(diff)
+                if (points.isEmpty()) {
+                    _routeError.value = "Kunne ikke hente rutedata fra OpenStreetMap. Tjek din internetforbindelse eller prøv igen senere."
+                } else {
+                    _routeError.value = null
                 }
-                _elevationGain.value = gain.toInt()
-                _elevationLoss.value = loss.toInt()
+
+                // Elevation ascent/descent
+                _elevationGain.value = geom?.totalAscentM ?: 0
+                _elevationLoss.value = geom?.totalDescentM ?: 0
 
                 // Corridor Overnights & POIs
                 val shelters = repository.getSheltersForTrail(trailId)
                 val friTeltning = repository.getFriTeltningForTrail(trailId)
                 val pois = repository.getPoisForTrail(trailId)
 
+                // Fast bounding-box prefilter to avoid calculating 4,000+ points across all of Denmark
+                val hasPoints = points.isNotEmpty()
+                val minLat = if (hasPoints) points.minOf { it.lat } - 0.05 else -90.0
+                val maxLat = if (hasPoints) points.maxOf { it.lat } + 0.05 else 90.0
+                val minLng = if (hasPoints) points.minOf { it.lng } - 0.08 else -180.0
+                val maxLng = if (hasPoints) points.maxOf { it.lng } + 0.08 else 180.0
+
+                val nearbyShelters = if (hasPoints) {
+                    shelters.filter { it.lat in minLat..maxLat && it.lng in minLng..maxLng }
+                } else shelters.take(30)
+
+                val nearbyFriTeltning = if (hasPoints) {
+                    friTeltning.filter { it.centerLat in minLat..maxLat && it.centerLng in minLng..maxLng }
+                } else friTeltning.take(20)
+
+                val nearbyPois = if (hasPoints) {
+                    pois.filter { it.lat in minLat..maxLat && it.lng in minLng..maxLng }
+                } else pois.take(50)
+
                 // Sort overnights by projected km along trail
                 val overnightList = mutableListOf<OvernightSpotItem>()
-                for (s in shelters) {
-                    val (wKm, dM) = projectOnPoints(points, s.lat, s.lng)
-                    overnightList.add(
-                        OvernightSpotItem(
-                            id = s.id,
-                            name = s.name,
-                            type = "SHELTER",
-                            kmOnRoute = wKm,
-                            detourMeters = dM,
-                            bookingRequired = s.bookingRequired,
-                            hasWaterNearby = s.hasWaterNearby,
-                            hasToiletNearby = s.hasToiletNearby,
-                            lat = s.lat,
-                            lng = s.lng,
-                            description = s.description
+                for (s in nearbyShelters) {
+                    val (wKm, dM) = projectOnSegments(segments, s.lat, s.lng)
+                    if (!hasPoints || dM <= 5000.0) {
+                        overnightList.add(
+                            OvernightSpotItem(
+                                id = "shelter_${s.id}",
+                                name = s.name,
+                                type = "SHELTER",
+                                kmOnRoute = wKm,
+                                detourMeters = dM,
+                                bookingRequired = s.bookingRequired,
+                                bookingUrl = s.bookingUrl,
+                                hasWaterNearby = s.hasWaterNearby,
+                                hasToiletNearby = s.hasToiletNearby,
+                                lat = s.lat,
+                                lng = s.lng,
+                                description = s.description
+                            )
                         )
-                    )
+                    }
                 }
-                for (ft in friTeltning) {
-                    val (wKm, dM) = projectOnPoints(points, ft.centerLat, ft.centerLng)
-                    overnightList.add(
-                        OvernightSpotItem(
-                            id = ft.id,
-                            name = ft.name,
-                            type = "FRI_TELTNING",
-                            kmOnRoute = wKm,
-                            detourMeters = dM,
-                            bookingRequired = false,
-                            hasWaterNearby = true,
-                            hasToiletNearby = false,
-                            lat = ft.centerLat,
-                            lng = ft.centerLng,
-                            description = ft.rulesSummary ?: "Fri teltning efter 1-2-3 reglen"
+                for (ft in nearbyFriTeltning) {
+                    val (wKm, dM) = projectOnSegments(segments, ft.centerLat, ft.centerLng)
+                    if (!hasPoints || dM <= 5000.0) {
+                        overnightList.add(
+                            OvernightSpotItem(
+                                id = "friteltning_${ft.id}",
+                                name = ft.name,
+                                type = "FRI_TELTNING",
+                                kmOnRoute = wKm,
+                                detourMeters = dM,
+                                bookingRequired = false,
+                                bookingUrl = ft.rulesUrl,
+                                hasWaterNearby = true,
+                                hasToiletNearby = false,
+                                lat = ft.centerLat,
+                                lng = ft.centerLng,
+                                description = ft.rulesSummary ?: "Fri teltning efter 1-2-3 reglen"
+                            )
                         )
-                    )
+                    }
                 }
                 overnightList.sortBy { it.kmOnRoute }
-                _overnightSpots.value = overnightList
+                _overnightSpots.value = overnightList.distinctBy { it.id }
 
                 // Sort POIs
                 val waterToilets = mutableListOf<PoiSpotItem>()
                 val shopList = mutableListOf<PoiSpotItem>()
                 val transList = mutableListOf<PoiSpotItem>()
 
-                for (p in pois) {
-                    val (wKm, dM) = projectOnPoints(points, p.lat, p.lng)
-                    val item = PoiSpotItem(
-                        id = p.id,
-                        name = p.name,
-                        type = p.type,
-                        kmOnRoute = wKm,
-                        detourMeters = dM,
-                        lat = p.lat,
-                        lng = p.lng
-                    )
-                    when (p.type) {
-                        "water", "toilet" -> waterToilets.add(item)
-                        "shop", "supermarket", "convenience", "bakery", "farm" -> shopList.add(item)
-                        "station", "ferry", "bus_stop" -> transList.add(item)
+                for (p in nearbyPois) {
+                    val (wKm, dM) = projectOnSegments(segments, p.lat, p.lng)
+                    if (!hasPoints || dM <= 5000.0) {
+                        val item = PoiSpotItem(
+                            id = "poi_${p.type}_${p.id}",
+                            name = p.name,
+                            type = p.type,
+                            kmOnRoute = wKm,
+                            detourMeters = dM,
+                            lat = p.lat,
+                            lng = p.lng
+                        )
+                        when (p.type) {
+                            "water", "toilet" -> waterToilets.add(item)
+                            "shop", "supermarket", "convenience", "bakery", "farm" -> shopList.add(item)
+                            "station", "ferry", "bus_stop" -> transList.add(item)
+                        }
                     }
                 }
                 waterToilets.sortBy { it.kmOnRoute }
                 shopList.sortBy { it.kmOnRoute }
                 transList.sortBy { it.kmOnRoute }
 
-                _waterAndToilets.value = waterToilets
-                _shops.value = shopList
-                _transports.value = transList
+                _waterAndToilets.value = waterToilets.distinctBy { it.id }
+                _shops.value = shopList.distinctBy { it.id }
+                _transports.value = transList.distinctBy { it.id }
 
                 // Weather at start and end
                 val firstPt = points.firstOrNull()
@@ -212,26 +270,45 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun projectOnPoints(points: List<GeoPointDto>, lat: Double, lng: Double): Pair<Double, Double> {
-        if (points.isEmpty()) return Pair(0.0, 0.0)
+    private fun projectOnSegments(segments: List<TrailSegmentDto>, lat: Double, lng: Double): Pair<Double, Double> {
+        if (segments.isEmpty()) return Pair(0.0, 0.0)
         var minDist = Double.MAX_VALUE
         var bestKm = 0.0
         var cumM = 0.0
 
-        for (i in 0 until points.size - 1) {
-            val a = points[i]
-            val b = points[i + 1]
-            val segLen = GeoUtils.distanceMeters(a.lat, a.lng, b.lat, b.lng)
-            if (segLen <= 8000.0) {
+        for (seg in segments) {
+            val pts = seg.points
+            for (i in 0 until pts.size - 1) {
+                val a = pts[i]
+                val b = pts[i + 1]
+                val segLen = GeoUtils.distanceMeters(a.lat, a.lng, b.lat, b.lng)
                 val d = GeoUtils.distanceMeters(lat, lng, a.lat, a.lng)
                 if (d < minDist) {
                     minDist = d
                     bestKm = cumM / 1000.0
                 }
-                cumM += segLen
+                if (seg.type == TrailSegmentType.WALK) {
+                    cumM += segLen
+                }
             }
         }
         return Pair(bestKm, minDist)
+    }
+
+    fun onNavigateClicked(
+        trailId: String? = null,
+        onNavigate: (Long) -> Unit,
+        onOpenPlanner: () -> Unit
+    ) {
+        viewModelScope.launch {
+            val targetId = trailId ?: _trail.value?.id ?: return@launch
+            val plan = repository.getLatestTripPlanForTrail(targetId)
+            if (plan != null) {
+                onNavigate(plan.id)
+            } else {
+                onOpenPlanner()
+            }
+        }
     }
 
     fun toggleSave() {

@@ -62,7 +62,6 @@ import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
 import com.example.data.model.UserHazardNoteEntity
 import com.example.data.model.HazardType
-import com.example.ui.NearestPoiResult
 import com.example.ui.theme.AlertRed
 import com.example.ui.theme.AmberAccent
 import com.example.ui.theme.ForestDarkBg
@@ -131,6 +130,13 @@ fun OffTrailBanner(
         }
     }
 }
+
+data class NearestPoiResult(
+    val type: String,
+    val poiName: String,
+    val distanceMeters: Double,
+    val details: String = ""
+)
 
 @Composable
 fun NearestPoiOverlayCard(

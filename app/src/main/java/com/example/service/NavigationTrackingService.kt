@@ -64,7 +64,8 @@ data class NavigationLiveState(
     val nearestPointAhead: RoutePoint? = null,
     val bearingToPointAhead: Float = 0f,
     val isCompleted: Boolean = false,
-    val plannedRoute: PlannedRoute? = null
+    val plannedRoute: PlannedRoute? = null,
+    val privateForestSunsetWarning: String? = null
 )
 
 class NavigationTrackingService : Service() {
@@ -305,6 +306,31 @@ class NavigationTrackingService : Service() {
                 tracker.markPersisted(now)
             }
         }
+
+        // Phase 7a: Save actual GPS track point per day (accuracy-filtered <= 30m) in Room
+        if (location.accuracy <= 30.0f) {
+            serviceScope.launch {
+                try {
+                    DanskStiApp.instance.repository.recordTrackPoint(
+                        planId = planId,
+                        dayNumber = trackResult.currentDay,
+                        lat = location.latitude,
+                        lng = location.longitude,
+                        altitude = if (location.hasAltitude()) location.altitude else null,
+                        accuracy = location.accuracy,
+                        speedKmh = speedKmh,
+                        timestamp = now
+                    )
+                } catch (t: Throwable) {
+                    Log.e("NavService", "Failed to record GPS track point: ${t.message}", t)
+                }
+            }
+        }
+
+        // Phase 10: Private forest sunset warning check (Requirement D)
+        serviceScope.launch {
+            checkPrivateForestSunsetWarning(location)
+        }
     }
 
     private fun triggerOffTrailVibration() {
@@ -408,6 +434,79 @@ class NavigationTrackingService : Service() {
         stopSelf()
     }
 
+    private var lastSunsetWarningNotifiedMs: Long = 0L
+
+    private suspend fun checkPrivateForestSunsetWarning(location: Location) {
+        try {
+            val pt = com.example.util.routing.LatLng(location.latitude, location.longitude)
+            val bboxDelta = 0.02
+            val polygons = DanskStiApp.instance.repository.getAccessPolygons(
+                pt.lat - bboxDelta, pt.lat + bboxDelta,
+                pt.lng - bboxDelta, pt.lng + bboxDelta
+            )
+            val containing = com.example.util.access.AccessGeometryUtils.findContainingPolygon(pt, polygons)
+            if (containing != null && containing.type == com.example.data.model.access.AccessLandType.PRIVATE_FOREST) {
+                val weather = DanskStiApp.instance.repository.getTrailWeather(pt.lat, pt.lng)
+                val sunsetStr = weather?.sunset ?: "20:30"
+                val sunsetMins = com.example.util.access.AccessGeometryUtils.parseTimeToMinutes(sunsetStr)
+
+                val cal = java.util.Calendar.getInstance()
+                val currentMins = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+                val diffMins = sunsetMins - currentMins
+
+                // Within 45 minutes of sunset (or past sunset up to 60 min)
+                if (diffMins in -60..45) {
+                    val warningText = "Privat skov lukker ved solnedgang kl. $sunsetStr"
+                    if (_liveState.value.privateForestSunsetWarning != warningText) {
+                        _liveState.value = _liveState.value.copy(privateForestSunsetWarning = warningText)
+                    }
+
+                    val now = System.currentTimeMillis()
+                    if (now - lastSunsetWarningNotifiedMs > 30 * 60 * 1000L) {
+                        lastSunsetWarningNotifiedMs = now
+                        showSunsetWarningNotification(sunsetStr)
+                    }
+                } else {
+                    if (_liveState.value.privateForestSunsetWarning != null) {
+                        _liveState.value = _liveState.value.copy(privateForestSunsetWarning = null)
+                    }
+                }
+            } else {
+                if (_liveState.value.privateForestSunsetWarning != null) {
+                    _liveState.value = _liveState.value.copy(privateForestSunsetWarning = null)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("NavService", "Failed checking private forest sunset: ${e.message}")
+        }
+    }
+
+    private fun showSunsetWarningNotification(sunsetTime: String) {
+        val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
+        val launchIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            99,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notif = NotificationCompat.Builder(this, DanskStiApp.CHANNEL_ALERTS_ID)
+            .setContentTitle("Privat skov")
+            .setContentText("Privat skov lukker ved solnedgang kl. $sunsetTime")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("Privat skov lukker ved solnedgang kl. $sunsetTime. I henhold til Naturbeskyttelsesloven må offentligheden kun færdes i privat skov fra kl. 06:00 til solnedgang."))
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
+
+        notifManager.notify(SUNSET_WARNING_NOTIFICATION_ID, notif)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
@@ -418,6 +517,7 @@ class NavigationTrackingService : Service() {
 
     companion object {
         const val NOTIFICATION_ID = 4040
+        const val SUNSET_WARNING_NOTIFICATION_ID = 4041
         const val ACTION_START = "com.example.dansksti.ACTION_START"
         const val ACTION_STOP = "com.example.dansksti.ACTION_STOP"
         const val ACTION_STOP_TODAY = "com.example.dansksti.ACTION_STOP_TODAY"

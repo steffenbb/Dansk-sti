@@ -66,7 +66,8 @@ class NavigationMapOverlayManager(
         outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
     }
 
-    // Ferry & Detour Overlays
+    // Route, Ferry & Detour Overlays
+    private val walkOverlays = mutableListOf<org.osmdroid.views.overlay.Overlay>()
     private val ferryOverlays = mutableListOf<org.osmdroid.views.overlay.Overlay>()
     private val chevronMarkers = mutableListOf<Marker>()
 
@@ -141,58 +142,94 @@ class NavigationMapOverlayManager(
         val geoPoints = route.points.map { GeoPoint(it.lat, it.lng) }
         allRouteGeoPoints = geoPoints
 
-        casingPolyline.setPoints(geoPoints)
-        routePolyline.setPoints(geoPoints)
+        casingPolyline.setPoints(emptyList())
+        routePolyline.setPoints(emptyList())
         walkedPolyline.setPoints(emptyList())
 
-        // 1. Build small direction chevron every 250 m
+        walkOverlays.forEach { mapView.overlays.remove(it) }
+        walkOverlays.clear()
+        ferryOverlays.forEach { mapView.overlays.remove(it) }
+        ferryOverlays.clear()
         chevronMarkers.forEach { mapView.overlays.remove(it) }
         chevronMarkers.clear()
 
+        // Group points into contiguous segments by segmentIndex and segmentType
+        val segments = mutableListOf<MutableList<RoutePoint>>()
+        var curSegment = mutableListOf<RoutePoint>()
+        var curSegIdx = -1
+        var curType = TrailSegmentType.WALK
+
+        for (pt in route.points) {
+            if (curSegment.isEmpty()) {
+                curSegment.add(pt)
+                curSegIdx = pt.segmentIndex
+                curType = pt.segmentType
+                continue
+            }
+            if (pt.segmentIndex != curSegIdx || pt.segmentType != curType) {
+                if (curSegment.size >= 2) {
+                    segments.add(curSegment)
+                }
+                curSegment = mutableListOf(pt)
+                curSegIdx = pt.segmentIndex
+                curType = pt.segmentType
+            } else {
+                curSegment.add(pt)
+            }
+        }
+        if (curSegment.size >= 2) {
+            segments.add(curSegment)
+        }
+
+        // Draw each WALK segment with its own casing and route line (gaps are NEVER drawn as a solid line)
+        val insertBaseIdx = mapView.overlays.indexOf(walkedPolyline).coerceAtLeast(0)
+        for (seg in segments.filter { it.first().segmentType == TrailSegmentType.WALK }) {
+            val casing = Polyline(mapView).apply {
+                outlinePaint.color = Color.WHITE
+                outlinePaint.strokeWidth = dp(10f)
+                outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+                setPoints(seg.map { GeoPoint(it.lat, it.lng) })
+            }
+            val routeLine = Polyline(mapView).apply {
+                outlinePaint.color = Color.parseColor("#1E88E5") // Strong Nordic Blue
+                outlinePaint.strokeWidth = dp(6f)
+                outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+                setPoints(seg.map { GeoPoint(it.lat, it.lng) })
+            }
+            walkOverlays.add(casing)
+            walkOverlays.add(routeLine)
+            mapView.overlays.add(insertBaseIdx, casing)
+            mapView.overlays.add(insertBaseIdx + 1, routeLine)
+        }
+
+        // 1. Build small direction chevron every 250 m on walk segments
         val chevronIcon = ContextCompat.getDrawable(context, R.drawable.ic_chevron_dir)
         var lastChevronKm = 0.0
 
-        for (i in 0 until route.points.size - 1) {
-            val pt = route.points[i]
-            val nextPt = route.points[i + 1]
-            if (pt.walkKm - lastChevronKm >= 0.25) { // every 250m
-                lastChevronKm = pt.walkKm
-                val bearing = GeoUtils.bearing(pt.lat, pt.lng, nextPt.lat, nextPt.lng)
-                val chevron = Marker(mapView).apply {
-                    position = GeoPoint(pt.lat, pt.lng)
-                    icon = chevronIcon
-                    rotation = bearing
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    infoWindow = null
+        for (seg in segments.filter { it.first().segmentType == TrailSegmentType.WALK }) {
+            for (i in 0 until seg.size - 1) {
+                val pt = seg[i]
+                val nextPt = seg[i + 1]
+                if (pt.walkKm - lastChevronKm >= 0.25) { // every 250m
+                    lastChevronKm = pt.walkKm
+                    val bearing = GeoUtils.bearing(pt.lat, pt.lng, nextPt.lat, nextPt.lng)
+                    val chevron = Marker(mapView).apply {
+                        position = GeoPoint(pt.lat, pt.lng)
+                        icon = chevronIcon
+                        rotation = bearing
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        infoWindow = null
+                    }
+                    chevronMarkers.add(chevron)
+                    mapView.overlays.add(chevron)
                 }
-                chevronMarkers.add(chevron)
-                val insertIdx = mapView.overlays.indexOf(routePolyline) + 1
-                mapView.overlays.add(insertIdx.coerceAtMost(mapView.overlays.size), chevron)
             }
         }
 
         // 2. Build Ferry Segments (dashed blue line + text)
-        ferryOverlays.forEach { mapView.overlays.remove(it) }
-        ferryOverlays.clear()
-
-        val ferrySegments = mutableListOf<MutableList<RoutePoint>>()
-        var curFerrySeg = mutableListOf<RoutePoint>()
-
-        for (pt in route.points) {
-            if (pt.segmentType == TrailSegmentType.FERRY) {
-                curFerrySeg.add(pt)
-            } else {
-                if (curFerrySeg.size >= 2) {
-                    ferrySegments.add(curFerrySeg)
-                }
-                curFerrySeg = mutableListOf()
-            }
-        }
-        if (curFerrySeg.size >= 2) {
-            ferrySegments.add(curFerrySeg)
-        }
-
-        for (fSeg in ferrySegments) {
+        for (fSeg in segments.filter { it.first().segmentType == TrailSegmentType.FERRY }) {
             val ferryLine = Polyline(mapView).apply {
                 outlinePaint.color = Color.parseColor("#0288D1")
                 outlinePaint.strokeWidth = dp(4f)
@@ -200,7 +237,7 @@ class NavigationMapOverlayManager(
                 setPoints(fSeg.map { GeoPoint(it.lat, it.lng) })
             }
             ferryOverlays.add(ferryLine)
-            mapView.overlays.add(mapView.overlays.indexOf(routePolyline) + 1, ferryLine)
+            mapView.overlays.add(ferryLine)
 
             val midPt = fSeg[fSeg.size / 2]
             val ferryMarker = Marker(mapView).apply {
@@ -212,6 +249,25 @@ class NavigationMapOverlayManager(
             }
             ferryOverlays.add(ferryMarker)
             mapView.overlays.add(ferryMarker)
+        }
+
+        // 3. Stage overnight camp markers (Phase 11 Requirement E)
+        for (stg in route.stages) {
+            if (stg.stopLat != 0.0 && stg.stopLng != 0.0) {
+                val stageMarker = Marker(mapView).apply {
+                    position = GeoPoint(stg.stopLat, stg.stopLng)
+                    icon = MapIconUtils.getNightCampIcon(context)
+                    title = "⛺ ${stg.stopName}"
+                    subDescription = "Dag ${stg.dayNumber} mål • ${String.format(Locale.getDefault(), "%.1f", stg.stageKm)} km (${stg.stopType})"
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    setOnMarkerClickListener { _, _ ->
+                        onSelectPoi(stg)
+                        true
+                    }
+                }
+                walkOverlays.add(stageMarker)
+                mapView.overlays.add(stageMarker)
+            }
         }
 
         mapView.invalidate()

@@ -26,6 +26,36 @@ class GeoFaRepository(private val context: Context) {
     private val cacheDir: File
         get() = File(context.filesDir, "geofa").apply { if (!exists()) mkdirs() }
 
+    fun loadBundledShelters(): List<ShelterEntity> {
+        val assetJson = readAssetGeoJsonGz("shelters.geojson.gz") ?: return emptyList()
+        return try {
+            parseSheltersGeoJson(assetJson)
+        } catch (e: Exception) {
+            Log.e("GeoFaRepo", "Failed to parse bundled shelters: ${e.message}", e)
+            emptyList()
+        }
+    }
+
+    fun loadBundledFriTeltning(): List<FriTeltningEntity> {
+        val assetJson = readAssetGeoJsonGz("fri_teltning.geojson.gz") ?: return emptyList()
+        return try {
+            parseFriTeltningGeoJson(assetJson)
+        } catch (e: Exception) {
+            Log.e("GeoFaRepo", "Failed to parse bundled fri teltning: ${e.message}", e)
+            emptyList()
+        }
+    }
+
+    fun loadBundledPois(): List<PoiEntity> {
+        val assetJson = readAssetGeoJsonGz("toilets_water.geojson.gz") ?: return emptyList()
+        return try {
+            parsePoisGeoJson(assetJson)
+        } catch (e: Exception) {
+            Log.e("GeoFaRepo", "Failed to parse bundled pois: ${e.message}", e)
+            emptyList()
+        }
+    }
+
     suspend fun fetchGeoFaShelters(): List<ShelterEntity> = withContext(Dispatchers.IO) {
         val cacheFile = File(cacheDir, "shelters.json")
         val sql = "SELECT * FROM fkg.t_5800_fac_pkt WHERE facil_ty_k IN (3012, 3022, 3031)"
@@ -266,6 +296,7 @@ class GeoFaRepository(private val context: Context) {
             }
 
             val beskrivels = ((props["beskrivels"] as? String) ?: (props["lang_beskr"] as? String))?.trim()
+            val cvrNavn = ((props["cvr_navn"] as? String) ?: (props["ansva_v"] as? String) ?: (props["ansvar_org"] as? String))?.trim()
 
             result.add(
                 FriTeltningEntity(
@@ -276,6 +307,7 @@ class GeoFaRepository(private val context: Context) {
                     polygonJson = polygonJson,
                     rulesSummary = if (!beskrivels.isNullOrBlank()) beskrivels else "Fri teltning (1-2-3 reglen)",
                     source = "geofa",
+                    cvrNavn = if (!cvrNavn.isNullOrBlank()) cvrNavn else null,
                     fetchedAt = System.currentTimeMillis()
                 )
             )

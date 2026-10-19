@@ -206,7 +206,7 @@ object StagePlanner {
         var prevEndWalkKm = 0.0
         var prevStopName = "Start: ${trail.name}"
 
-        val effSunset = sunsetTime ?: "18:50"
+        val effSunset = sunsetTime ?: "Solnedgang ukendt"
 
         for (day in 1..daysCount) {
             val isLastDay = (day == daysCount)
@@ -384,7 +384,7 @@ object StagePlanner {
         val waterPois = pois.filter { it.type == "water" }
         val toiletPois = pois.filter { it.type == "toilet" }
         val shopPois = pois.filter { it.type in listOf("shop", "supermarket", "convenience", "bakery", "farm") }
-        val effSunset = sunsetTime ?: "18:50"
+        val effSunset = sunsetTime ?: "Solnedgang ukendt"
         val totalWalkKm = max(0.1, plannedRoute.totalWalkKm)
 
         val newStages = mutableListOf<TripStage>()
@@ -596,7 +596,7 @@ object StagePlanner {
         val waterPois = pois.filter { it.type == "water" }
         val toiletPois = pois.filter { it.type == "toilet" }
         val shopPois = pois.filter { it.type in listOf("shop", "supermarket", "convenience", "bakery", "farm") }
-        val effSunset = sunsetTime ?: "18:50"
+        val effSunset = sunsetTime ?: "Solnedgang ukendt"
         val totalWalkKm = max(0.1, plannedRoute.totalWalkKm)
 
         val allCandidates = extractCandidates(
@@ -715,8 +715,12 @@ object StagePlanner {
         var ascentM = 0.0
         var descentM = 0.0
         for (i in 0 until stagePoints.size - 1) {
-            val diff = stagePoints[i + 1].ele - stagePoints[i].ele
-            if (diff > 0) ascentM += diff else descentM += abs(diff)
+            val e1 = stagePoints[i].ele
+            val e2 = stagePoints[i + 1].ele
+            if (e1 != null && e2 != null) {
+                val diff = e2 - e1
+                if (diff > 0) ascentM += diff else descentM += abs(diff)
+            }
         }
 
         // Estimated walking time from pace (+1 min per 10 m ascent - Requirement D)
@@ -748,12 +752,19 @@ object StagePlanner {
 
         val arrivalMinutes = startTotalMinutes + totalWalkMinutes + 60 // +1 hour breaks
 
-        val sunsetParts = sunsetTime.split(":").mapNotNull { it.toIntOrNull() }
-        val sunsetHour = sunsetParts.getOrNull(0) ?: 18
-        val sunsetMin = sunsetParts.getOrNull(1) ?: 50
-        val sunsetTotalMinutes = sunsetHour * 60 + sunsetMin
-
-        val isAfterSunset = arrivalMinutes > sunsetTotalMinutes
+        val isAfterSunset = if (sunsetTime.isBlank() || sunsetTime == "Solnedgang ukendt") {
+            false
+        } else {
+            val sunsetParts = sunsetTime.split(":").mapNotNull { it.toIntOrNull() }
+            if (sunsetParts.size >= 2) {
+                val sunsetHour = sunsetParts[0]
+                val sunsetMin = sunsetParts[1]
+                val sunsetTotalMinutes = sunsetHour * 60 + sunsetMin
+                arrivalMinutes > sunsetTotalMinutes
+            } else {
+                false
+            }
+        }
 
         return TripStage(
             dayNumber = dayNumber,
@@ -802,4 +813,191 @@ object StagePlanner {
         val detourMeters: Double,
         val spotId: String?
     )
+
+    /**
+     * Requirement D: Turns a custom route into a trip plan with the existing stage planner;
+     * OVERNIGHT waypoints are fixed stage ends.
+     */
+    fun calculateStagesForCustomRoute(
+        plannedRoute: PlannedRoute,
+        routeName: String,
+        waypoints: List<com.example.util.routing.RouteWaypoint>,
+        overnightWaypoints: List<com.example.util.routing.RouteWaypoint>,
+        paceKmh: Double = 4.0,
+        dailyTargetKm: Double = 15.0,
+        numDays: Int = 1,
+        overnightType: OvernightType = OvernightType.BOTH,
+        maxDetourKm: Double = 1.5,
+        startTime: String = "09:00",
+        shelters: List<ShelterEntity>,
+        friTeltnings: List<FriTeltningEntity>,
+        pois: List<PoiEntity>,
+        sunsetTime: String? = null
+    ): List<TripStage> {
+        val totalWalkKm = max(0.1, plannedRoute.totalWalkKm)
+        val waterPois = pois.filter { it.type == "water" }
+        val toiletPois = pois.filter { it.type == "toilet" }
+        val shopPois = pois.filter { it.type in listOf("shop", "supermarket", "convenience", "bakery", "farm") }
+        val effSunset = sunsetTime ?: "Solnedgang ukendt"
+
+        // If there are OVERNIGHT waypoints, they are fixed stage ends (Requirement D)
+        if (overnightWaypoints.isNotEmpty()) {
+            val stages = mutableListOf<TripStage>()
+            var prevKm = 0.0
+            var prevName = "Start: $routeName"
+
+            for ((index, onWp) in overnightWaypoints.withIndex()) {
+                val day = index + 1
+                val (wpWalkKm, detourM) = plannedRoute.projectPoint(onWp.lat, onWp.lng)
+                val stageEndKm = min(totalWalkKm, max(prevKm + 0.1, wpWalkKm))
+
+                // Determine stop type and amenities
+                val shelterMatch = shelters.find { it.id == onWp.linkedPoiId }
+                val friMatch = friTeltnings.find { it.id == onWp.linkedPoiId }
+
+                val stopType = if (friMatch != null || onWp.name?.contains("teltning", ignoreCase = true) == true) {
+                    "FRI_TELTNING"
+                } else {
+                    "SHELTER"
+                }
+
+                val hasWater = shelterMatch?.hasWaterNearby == true || waterPois.any {
+                    GeoUtils.distanceMeters(onWp.lat, onWp.lng, it.lat, it.lng) <= 500.0
+                }
+                val hasToilet = shelterMatch?.hasToiletNearby == true || friMatch?.toiletDistanceMeters?.let { it <= 500 } == true || toiletPois.any {
+                    GeoUtils.distanceMeters(onWp.lat, onWp.lng, it.lat, it.lng) <= 500.0
+                }
+                val booking = shelterMatch?.bookingRequired == true
+
+                val stage = createTripStage(
+                    dayNumber = day,
+                    startKm = prevKm,
+                    endKm = stageEndKm,
+                    fromName = prevName,
+                    toName = onWp.name ?: "Lejr $day",
+                    stopType = stopType,
+                    stopLat = onWp.lat,
+                    stopLng = onWp.lng,
+                    bookingRequired = booking,
+                    hasWaterNearby = hasWater,
+                    hasToiletNearby = hasToilet,
+                    detourMeters = detourM,
+                    plannedRoute = plannedRoute,
+                    paceKmh = paceKmh,
+                    startTime = startTime,
+                    sunsetTime = effSunset,
+                    waterPois = waterPois,
+                    shopPois = shopPois,
+                    spotId = onWp.linkedPoiId
+                )
+                stages.add(stage)
+                prevKm = stageEndKm
+                prevName = stage.stopName
+            }
+
+            // Final stage to the route end destination
+            val finalDay = overnightWaypoints.size + 1
+            val endWp = waypoints.lastOrNull()
+            val endLat = endWp?.lat ?: plannedRoute.points.lastOrNull()?.lat ?: 56.0
+            val endLng = endWp?.lng ?: plannedRoute.points.lastOrNull()?.lng ?: 10.0
+            val destName = endWp?.name?.takeIf { it.isNotBlank() } ?: "Mål: $routeName"
+
+            val finalStage = createTripStage(
+                dayNumber = finalDay,
+                startKm = prevKm,
+                endKm = totalWalkKm,
+                fromName = prevName,
+                toName = destName,
+                stopType = "DESTINATION",
+                stopLat = endLat,
+                stopLng = endLng,
+                bookingRequired = false,
+                hasWaterNearby = waterPois.any { GeoUtils.distanceMeters(endLat, endLng, it.lat, it.lng) <= 500.0 },
+                hasToiletNearby = toiletPois.any { GeoUtils.distanceMeters(endLat, endLng, it.lat, it.lng) <= 500.0 },
+                detourMeters = 0.0,
+                plannedRoute = plannedRoute,
+                paceKmh = paceKmh,
+                startTime = startTime,
+                sunsetTime = effSunset,
+                waterPois = waterPois,
+                shopPois = shopPois,
+                spotId = null
+            )
+            stages.add(finalStage)
+            return stages
+        }
+
+        // Otherwise, fallback to standard StagePlanner algorithm
+        val dummyTrail = TrailEntity(
+            id = plannedRoute.trailId,
+            name = routeName,
+            description = "Brugerskabt rute",
+            region = "Danmark",
+            parentRegion = "Danmark",
+            computedWalkingKm = totalWalkKm
+        )
+        return calculateStages(
+            plannedRoute = plannedRoute,
+            trail = dummyTrail,
+            paceKmh = paceKmh,
+            dailyTargetKm = dailyTargetKm,
+            numDays = numDays,
+            overnightType = overnightType,
+            maxDetourKm = maxDetourKm,
+            startTime = startTime,
+            shelters = shelters,
+            friTeltnings = friTeltnings,
+            pois = pois,
+            sunsetTime = sunsetTime
+        )
+    }
+
+    /**
+     * Requirement C: Find overnight candidates near each day's target km within max detour,
+     * using Phase 5 scoring formula.
+     */
+    fun findCandidatesForDayTargets(
+        plannedRoute: PlannedRoute,
+        dailyTargetKm: Double,
+        maxDetourKm: Double = 3.0,
+        shelters: List<ShelterEntity>,
+        friTeltnings: List<FriTeltningEntity>,
+        waterPois: List<PoiEntity>,
+        toiletPois: List<PoiEntity>
+    ): Map<Int, List<OvernightCandidate>> {
+        val totalKm = plannedRoute.totalWalkKm
+        if (totalKm <= 0.0) return emptyMap()
+
+        val allCandidates = extractCandidates(
+            plannedRoute = plannedRoute,
+            shelters = shelters,
+            friTeltnings = friTeltnings,
+            waterPois = waterPois,
+            toiletPois = toiletPois,
+            overnightType = OvernightType.BOTH,
+            maxDetourKm = maxDetourKm
+        )
+
+        val estimatedDays = max(1, kotlin.math.ceil(totalKm / dailyTargetKm).toInt())
+        val result = mutableMapOf<Int, List<OvernightCandidate>>()
+
+        for (day in 1 until estimatedDays) {
+            val targetKm = day * dailyTargetKm
+            // Find candidates near this day's target
+            val scored = allCandidates.filter {
+                abs(it.walkKm - targetKm) <= (dailyTargetKm * 0.75) && (it.detourMeters / 1000.0) <= maxDetourKm
+            }.sortedBy { calculateScore(it, targetKm) }
+
+            if (scored.isNotEmpty()) {
+                result[day] = scored
+            } else {
+                val fallback = allCandidates.sortedBy { calculateScore(it, targetKm) }.take(5)
+                if (fallback.isNotEmpty()) {
+                    result[day] = fallback
+                }
+            }
+        }
+
+        return result
+    }
 }
