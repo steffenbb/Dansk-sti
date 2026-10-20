@@ -412,6 +412,8 @@ abstract class DanskStiDatabase : RoomDatabase() {
                         fetchedAt INTEGER NOT NULL
                     )
                 """.trimIndent())
+                // Requirement 1: Delete cached baseline access polygons
+                db.execSQL("DELETE FROM access_polygons WHERE id LIKE 'baseline_%'")
             }
         }
 

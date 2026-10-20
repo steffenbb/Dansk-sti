@@ -16,6 +16,9 @@ import com.example.util.GpxImporter
 import com.example.util.OvernightCandidate
 import com.example.util.StagePlanner
 import com.example.util.routing.BRouterOnlineEngine
+import com.example.util.routing.BRouterOfflineEngine
+import com.example.util.routing.BRouterStorageManager
+import com.example.util.routing.HybridRoutingEngine
 import com.example.util.routing.LatLng
 import com.example.util.routing.LegGeometryData
 import com.example.util.routing.LegMode
@@ -104,7 +107,9 @@ data class RouteBuilderState(
     val customUserWaypoints: List<com.example.data.model.UserCustomWaypointEntity> = emptyList(),
     val showAddCustomWaypointDialog: Boolean = false,
     val pendingCustomWaypointLocation: LatLng? = null,
-    val selectedCustomWaypointForDetails: com.example.data.model.UserCustomWaypointEntity? = null
+    val selectedCustomWaypointForDetails: com.example.data.model.UserCustomWaypointEntity? = null,
+    val isOfflineRoute: Boolean = false,
+    val routeEngineModeLabel: String = "Online rute"
 )
 
 class RouteBuilderViewModel(
@@ -115,7 +120,15 @@ class RouteBuilderViewModel(
     private val app = application as DanskStiApp
     private val repository: DanskStiRepository = app.repository
     private val settingsRepository = SettingsRepository(application)
-    private val routingEngine: RoutingEngine = BRouterOnlineEngine(application)
+    private val brouterStorageManager: BRouterStorageManager = BRouterStorageManager.getInstance(application)
+    private val onlineEngine: BRouterOnlineEngine = BRouterOnlineEngine(application)
+    private val offlineEngine: BRouterOfflineEngine = BRouterOfflineEngine(application)
+    private val routingEngine: RoutingEngine = HybridRoutingEngine(
+        context = application,
+        onlineEngine = onlineEngine,
+        offlineEngine = offlineEngine,
+        storageManager = brouterStorageManager
+    )
     private val weatherService: WeatherApiService = WeatherApiService.create()
 
     private val _uiState = MutableStateFlow(RouteBuilderState())
@@ -734,11 +747,28 @@ class RouteBuilderViewModel(
             "ca. $totalMinutes min"
         }
 
+        val isOffline = if (orderedLegs.isNotEmpty()) {
+            orderedLegs.all { it.sourceName.contains("offline", ignoreCase = true) }
+        } else if (wps.size >= 2) {
+            (0 until wps.size - 1).all { i ->
+                brouterStorageManager.areSegmentsAvailableForLeg(
+                    LatLng(wps[i].lat, wps[i].lng),
+                    LatLng(wps[i + 1].lat, wps[i + 1].lng)
+                )
+            }
+        } else {
+            brouterStorageManager.areAllDenmarkSegmentsDownloaded()
+        }
+
+        val engineLabel = if (isOffline) "Offline rute" else "Online rute"
+
         val quality = RouteSmartTools.analyzeRouteQuality(orderedLegs)
         _uiState.value = _uiState.value.copy(
             stats = stats,
             timeEstimateFormatted = timeStr,
-            routeQuality = quality
+            routeQuality = quality,
+            isOfflineRoute = isOffline,
+            routeEngineModeLabel = engineLabel
         )
         evaluateAccessRules()
         analyzeSupplyGaps()
@@ -911,7 +941,7 @@ class RouteBuilderViewModel(
                     totalKm = currentState.stats.totalKm,
                     ascentM = currentState.stats.ascentM,
                     descentM = currentState.stats.descentM,
-                    pathSharePct = currentState.stats.pathSharePct,
+                    pathSharePct = currentState.stats.pathSharePct ?: 0.0,
                     roadKm = currentState.stats.roadKm,
                     geometryFile = geometryFileName,
                     sourceName = "Rutebygger",

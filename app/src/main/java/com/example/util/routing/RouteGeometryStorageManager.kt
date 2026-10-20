@@ -18,7 +18,7 @@ data class LegGeometryData(
     val lengthKm: Double,
     val ascentM: Double,
     val descentM: Double,
-    val pathSharePct: Double,
+    val pathSharePct: Double?,
     val roadKm: Double,
     val hasAccessWarning: Boolean = false,
     val sourceName: String = "BRouter",
@@ -35,7 +35,7 @@ data class LegGeometryData(
         obj.put("lengthKm", lengthKm)
         obj.put("ascentM", ascentM)
         obj.put("descentM", descentM)
-        obj.put("pathSharePct", pathSharePct)
+        if (pathSharePct != null) obj.put("pathSharePct", pathSharePct) else obj.put("pathSharePct", JSONObject.NULL)
         obj.put("roadKm", roadKm)
         obj.put("hasAccessWarning", hasAccessWarning)
         obj.put("sourceName", sourceName)
@@ -111,7 +111,7 @@ data class LegGeometryData(
                 lengthKm = obj.optDouble("lengthKm", 0.0),
                 ascentM = obj.optDouble("ascentM", 0.0),
                 descentM = obj.optDouble("descentM", 0.0),
-                pathSharePct = obj.optDouble("pathSharePct", 0.0),
+                pathSharePct = if (obj.has("pathSharePct") && !obj.isNull("pathSharePct")) obj.getDouble("pathSharePct") else null,
                 roadKm = obj.optDouble("roadKm", 0.0),
                 hasAccessWarning = obj.optBoolean("hasAccessWarning", false),
                 sourceName = obj.optString("sourceName", "BRouter"),
@@ -126,8 +126,9 @@ data class RouteStats(
     val totalKm: Double,
     val ascentM: Double,
     val descentM: Double,
-    val pathSharePct: Double,
-    val roadKm: Double
+    val pathSharePct: Double?,
+    val roadKm: Double,
+    val hasWayInfo: Boolean = pathSharePct != null
 )
 
 /**
@@ -229,7 +230,7 @@ object RouteGeometryStorageManager {
      */
     fun calculateStats(orderedLegs: List<LegGeometryData>): RouteStats {
         if (orderedLegs.isEmpty()) {
-            return RouteStats(0.0, 0.0, 0.0, 100.0, 0.0)
+            return RouteStats(0.0, 0.0, 0.0, null, 0.0, false)
         }
 
         var totalKm = 0.0
@@ -237,25 +238,31 @@ object RouteGeometryStorageManager {
         var totalDescent = 0.0
         var totalRoadKm = 0.0
         var weightedPathKm = 0.0
+        var totalPathWeightKm = 0.0
 
         for (leg in orderedLegs) {
             totalKm += leg.lengthKm
             totalAscent += leg.ascentM
             totalDescent += leg.descentM
             totalRoadKm += leg.roadKm
-            weightedPathKm += (leg.lengthKm * (leg.pathSharePct / 100.0))
+            if (leg.pathSharePct != null) {
+                weightedPathKm += (leg.lengthKm * (leg.pathSharePct / 100.0))
+                totalPathWeightKm += leg.lengthKm
+            }
         }
 
-        val pathShare = if (totalKm > 0.0) {
-            (weightedPathKm / totalKm * 100.0).coerceIn(0.0, 100.0)
-        } else 100.0
+        val hasWayInfo = totalPathWeightKm > 0.0
+        val pathShare = if (hasWayInfo) {
+            (weightedPathKm / totalPathWeightKm * 100.0).coerceIn(0.0, 100.0)
+        } else null
 
         return RouteStats(
             totalKm = totalKm,
             ascentM = totalAscent,
             descentM = totalDescent,
             pathSharePct = pathShare,
-            roadKm = totalRoadKm
+            roadKm = totalRoadKm,
+            hasWayInfo = hasWayInfo
         )
     }
 

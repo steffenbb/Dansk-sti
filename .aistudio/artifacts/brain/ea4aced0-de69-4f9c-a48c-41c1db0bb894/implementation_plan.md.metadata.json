@@ -1,6 +1,0 @@
-{
-  "summary": "Implementation plan to fix the 'Ingen sti valgt' bug when tapping Navigate or Plan on a trail. Details the direct trail initialization in TripPlannerScreen, loading indicator states, and seamless navigation transitions.",
-  "updatedAt": "2026-10-14T13:22:44.055776682Z",
-  "requestFeedback": true,
-  "userFacing": true
-}

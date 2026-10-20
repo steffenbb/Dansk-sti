@@ -277,4 +277,65 @@ object AccessGeometryUtils {
         val c = 2 * atan2(sqrt(a), sqrt(1 - a))
         return r * c
     }
+
+    /**
+     * Computes the fraction of [polygon]'s area that lies inside the union of [statePolygons]
+     * using real polygon intersection (grid-based numerical surface integration over polygon bounds).
+     *
+     * Returns a value between 0.0 and 1.0 (e.g. 0.50 = 50% of the area).
+     */
+    fun computeIntersectionAreaFraction(
+        polygon: List<LatLng>,
+        statePolygons: List<List<LatLng>>
+    ): Double {
+        if (polygon.size < 3 || statePolygons.isEmpty()) return 0.0
+
+        val minLat = polygon.minOf { it.lat }
+        val maxLat = polygon.maxOf { it.lat }
+        val minLng = polygon.minOf { it.lng }
+        val maxLng = polygon.maxOf { it.lng }
+
+        val candidateStatePolys = statePolygons.filter { sp ->
+            if (sp.size < 3) return@filter false
+            val sMinLat = sp.minOf { it.lat }
+            val sMaxLat = sp.maxOf { it.lat }
+            val sMinLng = sp.minOf { it.lng }
+            val sMaxLng = sp.maxOf { it.lng }
+            minLat <= sMaxLat && maxLat >= sMinLat && minLng <= sMaxLng && maxLng >= sMinLng
+        }
+        if (candidateStatePolys.isEmpty()) return 0.0
+
+        val steps = 25
+        val dLat = (maxLat - minLat) / steps
+        val dLng = (maxLng - minLng) / steps
+
+        var totalPointsInPoly = 0
+        var pointsInStateAndPoly = 0
+
+        for (i in 0 until steps) {
+            val sampleLat = minLat + (i + 0.5) * dLat
+            for (j in 0 until steps) {
+                val sampleLng = minLng + (j + 0.5) * dLng
+                val samplePt = LatLng(sampleLat, sampleLng)
+
+                if (isPointInPolygon(samplePt, polygon)) {
+                    totalPointsInPoly++
+                    val isInsideState = candidateStatePolys.any { sp ->
+                        isPointInPolygon(samplePt, sp)
+                    }
+                    if (isInsideState) {
+                        pointsInStateAndPoly++
+                    }
+                }
+            }
+        }
+
+        if (totalPointsInPoly == 0) {
+            val testPts = polygon + listOf(LatLng((minLat + maxLat) / 2.0, (minLng + maxLng) / 2.0))
+            val insideCount = testPts.count { pt -> candidateStatePolys.any { sp -> isPointInPolygon(pt, sp) } }
+            return insideCount.toDouble() / testPts.size.toDouble()
+        }
+
+        return pointsInStateAndPoly.toDouble() / totalPointsInPoly.toDouble()
+    }
 }

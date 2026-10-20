@@ -219,6 +219,57 @@ fun ApiDiagnosticsScreen(
                         onClearCache = { viewModel.clearTrailCache() }
                     )
                 }
+
+                // Requirement 2 & 8: WFS answer/polygon count and Active BRouter profile card
+                item {
+                    val wfsAnswered = com.example.data.repository.AccessLandRepository.Companion.DiagnosticsState.wfsAnswered
+                    val wfsCount = com.example.data.repository.AccessLandRepository.Companion.DiagnosticsState.wfsPolygonCount
+                    val activeProfile = com.example.util.routing.BRouterOnlineEngine.activeProfileName
+
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("active_services_diagnostics_card")
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Aktiv routing & adgangsstatus",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Miljøportal WFS:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    text = if (wfsAnswered) "Svarede ($wfsCount statspolygoner)" else "Ikke svaret endnu",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (wfsAnswered) ForestGreenPrimary else AmberAccent
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Aktiv BRouter-profil:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    text = activeProfile,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ForestGreenPrimary
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             // Help & Secret Configuration Instructions

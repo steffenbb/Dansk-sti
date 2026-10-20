@@ -298,48 +298,66 @@ class ApiHealthChecker(
     }
 
     suspend fun checkMiljoeportalWfs(): ApiCheckResult = withContext(Dispatchers.IO) {
-        val endpoint = "https://wfs2-miljoegis.mim.dk/skovdrift/ows?service=WFS&version=2.0.0&request=GetCapabilities"
+        val testUrl = "https://wfs2-miljoegis.mim.dk/skovdrift/ows?service=WFS&version=2.0.0" +
+                "&request=GetFeature&typeNames=skovdrift:Naturstyrelsens+arealoversigt" +
+                "&outputFormat=application/json&srsName=EPSG:4326" +
+                "&bbox=56.81,9.80,56.85,9.88,urn:ogc:def:crs:EPSG::4326"
         val start = System.currentTimeMillis()
         try {
             val req = Request.Builder()
-                .url(endpoint)
+                .url(testUrl)
                 .header("User-Agent", "DanskSti/1.8")
                 .get()
                 .build()
             client.newCall(req).execute().use { resp ->
                 val elapsed = System.currentTimeMillis() - start
+                val code = resp.code
                 if (resp.isSuccessful) {
+                    val body = resp.body?.string().orEmpty()
+                    val count = if (body.trimStart().startsWith("{")) {
+                        try {
+                            org.json.JSONObject(body).optJSONArray("features")?.length() ?: 0
+                        } catch (_: Exception) { 0 }
+                    } else 0
+
+                    com.example.data.repository.AccessLandRepository.Companion.DiagnosticsState.wfsAnswered = true
+                    com.example.data.repository.AccessLandRepository.Companion.DiagnosticsState.wfsPolygonCount = count
+                    com.example.data.repository.AccessLandRepository.Companion.DiagnosticsState.lastWfsTimestamp = System.currentTimeMillis()
+
                     ApiCheckResult(
                         serviceName = "Danmarks Miljøportal WFS",
                         endpointUrl = "wfs2-miljoegis.mim.dk",
                         status = ApiCheckStatus.SUCCESS,
-                        httpCode = resp.code,
+                        httpCode = code,
                         latencyMs = elapsed,
-                        summary = "${resp.code} OK • Statsskove aktiv ($elapsed ms)",
-                        details = "Naturstyrelsens arealoversigt er tilgængelig og leverer officielle statsskovgrænser i GeoJSON til adgangsklassifikation."
+                        summary = "Svarede (HTTP $code) • $count statspolygoner modtaget ($elapsed ms)",
+                        details = "Miljøportal WFS svarede OK og returnerede $count officielle Naturstyrelsen statspolygoner for testområdet. Adgangsklassifikation er fuldt operationel."
                     )
                 } else {
+                    com.example.data.repository.AccessLandRepository.Companion.DiagnosticsState.wfsAnswered = false
                     ApiCheckResult(
                         serviceName = "Danmarks Miljøportal WFS",
                         endpointUrl = "wfs2-miljoegis.mim.dk",
                         status = ApiCheckStatus.WARNING,
-                        httpCode = resp.code,
+                        httpCode = code,
                         latencyMs = elapsed,
-                        summary = "HTTP ${resp.code}",
-                        details = "Serveren svarede med kode ${resp.code}. Appen benytter lokal Room-cache og OpenStreetMap som fallback."
+                        summary = "Svarede ikke (HTTP $code) • 0 statspolygoner",
+                        details = "Serveren svarede med fejlkode $code. Appen benytter lokal Room-cache og OpenStreetMap som fallback."
                     )
                 }
             }
         } catch (e: Exception) {
             val elapsed = System.currentTimeMillis() - start
+            com.example.data.repository.AccessLandRepository.Companion.DiagnosticsState.wfsAnswered = false
+            com.example.data.repository.AccessLandRepository.Companion.DiagnosticsState.lastError = e.message
             ApiCheckResult(
                 serviceName = "Danmarks Miljøportal WFS",
                 endpointUrl = "wfs2-miljoegis.mim.dk",
                 status = ApiCheckStatus.ERROR,
                 httpCode = null,
                 latencyMs = elapsed,
-                summary = "Forbindelsesfejl (${e.javaClass.simpleName})",
-                details = "Kunne ikke forbinde: ${e.message}. Appen benytter lokal cache og OpenStreetMap som fallback."
+                summary = "Svarede ikke • 0 statspolygoner (${e.javaClass.simpleName})",
+                details = "Kunne ikke forbinde til Miljøportal WFS: ${e.message}."
             )
         }
     }

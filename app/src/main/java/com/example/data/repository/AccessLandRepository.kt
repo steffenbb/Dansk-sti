@@ -28,6 +28,14 @@ class AccessLandRepository(
     private val TAG = "AccessLandRepo"
 
     companion object {
+        object DiagnosticsState {
+            @Volatile var wfsAnswered: Boolean = false
+            @Volatile var wfsPolygonCount: Int = 0
+            @Volatile var lastWfsTimestamp: Long = 0L
+            @Volatile var lastError: String? = null
+            @Volatile var isDataUnavailable: Boolean = false
+        }
+
         fun defaultClient(): OkHttpClient {
             return OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
@@ -60,9 +68,15 @@ class AccessLandRepository(
 
             // 1. Fetch live official state land from Danmarks Miljøportal WFS
             val wfsStatePolygons = try {
-                fetchFromMiljoeportalWfs(minLat, maxLat, minLng, maxLng)
+                val statePolys = fetchFromMiljoeportalWfs(minLat, maxLat, minLng, maxLng)
+                DiagnosticsState.wfsAnswered = true
+                DiagnosticsState.wfsPolygonCount = statePolys.size
+                DiagnosticsState.lastWfsTimestamp = System.currentTimeMillis()
+                statePolys
             } catch (e: Exception) {
                 Log.w(TAG, "Miljøportal WFS fetch failed: ${e.message}")
+                DiagnosticsState.wfsAnswered = false
+                DiagnosticsState.lastError = e.message
                 emptyList()
             }
 
@@ -74,28 +88,47 @@ class AccessLandRepository(
                 emptyList()
             }
 
-            // 3. Complement OSM with Miljøportal WFS:
-            // For any OSM forest initially marked PRIVATE_FOREST, if it overlaps a Miljøportal state forest,
-            // promote it to PUBLIC_FOREST with source Danmarks Miljøportal (Naturstyrelsens arealoversigt).
+            // 3. Promote an OSM forest to PUBLIC only if at least 50 % of its area lies inside
+            // a Naturstyrelsen polygon (real polygon intersection), not by centroid distance.
             val complementedOsm = osmPolygons.map { osmPoly ->
-                if (osmPoly.type == AccessLandType.PRIVATE_FOREST && wfsStatePolygons.isNotEmpty()) {
-                    val centerLat = osmPoly.coordinates.map { it.lat }.average()
-                    val centerLng = osmPoly.coordinates.map { it.lng }.average()
-                    val centerPt = LatLng(centerLat, centerLng)
+                val isForest = osmPoly.type == AccessLandType.PUBLIC_FOREST ||
+                        osmPoly.type == AccessLandType.PRIVATE_FOREST ||
+                        osmPoly.type == AccessLandType.PRIVATE_OR_UNKNOWN
 
-                    val matchingState = wfsStatePolygons.find { statePoly ->
-                        com.example.util.access.AccessGeometryUtils.isPointInPolygon(centerPt, statePoly.coordinates) ||
-                        statePoly.coordinates.any { sc -> haversineM(centerLat, centerLng, sc.lat, sc.lng) < 600.0 }
-                    }
+                if (isForest) {
+                    val candidateStatePolys = if (wfsStatePolygons.isNotEmpty()) {
+                        wfsStatePolygons.filter { sp ->
+                            val osmMinLat = osmPoly.coordinates.minOf { it.lat }
+                            val osmMaxLat = osmPoly.coordinates.maxOf { it.lat }
+                            val osmMinLng = osmPoly.coordinates.minOf { it.lng }
+                            val osmMaxLng = osmPoly.coordinates.maxOf { it.lng }
 
-                    if (matchingState != null) {
-                        osmPoly.copy(
-                            type = AccessLandType.PUBLIC_FOREST,
-                            source = "Danmarks Miljøportal (Naturstyrelsens arealoversigt)",
-                            operatorOrOwner = matchingState.operatorOrOwner ?: "Naturstyrelsen"
+                            val sMinLat = sp.coordinates.minOf { it.lat }
+                            val sMaxLat = sp.coordinates.maxOf { it.lat }
+                            val sMinLng = sp.coordinates.minOf { it.lng }
+                            val sMaxLng = sp.coordinates.maxOf { it.lng }
+
+                            osmMinLat <= sMaxLat && osmMaxLat >= sMinLat && osmMinLng <= sMaxLng && osmMaxLng >= sMinLng
+                        }
+                    } else emptyList()
+
+                    if (candidateStatePolys.isNotEmpty()) {
+                        val fraction = com.example.util.access.AccessGeometryUtils.computeIntersectionAreaFraction(
+                            osmPoly.coordinates,
+                            candidateStatePolys.map { it.coordinates }
                         )
+                        if (fraction >= 0.50) {
+                            val matchingState = candidateStatePolys.firstOrNull()
+                            osmPoly.copy(
+                                type = AccessLandType.PUBLIC_FOREST,
+                                source = "Danmarks Miljøportal (Naturstyrelsens arealoversigt)",
+                                operatorOrOwner = matchingState?.operatorOrOwner ?: "Naturstyrelsen"
+                            )
+                        } else {
+                            osmPoly.copy(type = AccessLandType.PRIVATE_OR_UNKNOWN)
+                        }
                     } else {
-                        osmPoly
+                        osmPoly.copy(type = AccessLandType.PRIVATE_OR_UNKNOWN)
                     }
                 } else {
                     osmPoly
@@ -116,28 +149,32 @@ class AccessLandRepository(
                 Log.d(TAG, "Caching ${combinedList.size} access polygons (WFS: ${wfsStatePolygons.size}, OSM: ${complementedOsm.size}) in Room")
                 val entities = combinedList.map { modelToEntity(it) }
                 dao.insertAccessPolygons(entities)
+                DiagnosticsState.isDataUnavailable = false
                 return@withContext combinedList
             } else if (cachedEntities.isNotEmpty()) {
                 Log.d(TAG, "Live fetch returned empty, using existing cached access polygons")
+                DiagnosticsState.isDataUnavailable = false
                 return@withContext cachedEntities.map { entityToModel(it) }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Live access fetch failed: ${e.message}, checking cache/baseline")
+            Log.w(TAG, "Live access fetch failed: ${e.message}, checking cache")
             val fallbackCache = dao.getAccessPolygonsInBoundingBox(minLat, maxLat, minLng, maxLng)
             if (fallbackCache.isNotEmpty()) {
+                DiagnosticsState.isDataUnavailable = false
                 return@withContext fallbackCache.map { entityToModel(it) }
             }
         }
 
-        // Fallback to baseline Danish public & private nature polygons
-        val baseline = getBaselineDanishAccessPolygons().filter { poly ->
-            poly.coordinates.any { it.lat in minLat..maxLat && it.lng in minLng..maxLng }
+        // If live data fails and there is no cache, show "Adgangsdata ikke tilgængelig her" and treat forests as PRIVATE_OR_UNKNOWN
+        val fallbackCache = dao.getAccessPolygonsInBoundingBox(minLat, maxLat, minLng, maxLng)
+        if (fallbackCache.isNotEmpty()) {
+            DiagnosticsState.isDataUnavailable = false
+            return@withContext fallbackCache.map { entityToModel(it) }
         }
-        if (baseline.isNotEmpty()) {
-            val entities = baseline.map { modelToEntity(it) }
-            dao.insertAccessPolygons(entities)
-        }
-        baseline
+
+        Log.w(TAG, "Adgangsdata ikke tilgængelig her (live fetch failed and no cache available)")
+        DiagnosticsState.isDataUnavailable = true
+        emptyList()
     }
 
     /**
@@ -343,12 +380,6 @@ class AccessLandRepository(
             }
         }
 
-        // Get public fri teltning areas for overlap classification
-        val publicTeltning = dao.getAllFriTeltningDirect().filter {
-            val cvr = (it.cvrNavn ?: "").lowercase()
-            cvr.contains("naturstyrelsen") || cvr.contains("kommune")
-        }
-
         val result = mutableListOf<AccessPolygon>()
 
         for (area in areaList) {
@@ -385,16 +416,8 @@ class AccessLandRepository(
 
             if (coords.size < 3) continue
 
-            // Check if centroid overlaps public GeoFA fri teltning
-            val centerLat = coords.map { it.lat }.average()
-            val centerLng = coords.map { it.lng }.average()
-            val overlapsPublic = publicTeltning.any { ft ->
-                val d = haversineM(centerLat, centerLng, ft.centerLat, ft.centerLng)
-                d < 1500.0 // within 1.5 km of state fri teltning centroid
-            }
-            val publicOwner = if (overlapsPublic) "Naturstyrelsen" else null
-
-            val (type, source) = AccessClassifier.classify(tags, overlapsPublic, publicOwner)
+            // Classify OSM polygon from tags; promotion to PUBLIC for forests is done via real polygon intersection with Naturstyrelsen WFS
+            val (type, source) = AccessClassifier.classify(tags)
 
             result.add(
                 AccessPolygon(
@@ -461,124 +484,7 @@ class AccessLandRepository(
         )
     }
 
-    /**
-     * Bundles baseline major Danish forests and nature reserves:
-     * - Rold Skov (State forest / Naturstyrelsen, public)
-     * - Lindenborg Skov (Private forest part of Rold Skov complex)
-     * - Gribskov (State forest / Naturstyrelsen, public)
-     * - Tisvilde Hegn (State forest / Naturstyrelsen, public)
-     * - Jægersborg Dyrehave (State forest / Naturstyrelsen, public)
-     * - Silkeborgskovene (State forest / Naturstyrelsen, public)
-     * - Mols Bjerge Hede (Uncultivated land, public)
-     * - Grenen / Skagen Kyst (Beach, public)
-     */
-    fun getBaselineDanishAccessPolygons(): List<AccessPolygon> {
-        return listOf(
-            // 1. Rold Skov (Statsskov / Naturstyrelsen) - Public Forest
-            AccessPolygon(
-                id = "baseline_rold_skov_stat",
-                name = "Rold Skov (Statsskov)",
-                type = AccessLandType.PUBLIC_FOREST,
-                coordinates = listOf(
-                    LatLng(56.815, 9.775),
-                    LatLng(56.845, 9.780),
-                    LatLng(56.850, 9.850),
-                    LatLng(56.810, 9.845),
-                    LatLng(56.815, 9.775)
-                ),
-                source = "OSM (operator=Naturstyrelsen)",
-                operatorOrOwner = "Naturstyrelsen"
-            ),
-            // 2. Lindenborg Gods Skov (Privat skov i Rold Skov) - Private Forest
-            AccessPolygon(
-                id = "baseline_rold_skov_privat",
-                name = "Lindenborg Skov (Privat)",
-                type = AccessLandType.PRIVATE_FOREST,
-                coordinates = listOf(
-                    LatLng(56.850, 9.850),
-                    LatLng(56.875, 9.855),
-                    LatLng(56.880, 9.910),
-                    LatLng(56.845, 9.905),
-                    LatLng(56.850, 9.850)
-                ),
-                source = "OSM (privat/ukendt ejer)",
-                operatorOrOwner = "Lindenborg Gods"
-            ),
-            // 3. Gribskov (Nordsjælland) - Public Forest
-            AccessPolygon(
-                id = "baseline_gribskov",
-                name = "Gribskov",
-                type = AccessLandType.PUBLIC_FOREST,
-                coordinates = listOf(
-                    LatLng(55.960, 12.280),
-                    LatLng(56.020, 12.290),
-                    LatLng(56.035, 12.380),
-                    LatLng(55.965, 12.370),
-                    LatLng(55.960, 12.280)
-                ),
-                source = "OSM (operator=Naturstyrelsen)",
-                operatorOrOwner = "Naturstyrelsen"
-            ),
-            // 4. Løvenholm Skov (Djursland) - Private Forest
-            AccessPolygon(
-                id = "baseline_loevenholm_privat",
-                name = "Løvenholm Skov (Privat skov)",
-                type = AccessLandType.PRIVATE_FOREST,
-                coordinates = listOf(
-                    LatLng(56.415, 10.450),
-                    LatLng(56.445, 10.460),
-                    LatLng(56.440, 10.530),
-                    LatLng(56.410, 10.520),
-                    LatLng(56.415, 10.450)
-                ),
-                source = "OSM (privat/ukendt ejer)",
-                operatorOrOwner = "Løvenholm Fonden"
-            ),
-            // 5. Rebild Bakker & Hede - Uncultivated Land
-            AccessPolygon(
-                id = "baseline_rebild_bakker",
-                name = "Rebild Bakker",
-                type = AccessLandType.UNCULTIVATED_LAND,
-                coordinates = listOf(
-                    LatLng(56.828, 9.828),
-                    LatLng(56.838, 9.829),
-                    LatLng(56.839, 9.845),
-                    LatLng(56.826, 9.842),
-                    LatLng(56.828, 9.828)
-                ),
-                source = "OSM (udyrket natur)",
-                operatorOrOwner = "Rebild National Park"
-            ),
-            // 6. Grenen Kyst & Strand - Beach
-            AccessPolygon(
-                id = "baseline_skagen_strand",
-                name = "Skagen Grenen Kyst",
-                type = AccessLandType.BEACH,
-                coordinates = listOf(
-                    LatLng(57.730, 10.610),
-                    LatLng(57.750, 10.630),
-                    LatLng(57.755, 10.655),
-                    LatLng(57.735, 10.640),
-                    LatLng(57.730, 10.610)
-                ),
-                source = "OSM (strand/kyst)"
-            ),
-            // 7. Dyrkede marker ved Rold - Cultivated Fields
-            AccessPolygon(
-                id = "baseline_rold_marker",
-                name = "Markarealer ved Oplev",
-                type = AccessLandType.CULTIVATED_FIELD,
-                coordinates = listOf(
-                    LatLng(56.800, 9.810),
-                    LatLng(56.812, 9.812),
-                    LatLng(56.811, 9.835),
-                    LatLng(56.798, 9.830),
-                    LatLng(56.800, 9.810)
-                ),
-                source = "OSM (dyrket mark)"
-            )
-        )
-    }
+
 
     private fun haversineM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
         val r = 6371000.0

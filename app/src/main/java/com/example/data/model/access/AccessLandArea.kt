@@ -28,7 +28,7 @@ enum class AccessLandType(
      * Ingen adgang i skovbunden. Ikke ophold inden for 150 m fra beboelse/driftsbygninger.
      */
     PRIVATE_FOREST(
-        title = "Privat skov",
+        title = "Privat/ukendt skov",
         summary = "Kun på veje og stier, kl. 06:00 til solnedgang.",
         fillColorArgb = 0x38FFA000, // Amber
         strokeColorArgb = 0xFFF57C00.toInt()
@@ -115,6 +115,7 @@ enum class AccessLandType(
         }
 
     companion object {
+        val PRIVATE_OR_UNKNOWN = PRIVATE_FOREST
         const val GENERAL_DISCLAIMER = "Følg altid skilte på stedet - ejeren kan have lovlige begrænsninger."
     }
 }

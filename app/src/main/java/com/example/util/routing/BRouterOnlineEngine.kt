@@ -54,6 +54,13 @@ class BRouterOnlineEngine(
         private const val DEBOUNCE_DELAY_MS = 400L
         private const val CACHE_TTL_MS = 30L * 24 * 60 * 60 * 1000L // 30 days
 
+        @Volatile
+        var activeProfileName: String = "dansk-vandring"
+
+        fun isBuiltinFallbackInUse(): Boolean =
+            activeProfileName.contains("indbygget", ignoreCase = true) ||
+            activeProfileName.startsWith("hiking-mountain")
+
         fun defaultClient(): OkHttpClient {
             return OkHttpClient.Builder()
                 .connectTimeout(30, TimeUnit.SECONDS)
@@ -151,6 +158,42 @@ class BRouterOnlineEngine(
                         }
                         code != 200 -> {
                             Log.w(TAG, "BRouter error HTTP $code: $responseBody")
+                            val isUnknownProfile = responseBody.contains("profile", ignoreCase = true) ||
+                                    responseBody.contains("not found", ignoreCase = true) ||
+                                    responseBody.contains("unknown", ignoreCase = true) ||
+                                    code == 400
+
+                            if (isUnknownProfile && uploadedProfileId != null) {
+                                Log.i(TAG, "Profile $uploadedProfileId unknown to BRouter. Re-uploading once and retrying.")
+                                uploadedProfileId = null
+                                profileUploadAttempted = false
+                                val retryProfile = getOrUploadProfile()
+                                val retryUrl = buildRoutingUrl(from, to, options, alternative, retryProfile)
+                                val retryReq = Request.Builder()
+                                    .url(retryUrl)
+                                    .header("User-Agent", userAgent)
+                                    .get()
+                                    .build()
+                                lastServerCallTimestamp = System.currentTimeMillis()
+                                val retryResp = client.newCall(retryReq).execute()
+                                return@withLock retryResp.use { r2 ->
+                                    val r2Body = r2.body?.string().orEmpty()
+                                    if (r2.isSuccessful) {
+                                        parseGeoJsonResponse(
+                                            jsonStr = r2Body,
+                                            from = from,
+                                            to = to,
+                                            options = options,
+                                            alternative = alternative,
+                                            cacheKey = cacheKey,
+                                            profileUsed = retryProfile
+                                        )
+                                    } else {
+                                        RouteLegResult.NoRoute("Ingen rute fundet: ${r2Body.take(200).trim()}")
+                                    }
+                                }
+                            }
+
                             val cleanMsg = responseBody.take(200).trim()
                             return@withLock RouteLegResult.NoRoute("Ingen rute fundet: $cleanMsg")
                         }
@@ -182,7 +225,10 @@ class BRouterOnlineEngine(
      * or falling back to BRouter's built-in hiking-mountain profile.
      */
     private suspend fun getOrUploadProfile(): String {
-        uploadedProfileId?.let { return it }
+        uploadedProfileId?.let {
+            activeProfileName = "dansk-vandring ($it)"
+            return it
+        }
 
         if (!profileUploadAttempted) {
             profileUploadAttempted = true
@@ -191,12 +237,14 @@ class BRouterOnlineEngine(
                 val uploadedId = uploadProfileToServer(profileText)
                 if (!uploadedId.isNullOrBlank()) {
                     uploadedProfileId = uploadedId
+                    activeProfileName = "dansk-vandring ($uploadedId)"
                     Log.i(TAG, "Active BRouter profile: $uploadedId (custom profile uploaded successfully)")
                     return uploadedId
                 }
             }
         }
 
+        activeProfileName = "hiking-mountain (indbygget fallback)"
         Log.i(TAG, "Active BRouter profile: hiking-mountain (fallback built-in profile used)")
         return "hiking-mountain"
     }
@@ -262,10 +310,14 @@ class BRouterOnlineEngine(
         sb.append("&alternativeidx=").append(alternative.coerceIn(0, 3))
         sb.append("&format=geojson")
 
-        // No-go circular points: nogos=<lon,lat,radius|...>
+        // No-go circular points: nogos=<lon,lat,radius[,weight]|...>
         if (options.noGoPoints.isNotEmpty()) {
             val nogosStr = options.noGoPoints.joinToString("|") {
-                String.format(Locale.US, "%.6f,%.6f,%.0f", it.lng, it.lat, it.radiusM)
+                if (it.weight != null) {
+                    String.format(Locale.US, "%.6f,%.6f,%.0f,%.0f", it.lng, it.lat, it.radiusM, it.weight)
+                } else {
+                    String.format(Locale.US, "%.6f,%.6f,%.0f", it.lng, it.lat, it.radiusM)
+                }
             }
             sb.append("&nogos=").append(nogosStr)
         }

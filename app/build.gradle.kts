@@ -53,6 +53,9 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  sourceSets {
+    getByName("test").assets.srcDir("$projectDir/schemas")
+  }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
@@ -96,12 +99,14 @@ dependencies {
   implementation(libs.okhttp)
   implementation(libs.play.services.location)
   implementation(libs.retrofit)
+  implementation(libs.brouter.core)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation(libs.robolectric)
+  testImplementation(libs.androidx.room.testing)
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
   androidTestImplementation(libs.androidx.espresso.core)

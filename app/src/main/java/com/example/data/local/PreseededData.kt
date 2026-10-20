@@ -17,7 +17,7 @@ object PreseededData {
             TrailEntity(
                 id = "trail_haervejen",
                 name = "Hærvejen (Jylland)",
-                description = "Den historiske vandrerute langs Jyllands højderyg fra Viborg til den tyske grænse ved Padborg med tusind års pilgrimstraditioner.",
+                description = "Den historiske vandrerute langs Jyllands højderyg fra Viborg til den tyske grænse ved Rønsdam.",
                 region = "Jylland",
                 parentRegion = "Jylland",
                 osmRelationId = 1792585L

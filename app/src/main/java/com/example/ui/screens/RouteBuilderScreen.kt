@@ -44,6 +44,8 @@ import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DirectionsWalk
@@ -611,7 +613,7 @@ fun RouteBuilderScreen(
                                     uiState.stats.totalKm,
                                     uiState.stats.ascentM,
                                     uiState.timeEstimateFormatted,
-                                    uiState.stats.pathSharePct
+                                    uiState.stats.pathSharePct ?: 0.0
                                 ),
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
@@ -619,17 +621,45 @@ fun RouteBuilderScreen(
                                 modifier = Modifier.testTag("route_summary_text")
                             )
 
-                            if (uiState.loadingLegKeys.isNotEmpty()) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(top = 2.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 3.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (uiState.isOfflineRoute) ForestGreenPrimary.copy(alpha = 0.15f)
+                                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                                    modifier = Modifier.testTag("route_engine_mode_badge")
                                 ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (uiState.isOfflineRoute) Icons.Default.CloudOff else Icons.Default.CloudDone,
+                                            contentDescription = null,
+                                            tint = if (uiState.isOfflineRoute) ForestGreenPrimary else MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = uiState.routeEngineModeLabel,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (uiState.isOfflineRoute) ForestGreenPrimary else MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.testTag("route_engine_mode_label")
+                                        )
+                                    }
+                                }
+
+                                if (uiState.loadingLegKeys.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     CircularProgressIndicator(
                                         strokeWidth = 2.dp,
                                         modifier = Modifier.size(12.dp),
                                         color = ForestGreenPrimary
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
                                     Text(
                                         text = "Beregner rute...",
                                         fontSize = 11.sp,

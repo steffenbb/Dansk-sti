@@ -3,6 +3,7 @@ package com.example
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.DanskStiDatabase
+import com.example.util.GeoUtils
 import com.example.util.routing.BRouterOnlineEngine
 import com.example.util.routing.LatLng
 import com.example.util.routing.RouteLegResult
@@ -107,16 +108,22 @@ class RoutingEngineTest {
         assertTrue("Expected Success with avoidRoads=1.0", resultHighAvoid is RouteLegResult.Success)
         val successHigh = resultHighAvoid as RouteLegResult.Success
 
-        // Calculate path/footway/track share for both routes
+        // Calculate path/footway/track share by distance for both routes
         fun calculatePathTrackShare(result: RouteLegResult.Success): Double {
-            var pathTrackPoints = 0
-            for (way in result.perPointWayInfo) {
-                val hw = way.highway.orEmpty().lowercase()
+            var pathTrackM = 0.0
+            var totalM = 0.0
+            for (i in 1 until result.points.size) {
+                val p1 = result.points[i - 1]
+                val p2 = result.points[i]
+                val d = GeoUtils.distanceMeters(p1.lat, p1.lng, p2.lat, p2.lng)
+                totalM += d
+                val way = result.perPointWayInfo.getOrNull(i) ?: result.perPointWayInfo.getOrNull(i - 1)
+                val hw = way?.highway.orEmpty().lowercase()
                 if (hw == "path" || hw == "footway" || hw == "track" || hw == "bridleway") {
-                    pathTrackPoints++
+                    pathTrackM += d
                 }
             }
-            return pathTrackPoints.toDouble() / result.perPointWayInfo.size
+            return if (totalM > 0.0) pathTrackM / totalM else 0.0
         }
 
         val shareLow = calculatePathTrackShare(successLow)
@@ -124,7 +131,7 @@ class RoutingEngineTest {
 
         assertTrue(
             "Share of path/track with avoidRoads=1.0 ($shareHigh) should be higher than with avoidRoads=0.0 ($shareLow)",
-            shareHigh >= shareLow
+            shareHigh > shareLow
         )
     }
 

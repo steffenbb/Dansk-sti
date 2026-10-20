@@ -14,7 +14,8 @@ data class LatLng(
 data class NoGoPoint(
     val lat: Double,
     val lng: Double,
-    val radiusM: Double
+    val radiusM: Double,
+    val weight: Double? = null
 )
 
 /**

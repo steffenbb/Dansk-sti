@@ -488,13 +488,13 @@ object RouteSmartTools {
             val midLng = (start.lng + turnLatLng.lng) / 2.0 + (midDistKm / (111.0 * cos(Math.toRadians(start.lat)))) * sin(perpAngleRad)
             val returnViaLatLng = LatLng(midLat, midLng)
 
-            // Sample no-go points along middle section of outbound leg (exclude ends so turn & start can connect)
+            // Sample weighted no-go points along middle section of outbound leg (exclude ends so turn & start can connect)
             val noGoPoints = mutableListOf<NoGoPoint>()
             val sampleCount = 6
             val step = (outResult.points.size / (sampleCount + 2)).coerceAtLeast(1)
             for (i in step until outResult.points.size - step step step) {
                 val pt = outResult.points[i]
-                noGoPoints.add(NoGoPoint(pt.lat, pt.lng, radiusM = 150.0))
+                noGoPoints.add(NoGoPoint(pt.lat, pt.lng, radiusM = 150.0, weight = 1000.0))
             }
 
             val returnOptions = RouteOptions(
