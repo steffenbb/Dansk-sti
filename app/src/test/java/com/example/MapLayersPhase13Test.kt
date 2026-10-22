@@ -26,7 +26,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE)
 class MapLayersPhase13Test {
 
     private lateinit var app: Application
@@ -58,6 +58,10 @@ class MapLayersPhase13Test {
         assertEquals("Skærmkortet", BaseMapType.SKAERMKORT.displayName)
         assertEquals("Friluftskort", BaseMapType.FRILUFTSKORT.displayName)
         assertEquals("Luftfoto", BaseMapType.LUFTFOTO.displayName)
+
+        assertEquals("Topografisk", BaseMapType.SKAERMKORT.sheetTitle)
+        assertEquals("Udendørs", BaseMapType.FRILUFTSKORT.sheetTitle)
+        assertEquals("Luftfoto", BaseMapType.LUFTFOTO.sheetTitle)
     }
 
     @Test
@@ -120,6 +124,8 @@ class MapLayersPhase13Test {
 
         val luftfotoState = MapLayersState(
             baseMap = BaseMapType.LUFTFOTO,
+            showTerrain = false,
+            showWaterLayer = false,
             showMarkedRoutes = false,
             showAccess = false,
             showShelters = false,

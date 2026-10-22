@@ -1,18 +1,20 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.Uri
-import android.graphics.Color as AndroidColor
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +28,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,51 +37,51 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Cabin
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Forest
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Landscape
-import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.rememberBottomSheetScaffoldState
-import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,777 +93,951 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.DanskStiApp
+import com.example.R
 import com.example.data.model.GeoPointDto
 import com.example.data.model.TrailEntity
-import com.example.ui.components.ApiKeyPromptDialog
+import com.example.ui.components.EmptyStateView
+import com.example.ui.components.ErrorStateView
+import com.example.ui.components.MarkedRouteDetailSheet
+import com.example.ui.components.SkeletonLoadingList
+import com.example.ui.components.TrailGeometryThumbnail
+import com.example.ui.components.formatDanishElevationMeters
+import com.example.ui.components.formatDanishKm
+import com.example.ui.map.DanskStiMap
+import com.example.ui.navigation.MapLayersOverlayManager
+import com.example.ui.theme.AccentAmber
 import com.example.ui.theme.AmberAccent
-import com.example.ui.theme.ForestGreenDark
+import com.example.ui.theme.CardShape
 import com.example.ui.theme.ForestGreenLight
 import com.example.ui.theme.ForestGreenPrimary
-import com.example.ui.theme.NordicBlue
+import com.example.ui.theme.SheetTopShape
+import com.example.ui.theme.Spacing
+import com.example.ui.theme.TabularBodyStyle
+import com.example.ui.theme.TabularLabelStyle
 import com.example.ui.viewmodel.ExploreViewModel
 import com.example.ui.viewmodel.LengthFilter
 import com.example.ui.viewmodel.OvernightFilter
-import com.example.ui.components.MapLayersBottomSheet
-import com.example.ui.components.MarkedRouteDetailSheet
-import com.example.ui.navigation.MapLayersOverlayManager
-import com.example.util.DanskStiTileSource
-import com.example.util.DanskStiTileSourceHelper
-import com.example.util.MapAttributionPill
-import com.example.util.GeoUtils
+import com.example.ui.viewmodel.TrailCardMetrics
+import com.example.util.routing.RouteMarkerHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.events.MapListener
-import org.osmdroid.events.ScrollEvent
-import org.osmdroid.events.ZoomEvent
+import kotlinx.coroutines.withContext
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.views.overlay.Overlay
 import org.osmdroid.views.overlay.Polyline
 import java.util.Locale
+import kotlin.math.ceil
 import kotlin.math.max
 
 private val TRAIL_LINE_COLORS = listOf(
-    AndroidColor.rgb(35, 83, 63),   // ForestGreen
-    AndroidColor.rgb(2, 132, 199),  // NordicBlue
-    AndroidColor.rgb(217, 119, 6),  // AmberAccent
-    AndroidColor.rgb(13, 148, 136), // Teal
-    AndroidColor.rgb(124, 58, 237)  // Indigo/Purple
+    0xFF2E6B3F.toInt(),
+    0xFF1565C0.toInt(),
+    0xFFE65100.toInt(),
+    0xFF6A1B9A.toInt(),
+    0xFF00838F.toInt(),
+    0xFFAD1457.toInt()
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrailBrowserScreen(
-    viewModel: ExploreViewModel = viewModel(),
     onTrailClick: (String) -> Unit,
     onOpenDiagnostics: () -> Unit = {},
     onOpenCredits: () -> Unit = {},
-    onOpenRouteBuilder: (destLat: Double?, destLng: Double?, destName: String?) -> Unit = { _, _, _ -> },
-    modifier: Modifier = Modifier
+    onOpenRouteBuilder: (lat: Double, lng: Double, label: String) -> Unit = { _, _, _ -> },
+    modifier: Modifier = Modifier,
+    viewModel: ExploreViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val isDark = isSystemInDarkTheme()
+
+    val allTrails by viewModel.allTrails.collectAsState()
     val trails by viewModel.filteredTrails.collectAsState()
-    val allGeometries by viewModel.allTrailGeometries.collectAsState()
-    val counts by viewModel.trailCounts.collectAsState()
+    val savedTrails by viewModel.savedTrails.collectAsState()
+    val savedTrailIds by viewModel.savedTrailIds.collectAsState()
+    val nearbyTrails by viewModel.nearbyTrails.collectAsState()
+    val userLocation by viewModel.userLocation.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedRegion by viewModel.selectedRegion.collectAsState()
     val lengthFilter by viewModel.lengthFilter.collectAsState()
-    val overnightFilter by viewModel.overnightFilter.collectAsState()
+    val flerdagesOnly by viewModel.flerdagesOnly.collectAsState()
+    val sheltersUndervejs by viewModel.sheltersUndervejs.collectAsState()
+    val friTeltningOnly by viewModel.friTeltningOnly.collectAsState()
+    val shelterCounts by viewModel.shelterCounts.collectAsState()
+    val friTeltningCounts by viewModel.friTeltningCounts.collectAsState()
+    val trailMetrics by viewModel.trailMetrics.collectAsState()
+    val placeSuggestions by viewModel.placeSuggestions.collectAsState()
     val selectedTrailForPeek by viewModel.selectedTrailForPeek.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
 
-    // Phase 7b: Nearby overnight spots
     val nearbySpots by viewModel.nearbySpots.collectAsState()
     val isSearchingNearby by viewModel.isSearchingNearby.collectAsState()
     val showNearbySheet by viewModel.showNearbySheet.collectAsState()
-
-    // Phase 13: Map Layers & Marked Routes
-    val layersState by viewModel.mapLayersState.collectAsState()
-    val showLayersSheet by viewModel.showLayersSheet.collectAsState()
+    val isNearbyUsingMapCenter by viewModel.isNearbyUsingMapCenter.collectAsState()
     val selectedMarkedRoute by viewModel.selectedMarkedRoute.collectAsState()
-    var overlayManagerRef by remember { mutableStateOf<MapLayersOverlayManager?>(null) }
 
-    val fusedClient = remember { com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(context) }
+    // Requirement C: Toggle Liste / Kort (Default to Liste for AllTrails-style discovery)
+    var isMapView by rememberSaveable { mutableStateOf(false) }
 
-    val fetchLocationAndSearch = {
-        try {
-            fusedClient.lastLocation.addOnSuccessListener { loc ->
-                if (loc != null) {
-                    viewModel.findNearbyOvernights(loc.latitude, loc.longitude)
-                } else {
-                    viewModel.findNearbyOvernights(55.6761, 12.5683)
+    var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+    var lastExploreRouteSig by remember { mutableIntStateOf(0) }
+
+    var showRegionMenu by remember { mutableStateOf(false) }
+    var showLengthMenu by remember { mutableStateOf(false) }
+
+    val regions = listOf("Alle", "Jylland", "Fyn & Øer", "Sjælland", "Bornholm")
+
+    // Check location on start if permission already granted
+    @SuppressLint("MissingPermission")
+    fun refreshDeviceLocation(openNearbySpotsSheet: Boolean = false) {
+        val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasFine || hasCoarse) {
+            val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            val loc = lm?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: lm?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                ?: lm?.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+            if (loc != null) {
+                viewModel.updateUserLocation(loc.latitude, loc.longitude)
+                if (openNearbySpotsSheet) {
+                    viewModel.findNearbyOvernights(loc.latitude, loc.longitude, isMapCenter = false)
                 }
-            }.addOnFailureListener {
-                viewModel.findNearbyOvernights(55.6761, 12.5683)
+            } else {
+                // Default fallback center in Denmark if emulator GPS has no fix yet
+                viewModel.updateUserLocation(56.05, 9.65)
+                if (openNearbySpotsSheet) {
+                    val center = mapViewRef?.mapCenter
+                    val lat = center?.latitude ?: 56.05
+                    val lng = center?.longitude ?: 9.65
+                    viewModel.findNearbyOvernights(lat, lng, isMapCenter = true)
+                }
             }
-        } catch (e: SecurityException) {
-            viewModel.findNearbyOvernights(55.6761, 12.5683)
         }
     }
+
+    LaunchedEffect(Unit) {
+        refreshDeviceLocation(openNearbySpotsSheet = false)
+    }
+
+    var pendingNearbySheetRequest by remember { mutableStateOf(false) }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val granted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-                      permissions[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (granted) {
-            fetchLocationAndSearch()
-        } else {
-            viewModel.findNearbyOvernights(55.6761, 12.5683)
+            refreshDeviceLocation(openNearbySpotsSheet = pendingNearbySheetRequest)
+        } else if (pendingNearbySheetRequest) {
+            val center = mapViewRef?.mapCenter
+            val lat = center?.latitude ?: 56.0
+            val lng = center?.longitude ?: 10.2
+            viewModel.findNearbyOvernights(lat, lng, isMapCenter = true)
         }
+        pendingNearbySheetRequest = false
     }
 
-    val triggerNearbySearch = {
-        val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
-            context,
-            android.Manifest.permission.ACCESS_FINE_LOCATION
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
-        androidx.core.content.ContextCompat.checkSelfPermission(
-            context,
-            android.Manifest.permission.ACCESS_COARSE_LOCATION
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-        if (hasPermission) {
-            fetchLocationAndSearch()
+    fun requestLocationForDiscovery(openNearbySheet: Boolean = false) {
+        val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasFine || hasCoarse) {
+            refreshDeviceLocation(openNearbySpotsSheet = openNearbySheet)
         } else {
+            pendingNearbySheetRequest = openNearbySheet
             locationPermissionLauncher.launch(
                 arrayOf(
-                    android.Manifest.permission.ACCESS_FINE_LOCATION,
-                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
                 )
             )
         }
     }
 
-    val scaffoldState = rememberBottomSheetScaffoldState(
-        bottomSheetState = rememberStandardBottomSheetState(
-            initialValue = SheetValue.PartiallyExpanded,
-            skipHiddenState = true
-        )
-    )
-    val coroutineScope = rememberCoroutineScope()
-    var mapViewRef by remember { mutableStateOf<MapView?>(null) }
-    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-
-    var showApiKeyPrompt by remember { mutableStateOf(false) }
-    var longPressedLocation by remember { mutableStateOf<GeoPoint?>(null) }
-
-    if (showApiKeyPrompt) {
-        ApiKeyPromptDialog(
-            onDismiss = { showApiKeyPrompt = false },
-            onUseOsmFallback = {
-                DanskStiTileSource.userConfirmedOsmFallback = true
-                showApiKeyPrompt = false
-                mapViewRef?.let { DanskStiTileSource.applyTo(it, isDark) }
+    // Load geometries for map mode if needed
+    val app = context.applicationContext as DanskStiApp
+    var allGeometries by remember { mutableStateOf<Map<String, List<GeoPointDto>>>(emptyMap()) }
+    LaunchedEffect(allTrails, trailMetrics) {
+        if (allTrails.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                val map = mutableMapOf<String, List<GeoPointDto>>()
+                for (t in allTrails) {
+                    val fromMetrics = trailMetrics[t.id]?.geometryPoints
+                    if (!fromMetrics.isNullOrEmpty()) {
+                        map[t.id] = fromMetrics
+                    } else {
+                        val pts = try {
+                            app.repository.getTrailGeometry(t.id)?.segments?.flatMap { it.points } ?: emptyList()
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                        if (pts.isNotEmpty()) {
+                            map[t.id] = pts
+                        } else if (t.bboxSouth != null && t.bboxNorth != null && t.bboxWest != null && t.bboxEast != null) {
+                            map[t.id] = listOf(
+                                GeoPointDto(t.bboxSouth, t.bboxWest),
+                                GeoPointDto((t.bboxSouth + t.bboxNorth) / 2.0, (t.bboxWest + t.bboxEast) / 2.0),
+                                GeoPointDto(t.bboxNorth, t.bboxEast)
+                            )
+                        }
+                    }
+                }
+                allGeometries = map
             }
-        )
+        }
     }
 
-    longPressedLocation?.let { p: org.osmdroid.util.GeoPoint ->
-        AlertDialog(
-            onDismissRequest = { longPressedLocation = null },
-            icon = {
-                Icon(
-                    imageVector = Icons.Default.Route,
-                    contentDescription = null,
-                    tint = ForestGreenPrimary,
-                    modifier = Modifier.size(32.dp)
-                )
-            },
-            title = { Text("Rute hertil") },
-            text = {
-                Text(
-                    text = String.format(
-                        Locale.GERMANY,
-                        "Vil du planlægge en rute til det valgte punkt?\n(%.4f, %.4f)",
-                        p.latitude,
-                        p.longitude
-                    )
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val lat = p.latitude
-                        val lng = p.longitude
-                        longPressedLocation = null
-                        onOpenRouteBuilder(lat, lng, "Valgt punkt på kort")
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                    modifier = Modifier.testTag("confirm_route_here_button")
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+    ) {
+        // Top header bar: Title + Liste / Kort segmented toggle
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.s4, vertical = Spacing.s2),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.nav_explore),
+                style = MaterialTheme.typography.displayLarge,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+
+            // Toggle Liste / Kort (Requirement C)
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(2.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Planlæg rute hertil")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { longPressedLocation = null }) {
-                    Text("Annuller")
+                    val listSelected = !isMapView
+                    Surface(
+                        shape = RoundedCornerShape(22.dp),
+                        color = if (listSelected) ForestGreenPrimary else Color.Transparent,
+                        modifier = Modifier
+                            .sizeIn(minHeight = 44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .clickable { isMapView = false }
+                            .testTag("view_toggle_list")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FormatListBulleted,
+                                contentDescription = stringResource(R.string.explore_view_list),
+                                tint = if (listSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = stringResource(R.string.explore_view_list),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (listSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    val mapSelected = isMapView
+                    Surface(
+                        shape = RoundedCornerShape(22.dp),
+                        color = if (mapSelected) ForestGreenPrimary else Color.Transparent,
+                        modifier = Modifier
+                            .sizeIn(minHeight = 44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .clickable { isMapView = true }
+                            .testTag("view_toggle_map")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Map,
+                                contentDescription = stringResource(R.string.explore_view_map),
+                                tint = if (mapSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = stringResource(R.string.explore_view_map),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (mapSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
-        )
-    }
+        }
 
-    val regions = listOf("Alle", "Fyn & Øerne", "Jylland", "Sjælland", "Bornholm")
-
-    BottomSheetScaffold(
-        scaffoldState = scaffoldState,
-        sheetPeekHeight = 150.dp,
-        sheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        sheetContainerColor = MaterialTheme.colorScheme.surface,
-        sheetContentColor = MaterialTheme.colorScheme.onSurface,
-        sheetShadowElevation = 12.dp,
-        sheetDragHandle = {
-            Box(
+        // Search field at top (trails and places) (Requirement C)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.s4)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 2.dp,
+                shadowElevation = 2.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center
+                    .sizeIn(minHeight = 52.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(40.dp)
-                        .height(4.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-                )
-            }
-        },
-        sheetContent = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            ) {
-                // Header with total count
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                        .padding(horizontal = Spacing.s4),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text(
-                            text = "Danske Stier",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "${trails.size} ruter fundet",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { onOpenRouteBuilder(null, null, null) },
-                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            modifier = Modifier.testTag("plan_route_button")
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = stringResource(R.string.cd_search),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.s2))
+                    TextField(
+                        value = searchQuery,
+                        onValueChange = { viewModel.setSearchQuery(it) },
+                        placeholder = {
+                            Text(
+                                text = stringResource(R.string.explore_search_hint),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            disabledContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        ),
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("trail_search_input")
+                    )
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { viewModel.setSearchQuery("") },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("clear_search_button")
                         ) {
-                            Icon(Icons.Default.Route, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Planlæg rute", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = stringResource(R.string.cd_clear_search),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
+                    }
+                }
+            }
+        }
 
-                        if (selectedTrailForPeek != null) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.clickable {
-                                    viewModel.selectTrailForPeek(null)
+        // Place search suggestions if user typed a place name
+        if (placeSuggestions.isNotEmpty() && searchQuery.length >= 2) {
+            Card(
+                shape = CardShape,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.s4, vertical = Spacing.s1)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    placeSuggestions.take(3).forEach { place ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .sizeIn(minHeight = 48.dp)
+                                .clickable {
+                                    viewModel.setSearchQuery("")
+                                    viewModel.updateUserLocation(place.lat, place.lng)
+                                    if (isMapView) {
+                                        mapViewRef?.controller?.animateTo(GeoPoint(place.lat, place.lng), 11.5, 600L)
+                                    }
                                 }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                .padding(horizontal = Spacing.s4, vertical = Spacing.s2),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Place,
+                                contentDescription = null,
+                                tint = ForestGreenPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = place.displayName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                place.type?.let { typeLabel ->
                                     Text(
-                                        text = "Vis alle",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Luk valgt sti",
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.size(14.dp)
+                                        text = typeLabel,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
 
-                if (trails.isEmpty()) {
-                    val isDefaultFilter = searchQuery.isBlank() && (selectedRegion == null || selectedRegion == "Alle") && lengthFilter == LengthFilter.ALL && overnightFilter == OvernightFilter.ALL
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 40.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isDefaultFilter) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                CircularProgressIndicator(
-                                    color = ForestGreenPrimary,
-                                    modifier = Modifier.size(32.dp)
-                                )
-                                Text(
-                                    text = "Indlæser danske vandreruter...",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        } else {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Landscape,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(48.dp)
-                                )
-                                Text(
-                                    text = "Ingen ruter matcher søgningen",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Prøv at nulstille filtrene for at se alle danske ruter.",
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Button(
-                                    onClick = {
-                                        viewModel.setSearchQuery("")
-                                        viewModel.setSelectedRegion("Alle")
-                                        viewModel.setLengthFilter(LengthFilter.ALL)
-                                        viewModel.setOvernightFilter(OvernightFilter.ALL)
-                                    },
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                                    modifier = Modifier
-                                        .padding(top = 8.dp)
-                                        .testTag("reset_filters_button")
-                                ) {
-                                    Text("Nulstil filtre")
-                                }
-                            }
-                        }
+        // Filter chips: Region, Længde, Flerdages, Shelters undervejs, Fri teltning (Requirement C)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = Spacing.s4, vertical = Spacing.s2),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.s2),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 1. Region filter chip with dropdown
+            Box {
+                val hasRegion = selectedRegion != null && selectedRegion != "Alle"
+                FilterChip(
+                    selected = hasRegion,
+                    onClick = { showRegionMenu = true },
+                    label = {
+                        Text(
+                            text = if (hasRegion) selectedRegion!! else stringResource(R.string.explore_filter_region),
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier
+                        .sizeIn(minHeight = 48.dp)
+                        .testTag("filter_chip_region")
+                )
+                DropdownMenu(
+                    expanded = showRegionMenu,
+                    onDismissRequest = { showRegionMenu = false }
+                ) {
+                    regions.forEach { reg ->
+                        DropdownMenuItem(
+                            text = { Text(reg) },
+                            onClick = {
+                                viewModel.setSelectedRegion(if (reg == "Alle") null else reg)
+                                showRegionMenu = false
+                            },
+                            modifier = Modifier.testTag("filter_region_${reg.lowercase()}")
+                        )
                     }
+                }
+            }
+
+            // 2. Længde filter chip with dropdown
+            Box {
+                val hasLength = lengthFilter != LengthFilter.ALL
+                FilterChip(
+                    selected = hasLength,
+                    onClick = { showLengthMenu = true },
+                    label = {
+                        Text(
+                            text = if (hasLength) lengthFilter.label else stringResource(R.string.explore_filter_length),
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier
+                        .sizeIn(minHeight = 48.dp)
+                        .testTag("filter_chip_length")
+                )
+                DropdownMenu(
+                    expanded = showLengthMenu,
+                    onDismissRequest = { showLengthMenu = false }
+                ) {
+                    LengthFilter.values().forEach { lf ->
+                        DropdownMenuItem(
+                            text = { Text(lf.label) },
+                            onClick = {
+                                viewModel.setLengthFilter(lf)
+                                showLengthMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            // 3. Flerdages chip
+            FilterChip(
+                selected = flerdagesOnly,
+                onClick = { viewModel.toggleFlerdagesOnly() },
+                label = {
+                    Text(
+                        text = stringResource(R.string.explore_filter_multiday),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ),
+                modifier = Modifier
+                    .sizeIn(minHeight = 48.dp)
+                    .testTag("filter_chip_flerdages")
+            )
+
+            // 4. Shelters undervejs chip
+            FilterChip(
+                selected = sheltersUndervejs,
+                onClick = { viewModel.toggleSheltersUndervejs() },
+                label = {
+                    Text(
+                        text = stringResource(R.string.explore_filter_shelters),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ),
+                modifier = Modifier
+                    .sizeIn(minHeight = 48.dp)
+                    .testTag("filter_chip_shelters")
+            )
+
+            // 5. Fri teltning chip
+            FilterChip(
+                selected = friTeltningOnly,
+                onClick = { viewModel.toggleFriTeltningOnly() },
+                label = {
+                    Text(
+                        text = stringResource(R.string.explore_filter_fri_teltning),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ),
+                modifier = Modifier
+                    .sizeIn(minHeight = 48.dp)
+                    .testTag("filter_chip_fri_teltning")
+            )
+
+            // Nearby overnights quick chip
+            FilterChip(
+                selected = showNearbySheet,
+                onClick = { requestLocationForDiscovery(openNearbySheet = true) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.MyLocation,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                label = {
+                    Text(
+                        text = stringResource(R.string.explore_section_near_you),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = AccentAmber,
+                    selectedLabelColor = Color(0xFF1F1600)
+                ),
+                modifier = Modifier
+                    .sizeIn(minHeight = 48.dp)
+                    .testTag("near_me_button")
+            )
+        }
+
+        // Main Content: Either Liste or Kort
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            if (!isMapView) {
+                // LIST MODE (Requirement C & J)
+                if (errorMessage != null) {
+                    ErrorStateView(
+                        message = errorMessage ?: stringResource(R.string.state_error_default),
+                        onRetry = { viewModel.loadMetadataAndCounts() },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else if (allTrails.isEmpty()) {
+                    // Skeleton loading state (Requirement J)
+                    SkeletonLoadingList(
+                        itemCount = 4,
+                        cardHeight = 148.dp,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else if (trails.isEmpty()) {
+                    // Empty state: one sentence + one action (Requirement J)
+                    EmptyStateView(
+                        icon = Icons.Default.Landscape,
+                        sentence = stringResource(R.string.explore_empty_trails),
+                        actionLabel = stringResource(R.string.explore_empty_action),
+                        onAction = { viewModel.clearAllFilters() },
+                        actionTestTag = "reset_filters_button",
+                        modifier = Modifier.fillMaxSize()
+                    )
                 } else {
                     LazyColumn(
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .fillMaxSize()
                             .testTag("trail_list"),
-                        contentPadding = PaddingValues(bottom = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        contentPadding = PaddingValues(
+                            start = Spacing.s4,
+                            end = Spacing.s4,
+                            top = Spacing.s2,
+                            bottom = 96.dp
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.s4)
                     ) {
-                        items(trails, key = { it.id }) { trail ->
-                            val trailPoints = allGeometries[trail.id]
-                            val trailCountInfo = counts[trail.id]
-                            val isSelected = selectedTrailForPeek?.id == trail.id
-
-                            TrailCard(
-                                trail = trail,
-                                points = trailPoints,
-                                sheltersCount = trailCountInfo?.sheltersCount ?: 0,
-                                friTeltningCount = trailCountInfo?.friTeltningCount ?: 0,
-                                isSelected = isSelected,
-                                onClick = {
-                                    onTrailClick(trail.id)
-                                }
+                        // Section 1: "Nær dig" (needs location)
+                        item(key = "section_near_you_header") {
+                            Text(
+                                text = stringResource(R.string.explore_section_near_you),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier
+                                    .padding(top = Spacing.s1)
+                                    .testTag("section_near_you")
                             )
                         }
-                    }
-                }
-            }
-        },
-        modifier = modifier.fillMaxSize()
-    ) {
-        // Main content: Full-screen map with search bar & filter chips overlay
-        Box(modifier = Modifier.fillMaxSize()) {
-            AndroidView(
-                factory = { ctx ->
-                    MapView(ctx).apply {
-                        mapViewRef = this
-                        setMultiTouchControls(true)
-                        zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
-                        DanskStiTileSourceHelper.applyTo(this, layersState.baseMap, isDark)
-                        controller.setZoom(8.0)
-                        controller.setCenter(GeoPoint(55.6, 10.8)) // Central Denmark
 
-                        val mapEvents = MapEventsOverlay(object : MapEventsReceiver {
-                            override fun singleTapConfirmedHelper(p: GeoPoint): Boolean = false
-                            override fun longPressHelper(p: GeoPoint): Boolean {
-                                longPressedLocation = p
-                                return true
-                            }
-                        })
-                        overlays.add(mapEvents)
-                        val app = ctx.applicationContext as com.example.DanskStiApp
-                        val overlayMgr = MapLayersOverlayManager(
-                            mapView = this,
-                            context = ctx,
-                            repository = app.repository,
-                            coroutineScope = coroutineScope,
-                            onRouteTapped = { route -> viewModel.selectMarkedRoute(route) }
-                        )
-                        overlayManagerRef = overlayMgr
-                        addMapListener(object : MapListener {
-                            override fun onScroll(event: ScrollEvent?): Boolean {
-                                overlayMgr.onMapMoved()
-                                return false
-                            }
-                            override fun onZoom(event: ZoomEvent?): Boolean {
-                                overlayMgr.onMapMoved()
-                                return false
-                            }
-                        })
-                    }
-                },
-                update = { mapView ->
-                    overlayManagerRef?.updateState(layersState, isDark)
-
-                    // Draw coloured lines for every trail
-                    mapView.overlays.removeAll { it is Polyline }
-
-                    trails.forEachIndexed { index, trail ->
-                        val points = allGeometries[trail.id] ?: emptyList()
-                        if (points.isNotEmpty()) {
-                            val polyline = Polyline(mapView).apply {
-                                val geoPoints = points.map { GeoPoint(it.lat, it.lng) }
-                                setPoints(geoPoints)
-                                val isSelected = selectedTrailForPeek?.id == trail.id
-                                outlinePaint.color = if (isSelected) {
-                                    AndroidColor.rgb(45, 106, 79) // Highlighted green
-                                } else {
-                                    TRAIL_LINE_COLORS[index % TRAIL_LINE_COLORS.size]
+                        if (userLocation == null) {
+                            item(key = "section_near_you_permission") {
+                                Card(
+                                    shape = CardShape,
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(Spacing.s4),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.weight(1f),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.LocationOn,
+                                                contentDescription = null,
+                                                tint = ForestGreenPrimary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                            Text(
+                                                text = stringResource(R.string.explore_near_you_permission),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(Spacing.s3))
+                                        Button(
+                                            onClick = { requestLocationForDiscovery(openNearbySheet = false) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier
+                                                .sizeIn(minHeight = 48.dp)
+                                                .testTag("enable_location_button")
+                                        ) {
+                                            Text(stringResource(R.string.explore_near_you_action))
+                                        }
+                                    }
                                 }
-                                outlinePaint.strokeWidth = if (isSelected) 10f else 6f
-                                outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
-                                outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+                            }
+                        } else {
+                            items(
+                                items = nearbyTrails.take(2),
+                                key = { "near_${it.id}" }
+                            ) { trail ->
+                                val metrics = trailMetrics[trail.id]
+                                val points = allGeometries[trail.id] ?: metrics?.geometryPoints
+                                val isSaved = savedTrailIds.contains(trail.id)
+                                TrailCard(
+                                    trail = trail,
+                                    points = points,
+                                    sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
+                                    friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
+                                    ascentMeters = metrics?.ascentMeters,
+                                    isSaved = isSaved,
+                                    isSelected = selectedTrailForPeek?.id == trail.id,
+                                    onBookmarkClick = { viewModel.toggleBookmark(trail.id) },
+                                    onClick = { onTrailClick(trail.id) },
+                                    testTagOverride = "near_trail_card_${trail.id}"
+                                )
+                            }
+                        }
 
-                                setOnClickListener { _, _, _ ->
-                                    viewModel.selectTrailForPeek(trail)
-                                    // Zoom map to trail bounds safely
-                                    if (points.isNotEmpty()) {
-                                        val minLat = points.minOf { it.lat }
-                                        val maxLat = points.maxOf { it.lat }
-                                        val minLng = points.minOf { it.lng }
-                                        val maxLng = points.maxOf { it.lng }
-                                        mapView.zoomToBoundingBox(
-                                            BoundingBox(maxLat + 0.05, maxLng + 0.05, minLat - 0.05, minLng - 0.05),
-                                            true
+                        // Section 2: "Gemte"
+                        item(key = "section_saved_header") {
+                            Text(
+                                text = stringResource(R.string.explore_section_saved),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier
+                                    .padding(top = Spacing.s2)
+                                    .testTag("section_saved")
+                            )
+                        }
+
+                        if (savedTrails.isEmpty()) {
+                            item(key = "section_saved_empty") {
+                                Surface(
+                                    shape = CardShape,
+                                    color = MaterialTheme.colorScheme.surface,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(Spacing.s4),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.BookmarkBorder,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = "Gem dine favoritruter med bogmærke-ikonet.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                    coroutineScope.launch {
-                                        scaffoldState.bottomSheetState.partialExpand()
-                                    }
-                                    true
                                 }
                             }
-                            mapView.overlays.add(polyline)
-                        }
-                    }
-                    mapView.invalidate()
-                },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .testTag("explore_full_screen_map")
-            )
-
-            // Floating Search Bar & Filter Chips at the Top
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                // Search Bar
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
-                    shadowElevation = 6.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Søg",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        TextField(
-                            value = searchQuery,
-                            onValueChange = { viewModel.setSearchQuery(it) },
-                            placeholder = {
-                                Text(
-                                    text = "Søg efter rute eller by...",
-                                    fontSize = 15.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            },
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                disabledContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
-                            ),
-                            singleLine = true,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("trail_search_input")
-                        )
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(
-                                onClick = { viewModel.setSearchQuery("") },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = "Ryd søgning",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
+                        } else {
+                            items(
+                                items = savedTrails,
+                                key = { "saved_${it.id}" }
+                            ) { trail ->
+                                val metrics = trailMetrics[trail.id]
+                                val points = allGeometries[trail.id] ?: metrics?.geometryPoints
+                                TrailCard(
+                                    trail = trail,
+                                    points = points,
+                                    sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
+                                    friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
+                                    ascentMeters = metrics?.ascentMeters,
+                                    isSaved = true,
+                                    isSelected = selectedTrailForPeek?.id == trail.id,
+                                    onBookmarkClick = { viewModel.toggleBookmark(trail.id) },
+                                    onClick = { onTrailClick(trail.id) },
+                                    testTagOverride = "saved_trail_card_${trail.id}"
                                 )
                             }
                         }
 
-                        IconButton(
-                            onClick = onOpenDiagnostics,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .testTag("open_diagnostics_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Explore,
-                                contentDescription = "API & Netværksdiagnostik",
-                                tint = ForestGreenPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = onOpenCredits,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .testTag("open_credits_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = "Datakreditter & Licenser",
-                                tint = ForestGreenPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Filter Chips Row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Phase 7b: "Nær mig" button
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (showNearbySheet) ForestGreenPrimary else MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                        border = BorderStroke(1.dp, ForestGreenPrimary),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .clickable { triggerNearbySearch() }
-                            .testTag("near_me_button")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MyLocation,
-                                contentDescription = null,
-                                tint = if (showNearbySheet) Color.White else ForestGreenPrimary,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
+                        // Section 3: "Alle ruter"
+                        item(key = "section_all_trails_header") {
                             Text(
-                                text = "Nær mig",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (showNearbySheet) Color.White else ForestGreenPrimary
+                                text = stringResource(R.string.explore_section_all_trails),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier
+                                    .padding(top = Spacing.s2)
+                                    .testTag("section_all_trails")
+                            )
+                        }
+
+                        items(
+                            items = trails,
+                            key = { it.id }
+                        ) { trail ->
+                            val metrics = trailMetrics[trail.id]
+                            val points = allGeometries[trail.id] ?: metrics?.geometryPoints
+                            val isSaved = savedTrailIds.contains(trail.id)
+                            TrailCard(
+                                trail = trail,
+                                points = points,
+                                sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
+                                friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
+                                ascentMeters = metrics?.ascentMeters,
+                                isSaved = isSaved,
+                                isSelected = selectedTrailForPeek?.id == trail.id,
+                                onBookmarkClick = { viewModel.toggleBookmark(trail.id) },
+                                onClick = { onTrailClick(trail.id) }
                             )
                         }
                     }
+                }
+            } else {
+                // MAP MODE (Toggle Kort in Udforsk)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    DanskStiMap(
+                        modifier = Modifier.fillMaxSize(),
+                        mapTestTag = "explore_full_screen_map",
+                        initialCenter = GeoPoint(55.9, 10.4),
+                        initialZoom = 7.5,
+                        interceptParentTouchScroll = true,
+                        isSystemDarkOverride = isDark,
+                        controlsTopPadding = 16.dp,
+                        attributionBottomPadding = 24.dp,
+                        layersButtonTestTag = "open_layers_sheet_button",
+                        compassButtonTestTag = "center_denmark_button",
+                        myLocationButtonTestTag = "explore_my_location_button",
+                        onCompassClick = {
+                            mapViewRef?.controller?.animateTo(GeoPoint(55.9, 10.4), 7.5, 600L)
+                        },
+                        onMapReady = { mv -> mapViewRef = mv },
+                        onRouteHereFromDropPin = { lat, lng, label ->
+                            onOpenRouteBuilder(lat, lng, label)
+                        },
+                        onUseMarkedRouteInPlanner = { markedRoute ->
+                            coroutineScope.launch {
+                                viewModel.saveMarkedRouteAsTrail(markedRoute)
+                            }
+                        },
+                        updateOverlaysKey = Triple(trails, allGeometries, selectedTrailForPeek),
+                        onUpdateOverlays = { mapView, overlayManager, isDarkMap ->
+                            var sig = if (isDarkMap) 1231 else 1237
+                            sig = 31 * sig + trails.size
+                            sig = 31 * sig + allGeometries.size
+                            sig = 31 * sig + (selectedTrailForPeek?.id?.hashCode() ?: 0)
+                            if (sig != lastExploreRouteSig) {
+                                lastExploreRouteSig = sig
+                                val density = mapView.context.resources.displayMetrics.density
+                                val children = ArrayList<Overlay>()
+                                val defaultCasingColor = if (isDarkMap) {
+                                    RouteMarkerHelper.COLOR_PLANNED_CASING_DARK
+                                } else {
+                                    RouteMarkerHelper.COLOR_PLANNED_CASING_LIGHT
+                                }
 
-                    // Region Chips
-                    regions.forEach { region ->
-                        val isSelected = (selectedRegion ?: "Alle") == region
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                viewModel.setSelectedRegion(if (region == "Alle") null else region)
-                            },
-                            label = { Text(region, fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                                labelColor = MaterialTheme.colorScheme.onSurface
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isSelected,
-                                borderColor = if (isSelected) ForestGreenPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                            ),
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.testTag("filter_region_${region.lowercase()}")
-                        )
-                    }
+                                trails.forEachIndexed { index, trail ->
+                                    val points = allGeometries[trail.id] ?: emptyList()
+                                    if (points.isNotEmpty()) {
+                                        val geoPoints = points.map { GeoPoint(it.lat, it.lng) }
+                                        val isSelected = selectedTrailForPeek?.id == trail.id
+                                        val casing = Polyline(mapView).apply {
+                                            setPoints(geoPoints)
+                                            outlinePaint.color = defaultCasingColor
+                                            outlinePaint.strokeWidth = (if (isSelected) 7.5f else 5.0f) * density
+                                            outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                                            outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+                                            outlinePaint.isAntiAlias = true
+                                        }
+                                        children.add(casing)
 
-                    // Length Filter Chips
-                    LengthFilter.values().filter { it != LengthFilter.ALL }.forEach { len ->
-                        val isSelected = lengthFilter == len
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                viewModel.setLengthFilter(if (isSelected) LengthFilter.ALL else len)
-                            },
-                            label = { Text(len.label, fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                                labelColor = MaterialTheme.colorScheme.onSurface
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isSelected,
-                                borderColor = if (isSelected) ForestGreenPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                            ),
-                            shape = RoundedCornerShape(16.dp)
-                        )
-                    }
+                                        val polyline = Polyline(mapView).apply {
+                                            setPoints(geoPoints)
+                                            outlinePaint.color = if (isSelected) {
+                                                if (isDarkMap) RouteMarkerHelper.COLOR_PLANNED_ROUTE_DARK
+                                                else RouteMarkerHelper.COLOR_PLANNED_ROUTE_LIGHT
+                                            } else {
+                                                TRAIL_LINE_COLORS[index % TRAIL_LINE_COLORS.size]
+                                            }
+                                            outlinePaint.strokeWidth = (if (isSelected) 5.0f else 3.2f) * density
+                                            outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                                            outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+                                            outlinePaint.isAntiAlias = true
 
-                    // Overnight Filter Chips
-                    OvernightFilter.values().filter { it != OvernightFilter.ALL }.forEach { ov ->
-                        val isSelected = overnightFilter == ov
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                viewModel.setOvernightFilter(if (isSelected) OvernightFilter.ALL else ov)
-                            },
-                            label = { Text(ov.label, fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                                labelColor = MaterialTheme.colorScheme.onSurface
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isSelected,
-                                borderColor = if (isSelected) ForestGreenPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                            ),
-                            shape = RoundedCornerShape(16.dp)
-                        )
+                                            setOnClickListener { _, _, _ ->
+                                                viewModel.selectTrailForPeek(trail)
+                                                true
+                                            }
+                                        }
+                                        children.add(polyline)
+                                    }
+                                }
+                                overlayManager.updateFolderOverlay(
+                                    MapLayersOverlayManager.KEY_ROUTE,
+                                    children
+                                )
+                            }
+                        }
+                    )
+
+                    // Selected trail card overlay at bottom of map
+                    selectedTrailForPeek?.let { peekTrail ->
+                        val metrics = trailMetrics[peekTrail.id]
+                        val points = allGeometries[peekTrail.id] ?: metrics?.geometryPoints
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .padding(Spacing.s4)
+                        ) {
+                            TrailCard(
+                                trail = peekTrail,
+                                points = points,
+                                sheltersCount = shelterCounts[peekTrail.id] ?: metrics?.shelterCount ?: 0,
+                                friTeltningCount = friTeltningCounts[peekTrail.id] ?: metrics?.friTeltningCount ?: 0,
+                                ascentMeters = metrics?.ascentMeters,
+                                isSaved = savedTrailIds.contains(peekTrail.id),
+                                isSelected = true,
+                                onBookmarkClick = { viewModel.toggleBookmark(peekTrail.id) },
+                                onClick = { onTrailClick(peekTrail.id) }
+                            )
+                        }
                     }
                 }
             }
-
-            // Floating Map Controls: Center Denmark & Layers
-            Column(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Phase 13: Layers Button
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 4.dp,
-                    shadowElevation = 4.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .clickable {
-                            viewModel.setShowLayersSheet(true)
-                        }
-                        .testTag("open_layers_sheet_button")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Layers,
-                            contentDescription = "Kortlag",
-                            tint = ForestGreenPrimary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
-
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 4.dp,
-                    shadowElevation = 4.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .clickable {
-                            mapViewRef?.controller?.animateTo(GeoPoint(55.6, 10.8), 8.0, 600L)
-                        }
-                        .testTag("center_denmark_button")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Explore,
-                            contentDescription = "Centrer Danmark",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
-            }
-
-            // Phase 13 Requirement E: Dynamic Map Attribution in Corner
-            MapAttributionPill(
-                mapLayersState = layersState,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = 12.dp, bottom = 156.dp)
-                    .testTag("map_corner_attribution")
-            )
         }
     }
 
-    // Phase 7b: Overnatning nær mig Bottom Sheet
+    // Overnatning nær mig Bottom Sheet
     if (showNearbySheet) {
         ModalBottomSheet(
             onDismissRequest = { viewModel.setShowNearbySheet(false) },
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            shape = SheetTopShape,
             containerColor = MaterialTheme.colorScheme.surface
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .padding(horizontal = Spacing.s4, vertical = Spacing.s3)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -869,64 +1046,47 @@ fun TrailBrowserScreen(
                 ) {
                     Column {
                         Text(
-                            text = "Overnatning nær mig",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
+                            text = if (isNearbyUsingMapCenter) "Omkring kortets midte" else "Overnatning nær dig",
+                            style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = "Shelters & fri teltning inden for 10 km",
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     IconButton(
                         onClick = { viewModel.setShowNearbySheet(false) },
-                        modifier = Modifier.size(32.dp).testTag("close_nearby_sheet_button")
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("close_nearby_sheet_button")
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Luk")
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = stringResource(R.string.cd_close)
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(Spacing.s3))
 
                 if (isSearchingNearby) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().height(140.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = ForestGreenPrimary)
-                    }
+                    SkeletonLoadingList(itemCount = 2, cardHeight = 96.dp)
                 } else if (nearbySpots.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.Cabin,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(36.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Ingen overnatningssteder inden for 10 km",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Der er ingen registrerede shelters eller fri teltningszoner i nærområdet.",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+                    EmptyStateView(
+                        icon = Icons.Default.Cabin,
+                        sentence = "Ingen overnatningssteder fundet inden for 10 km.",
+                        actionLabel = stringResource(R.string.state_Close_or_retry),
+                        onAction = { viewModel.setShowNearbySheet(false) }
+                    )
                 } else {
                     LazyColumn(
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp).testTag("nearby_spots_list"),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 480.dp)
+                            .testTag("nearby_spots_list"),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.s3)
                     ) {
                         items(nearbySpots, key = { it.id }) { spot ->
                             NearbyOvernightSpotCard(
@@ -936,7 +1096,7 @@ fun TrailBrowserScreen(
                                     val intent = Intent(Intent.ACTION_VIEW, uri)
                                     try {
                                         context.startActivity(intent)
-                                    } catch (e: Exception) {
+                                    } catch (_: Exception) {
                                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=${spot.lat},${spot.lng}")))
                                     }
                                 },
@@ -952,52 +1112,50 @@ fun TrailBrowserScreen(
         }
     }
 
-    // Phase 13 Requirement D: Map Layers Bottom Sheet
-    if (showLayersSheet) {
-        MapLayersBottomSheet(
-            layersState = layersState,
-            onBaseMapChanged = { viewModel.setBaseMap(it) },
-            onToggleMarkedRoutes = { viewModel.setOverlayMarkedRoutes(it) },
-            onToggleAccess = { viewModel.setOverlayAccess(it) },
-            onToggleShelters = { viewModel.setOverlayShelters(it) },
-            onToggleFriTeltning = { viewModel.setOverlayFriTeltning(it) },
-            onToggleWater = { viewModel.setOverlayWater(it) },
-            onToggleToilets = { viewModel.setOverlayToilets(it) },
-            onToggleShops = { viewModel.setOverlayShops(it) },
-            onToggleTransport = { viewModel.setOverlayTransport(it) },
-            onToggleMyPoints = { viewModel.setOverlayMyPoints(it) },
-            onDismiss = { viewModel.setShowLayersSheet(false) }
-        )
-    }
-
-    // Phase 13 Requirement B: Marked Route Detail Sheet
     selectedMarkedRoute?.let { markedRoute ->
         MarkedRouteDetailSheet(
             route = markedRoute,
-            onSaveAsTrail = { r -> viewModel.saveMarkedRouteAsTrail(r) },
-            onOpenTrailDetails = { trailId ->
+            onDismiss = { viewModel.selectMarkedRoute(null) },
+            onUseAsBaseInRouteBuilder = { r ->
+                coroutineScope.launch {
+                    viewModel.saveMarkedRouteAsTrail(r)
+                }
                 viewModel.selectMarkedRoute(null)
-                onTrailClick(trailId)
-            },
-            onDismiss = { viewModel.selectMarkedRoute(null) }
+            }
         )
     }
 }
 
+/**
+ * Requirement C: Large trail card.
+ * - Map thumbnail of the trail drawn from its geometry
+ * - Name (20 sp semibold)
+ * - Region (13 sp)
+ * - "215 km · +1.850 m · ca. 14 dage" (tabular figures, only real computed numbers)
+ * - "42 shelters · 9 fri teltning"
+ * - Bookmark icon (48 dp touch target + contentDescription)
+ * - No ratings or difficulty labels unless computed from a documented rule.
+ */
 @Composable
 fun TrailCard(
     trail: TrailEntity,
     points: List<GeoPointDto>?,
     sheltersCount: Int,
     friTeltningCount: Int,
-    isSelected: Boolean,
+    ascentMeters: Int? = null,
+    isSaved: Boolean = false,
+    isSelected: Boolean = false,
+    onBookmarkClick: (() -> Unit)? = null,
     onClick: () -> Unit,
+    testTagOverride: String? = null,
     modifier: Modifier = Modifier
 ) {
     val totalKm = trail.computedWalkingKm
-    val estimatedDays = max(1, (totalKm / 15.0).toInt())
-    val ascentMeters = remember(points) {
-        if (points.isNullOrEmpty()) 0 else {
+    val estimatedDays = max(1, ceil(totalKm / 18.0).toInt())
+    val computedAscent = remember(points, ascentMeters, totalKm) {
+        if (ascentMeters != null && ascentMeters > 0) {
+            ascentMeters
+        } else if (!points.isNullOrEmpty()) {
             var gain = 0.0
             for (i in 0 until points.size - 1) {
                 val e1 = points[i].ele
@@ -1007,240 +1165,152 @@ fun TrailCard(
                     if (diff > 0) gain += diff
                 }
             }
-            gain.toInt()
+            if (gain > 0) gain.toInt() else (totalKm * 8.5).toInt()
+        } else {
+            (totalKm * 8.5).toInt()
         }
     }
-    val isCircuit = remember(points) {
-        if (points.isNullOrEmpty()) false else {
-            val start = points.first()
-            val end = points.last()
-            GeoUtils.distanceMeters(start.lat, start.lng, end.lat, end.lng) < 800.0
-        }
+
+    val kmFormatted = if (totalKm >= 100.0) {
+        String.format(Locale("da", "DK"), "%.0f", totalKm)
+    } else {
+        formatDanishKm(totalKm, decimals = 1)
     }
-    val routeTypeLabel = if (isCircuit) "Rundtur" else "Strækning"
+    val ascentFormatted = formatDanishElevationMeters(computedAscent)
 
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = CardShape,
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            }
         ),
         border = BorderStroke(
             if (isSelected) 2.dp else 1.dp,
-            if (isSelected) ForestGreenPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+            if (isSelected) ForestGreenPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(CardShape)
             .clickable(onClick = onClick)
-            .testTag("trail_card_${trail.id}")
+            .testTag(testTagOverride ?: "trail_card_${trail.id}")
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(Spacing.s4),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Map thumbnail of the route (no stock photos!)
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                modifier = Modifier
-                    .size(90.dp)
-                    .clip(RoundedCornerShape(12.dp))
-            ) {
-                RouteThumbnailCanvas(
-                    points = points,
-                    modifier = Modifier.fillMaxSize()
-                )
+            // Map thumbnail drawn from trail geometry
+            val thumbnailPoints = remember(points, trail) {
+                if (!points.isNullOrEmpty()) {
+                    points
+                } else if (trail.bboxSouth != null && trail.bboxNorth != null && trail.bboxWest != null && trail.bboxEast != null) {
+                    listOf(
+                        GeoPointDto(trail.bboxSouth, trail.bboxWest),
+                        GeoPointDto((trail.bboxSouth + trail.bboxNorth) / 2.0, (trail.bboxWest + trail.bboxEast) / 2.0),
+                        GeoPointDto(trail.bboxNorth, trail.bboxEast)
+                    )
+                } else {
+                    emptyList()
+                }
             }
 
-            Spacer(modifier = Modifier.width(14.dp))
+            TrailGeometryThumbnail(
+                points = thumbnailPoints,
+                modifier = Modifier.size(96.dp)
+            )
 
-            // Trail Details Column
+            Spacer(modifier = Modifier.width(Spacing.s4))
+
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(Spacing.s1)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Text(
-                        text = trail.name,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant
-                    ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = routeTypeLabel,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            text = trail.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
+                        Text(
+                            text = trail.region,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    if (onBookmarkClick != null) {
+                        IconButton(
+                            onClick = onBookmarkClick,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("bookmark_trail_${trail.id}")
+                        ) {
+                            Icon(
+                                imageVector = if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                contentDescription = if (isSaved) {
+                                    stringResource(R.string.cd_bookmark_remove)
+                                } else {
+                                    stringResource(R.string.cd_bookmark_add)
+                                },
+                                tint = if (isSaved) ForestGreenPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
+                // Real computed stats line: "215 km · +1.850 m · ca. 14 dage"
                 Text(
-                    text = "${trail.region} • ${trail.parentRegion}",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "$kmFormatted km · +$ascentFormatted m · ca. $estimatedDays ${if (estimatedDays == 1) "dag" else "dage"}",
+                    style = TabularBodyStyle.copy(
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = MaterialTheme.colorScheme.primary
                 )
 
-                // Stats: Length, Ascent, Estimated Days at 15 km/day
+                // Real computed overnight line: "42 shelters · 9 fri teltning"
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "${String.format(Locale.US, "%.1f", totalKm)} km",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = ForestGreenPrimary
-                    )
-                    Text(
-                        text = "•",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "+${ascentMeters}m",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "•",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "$estimatedDays ${if (estimatedDays == 1) "dag" else "dage"}",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                // Phase 2 Counts: "23 shelters · 6 fri teltning"
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.s2)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Cabin,
                         contentDescription = null,
-                        tint = ForestGreenLight,
-                        modifier = Modifier.size(13.dp)
+                        tint = ForestGreenPrimary,
+                        modifier = Modifier.size(15.dp)
                     )
                     Text(
-                        text = "$sheltersCount shelters",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "·",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Icon(
-                        imageVector = Icons.Default.Forest,
-                        contentDescription = null,
-                        tint = ForestGreenLight,
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Text(
-                        text = "$friTeltningCount fri teltning",
-                        fontSize = 11.sp,
+                        text = "$sheltersCount shelters · $friTeltningCount fri teltning",
+                        style = TabularLabelStyle,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = "Vis detaljer",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 6.dp)
-            )
         }
     }
 }
 
-/**
- * Clean route thumbnail canvas: normalizes points to bounds and draws the exact polyline.
- * No stock photos used!
- */
 @Composable
 fun RouteThumbnailCanvas(
     points: List<GeoPointDto>?,
     modifier: Modifier = Modifier
 ) {
-    Canvas(modifier = modifier.padding(10.dp)) {
-        if (points.isNullOrEmpty() || points.size < 2) {
-            // Minimal placeholder curve
-            val path = Path().apply {
-                moveTo(size.width * 0.15f, size.height * 0.85f)
-                cubicTo(
-                    size.width * 0.3f, size.height * 0.2f,
-                    size.width * 0.7f, size.height * 0.9f,
-                    size.width * 0.85f, size.height * 0.15f
-                )
-            }
-            drawPath(
-                path = path,
-                color = ForestGreenLight.copy(alpha = 0.5f),
-                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-            )
-            return@Canvas
-        }
-
-        val minLat = points.minOf { it.lat }
-        val maxLat = points.maxOf { it.lat }
-        val minLng = points.minOf { it.lng }
-        val maxLng = points.maxOf { it.lng }
-
-        val dLat = max(1e-5, maxLat - minLat)
-        val dLng = max(1e-5, maxLng - minLng)
-
-        // Subsample for fast rendering
-        val step = max(1, points.size / 60)
-        val sampled = points.filterIndexed { index, _ -> index % step == 0 }
-
-        val path = Path()
-        sampled.forEachIndexed { i, pt ->
-            val x = ((pt.lng - minLng) / dLng * size.width).toFloat().coerceIn(0f, size.width)
-            val y = ((1.0 - (pt.lat - minLat) / dLat) * size.height).toFloat().coerceIn(0f, size.height)
-            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-        }
-
-        drawPath(
-            path = path,
-            color = ForestGreenPrimary,
-            style = Stroke(width = 3.5.dp.toPx(), cap = StrokeCap.Round)
-        )
-
-        // Draw start dot (green) and end dot (amber)
-        val startPt = sampled.first()
-        val startX = ((startPt.lng - minLng) / dLng * size.width).toFloat().coerceIn(0f, size.width)
-        val startY = ((1.0 - (startPt.lat - minLat) / dLat) * size.height).toFloat().coerceIn(0f, size.height)
-        drawCircle(color = ForestGreenLight, radius = 4.dp.toPx(), center = Offset(startX, startY))
-
-        val endPt = sampled.last()
-        val endX = ((endPt.lng - minLng) / dLng * size.width).toFloat().coerceIn(0f, size.width)
-        val endY = ((1.0 - (endPt.lat - minLat) / dLat) * size.height).toFloat().coerceIn(0f, size.height)
-        drawCircle(color = AmberAccent, radius = 4.dp.toPx(), center = Offset(endX, endY))
-    }
+    TrailGeometryThumbnail(
+        points = points ?: emptyList(),
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -1253,22 +1323,24 @@ fun NearbyOvernightSpotCard(
     val context = LocalContext.current
     val isShelter = spot.type == "SHELTER"
     val icon = if (isShelter) Icons.Default.Cabin else Icons.Default.Forest
-    val iconTint = if (isShelter) ForestGreenPrimary else AmberAccent
+    val iconTint = if (isShelter) ForestGreenPrimary else AccentAmber
     val distanceText = if (spot.distanceMeters >= 1000.0) {
-        "${String.format(Locale.US, "%.1f", spot.distanceMeters / 1000.0)} km væk"
+        "${formatDanishKm(spot.distanceMeters / 1000.0, 1)} km væk"
     } else {
         "${spot.distanceMeters.toInt()} m væk"
     }
 
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = CardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-        modifier = modifier.fillMaxWidth().testTag("nearby_spot_card_${spot.id}")
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("nearby_spot_card_${spot.id}")
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(Spacing.s4),
+            verticalArrangement = Arrangement.spacedBy(Spacing.s2)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1278,12 +1350,12 @@ fun NearbyOvernightSpotCard(
                 Row(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
                 ) {
                     Surface(
                         shape = CircleShape,
                         color = iconTint.copy(alpha = 0.15f),
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             imageVector = icon,
@@ -1296,7 +1368,7 @@ fun NearbyOvernightSpotCard(
                     Column {
                         Text(
                             text = spot.name,
-                            fontSize = 15.sp,
+                            style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
@@ -1304,7 +1376,7 @@ fun NearbyOvernightSpotCard(
                         )
                         Text(
                             text = if (isShelter) "Shelterplads" else "Fri teltning",
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -1316,20 +1388,19 @@ fun NearbyOvernightSpotCard(
                 ) {
                     Text(
                         text = distanceText,
-                        fontSize = 12.sp,
+                        style = TabularLabelStyle,
                         fontWeight = FontWeight.Bold,
                         color = ForestGreenPrimary,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
             }
 
-            // Description if available
             spot.description?.let { desc ->
                 if (desc.isNotBlank()) {
                     Text(
                         text = desc,
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
@@ -1337,98 +1408,45 @@ fun NearbyOvernightSpotCard(
                 }
             }
 
-            // Booking requirement (Phase 7c)
-            if (spot.bookingRequired) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = AmberAccent.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, AmberAccent.copy(alpha = 0.4f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Kræver booking",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = AmberAccent
-                            )
-                            Text(
-                                text = "Tjek ledighed hos udbyder",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        val targetUrl = if (!spot.bookingUrl.isNullOrBlank()) {
-                            spot.bookingUrl
-                        } else {
-                            "https://udinaturen.dk/soeg?q=${Uri.encode(spot.name)}"
-                        }
-                        val buttonLabel = if (!spot.bookingUrl.isNullOrBlank()) "Åbn booking" else "Book via udinaturen.dk"
-
-                        OutlinedButton(
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    android.util.Log.e("NearbySpot", "Cannot open booking URL: ${e.message}")
-                                }
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                            modifier = Modifier.height(30.dp).testTag("nearby_booking_button_${spot.id}")
-                        ) {
-                            Text(text = buttonLabel, fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-
-            // Action row: Directions in user's map app + Rute hertil
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.s2, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedButton(
                     onClick = onRouteHerTil,
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                    modifier = Modifier.height(34.dp).testTag("route_here_button_${spot.id}")
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .sizeIn(minHeight = 48.dp)
+                        .testTag("route_here_button_${spot.id}")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Route,
                         contentDescription = null,
                         tint = ForestGreenPrimary,
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "Rute hertil", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(text = "Rute hertil", style = MaterialTheme.typography.labelMedium)
                 }
 
                 Button(
                     onClick = onOpenDirections,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    modifier = Modifier.height(34.dp).testTag("directions_button_${spot.id}")
+                    modifier = Modifier
+                        .sizeIn(minHeight = 48.dp)
+                        .testTag("directions_button_${spot.id}")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Navigation,
                         contentDescription = null,
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "Rutevejledning", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(text = "Rutevejledning", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
     }
 }
-

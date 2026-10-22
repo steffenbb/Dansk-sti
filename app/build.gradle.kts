@@ -13,8 +13,8 @@ android {
     applicationId = "com.aistudio.dansksti.hktvwp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 8
-    versionName = "1.7"
+    versionCode = 11
+    versionName = "11.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -55,6 +55,7 @@ android {
   testOptions { unitTests { isIncludeAndroidResources = true } }
   sourceSets {
     getByName("test").assets.srcDir("$projectDir/schemas")
+    getByName("debug").assets.srcDir("$projectDir/schemas")
   }
   dependenciesInfo {
     includeInApk = false

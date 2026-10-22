@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -220,11 +221,11 @@ fun ApiDiagnosticsScreen(
                     )
                 }
 
-                // Requirement 2 & 8: WFS answer/polygon count and Active BRouter profile card
                 item {
                     val wfsAnswered = com.example.data.repository.AccessLandRepository.Companion.DiagnosticsState.wfsAnswered
                     val wfsCount = com.example.data.repository.AccessLandRepository.Companion.DiagnosticsState.wfsPolygonCount
                     val activeProfile = com.example.util.routing.BRouterOnlineEngine.activeProfileName
+                    val syntaxError = com.example.util.routing.BRouterOnlineEngine.getProfileSyntaxError()
 
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -264,8 +265,24 @@ fun ApiDiagnosticsScreen(
                                     text = activeProfile,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = ForestGreenPrimary
+                                    color = if (syntaxError != null) AlertRed else ForestGreenPrimary
                                 )
+                            }
+                            if (syntaxError != null) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = AlertRed.copy(alpha = 0.1f),
+                                    border = BorderStroke(1.dp, AlertRed.copy(alpha = 0.35f)),
+                                    modifier = Modifier.fillMaxWidth().testTag("brouter_profile_syntax_error_box")
+                                ) {
+                                    Text(
+                                        text = "Profil-syntaksfejl fra server:\n$syntaxError",
+                                        fontSize = 12.sp,
+                                        color = AlertRed,
+                                        modifier = Modifier.padding(10.dp)
+                                    )
+                                }
                             }
                         }
                     }

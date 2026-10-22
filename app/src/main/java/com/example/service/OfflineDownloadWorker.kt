@@ -16,9 +16,9 @@ import com.example.data.model.DownloadedTrailEntity
 import com.example.util.DanskStiTileSource
 import com.example.util.OfflineDownloadManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
-import org.osmdroid.tileprovider.cachemanager.CacheManager
-import org.osmdroid.tileprovider.modules.SqlTileWriter
+import org.osmdroid.tileprovider.modules.SqliteArchiveTileWriter
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -38,12 +38,15 @@ class OfflineDownloadWorker(
         val corridorKm = inputData.getDouble(KEY_CORRIDOR_KM, 1.0)
 
         createNotificationChannel()
-        setForeground(createForegroundInfo(trailName, 0, 100))
+        try {
+            setForeground(createForegroundInfo(trailName, 0, 100))
+        } catch (_: Exception) {}
 
         val app = context.applicationContext as DanskStiApp
         val repo = app.repository
         val db = app.database
 
+        var archiveWriter: SqliteArchiveTileWriter? = null
         try {
             // 1. Download & cache trail geometry (Phase 1)
             val trail = repo.getTrailById(trailId)
@@ -58,12 +61,12 @@ class OfflineDownloadWorker(
 
             // 2b. Download & cache Access polygons (Danmarks Miljøportal WFS + OSM access areas)
             try {
-                val minLat = points.minOf { it.lat } - 0.02
-                val maxLat = points.maxOf { it.lat } + 0.02
-                val minLng = points.minOf { it.lng } - 0.02
-                val maxLng = points.maxOf { it.lng } + 0.02
+                val minLat = points.minOf { it.lat } - 0.01
+                val maxLat = points.maxOf { it.lat } + 0.01
+                val minLng = points.minOf { it.lng } - 0.015
+                val maxLng = points.maxOf { it.lng } + 0.015
                 repo.getAccessPolygons(minLat, maxLat, minLng, maxLng)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Non-fatal if access polygons download encounters network issues
             }
 
@@ -75,53 +78,76 @@ class OfflineDownloadWorker(
                 return@withContext Result.failure(workDataOf("error" to "Ingen kortfliser at hente"))
             }
 
+            // Requirement 18: Write every offline download into its own SQLite tile archive
+            // in filesDir/offline/<id>.sqlite
+            val archiveFile = OfflineDownloadManager.getOfflineArchiveFile(context, trailId)
+            if (archiveFile.exists()) {
+                archiveFile.delete()
+            }
+            archiveWriter = SqliteArchiveTileWriter(archiveFile.absolutePath)
+
+            val settingsRepo = com.example.data.local.SettingsRepository(context)
+            val layersState = try {
+                settingsRepo.mapLayersFlow.firstOrNull() ?: com.example.data.local.MapLayersState()
+            } catch (_: Exception) {
+                com.example.data.local.MapLayersState()
+            }
+
             val tileSource = DanskStiTileSource.instance
-            val tileWriter = SqlTileWriter()
-            val cacheManager = CacheManager(tileSource, tileWriter, 8, 16)
+            val hillshadeSource = if (layersState.showTerrain) com.example.util.DanskStiTileSourceHelper.dhmHillshadeInstance else null
+            val contourSource = if (layersState.showTerrain) com.example.util.DanskStiTileSourceHelper.dhmContourInstance else null
 
             var downloadedCount = 0
             var totalBytes = 0L
             val buffer = ByteArray(8192)
 
+            fun downloadAndSaveTile(source: org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase, tileIdx: Long) {
+                val tileUrlStr = source.getTileURLString(tileIdx)
+                var conn: HttpURLConnection? = null
+                try {
+                    val url = URL(tileUrlStr)
+                    conn = (url.openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                        setRequestProperty("User-Agent", "DanskStiApp/1.0 (Android; Offline Hike Cache)")
+                    }
+
+                    if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                        val stream: InputStream = conn.inputStream
+                        val out = ByteArrayOutputStream()
+                        var bytesRead: Int
+                        while (stream.read(buffer).also { bytesRead = it } != -1) {
+                            out.write(buffer, 0, bytesRead)
+                        }
+                        val tileData = out.toByteArray()
+                        totalBytes += tileData.size
+                        archiveWriter?.saveFile(source, tileIdx, tileData.inputStream(), null)
+                        downloadedCount++
+                    }
+                } catch (_: Exception) {
+                    // Continue downloading next tile on transient failures
+                } finally {
+                    conn?.disconnect()
+                }
+            }
+
             for ((index, tileIndex) in tileIndices.withIndex()) {
                 if (isStopped) {
+                    archiveWriter?.onDetach()
+                    archiveWriter = null
+                    archiveFile.delete()
                     return@withContext Result.failure(workDataOf("error" to "Download afbrudt"))
                 }
 
-                // Check if tile already exists in osmdroid's local cache
-                if (!cacheManager.checkTile(tileIndex)) {
-                    val tileUrlStr = tileSource.getTileURLString(tileIndex)
-                    var conn: HttpURLConnection? = null
-                    try {
-                        val url = URL(tileUrlStr)
-                        conn = (url.openConnection() as HttpURLConnection).apply {
-                            connectTimeout = 8000
-                            readTimeout = 8000
-                            setRequestProperty("User-Agent", "DanskStiApp/1.0 (Android; Offline Hike Cache)")
-                        }
+                // 1. Base map tile
+                downloadAndSaveTile(tileSource, tileIndex)
 
-                        if (conn.responseCode == HttpURLConnection.HTTP_OK) {
-                            val stream: InputStream = conn.inputStream
-                            val out = ByteArrayOutputStream()
-                            var bytesRead: Int
-                            while (stream.read(buffer).also { bytesRead = it } != -1) {
-                                out.write(buffer, 0, bytesRead)
-                            }
-                            val tileData = out.toByteArray()
-                            totalBytes += tileData.size
-
-                            // Save into osmdroid's standard SQLite tile database
-                            tileWriter.saveFile(tileSource, tileIndex, tileData.inputStream(), null)
-                            downloadedCount++
-                        }
-                    } catch (e: Exception) {
-                        // Continue downloading next tile on transient failures
-                    } finally {
-                        conn?.disconnect()
-                    }
-                } else {
-                    downloadedCount++
-                    totalBytes += 10240L // approximate existing cached tile
+                // 2. Requirement C: Include hillshade and contour (zoom 14+) tiles when "Terræn" layer is on
+                if (hillshadeSource != null) {
+                    downloadAndSaveTile(hillshadeSource, tileIndex)
+                }
+                if (contourSource != null && org.osmdroid.util.MapTileIndex.getZoom(tileIndex) >= 14) {
+                    downloadAndSaveTile(contourSource, tileIndex)
                 }
 
                 // Update notification progress every 25 tiles or on completion
@@ -139,12 +165,17 @@ class OfflineDownloadWorker(
                 }
             }
 
+            archiveWriter?.onDetach()
+            archiveWriter = null
+
+            val finalBytes = if (archiveFile.exists() && archiveFile.length() > 0L) archiveFile.length() else totalBytes
+
             // 4. Save metadata record to Room
             val downloadedEntity = DownloadedTrailEntity(
                 trailId = trailId,
                 trailName = trailName,
                 downloadedAt = System.currentTimeMillis(),
-                sizeBytes = totalBytes,
+                sizeBytes = finalBytes,
                 tileCount = totalTiles,
                 corridorKm = corridorKm,
                 minZoom = 8,
@@ -158,7 +189,7 @@ class OfflineDownloadWorker(
                 NotificationCompat.Builder(context, CHANNEL_ID)
                     .setSmallIcon(R.drawable.ic_launcher_foreground)
                     .setContentTitle("$trailName klar offline")
-                    .setContentText("Kort, rute og ${totalTiles} kortfliser (${String.format("%.1f", totalBytes / (1024.0 * 1024.0))} MB) er gemt.")
+                    .setContentText("Kort, rute og $totalTiles kortfliser (${String.format("%.1f", finalBytes / (1024.0 * 1024.0))} MB) er gemt.")
                     .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                     .setAutoCancel(true)
                     .build()
@@ -166,9 +197,12 @@ class OfflineDownloadWorker(
 
             Result.success(workDataOf(
                 KEY_DOWNLOADED_COUNT to totalTiles,
-                KEY_BYTES_DOWNLOADED to totalBytes
+                KEY_BYTES_DOWNLOADED to finalBytes
             ))
         } catch (e: Exception) {
+            try {
+                archiveWriter?.onDetach()
+            } catch (_: Exception) {}
             notificationManager.notify(
                 NOTIFICATION_ID,
                 NotificationCompat.Builder(context, CHANNEL_ID)

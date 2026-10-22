@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Forest
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.LocalDrink
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Refresh
@@ -142,6 +143,9 @@ fun TrailDetailScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val routeError by viewModel.routeError.collectAsState()
     val isFetchingLiveRoute by viewModel.isFetchingLiveRoute.collectAsState()
+    val isSyncingPois by viewModel.isSyncingPois.collectAsState()
+    val longestGapWithoutWaterKm by viewModel.longestGapWithoutWaterKm.collectAsState()
+    val longestGapWithoutOvernightKm by viewModel.longestGapWithoutOvernightKm.collectAsState()
 
     var showApiKeyPrompt by remember { mutableStateOf(!DanskStiTileSource.hasValidKey && !DanskStiTileSource.userConfirmedOsmFallback) }
 
@@ -219,46 +223,101 @@ fun TrailDetailScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // TOP: 40% height map of the route (no gestures; tap = full-screen map)
+        // TOP: 40% height map of the route using shared DanskStiMap
+        val headerSegments: List<TrailSegmentDto> = remember(trailGeometry, points) {
+            trailGeometry?.segments ?: if (points.isNotEmpty()) {
+                listOf(TrailSegmentDto(type = TrailSegmentType.WALK, points = points))
+            } else {
+                emptyList()
+            }
+        }
+        var lastHeaderRouteSig by remember(trailId) { mutableIntStateOf(0) }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(0.40f)
-                .clickable { onOpenFullscreenMap(trailId) }
                 .testTag("trail_detail_top_map_box")
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    MapView(ctx).apply {
-                        setMultiTouchControls(false) // No gestures!
-                        zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
-                        DanskStiTileSource.applyTo(this, isDark)
+            com.example.ui.map.DanskStiMap(
+                modifier = Modifier.fillMaxSize(),
+                mapTestTag = "trail_detail_map",
+                isInteractive = true,
+                isSystemDarkOverride = isDark,
+                controlsTopPadding = 56.dp,
+                layersButtonTestTag = "trail_detail_layers_button",
+                compassButtonTestTag = "trail_detail_compass_button",
+                myLocationButtonTestTag = "trail_detail_my_location_button",
+                onMapTap = {
+                    if (routeError == null || points.isNotEmpty()) {
+                        onOpenFullscreenMap(trailId)
+                        true
+                    } else {
+                        false
                     }
                 },
-                update = { mapView ->
-                    DanskStiTileSource.applyTo(mapView, isDark)
-                    mapView.overlays.removeAll { it is Polyline }
-
-                    val segments: List<TrailSegmentDto> = trailGeometry?.segments ?: if (points.isNotEmpty()) listOf(TrailSegmentDto(type = TrailSegmentType.WALK, points = points)) else emptyList()
-                    if (segments.isNotEmpty()) {
-                        for (seg in segments) {
-                            val polyline = Polyline(mapView).apply {
-                                setPoints(seg.points.map { GeoPoint(it.lat, it.lng) })
-                                outlinePaint.color = if (seg.type == TrailSegmentType.FERRY) {
-                                    AndroidColor.rgb(2, 136, 209)
-                                } else {
-                                    AndroidColor.rgb(35, 83, 63)
-                                }
-                                outlinePaint.strokeWidth = if (seg.type == TrailSegmentType.FERRY) 6f else 8f
-                                outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
-                                if (seg.type == TrailSegmentType.FERRY) {
-                                    outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(15f, 15f), 0f)
-                                }
-                            }
-                            mapView.overlays.add(polyline)
+                onRouteHereFromDropPin = { lat, lng, label ->
+                    onOpenRouteBuilder(lat, lng, label)
+                },
+                updateOverlaysKey = headerSegments,
+                onUpdateOverlays = { mapView, overlayManager, isDarkMap ->
+                    var sig = if (isDarkMap) 1231 else 1237
+                    sig = 31 * sig + headerSegments.size
+                    for (seg in headerSegments) {
+                        sig = 31 * sig + seg.points.size
+                    }
+                    if (sig != lastHeaderRouteSig) {
+                        lastHeaderRouteSig = sig
+                        val density = mapView.context.resources.displayMetrics.density
+                        val children = ArrayList<org.osmdroid.views.overlay.Overlay>()
+                        val routeColor = if (isDarkMap) {
+                            com.example.util.routing.RouteMarkerHelper.COLOR_PLANNED_ROUTE_DARK
+                        } else {
+                            com.example.util.routing.RouteMarkerHelper.COLOR_PLANNED_ROUTE_LIGHT
+                        }
+                        val casingColor = if (isDarkMap) {
+                            com.example.util.routing.RouteMarkerHelper.COLOR_PLANNED_CASING_DARK
+                        } else {
+                            com.example.util.routing.RouteMarkerHelper.COLOR_PLANNED_CASING_LIGHT
                         }
 
-                        val allSegmentPoints = segments.flatMap { it.points }.filter { it.lat > 10.0 && it.lng > 0.0 }
+                        for (seg in headerSegments) {
+                            val geoPts = seg.points.map { GeoPoint(it.lat, it.lng) }
+                            if (geoPts.size >= 2) {
+                                if (seg.type == TrailSegmentType.WALK) {
+                                    val casing = Polyline(mapView).apply {
+                                        setPoints(geoPts)
+                                        outlinePaint.color = casingColor
+                                        outlinePaint.strokeWidth = 7f * density
+                                        outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                                        outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+                                        outlinePaint.isAntiAlias = true
+                                    }
+                                    children.add(casing)
+                                }
+                                val polyline = Polyline(mapView).apply {
+                                    setPoints(geoPts)
+                                    outlinePaint.color = if (seg.type == TrailSegmentType.FERRY) {
+                                        AndroidColor.rgb(2, 136, 209)
+                                    } else {
+                                        routeColor
+                                    }
+                                    outlinePaint.strokeWidth = if (seg.type == TrailSegmentType.FERRY) 3.5f * density else 4.5f * density
+                                    outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                                    outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+                                    if (seg.type == TrailSegmentType.FERRY) {
+                                        outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(15f, 15f), 0f)
+                                    }
+                                }
+                                children.add(polyline)
+                            }
+                        }
+                        overlayManager.updateFolderOverlay(
+                            com.example.ui.navigation.MapLayersOverlayManager.KEY_ROUTE,
+                            children
+                        )
+
+                        val allSegmentPoints = headerSegments.flatMap { it.points }.filter { it.lat > 10.0 && it.lng > 0.0 }
                         if (allSegmentPoints.isNotEmpty()) {
                             val minLat = allSegmentPoints.minOf { it.lat }
                             val maxLat = allSegmentPoints.maxOf { it.lat }
@@ -270,36 +329,15 @@ fun TrailDetailScreen(
                                 (minLat - 0.02).coerceAtLeast(-85.0),
                                 (minLng - 0.02).coerceAtLeast(-180.0)
                             )
-                            if (mapView.width > 0 && mapView.height > 0) {
+                            mapView.post {
                                 try {
                                     mapView.zoomToBoundingBox(bbox, false)
-                                } catch (e: Exception) {
-                                    android.util.Log.w("TrailDetail", "zoomToBoundingBox failed: ${e.message}")
-                                }
-                            } else {
-                                mapView.post {
-                                    try {
-                                        mapView.zoomToBoundingBox(bbox, false)
-                                    } catch (e: Exception) {
-                                        android.util.Log.w("TrailDetail", "zoomToBoundingBox post failed: ${e.message}")
-                                    }
-                                }
+                                } catch (_: Exception) {}
                             }
                         }
                     }
-                    mapView.invalidate()
-                },
-                modifier = Modifier.fillMaxSize()
+                }
             )
-
-            // Transparent overlay to capture map tap and route to fullscreen (only when no error is displayed)
-            if (routeError == null || points.isNotEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable { onOpenFullscreenMap(trailId) }
-                )
-            }
 
             // Live fetching indicator from OpenStreetMap
             if (isFetchingLiveRoute) {
@@ -539,10 +577,11 @@ fun TrailDetailScreen(
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .testTag("trail_detail_list"),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                // Title Block
+                // Title Block: title, region, data date (Requirement D)
                 item {
                     Column(
                         modifier = Modifier
@@ -551,8 +590,7 @@ fun TrailDetailScreen(
                     ) {
                         Text(
                             text = t.name,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.displayLarge,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.testTag("trail_detail_name")
                         )
@@ -560,35 +598,44 @@ fun TrailDetailScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "${t.region} • ${t.parentRegion}",
-                                fontSize = 14.sp,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "• Data: 2026",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                text = "• Data: Okt 2026",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                modifier = Modifier.testTag("trail_detail_data_date")
                             )
                         }
                     }
                 }
 
-                // Stats Row: Længde, Stigning, Estimeret tid, Type
+                // Stats Row: Længde, Stigning, Estimeret tid, Type (Requirement D)
                 item {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        StatCardItem(label = "Længde", value = "${String.format(Locale.US, "%.1f", totalKm)} km")
-                        StatCardItem(label = "Stigning", value = "+${elevationGain} m")
-                        StatCardItem(label = "Est. tid", value = "$estimatedDays ${if (estimatedDays == 1) "dag" else "dage"}")
-                        StatCardItem(label = "Type", value = routeType)
+                        Box(modifier = Modifier.weight(1f)) {
+                            StatCardItem(label = "Længde", value = "${String.format(Locale("da", "DK"), "%.1f", totalKm)} km")
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            StatCardItem(label = "Stigning", value = "+${elevationGain} m")
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            StatCardItem(label = "Estimeret tid", value = "$estimatedDays ${if (estimatedDays == 1) "dag" else "dage"}")
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            StatCardItem(label = "Type", value = routeType)
+                        }
                     }
                 }
 
-                // Action Row of 4 Round Buttons: Gem, Hent offline, Del, Navigér
+                // Action Row of 4 Round Buttons: Gem, Hent offline, Del, Vis på kort (Requirement D)
                 item {
                     Row(
                         modifier = Modifier
@@ -599,14 +646,14 @@ fun TrailDetailScreen(
                         RoundActionButton(
                             icon = if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                             label = if (isSaved) "Gemt" else "Gem",
-                            tint = if (isSaved) AmberAccent else MaterialTheme.colorScheme.onSurface,
+                            tint = if (isSaved) AmberAccent else ForestGreenPrimary,
                             onClick = { viewModel.toggleSave() },
                             testTag = "action_save_trail"
                         )
 
                         RoundActionButton(
                             icon = Icons.Default.CloudDownload,
-                            label = "Offline",
+                            label = "Hent offline",
                             tint = ForestGreenPrimary,
                             onClick = { onDownloadOffline(trailId) },
                             testTag = "action_download_offline"
@@ -614,8 +661,8 @@ fun TrailDetailScreen(
 
                         RoundActionButton(
                             icon = Icons.Default.Share,
-                            label = "GPX / Del",
-                            tint = MaterialTheme.colorScheme.onSurface,
+                            label = "Del",
+                            tint = ForestGreenPrimary,
                             onClick = {
                                 if (points.isNotEmpty()) {
                                     val gpxContent = com.example.util.GpxExporter.generateMultiSegmentGpx(
@@ -644,17 +691,11 @@ fun TrailDetailScreen(
                         )
 
                         RoundActionButton(
-                            icon = Icons.Default.Navigation,
-                            label = "Navigér",
+                            icon = Icons.Default.Map,
+                            label = "Vis på kort",
                             tint = ForestGreenPrimary,
-                            onClick = {
-                                viewModel.onNavigateClicked(
-                                    trailId = trailId,
-                                    onNavigate = onStartNavigation,
-                                    onOpenPlanner = { onPlanTrip(trailId) }
-                                )
-                            },
-                            testTag = "action_navigate_trail"
+                            onClick = { onOpenFullscreenMap(trailId) },
+                            testTag = "action_show_on_map"
                         )
                     }
                 }
@@ -739,12 +780,43 @@ fun TrailDetailScreen(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 SurfaceMixBar(surfaceMix = surfaceMix)
+
+                                // Supply gaps (Requirement 16)
+                                Text(
+                                    text = "Forsyning på ruten",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                if (isSyncingPois) {
+                                    Text(
+                                        text = "Henter data...",
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.testTag("supply_gaps_loading_text")
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Længste stræk uden vand: ${String.format(Locale.GERMANY, "%.1f", longestGapWithoutWaterKm)} km · uden overnatning: ${String.format(Locale.GERMANY, "%.1f", longestGapWithoutOvernightKm)} km",
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.testTag("supply_gaps_summary_text")
+                                    )
+                                }
                             }
                         }
                     }
 
                     1 -> { // Overnatning (list sorted by km)
-                        if (overnightSpots.isEmpty()) {
+                        if (isSyncingPois && overnightSpots.isEmpty()) {
+                            item {
+                                Text(
+                                    text = "Henter data...",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                        } else if (overnightSpots.isEmpty()) {
                             item {
                                 Text(
                                     text = "Ingen overnatningssteder registreret på denne rute.",
@@ -761,7 +833,15 @@ fun TrailDetailScreen(
 
                     2 -> { // Vand & mad (water, toilets, shops by km)
                         val combinedPois = (waterAndToilets + shops).sortedBy { it.kmOnRoute }
-                        if (combinedPois.isEmpty()) {
+                        if (isSyncingPois && combinedPois.isEmpty()) {
+                            item {
+                                Text(
+                                    text = "Henter data...",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                        } else if (combinedPois.isEmpty()) {
                             item {
                                 Text(
                                     text = "Ingen vandposter eller butikker registreret.",
@@ -869,10 +949,10 @@ fun StatCardItem(
     value: String
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-        modifier = Modifier.width(80.dp)
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
@@ -880,8 +960,10 @@ fun StatCardItem(
         ) {
             Text(
                 text = value,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
+                style = com.example.ui.theme.TabularBodyStyle.copy(
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                ),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -889,8 +971,10 @@ fun StatCardItem(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = label,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -906,13 +990,15 @@ fun RoundActionButton(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(onClick = onClick)
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp)
     ) {
         Surface(
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-            shadowElevation = 2.dp,
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+            shadowElevation = 4.dp,
             modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
@@ -930,8 +1016,7 @@ fun RoundActionButton(
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = label,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }

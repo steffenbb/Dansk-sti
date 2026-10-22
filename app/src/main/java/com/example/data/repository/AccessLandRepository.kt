@@ -1,13 +1,12 @@
 package com.example.data.repository
 
-import android.content.Context
 import android.util.Log
 import com.example.data.local.DanskStiDao
-import com.example.data.local.DanskStiDatabase
 import com.example.data.model.AccessPolygonEntity
 import com.example.data.model.access.AccessClassifier
 import com.example.data.model.access.AccessLandType
 import com.example.data.model.access.AccessPolygon
+import com.example.util.network.applyDebugMainThreadCheck
 import com.example.util.routing.LatLng
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,8 +17,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.floor
 
 class AccessLandRepository(
     private val dao: DanskStiDao,
@@ -28,6 +27,9 @@ class AccessLandRepository(
     private val TAG = "AccessLandRepo"
 
     companion object {
+        const val TILE_SIZE_DEG = 0.1
+        const val CACHE_TTL_MS = 30L * 24 * 3600 * 1000L
+
         object DiagnosticsState {
             @Volatile var wfsAnswered: Boolean = false
             @Volatile var wfsPolygonCount: Int = 0
@@ -40,15 +42,52 @@ class AccessLandRepository(
             return OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(25, TimeUnit.SECONDS)
+                .applyDebugMainThreadCheck()
                 .build()
+        }
+
+        fun getTileIdsForBounds(
+            minLat: Double,
+            maxLat: Double,
+            minLng: Double,
+            maxLng: Double
+        ): List<TileBounds> {
+            val sLat = floor(minLat * 10.0).toInt()
+            val eLat = floor((maxLat - 1e-9).coerceAtLeast(minLat) * 10.0).toInt()
+            val sLng = floor(minLng * 10.0).toInt()
+            val eLng = floor((maxLng - 1e-9).coerceAtLeast(minLng) * 10.0).toInt()
+
+            val tiles = mutableListOf<TileBounds>()
+            // Cap tile count if someone passes a huge bounding box
+            val maxLatIdx = (sLat + 15).coerceAtMost(eLat)
+            val maxLngIdx = (sLng + 15).coerceAtMost(eLng)
+
+            for (latIdx in sLat..maxLatIdx) {
+                for (lngIdx in sLng..maxLngIdx) {
+                    val tMinLat = latIdx / 10.0
+                    val tMaxLat = (latIdx + 1) / 10.0
+                    val tMinLng = lngIdx / 10.0
+                    val tMaxLng = (lngIdx + 1) / 10.0
+                    val tileId = "tile_${latIdx}_${lngIdx}"
+                    tiles.add(TileBounds(tileId, tMinLat, tMaxLat, tMinLng, tMaxLng))
+                }
+            }
+            return tiles
         }
     }
 
+    data class TileBounds(
+        val tileId: String,
+        val minLat: Double,
+        val maxLat: Double,
+        val minLng: Double,
+        val maxLng: Double
+    )
+
     /**
-     * Retrieves access polygons covering the given bounding box.
-     * Looks in Room database first; if empty or older than 30 days, fetches live from
-     * Danmarks Miljøportal WFS (Naturstyrelsens arealoversigt) and OpenStreetMap Overpass API,
-     * merging them so official state land complements OSM land cover polygons, and caches the result in Room.
+     * Retrieves access polygons covering the given bounding box by splitting into
+     * 0.1 x 0.1 degree tiles and caching per tile (`tileId`) in Room.
+     * Cache validity is checked per tile, not per bounding box.
      */
     suspend fun getAccessPolygons(
         minLat: Double,
@@ -56,125 +95,184 @@ class AccessLandRepository(
         minLng: Double,
         maxLng: Double
     ): List<AccessPolygon> = withContext(Dispatchers.IO) {
-        try {
-            val cachedEntities = dao.getAccessPolygonsInBoundingBox(minLat, maxLat, minLng, maxLng)
-            val isCacheValid = cachedEntities.isNotEmpty() && cachedEntities.all {
-                (System.currentTimeMillis() - it.fetchedAt) < 30L * 24 * 3600 * 1000L
-            }
-            if (isCacheValid) {
-                Log.d(TAG, "Loaded ${cachedEntities.size} access polygons from Room cache")
-                return@withContext cachedEntities.map { entityToModel(it) }
-            }
+        val tiles = getTileIdsForBounds(minLat, maxLat, minLng, maxLng)
+        val resultById = LinkedHashMap<String, AccessPolygon>()
+        val now = System.currentTimeMillis()
+        var anyTileFailedWithNoData = false
 
-            // 1. Fetch live official state land from Danmarks Miljøportal WFS
-            val wfsStatePolygons = try {
-                val statePolys = fetchFromMiljoeportalWfs(minLat, maxLat, minLng, maxLng)
-                DiagnosticsState.wfsAnswered = true
-                DiagnosticsState.wfsPolygonCount = statePolys.size
-                DiagnosticsState.lastWfsTimestamp = System.currentTimeMillis()
-                statePolys
-            } catch (e: Exception) {
-                Log.w(TAG, "Miljøportal WFS fetch failed: ${e.message}")
-                DiagnosticsState.wfsAnswered = false
-                DiagnosticsState.lastError = e.message
-                emptyList()
-            }
+        for (tile in tiles) {
+            try {
+                val cachedTile = dao.getAccessPolygonsByTileId(tile.tileId)
+                val isTileCacheValid = cachedTile.isNotEmpty() && cachedTile.all {
+                    (now - it.fetchedAt) < CACHE_TTL_MS
+                }
+                if (isTileCacheValid) {
+                    for (ent in cachedTile) {
+                        if (ent.type == "EMPTY_TILE_SENTINEL") continue
+                        val model = entityToModel(ent)
+                        resultById[model.id] = model
+                    }
+                    DiagnosticsState.isDataUnavailable = false
+                    continue
+                }
 
-            // 2. Fetch land cover polygons from OpenStreetMap Overpass
-            val osmPolygons = try {
-                fetchFromOverpass(minLat, maxLat, minLng, maxLng)
-            } catch (e: Exception) {
-                Log.w(TAG, "Overpass access fetch failed: ${e.message}")
-                emptyList()
-            }
-
-            // 3. Promote an OSM forest to PUBLIC only if at least 50 % of its area lies inside
-            // a Naturstyrelsen polygon (real polygon intersection), not by centroid distance.
-            val complementedOsm = osmPolygons.map { osmPoly ->
-                val isForest = osmPoly.type == AccessLandType.PUBLIC_FOREST ||
-                        osmPoly.type == AccessLandType.PRIVATE_FOREST ||
-                        osmPoly.type == AccessLandType.PRIVATE_OR_UNKNOWN
-
-                if (isForest) {
-                    val candidateStatePolys = if (wfsStatePolygons.isNotEmpty()) {
-                        wfsStatePolygons.filter { sp ->
-                            val osmMinLat = osmPoly.coordinates.minOf { it.lat }
-                            val osmMaxLat = osmPoly.coordinates.maxOf { it.lat }
-                            val osmMinLng = osmPoly.coordinates.minOf { it.lng }
-                            val osmMaxLng = osmPoly.coordinates.maxOf { it.lng }
-
-                            val sMinLat = sp.coordinates.minOf { it.lat }
-                            val sMaxLat = sp.coordinates.maxOf { it.lat }
-                            val sMinLng = sp.coordinates.minOf { it.lng }
-                            val sMaxLng = sp.coordinates.maxOf { it.lng }
-
-                            osmMinLat <= sMaxLat && osmMaxLat >= sMinLat && osmMinLng <= sMaxLng && osmMaxLng >= sMinLng
+                // Fetch live for this 0.1 x 0.1 tile
+                val fetchedPolys = fetchAndMergeTile(tile)
+                if (fetchedPolys != null) {
+                    dao.deleteAccessPolygonsByTileId(tile.tileId)
+                    if (fetchedPolys.isNotEmpty()) {
+                        val entities = fetchedPolys.map { modelToEntity(it, tile.tileId) }
+                        dao.insertAccessPolygons(entities)
+                        for (poly in fetchedPolys) {
+                            resultById[poly.id] = poly
                         }
-                    } else emptyList()
-
-                    if (candidateStatePolys.isNotEmpty()) {
-                        val fraction = com.example.util.access.AccessGeometryUtils.computeIntersectionAreaFraction(
-                            osmPoly.coordinates,
-                            candidateStatePolys.map { it.coordinates }
+                    } else {
+                        // Store sentinel so we know this tile was fetched and is empty
+                        val sentinel = AccessPolygonEntity(
+                            id = "${tile.tileId}__sentinel",
+                            name = null,
+                            type = "EMPTY_TILE_SENTINEL",
+                            coordinatesJson = "[]",
+                            minLat = tile.minLat,
+                            maxLat = tile.maxLat,
+                            minLng = tile.minLng,
+                            maxLng = tile.maxLng,
+                            source = "cache",
+                            operatorOrOwner = null,
+                            fetchedAt = now,
+                            tileId = tile.tileId
                         )
-                        if (fraction >= 0.50) {
-                            val matchingState = candidateStatePolys.firstOrNull()
-                            osmPoly.copy(
-                                type = AccessLandType.PUBLIC_FOREST,
-                                source = "Danmarks Miljøportal (Naturstyrelsens arealoversigt)",
-                                operatorOrOwner = matchingState?.operatorOrOwner ?: "Naturstyrelsen"
-                            )
-                        } else {
-                            osmPoly.copy(type = AccessLandType.PRIVATE_OR_UNKNOWN)
+                        dao.insertAccessPolygons(listOf(sentinel))
+                    }
+                    DiagnosticsState.isDataUnavailable = false
+                } else {
+                    // Both WFS and Overpass failed for this tile: use stale tile cache if available
+                    val stale = cachedTile.filter { it.type != "EMPTY_TILE_SENTINEL" }
+                    if (stale.isNotEmpty()) {
+                        for (ent in stale) {
+                            val model = entityToModel(ent)
+                            resultById[model.id] = model
                         }
+                        DiagnosticsState.isDataUnavailable = false
+                    } else {
+                        val bboxFallback = dao.getAccessPolygonsInBoundingBox(tile.minLat, tile.maxLat, tile.minLng, tile.maxLng)
+                            .filter { it.type != "EMPTY_TILE_SENTINEL" }
+                        if (bboxFallback.isNotEmpty()) {
+                            for (ent in bboxFallback) {
+                                val model = entityToModel(ent)
+                                resultById[model.id] = model
+                            }
+                            DiagnosticsState.isDataUnavailable = false
+                        } else {
+                            anyTileFailedWithNoData = true
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is IllegalStateException && e.message == "Network on main thread") {
+                    throw e
+                }
+                Log.w(TAG, "Tile ${tile.tileId} access fetch failed: ${e.message}")
+                anyTileFailedWithNoData = true
+            }
+        }
+
+        if (resultById.isEmpty() && anyTileFailedWithNoData) {
+            DiagnosticsState.isDataUnavailable = true
+        }
+        resultById.values.toList()
+    }
+
+    /**
+     * Fetches WFS + Overpass for a single 0.1 x 0.1 degree tile and merges them.
+     * Returns null if both network sources fail with exceptions.
+     */
+    private suspend fun fetchAndMergeTile(tile: TileBounds): List<AccessPolygon>? {
+        var wfsSucceeded = false
+        var osmSucceeded = false
+
+        val wfsStatePolygons = try {
+            val statePolys = fetchFromMiljoeportalWfs(tile.minLat, tile.maxLat, tile.minLng, tile.maxLng)
+            wfsSucceeded = true
+            DiagnosticsState.wfsAnswered = true
+            DiagnosticsState.wfsPolygonCount = statePolys.size
+            DiagnosticsState.lastWfsTimestamp = System.currentTimeMillis()
+            statePolys
+        } catch (e: Exception) {
+            if (e is IllegalStateException && e.message == "Network on main thread") throw e
+            Log.w(TAG, "Miljøportal WFS fetch failed for ${tile.tileId}: ${e.message}")
+            DiagnosticsState.wfsAnswered = false
+            DiagnosticsState.lastError = e.message
+            emptyList()
+        }
+
+        val osmPolygons = try {
+            val polys = fetchFromOverpass(tile.minLat, tile.maxLat, tile.minLng, tile.maxLng)
+            osmSucceeded = true
+            polys
+        } catch (e: Exception) {
+            if (e is IllegalStateException && e.message == "Network on main thread") throw e
+            Log.w(TAG, "Overpass access fetch failed for ${tile.tileId}: ${e.message}")
+            emptyList()
+        }
+
+        if (!wfsSucceeded && !osmSucceeded) {
+            return null
+        }
+
+        val complementedOsm = osmPolygons.map { osmPoly ->
+            val isForest = osmPoly.type == AccessLandType.PUBLIC_FOREST ||
+                    osmPoly.type == AccessLandType.PRIVATE_FOREST ||
+                    osmPoly.type == AccessLandType.PRIVATE_OR_UNKNOWN
+
+            if (isForest) {
+                val candidateStatePolys = if (wfsStatePolygons.isNotEmpty()) {
+                    wfsStatePolygons.filter { sp ->
+                        val osmMinLat = osmPoly.coordinates.minOf { it.lat }
+                        val osmMaxLat = osmPoly.coordinates.maxOf { it.lat }
+                        val osmMinLng = osmPoly.coordinates.minOf { it.lng }
+                        val osmMaxLng = osmPoly.coordinates.maxOf { it.lng }
+
+                        val sMinLat = sp.coordinates.minOf { it.lat }
+                        val sMaxLat = sp.coordinates.maxOf { it.lat }
+                        val sMinLng = sp.coordinates.minOf { it.lng }
+                        val sMaxLng = sp.coordinates.maxOf { it.lng }
+
+                        osmMinLat <= sMaxLat && osmMaxLat >= sMinLat && osmMinLng <= sMaxLng && osmMaxLng >= sMinLng
+                    }
+                } else emptyList()
+
+                if (candidateStatePolys.isNotEmpty()) {
+                    val fraction = com.example.util.access.AccessGeometryUtils.computeIntersectionAreaFraction(
+                        osmPoly.coordinates,
+                        candidateStatePolys.map { it.coordinates }
+                    )
+                    if (fraction >= 0.50) {
+                        val matchingState = candidateStatePolys.firstOrNull()
+                        osmPoly.copy(
+                            type = AccessLandType.PUBLIC_FOREST,
+                            source = "Danmarks Miljøportal (Naturstyrelsens arealoversigt)",
+                            operatorOrOwner = matchingState?.operatorOrOwner ?: "Naturstyrelsen"
+                        )
                     } else {
                         osmPoly.copy(type = AccessLandType.PRIVATE_OR_UNKNOWN)
                     }
                 } else {
-                    osmPoly
+                    osmPoly.copy(type = AccessLandType.PRIVATE_OR_UNKNOWN)
                 }
-            }
-
-            // Merge WFS state polygons and complemented OSM polygons (deduplicating by ID)
-            val combinedMap = mutableMapOf<String, AccessPolygon>()
-            for (p in wfsStatePolygons) combinedMap[p.id] = p
-            for (p in complementedOsm) {
-                if (!combinedMap.containsKey(p.id)) {
-                    combinedMap[p.id] = p
-                }
-            }
-            val combinedList = combinedMap.values.toList()
-
-            if (combinedList.isNotEmpty()) {
-                Log.d(TAG, "Caching ${combinedList.size} access polygons (WFS: ${wfsStatePolygons.size}, OSM: ${complementedOsm.size}) in Room")
-                val entities = combinedList.map { modelToEntity(it) }
-                dao.insertAccessPolygons(entities)
-                DiagnosticsState.isDataUnavailable = false
-                return@withContext combinedList
-            } else if (cachedEntities.isNotEmpty()) {
-                Log.d(TAG, "Live fetch returned empty, using existing cached access polygons")
-                DiagnosticsState.isDataUnavailable = false
-                return@withContext cachedEntities.map { entityToModel(it) }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Live access fetch failed: ${e.message}, checking cache")
-            val fallbackCache = dao.getAccessPolygonsInBoundingBox(minLat, maxLat, minLng, maxLng)
-            if (fallbackCache.isNotEmpty()) {
-                DiagnosticsState.isDataUnavailable = false
-                return@withContext fallbackCache.map { entityToModel(it) }
+            } else {
+                osmPoly
             }
         }
 
-        // If live data fails and there is no cache, show "Adgangsdata ikke tilgængelig her" and treat forests as PRIVATE_OR_UNKNOWN
-        val fallbackCache = dao.getAccessPolygonsInBoundingBox(minLat, maxLat, minLng, maxLng)
-        if (fallbackCache.isNotEmpty()) {
-            DiagnosticsState.isDataUnavailable = false
-            return@withContext fallbackCache.map { entityToModel(it) }
+        val combinedMap = LinkedHashMap<String, AccessPolygon>()
+        for (p in wfsStatePolygons) combinedMap[p.id] = p
+        for (p in complementedOsm) {
+            if (!combinedMap.containsKey(p.id)) {
+                combinedMap[p.id] = p
+            }
         }
-
-        Log.w(TAG, "Adgangsdata ikke tilgængelig her (live fetch failed and no cache available)")
-        DiagnosticsState.isDataUnavailable = true
-        emptyList()
+        return combinedMap.values.toList()
     }
 
     /**
@@ -189,7 +287,7 @@ class AccessLandRepository(
         maxLat: Double,
         minLng: Double,
         maxLng: Double
-    ): List<AccessPolygon> {
+    ): List<AccessPolygon> = withContext(Dispatchers.IO) {
         val url = "https://wfs2-miljoegis.mim.dk/skovdrift/ows?service=WFS&version=2.0.0" +
                 "&request=GetFeature&typeNames=skovdrift:Naturstyrelsens+arealoversigt" +
                 "&outputFormat=application/json&srsName=EPSG:4326" +
@@ -205,12 +303,12 @@ class AccessLandRepository(
             if (!response.isSuccessful) {
                 throw IOException("Miljøportal WFS HTTP ${response.code}")
             }
-            val bodyStr = response.body?.string() ?: return emptyList()
+            val bodyStr = response.body?.string() ?: return@withContext emptyList()
             if (bodyStr.trimStart().startsWith("<")) {
                 Log.w(TAG, "Miljøportal WFS returned XML/HTML instead of GeoJSON: ${bodyStr.take(150)}")
-                return emptyList()
+                return@withContext emptyList()
             }
-            return parseMiljoeportalWfsJson(bodyStr)
+            return@withContext parseMiljoeportalWfsJson(bodyStr)
         }
     }
 
@@ -282,7 +380,6 @@ class AccessLandRepository(
     private fun extractRingPoints(ringArr: JSONArray): List<LatLng> {
         val pts = mutableListOf<LatLng>()
         val total = ringArr.length()
-        // If ring is very detailed (> 400 pts), downsample gracefully
         val step = if (total > 400) kotlin.math.max(1, total / 300) else 1
 
         for (j in 0 until total step step) {
@@ -293,23 +390,18 @@ class AccessLandRepository(
                 pts.add(LatLng(lat, lng))
             }
         }
-        // Ensure closed ring
         if (pts.size >= 3 && pts.first() != pts.last()) {
             pts.add(pts.first())
         }
         return pts
     }
 
-    /**
-     * Overpass query fetching landuse=forest, natural=wood, natural=heath, natural=scrub,
-     * natural=grassland, natural=beach, natural=sand, landuse=farmland, landuse=meadow, leisure=nature_reserve.
-     */
     private suspend fun fetchFromOverpass(
         minLat: Double,
         maxLat: Double,
         minLng: Double,
         maxLng: Double
-    ): List<AccessPolygon> {
+    ): List<AccessPolygon> = withContext(Dispatchers.IO) {
         val query = """
             [out:json][timeout:20];
             (
@@ -336,18 +428,16 @@ class AccessLandRepository(
             if (!response.isSuccessful) {
                 throw IOException("Overpass HTTP ${response.code}")
             }
-            val bodyStr = response.body?.string() ?: return emptyList()
-            return parseOverpassJson(bodyStr)
+            val bodyStr = response.body?.string() ?: return@withContext emptyList()
+            return@withContext parseOverpassJson(bodyStr)
         }
     }
 
-    private suspend fun parseOverpassJson(jsonStr: String): List<AccessPolygon> {
+    private fun parseOverpassJson(jsonStr: String): List<AccessPolygon> {
         val json = JSONObject(jsonStr)
         val elements = json.optJSONArray("elements") ?: return emptyList()
 
-        // Index nodes: id -> LatLng
         val nodeMap = mutableMapOf<Long, LatLng>()
-        // Index ways: id -> List<LatLng>
         val wayMap = mutableMapOf<Long, List<LatLng>>()
         val areaList = mutableListOf<JSONObject>()
 
@@ -416,7 +506,6 @@ class AccessLandRepository(
 
             if (coords.size < 3) continue
 
-            // Classify OSM polygon from tags; promotion to PUBLIC for forests is done via real polygon intersection with Naturstyrelsen WFS
             val (type, source) = AccessClassifier.classify(tags)
 
             result.add(
@@ -435,7 +524,19 @@ class AccessLandRepository(
         return result
     }
 
-    private fun modelToEntity(model: AccessPolygon): AccessPolygonEntity {
+    suspend fun getCachedAccessPolygonsInBbox(
+        minLat: Double,
+        maxLat: Double,
+        minLng: Double,
+        maxLng: Double
+    ): List<AccessPolygon> = withContext(Dispatchers.IO) {
+        dao.getAccessPolygonsInBoundingBox(minLat, maxLat, minLng, maxLng)
+            .filter { it.type != "EMPTY_TILE_SENTINEL" }
+            .distinctBy { it.id.substringAfter("__", it.id) }
+            .map { entityToModel(it) }
+    }
+
+    fun modelToEntity(model: AccessPolygon, tileId: String): AccessPolygonEntity {
         val coordsArr = JSONArray()
         for (c in model.coordinates) {
             val p = JSONArray()
@@ -447,8 +548,10 @@ class AccessLandRepository(
         val lats = model.coordinates.map { it.lat }
         val lngs = model.coordinates.map { it.lng }
 
+        val entityId = if (tileId.isNotBlank()) "${tileId}__${model.id}" else model.id
+
         return AccessPolygonEntity(
-            id = model.id,
+            id = entityId,
             name = model.name,
             type = model.type.name,
             coordinatesJson = coordsArr.toString(),
@@ -458,7 +561,8 @@ class AccessLandRepository(
             maxLng = lngs.maxOrNull() ?: 0.0,
             source = model.source,
             operatorOrOwner = model.operatorOrOwner,
-            fetchedAt = System.currentTimeMillis()
+            fetchedAt = System.currentTimeMillis(),
+            tileId = tileId
         )
     }
 
@@ -473,27 +577,15 @@ class AccessLandRepository(
         } catch (_: Exception) {}
 
         val type = runCatching { AccessLandType.valueOf(entity.type) }.getOrDefault(AccessLandType.UNCULTIVATED_LAND)
+        val rawId = entity.id.substringAfter("__", entity.id)
 
         return AccessPolygon(
-            id = entity.id,
+            id = rawId,
             name = entity.name,
             type = type,
             coordinates = pts,
             source = entity.source,
             operatorOrOwner = entity.operatorOrOwner
         )
-    }
-
-
-
-    private fun haversineM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val r = 6371000.0
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLon = Math.toRadians(lon2 - lon1)
-        val a = kotlin.math.sin(dLat / 2) * kotlin.math.sin(dLat / 2) +
-                kotlin.math.cos(Math.toRadians(lat1)) * kotlin.math.cos(Math.toRadians(lat2)) *
-                kotlin.math.sin(dLon / 2) * kotlin.math.sin(dLon / 2)
-        val c = 2 * kotlin.math.atan2(kotlin.math.sqrt(a), kotlin.math.sqrt(1 - a))
-        return r * c
     }
 }

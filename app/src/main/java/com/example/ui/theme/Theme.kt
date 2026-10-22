@@ -7,13 +7,18 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
+// Requirement A:
+// Light theme by default, real dark theme.
+// Primary forest green #2E6B3F, primary container #DCEFE0,
+// accent amber #F2A33A, error #C62828,
+// surfaces white (#FFFFFF) / #F6F7F5 in light and #121614 / #1B201D in dark.
 val LightColorScheme = lightColorScheme(
     primary = ForestGreenPrimary,
     onPrimary = Color.White,
     primaryContainer = ForestGreenContainerLight,
     onPrimaryContainer = ForestGreenOnContainerLight,
-    secondary = ForestGreenLight,
-    onSecondary = Color.White,
+    secondary = AccentAmber,
+    onSecondary = Color(0xFF121614),
     secondaryContainer = SurfaceVariantLight,
     onSecondaryContainer = TextPrimaryLight,
     tertiary = WaterBlue,
@@ -25,19 +30,19 @@ val LightColorScheme = lightColorScheme(
     surfaceVariant = SurfaceVariantLight,
     onSurfaceVariant = TextSecondaryLight,
     outline = BorderSubtleLight,
-    error = AlertRed,
+    error = ErrorRed,
     onError = Color.White,
     errorContainer = AlertRedContainer,
-    onErrorContainer = AlertRed
+    onErrorContainer = ErrorRed
 )
 
 val DarkColorScheme = darkColorScheme(
-    primary = ForestGreenDarkPrimary,
-    onPrimary = Color(0xFF062115),
+    primary = ForestGreenPrimary,
+    onPrimary = Color.White,
     primaryContainer = ForestGreenDarkContainer,
     onPrimaryContainer = ForestGreenOnDarkContainer,
-    secondary = ForestGreenDarkPrimary,
-    onSecondary = Color(0xFF062115),
+    secondary = AccentAmber,
+    onSecondary = Color(0xFF121614),
     secondaryContainer = SurfaceVariantDark,
     onSecondaryContainer = TextPrimaryDark,
     tertiary = WaterBlue,
@@ -49,10 +54,10 @@ val DarkColorScheme = darkColorScheme(
     surfaceVariant = SurfaceVariantDark,
     onSurfaceVariant = TextSecondaryDark,
     outline = BorderSubtleDark,
-    error = AlertRed,
+    error = ErrorRed,
     onError = Color.White,
-    errorContainer = AlertRedContainer,
-    onErrorContainer = Color.White
+    errorContainer = Color(0xFF491212),
+    onErrorContainer = Color(0xFFFFDAD6)
 )
 
 @Composable

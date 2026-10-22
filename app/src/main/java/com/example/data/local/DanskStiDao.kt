@@ -293,6 +293,12 @@ interface DanskStiDao {
     @Query("SELECT * FROM access_polygons WHERE minLat <= :maxLat AND maxLat >= :minLat AND minLng <= :maxLng AND maxLng >= :minLng")
     suspend fun getAccessPolygonsInBoundingBox(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double): List<com.example.data.model.AccessPolygonEntity>
 
+    @Query("SELECT * FROM access_polygons WHERE tileId = :tileId")
+    suspend fun getAccessPolygonsByTileId(tileId: String): List<com.example.data.model.AccessPolygonEntity>
+
+    @Query("DELETE FROM access_polygons WHERE tileId = :tileId")
+    suspend fun deleteAccessPolygonsByTileId(tileId: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAccessPolygons(polygons: List<com.example.data.model.AccessPolygonEntity>)
 
@@ -339,4 +345,40 @@ interface DanskStiDao {
 
     @Query("DELETE FROM marked_route_cache_boxes WHERE fetchedAt < :expiredTimestamp")
     suspend fun deleteExpiredMarkedRouteCacheBoxes(expiredTimestamp: Long)
+
+    // Water Features (Fix Round 3 Part 3 Requirement D: Vand overlay per 0.05x0.05 tile, 30 days cache)
+    @Query("SELECT * FROM water_features WHERE minLat <= :maxLat AND maxLat >= :minLat AND minLng <= :maxLng AND maxLng >= :minLng")
+    suspend fun getWaterFeaturesInBbox(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double): List<com.example.data.model.WaterFeatureEntity>
+
+    @Query("SELECT * FROM water_features WHERE tileId = :tileId")
+    suspend fun getWaterFeaturesByTileId(tileId: String): List<com.example.data.model.WaterFeatureEntity>
+
+    @Query("DELETE FROM water_features WHERE tileId = :tileId")
+    suspend fun deleteWaterFeaturesByTileId(tileId: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWaterFeatures(features: List<com.example.data.model.WaterFeatureEntity>)
+
+    @Query("SELECT * FROM water_tile_cache WHERE tileId = :tileId LIMIT 1")
+    suspend fun getWaterTileCache(tileId: String): com.example.data.model.WaterTileCacheEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWaterTileCache(tile: com.example.data.model.WaterTileCacheEntity)
+
+    @Query("DELETE FROM water_features WHERE fetchedAt < :expiredTimestamp")
+    suspend fun deleteExpiredWaterFeatures(expiredTimestamp: Long)
+
+    @Query("DELETE FROM water_tile_cache WHERE fetchedAt < :expiredTimestamp")
+    suspend fun deleteExpiredWaterTileCache(expiredTimestamp: Long)
+
+    @Query("SELECT * FROM recorded_day_stats ORDER BY lastTimestamp DESC")
+    fun getAllRecordedDayStats(): kotlinx.coroutines.flow.Flow<List<com.example.data.model.RecordedDayStatEntity>>
+
+    @Query("DELETE FROM recorded_day_stats WHERE planId = :planId AND dayNumber = :dayNumber")
+    suspend fun deleteRecordedDayStat(planId: Long, dayNumber: Int)
+
+    suspend fun insertOrUpdateRecordedDayStat(stat: com.example.data.model.RecordedDayStatEntity) = saveRecordedDayStat(stat)
+
+    suspend fun insertUserCustomWaypoint(waypoint: com.example.data.model.UserCustomWaypointEntity) = insertCustomWaypoint(waypoint)
 }
+

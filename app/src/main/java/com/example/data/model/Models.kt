@@ -280,7 +280,8 @@ data class TripPlanEntity(
     val createdAt: Long = System.currentTimeMillis(),
     val paceKmh: Double = 4.0,
     val maxDetourKm: Double = 1.5,
-    val startTime: String = "09:00"
+    val startTime: String = "09:00",
+    val customRouteId: Long? = null
 )
 
 @Entity(tableName = "trip_progress")
@@ -344,7 +345,10 @@ data class DownloadedTrailEntity(
     val corridorKm: Double = 1.0,
     val minZoom: Int = 8,
     val maxZoom: Int = 16
-)
+) {
+    val estimatedSizeMb: Double
+        get() = sizeBytes / (1024.0 * 1024.0)
+}
 
 @Entity(tableName = "saved_trails")
 data class SavedTrailEntity(
@@ -391,7 +395,10 @@ data class RecordedDayStatEntity(
     val ascentMeters: Int = 0,
     val pointCount: Int = 0,
     val lastTimestamp: Long = 0L
-)
+) {
+    val lastUpdatedMillis: Long
+        get() = lastTimestamp
+}
 
 // --- Phase 7b: Overnight spots near me (< 10 km) ---
 data class NearbyOvernightSpot(

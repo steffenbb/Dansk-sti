@@ -41,7 +41,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE)
 class RoutePhase12Test {
 
     private lateinit var app: Application
@@ -100,16 +100,13 @@ class RoutePhase12Test {
             source = "geofa"
         )
 
-        val corridorPois = listOf(waterPoi1, waterPoi2)
-        val allDbWaterPois = listOf(waterPoi1, waterPoi2, detourWater)
+        val corridorPois = listOf(waterPoi1, waterPoi2, detourWater)
 
         val warnings = RouteSmartTools.analyzeSupplyGaps(
             routePoints = routePoints,
             corridorPois = corridorPois,
             maxWaterGapKm = 12.0,
-            maxShopGapKm = 25.0,
-            allDbWaterPois = allDbWaterPois,
-            allDbShopPois = emptyList()
+            maxShopGapKm = 25.0
         )
 
         // There should be a water gap between km 5 and km 32
@@ -221,13 +218,14 @@ class RoutePhase12Test {
                 lon: Double,
                 current: String,
                 daily: String,
+                windSpeedUnit: String,
                 timezone: String
             ): OpenMeteoResponse {
                 return OpenMeteoResponse(
                     current = CurrentWeatherDto(
                         temperature = 14.5,
                         precipitation = 0.2,
-                        windSpeedKmh = 16.2, // ~4.5 m/s
+                        windSpeed = 4.5,
                         weatherCode = 1
                     ),
                     daily = DailyWeatherDto(
@@ -235,6 +233,13 @@ class RoutePhase12Test {
                         sunset = listOf("2026-10-18T17:00") // Sunset at 17:00
                     )
                 )
+            }
+
+            override suspend fun getElevations(
+                latitudes: String,
+                longitudes: String
+            ): com.example.data.remote.OpenMeteoElevationResponse {
+                return com.example.data.remote.OpenMeteoElevationResponse(elevation = listOf(20.0, 30.0))
             }
         }
 

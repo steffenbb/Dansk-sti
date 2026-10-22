@@ -3,12 +3,21 @@ package com.example.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.example.DanskStiApp
-import com.example.data.model.SavedTrailEntity
+import com.example.data.model.CustomRouteEntity
+import com.example.data.model.DownloadedTrailEntity
+import com.example.data.model.RecordedDayStatEntity
 import com.example.data.model.TrailEntity
-import com.example.data.model.TripGearItemEntity
 import com.example.data.model.TripPlanEntity
+import com.example.data.model.TripStageEntity
+import com.example.data.model.UserCustomWaypointEntity
 import com.example.data.repository.DanskStiRepository
+import com.example.service.BRouterSegmentDownloadWorker
+import com.example.util.GpxExporter
+import com.example.util.routing.BRouterSegments
+import com.example.util.routing.BRouterStorageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,175 +27,296 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
-data class SavedTrailItem(
-    val trail: TrailEntity,
-    val savedAt: Long
-)
+sealed class DeletedLibraryItem {
+    data class Plan(val plan: TripPlanEntity, val stages: List<TripStageEntity>) : DeletedLibraryItem()
+    data class CustomRoute(val route: CustomRouteEntity) : DeletedLibraryItem()
+    data class SavedTrail(val trailId: String) : DeletedLibraryItem()
+    data class Waypoint(val waypoint: UserCustomWaypointEntity) : DeletedLibraryItem()
+    data class Recording(val stat: RecordedDayStatEntity) : DeletedLibraryItem()
+    data class OfflineTrail(val item: DownloadedTrailEntity) : DeletedLibraryItem()
+}
 
 class SavedViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: DanskStiRepository = (application as DanskStiApp).repository
+    private val app = application as DanskStiApp
+    private val repository: DanskStiRepository = app.repository
+    private val dao = app.database.dao()
+    private val storageManager: BRouterStorageManager = BRouterStorageManager.getInstance(application)
+    private val workManager: WorkManager? = runCatching { WorkManager.getInstance(application) }.getOrNull()
 
+    // 1. Planer
     val savedPlans: StateFlow<List<TripPlanEntity>> = repository.getAllTripPlans()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _allTrails = repository.getAllTrails()
-    private val _savedTrailEntities = repository.getAllSavedTrails()
-
-    val savedTrails: StateFlow<List<SavedTrailItem>> = combine(_allTrails, _savedTrailEntities) { trails, saved ->
-        val trailMap = trails.associateBy { it.id }
-        saved.mapNotNull { s ->
-            trailMap[s.trailId]?.let { t -> SavedTrailItem(t, s.savedAt) }
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val customRoutes: StateFlow<List<com.example.data.model.CustomRouteEntity>> = repository.getAllCustomRoutes()
+    // 2. Ruter (Saved trails + Custom routes)
+    val savedTrails: StateFlow<List<TrailEntity>> = repository.getSavedTrails()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun deleteCustomRoute(id: Long) {
-        viewModelScope.launch {
-            repository.deleteCustomRoute(id)
-        }
-    }
+    val customRoutes: StateFlow<List<CustomRouteEntity>> = repository.getAllCustomRoutes()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun startNavigationForCustomRoute(routeId: Long, onReady: (Long) -> Unit) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val cr = repository.getCustomRoute(routeId) ?: return@withContext
-                val planId = repository.ensureTripPlanForCustomRoute(cr)
-                withContext(Dispatchers.Main) {
-                    onReady(planId)
-                }
-            }
-        }
-    }
+    // 3. Punkter
+    val customWaypoints: StateFlow<List<UserCustomWaypointEntity>> = dao.getAllCustomWaypoints()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun downloadCustomRouteOffline(route: com.example.data.model.CustomRouteEntity) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                com.example.util.OfflineDownloadManager.enqueueDownload(
-                    context = getApplication(),
-                    trailId = "route_${route.id}",
-                    trailName = route.name,
-                    corridorKm = 1.0
-                )
-            }
-        }
-    }
+    // 4. Optagelser
+    val recordedDays: StateFlow<List<RecordedDayStatEntity>> = dao.getAllRecordedDayStats()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun exportCustomRouteGpx(route: com.example.data.model.CustomRouteEntity) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val cr = repository.getCustomRoute(route.id) ?: return@withContext
-                val geom = repository.getTrailGeometry("route_${route.id}")
-                val points = geom?.segments?.flatMap { it.points } ?: emptyList()
-                val dummyTrail = TrailEntity(
-                    id = "route_${cr.id}",
-                    name = cr.name,
-                    description = "Brugerskabt rute (${String.format(java.util.Locale.US, "%.1f", cr.totalKm)} km)",
-                    region = "Danmark",
-                    parentRegion = "Danmark",
-                    computedWalkingKm = cr.totalKm
-                )
-                val gpxStr = com.example.util.GpxExporter.generateMultiSegmentGpx(
-                    trail = dummyTrail,
-                    plan = null,
-                    stages = emptyList(),
-                    trailPoints = points
-                )
-                com.example.util.GpxExporter.exportAndShareGpxFile(
-                    context = getApplication(),
-                    fileName = "${cr.name.replace(" ", "_")}.gpx",
-                    gpxContent = gpxStr,
-                    shareTitle = "Del rute: ${cr.name}"
-                )
-            }
-        }
-    }
+    // 5. Offline
+    val downloadedTrails: StateFlow<List<DownloadedTrailEntity>> = repository.getAllDownloadedTrails()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _selectedPlanForGear = MutableStateFlow<TripPlanEntity?>(null)
-    val selectedPlanForGear: StateFlow<TripPlanEntity?> = _selectedPlanForGear.asStateFlow()
+    private val _brouterWifiOnly = MutableStateFlow(storageManager.isWifiOnlyDefault())
+    private val _brouterDiskStateTrigger = MutableStateFlow(System.currentTimeMillis())
 
-    private val _gearItems = MutableStateFlow<List<TripGearItemEntity>>(emptyList())
-    val gearItems: StateFlow<List<TripGearItemEntity>> = _gearItems.asStateFlow()
+    val brouterState: StateFlow<BRouterDataState> = combine(
+        workManager?.getWorkInfosForUniqueWorkFlow(BRouterSegmentDownloadWorker.UNIQUE_WORK_NAME)
+            ?: MutableStateFlow(emptyList()),
+        _brouterWifiOnly,
+        _brouterDiskStateTrigger
+    ) { workInfos, wifiOnly, _ ->
+        val latestWork = workInfos.firstOrNull()
+        val isWorkRunning = latestWork != null && latestWork.state == WorkInfo.State.RUNNING
 
-    private var recentlyDeletedPlan: TripPlanEntity? = null
+        val progressPct = if (isWorkRunning) {
+            latestWork.progress.getInt(BRouterSegmentDownloadWorker.KEY_PROGRESS_PERCENT, 0)
+        } else 0
 
-    fun selectPlanForGear(plan: TripPlanEntity?) {
-        _selectedPlanForGear.value = plan
-        if (plan != null) {
-            viewModelScope.launch {
-                repository.getGearItemsForPlan(plan.id).collect { items ->
-                    _gearItems.value = items
-                }
-            }
+        val currentSeg = if (isWorkRunning) {
+            latestWork.progress.getString(BRouterSegmentDownloadWorker.KEY_CURRENT_SEGMENT).orEmpty()
+        } else ""
+
+        val downloadedBytes = if (isWorkRunning) {
+            latestWork.progress.getLong(BRouterSegmentDownloadWorker.KEY_BYTES_DOWNLOADED, 0L)
         } else {
-            _gearItems.value = emptyList()
+            storageManager.getDownloadedSizeBytes()
+        }
+
+        BRouterDataState(
+            segments = BRouterSegments.DENMARK_SEGMENTS,
+            downloadedSegments = storageManager.getDownloadedSegments(),
+            isAllDownloaded = storageManager.areAllDenmarkSegmentsDownloaded(),
+            isDownloading = isWorkRunning,
+            progressPercent = progressPct,
+            currentSegmentName = currentSeg,
+            totalDownloadedBytes = downloadedBytes,
+            totalBytes = BRouterSegments.TOTAL_SIZE_BYTES,
+            lastUpdatedDate = storageManager.getFormattedLastUpdatedDate(),
+            wifiOnly = wifiOnly
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        BRouterDataState(
+            segments = BRouterSegments.DENMARK_SEGMENTS,
+            downloadedSegments = storageManager.getDownloadedSegments(),
+            isAllDownloaded = storageManager.areAllDenmarkSegmentsDownloaded(),
+            totalDownloadedBytes = storageManager.getDownloadedSizeBytes(),
+            lastUpdatedDate = storageManager.getFormattedLastUpdatedDate(),
+            wifiOnly = storageManager.isWifiOnlyDefault()
+        )
+    )
+
+    private val _isDownloading = MutableStateFlow(false)
+    val isDownloading: StateFlow<Boolean> = _isDownloading.asStateFlow()
+
+    private val _downloadProgressText = MutableStateFlow("")
+    val downloadProgressText: StateFlow<String> = _downloadProgressText.asStateFlow()
+
+    private val _lastDeletedItem = MutableStateFlow<DeletedLibraryItem?>(null)
+    val lastDeletedItem: StateFlow<DeletedLibraryItem?> = _lastDeletedItem.asStateFlow()
+
+    fun refreshBRouterState() {
+        _brouterDiskStateTrigger.value = System.currentTimeMillis()
+    }
+
+    fun setBRouterWifiOnly(enabled: Boolean) {
+        _brouterWifiOnly.value = enabled
+        storageManager.setWifiOnlyDefault(enabled)
+    }
+
+    fun downloadBRouterData() {
+        BRouterSegmentDownloadWorker.enqueue(getApplication(), wifiOnly = _brouterWifiOnly.value, replace = true)
+        _brouterDiskStateTrigger.value = System.currentTimeMillis()
+    }
+
+    fun updateBRouterData() {
+        downloadBRouterData()
+    }
+
+    fun cancelBRouterDownload() {
+        BRouterSegmentDownloadWorker.cancel(getApplication())
+        _brouterDiskStateTrigger.value = System.currentTimeMillis()
+    }
+
+    fun deleteCustomRoute(routeId: Long) {
+        viewModelScope.launch {
+            repository.deleteCustomRoute(routeId)
         }
     }
 
-    fun toggleGearItem(item: TripGearItemEntity) {
-        viewModelScope.launch {
-            repository.updateGearItem(item.copy(isPacked = !item.isPacked))
+    fun deleteCustomRouteWithUndo(route: CustomRouteEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _lastDeletedItem.value = DeletedLibraryItem.CustomRoute(route)
+            repository.deleteCustomRoute(route.id)
         }
     }
 
-    fun removeSavedTrail(trailId: String) {
+    fun deletePlan(planId: Long) {
         viewModelScope.launch {
-            repository.toggleSaveTrail(trailId)
+            repository.deleteTripPlan(planId)
         }
     }
 
-    fun deletePlan(planId: Long, onUndoAvailable: (TripPlanEntity) -> Unit) {
+    fun deletePlanWithUndo(plan: TripPlanEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val stages = repository.getStagesForPlan(plan.id).map { it.toEntity(plan.id) }
+            _lastDeletedItem.value = DeletedLibraryItem.Plan(plan, stages)
+            repository.deleteTripPlan(plan.id)
+        }
+    }
+
+    fun unsaveTrail(trailId: String) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val plan = repository.getTripPlanById(planId)
-                if (plan != null) {
-                    recentlyDeletedPlan = plan
-                    repository.deleteTripPlan(planId)
-                    withContext(Dispatchers.Main) {
-                        onUndoAvailable(plan)
+            repository.unsaveTrail(trailId)
+        }
+    }
+
+    fun unsaveTrailWithUndo(trailId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _lastDeletedItem.value = DeletedLibraryItem.SavedTrail(trailId)
+            repository.unsaveTrail(trailId)
+        }
+    }
+
+    fun deleteWaypointWithUndo(waypoint: UserCustomWaypointEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _lastDeletedItem.value = DeletedLibraryItem.Waypoint(waypoint)
+            dao.deleteCustomWaypointById(waypoint.id)
+        }
+    }
+
+    fun deleteRecordingWithUndo(stat: RecordedDayStatEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _lastDeletedItem.value = DeletedLibraryItem.Recording(stat)
+            dao.deleteRecordedDayStat(stat.planId, stat.dayNumber)
+        }
+    }
+
+    fun deleteDownloadedTrail(trailId: String) {
+        viewModelScope.launch {
+            repository.deleteDownloadedTrail(trailId)
+        }
+    }
+
+    fun deleteDownloadedTrailWithUndo(item: DownloadedTrailEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _lastDeletedItem.value = DeletedLibraryItem.OfflineTrail(item)
+            repository.deleteDownloadedTrail(item.trailId)
+        }
+    }
+
+    fun undoLastDelete() {
+        val item = _lastDeletedItem.value ?: return
+        _lastDeletedItem.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            when (item) {
+                is DeletedLibraryItem.Plan -> {
+                    val newId = dao.insertTripPlan(item.plan)
+                    if (item.stages.isNotEmpty()) {
+                        dao.insertTripStages(item.stages.map { it.copy(planId = newId) })
                     }
                 }
-            }
-        }
-    }
-
-    fun undoDeletePlan(plan: TripPlanEntity) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val trail = repository.getTrailById(plan.trailId)
-                if (trail != null) {
-                    repository.saveTripPlan(
-                        trail = trail,
-                        startKm = plan.startKm,
-                        endKm = plan.endKm,
-                        isReverse = plan.isReverse,
-                        days = plan.targetDays,
-                        overnightType = com.example.data.model.OvernightType.valueOf(plan.overnightType),
-                        preferredDailyKm = plan.preferredDailyKm,
-                        stages = emptyList(),
-                        paceKmh = plan.paceKmh,
-                        maxDetourKm = plan.maxDetourKm,
-                        startTime = plan.startTime
-                    )
+                is DeletedLibraryItem.CustomRoute -> {
+                    dao.insertCustomRoute(item.route)
+                }
+                is DeletedLibraryItem.SavedTrail -> {
+                    repository.saveTrail(item.trailId)
+                }
+                is DeletedLibraryItem.Waypoint -> {
+                    dao.insertCustomWaypoint(item.waypoint)
+                }
+                is DeletedLibraryItem.Recording -> {
+                    dao.saveRecordedDayStat(item.stat)
+                }
+                is DeletedLibraryItem.OfflineTrail -> {
+                    dao.insertDownloadedTrail(item.item)
                 }
             }
         }
     }
 
-    // Phase 7d: Share trip plan as text (stages, nights, dates/tempo)
+    fun downloadTrailOffline(trailId: String) {
+        viewModelScope.launch {
+            _isDownloading.value = true
+            _downloadProgressText.value = "Forbereder offline pakke..."
+            withContext(Dispatchers.IO) {
+                repository.downloadTrailOffline(trailId) { progressText ->
+                    _downloadProgressText.value = progressText
+                }
+            }
+            _isDownloading.value = false
+            _downloadProgressText.value = ""
+        }
+    }
+
+    fun clearMapAndRouteCache(onComplete: () -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val expiredFuture = System.currentTimeMillis() + 1000L
+                dao.deleteExpiredMarkedRoutes(expiredFuture)
+                dao.deleteExpiredMarkedRouteCacheBoxes(expiredFuture)
+                dao.deleteExpiredWaterFeatures(expiredFuture)
+                dao.deleteExpiredWaterTileCache(expiredFuture)
+                val osmdroidCache = File(app.cacheDir, "osmdroid")
+                if (osmdroidCache.exists()) {
+                    osmdroidCache.deleteRecursively()
+                }
+            } catch (_: Exception) {
+            }
+            withContext(Dispatchers.Main) {
+                onComplete()
+            }
+        }
+    }
+
+    fun exportTripPlanGpx(context: android.content.Context, plan: TripPlanEntity) {
+        viewModelScope.launch {
+            val trail = repository.getTrailById(plan.trailId) ?: return@launch
+            val stages = repository.getStagesForPlan(plan.id)
+            val points = repository.getTrailPoints(trail).flatMap { it.points }
+            val shelters = repository.getSheltersForTrail(trail.id)
+
+            val gpxContent = GpxExporter.generateMultiSegmentGpx(
+                trail = trail,
+                plan = plan,
+                stages = stages,
+                trailPoints = points,
+                shelters = shelters
+            )
+            val safeName = plan.trailName.replace(" ", "_")
+            GpxExporter.exportAndShareGpxFile(
+                context = context,
+                fileName = "${safeName}_${plan.targetDays}dage.gpx",
+                gpxContent = gpxContent,
+                shareTitle = "Eksporter turplan (${plan.trailName}) som GPX"
+            )
+        }
+    }
+
     fun shareTripPlan(context: android.content.Context, plan: TripPlanEntity) {
         viewModelScope.launch {
             val stages = repository.getStagesForPlan(plan.id)
             val totalKm = plan.totalDistanceKm
             val days = plan.targetDays
             val sb = StringBuilder()
-            sb.append("🥾 Min vandretur: ${plan.trailName}\n")
+            sb.append("Min vandretur: ${plan.trailName}\n")
             sb.append("Samlet distance: ${String.format(java.util.Locale.US, "%.1f", totalKm)} km over $days ${if (days == 1) "dag" else "dage"}\n")
             sb.append("Planlagt tempo: ${String.format(java.util.Locale.US, "%.1f", plan.paceKmh)} km/t\n\n")
-            sb.append("📍 Dags-etaper & overnatning:\n")
+            sb.append("Dags-etaper & overnatning:\n")
             if (stages.isNotEmpty()) {
                 stages.forEach { stage ->
                     val bookStr = if (stage.bookingRequired) " (Kræver booking)" else ""

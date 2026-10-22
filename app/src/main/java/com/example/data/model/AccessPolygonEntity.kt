@@ -1,17 +1,20 @@
 package com.example.data.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Room entity for caching access polygons with spatial bounding box coordinates.
+ * Room entity for caching access polygons per 0.1 x 0.1 degree tile (`tileId`)
+ * with spatial bounding box coordinates.
  */
 @Entity(
     tableName = "access_polygons",
     indices = [
         Index(value = ["minLat", "maxLat", "minLng", "maxLng"]),
-        Index(value = ["type"])
+        Index(value = ["type"]),
+        Index(value = ["tileId"])
     ]
 )
 data class AccessPolygonEntity(
@@ -26,5 +29,7 @@ data class AccessPolygonEntity(
     val maxLng: Double,
     val source: String,
     val operatorOrOwner: String?,
-    val fetchedAt: Long
+    val fetchedAt: Long,
+    @ColumnInfo(defaultValue = "")
+    val tileId: String = ""
 )

@@ -60,6 +60,10 @@ object MapIconUtils {
         return getCachedBitmapDrawable(context, R.drawable.ic_poi_crosshair, 40, 40)
     }
 
+    fun getCustomWaypointPinIcon(context: Context): Drawable {
+        return getClusterPoiIcon(context, "my_point", isSelected = false)
+    }
+
     fun getNightCampIcon(context: Context): Drawable {
         return iconCache.getOrPut(-999) {
             val density = context.resources.displayMetrics.density
@@ -105,8 +109,9 @@ object MapIconUtils {
             "tent", "fri_teltning" -> "tent"
             "water", "drinking_water", "vand" -> "water"
             "toilet", "toilets" -> "toilet"
-            "shop", "supermarket", "convenience", "indkøb", "resupply" -> "shop"
-            "transit", "bus_stop", "station" -> "transit"
+            "shop", "supermarket", "convenience", "bakery", "indkøb", "resupply" -> "shop"
+            "transit", "bus_stop", "station", "ferry" -> "transit"
+            "my_point", "custom", "waypoint", "mine_punkter" -> "my_point"
             else -> type.lowercase()
         }
 
@@ -142,6 +147,7 @@ object MapIconUtils {
                 "toilet" -> android.graphics.Color.parseColor("#0D9488") to R.drawable.ic_poi_toilet
                 "shop" -> android.graphics.Color.parseColor("#EA580C") to R.drawable.ic_poi_resupply
                 "transit" -> android.graphics.Color.parseColor("#4F46E5") to R.drawable.ic_poi_transit
+                "my_point" -> android.graphics.Color.parseColor("#7B1FA2") to R.drawable.ic_poi_crosshair
                 else -> android.graphics.Color.parseColor("#4B5563") to R.drawable.ic_poi_hazard
             }
 

@@ -77,6 +77,11 @@ class BRouterSegmentDownloadWorker(
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
+        .apply {
+            if (com.example.BuildConfig.DEBUG) {
+                addInterceptor(com.example.util.network.MainThreadNetworkInterceptor())
+            }
+        }
         .build()
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {

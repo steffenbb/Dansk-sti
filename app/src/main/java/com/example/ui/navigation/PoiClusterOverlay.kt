@@ -12,7 +12,7 @@ import kotlin.math.sqrt
 
 data class MapPoiItem(
     val id: String,
-    val type: String, // "shelter", "tent", "water", "toilet", "shop", "transit"
+    val type: String, // "shelter", "tent", "water", "toilet", "shop", "transit", "my_point"
     val name: String,
     val subText: String = "",
     val lat: Double,
@@ -20,19 +20,32 @@ data class MapPoiItem(
     val payload: Any? = null
 )
 
+typealias PoiItem = MapPoiItem
+
 /**
- * Unified Clustered Layer for Dansk Sti (Requirement B).
- * - Shelters, fri teltning, water, toilets, shops, and transit in one clustered layer.
- * - Below zoom 12: groups markers into a 60 dp grid and draws circle with count; tap zooms in.
- * - At zoom 12+: shows individual icons (32 dp, white circle background, type-specific color).
+ * Unified Clustered Layer for Dansk Sti (Requirement A):
+ * - Shelters, fri teltning, water, toilets, shops, transit, and my points in one clustered layer.
+ * - Below zoom 13 (CLUSTER_BELOW_ZOOM = 13.0): groups markers into a 60 dp grid and draws circle with count; tap zooms in.
+ * - At zoom 13+: shows individual icons (32 dp, white circle background, type-specific color).
  * - Selected marker grows to 40 dp.
  */
 class PoiClusterOverlay(
     private val context: Context,
     private var poiItems: List<MapPoiItem> = emptyList(),
     var selectedPoiId: String? = null,
-    var onPoiClicked: ((MapPoiItem) -> Unit)? = null
+    var onPoiClicked: ((MapPoiItem) -> Unit)? = null,
+    onSinglePoiTap: ((MapPoiItem) -> Unit)? = null
 ) : Overlay() {
+
+    init {
+        if (onSinglePoiTap != null && onPoiClicked == null) {
+            onPoiClicked = onSinglePoiTap
+        }
+    }
+
+    companion object {
+        const val CLUSTER_BELOW_ZOOM = 13.0
+    }
 
     private data class ClusterBucket(
         val items: MutableList<MapPoiItem> = mutableListOf(),
@@ -48,27 +61,44 @@ class PoiClusterOverlay(
     private val activeClusters = mutableListOf<ClusterBucket>()
     private val activeSingleItems = mutableListOf<Pair<MapPoiItem, Point>>()
     private val tempPoint = Point()
+    private var lastSignature: Int = 0
 
-    fun setItems(newItems: List<MapPoiItem>, newSelectedId: String? = selectedPoiId) {
-        poiItems = newItems
-        selectedPoiId = newSelectedId
+    fun getItems(): List<MapPoiItem> = poiItems
+
+    fun getItemCount(): Int = poiItems.size
+
+    fun setItems(newItems: List<MapPoiItem>, newSelectedId: String? = selectedPoiId): Boolean {
+        val sig = 31 * newItems.hashCode() + (newSelectedId?.hashCode() ?: 0)
+        if (sig == lastSignature && newItems.size == poiItems.size && newSelectedId == selectedPoiId) {
+            return false
+        }
+        synchronized(this) {
+            lastSignature = sig
+            poiItems = newItems
+            selectedPoiId = newSelectedId
+        }
+        return true
     }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
-        if (shadow) return
+        if (shadow || !isEnabled) return
 
         val zoom = mapView.zoomLevelDouble
         val projection = mapView.projection ?: return
         val density = context.resources.displayMetrics.density
-        val screenWidth = mapView.width
-        val screenHeight = mapView.height
+        val clip = canvas.clipBounds
+        val hasClip = clip.width() > 0 && clip.height() > 0
+        val minScreenX = if (hasClip) clip.left.toFloat() else 0f
+        val maxScreenX = if (hasClip) clip.right.toFloat() else mapView.width.toFloat().coerceAtLeast(1080f)
+        val minScreenY = if (hasClip) clip.top.toFloat() else 0f
+        val maxScreenY = if (hasClip) clip.bottom.toFloat() else mapView.height.toFloat().coerceAtLeast(1920f)
 
         synchronized(this) {
             activeClusters.clear()
             activeSingleItems.clear()
 
-            if (zoom < 12.0) {
-                // Below zoom 12: Group into a ~60 dp grid
+            if (zoom < CLUSTER_BELOW_ZOOM) {
+                // Below zoom 13: Group into a ~60 dp grid
                 val gridSizePx = 60f * density
                 val gridBuckets = mutableMapOf<Long, ClusterBucket>()
 
@@ -79,14 +109,14 @@ class PoiClusterOverlay(
                     val py = tempPoint.y.toFloat()
 
                     // Quick viewport culling with padding
-                    if (px < -gridSizePx || px > screenWidth + gridSizePx ||
-                        py < -gridSizePx || py > screenHeight + gridSizePx
+                    if (px < minScreenX - gridSizePx || px > maxScreenX + gridSizePx ||
+                        py < minScreenY - gridSizePx || py > maxScreenY + gridSizePx
                     ) {
                         continue
                     }
 
-                    val cellX = (px / gridSizePx).toInt()
-                    val cellY = (py / gridSizePx).toInt()
+                    val cellX = kotlin.math.floor((px - minScreenX) / gridSizePx).toInt()
+                    val cellY = kotlin.math.floor((py - minScreenY) / gridSizePx).toInt()
                     val cellKey = ((cellX.toLong() and 0xFFFFFFFFL) shl 32) or (cellY.toLong() and 0xFFFFFFFFL)
 
                     val bucket = gridBuckets.getOrPut(cellKey) { ClusterBucket() }
@@ -129,7 +159,7 @@ class PoiClusterOverlay(
                     }
                 }
             } else {
-                // At zoom 12+: Show individual icons (32 dp, selected 40 dp)
+                // At zoom 13+: Show individual icons (32 dp, selected 40 dp)
                 for (poi in poiItems) {
                     val geoPoint = GeoPoint(poi.lat, poi.lng)
                     projection.toPixels(geoPoint, tempPoint)
@@ -141,8 +171,8 @@ class PoiClusterOverlay(
                     val halfW = icon.intrinsicWidth / 2
                     val halfH = icon.intrinsicHeight / 2
 
-                    if (px < -halfW || px > screenWidth + halfW ||
-                        py < -halfH || py > screenHeight + halfH
+                    if (px < minScreenX - halfW || px > maxScreenX + halfW ||
+                        py < minScreenY - halfH || py > maxScreenY + halfH
                     ) {
                         continue
                     }
@@ -159,13 +189,14 @@ class PoiClusterOverlay(
     }
 
     override fun onSingleTapConfirmed(e: MotionEvent, mapView: MapView): Boolean {
+        if (!isEnabled) return false
         val tapX = e.x
         val tapY = e.y
         val zoom = mapView.zoomLevelDouble
         val density = context.resources.displayMetrics.density
 
         synchronized(this) {
-            if (zoom < 12.0) {
+            if (zoom < CLUSTER_BELOW_ZOOM) {
                 // 1. Check if user tapped a cluster circle
                 for (cluster in activeClusters) {
                     val dx = tapX - cluster.screenX
@@ -195,7 +226,7 @@ class PoiClusterOverlay(
                     }
                 }
             } else {
-                // Zoom 12+: Check if user tapped an individual icon
+                // Zoom 13+: Check if user tapped an individual icon
                 val touchRadius = 24f * density
                 var closestItem: MapPoiItem? = null
                 var closestDist = Double.MAX_VALUE

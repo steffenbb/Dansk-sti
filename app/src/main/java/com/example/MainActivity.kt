@@ -1,33 +1,38 @@
 package com.example
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -36,60 +41,71 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.service.NavigationTrackingService
+import com.example.ui.navigation.ActiveTripBannerState
 import com.example.ui.navigation.DanskStiBottomBar
 import com.example.ui.navigation.Screen
+import com.example.ui.screens.ApiDiagnosticsScreen
+import com.example.ui.screens.DataCreditsScreen
 import com.example.ui.screens.FullscreenMapScreen
-import com.example.ui.screens.LocationPermissionsDialog
+import com.example.ui.screens.KortScreen
 import com.example.ui.screens.NavigationScreen
 import com.example.ui.screens.OfflineTrailsScreen
+import com.example.ui.screens.ProfileScreen
+import com.example.ui.screens.RouteBuilderScreen
 import com.example.ui.screens.SavedPlansScreen
 import com.example.ui.screens.TrailBrowserScreen
 import com.example.ui.screens.TrailDetailScreen
-import com.example.ui.screens.TripPlannerScreen
 import com.example.ui.theme.DanskStiTheme
-import com.example.ui.viewmodel.ExploreViewModel
 import com.example.ui.viewmodel.NavigationViewModel
-import com.example.ui.viewmodel.OfflineViewModel
-import com.example.ui.viewmodel.SavedViewModel
-import com.example.ui.viewmodel.TrailViewModel
-import kotlinx.coroutines.launch
+import com.example.ui.viewmodel.RouteBuilderViewModel
+import java.net.URLDecoder
 
 class MainActivity : ComponentActivity() {
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
+        val app = application as DanskStiApp
         setContent {
+            val dbError by app.databaseError.collectAsState()
             DanskStiTheme {
-                var showPermissionDialog by remember { mutableStateOf(false) }
-
-                LaunchedEffect(Unit) {
-                    val fineLocationGranted = ContextCompat.checkSelfPermission(
-                        this@MainActivity,
-                        Manifest.permission.ACCESS_FINE_LOCATION
-                    ) == PackageManager.PERMISSION_GRANTED
-
-                    if (!fineLocationGranted) {
-                        showPermissionDialog = true
-                    }
-                }
-
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        DanskStiAppNav()
-
-                        if (showPermissionDialog) {
-                            LocationPermissionsDialog(
-                                onDismiss = { showPermissionDialog = false },
-                                onPermissionsGranted = {
-                                    showPermissionDialog = false
-                                }
+                    if (dbError != null) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp)
+                                .testTag("database_error_screen"),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Databasen kunne ikke åbnes",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
                             )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = dbError ?: "Ukendt databasefejl",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.testTag("database_error_text")
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Button(
+                                onClick = { app.retryDatabaseInit() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("btn_database_retry")
+                            ) {
+                                Text(stringResource(R.string.btn_retry))
+                            }
                         }
+                    } else {
+                        DanskStiAppRoot()
                     }
                 }
             }
@@ -98,54 +114,55 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun DanskStiAppNav(
-    modifier: Modifier = Modifier
-) {
+fun DanskStiAppRoot() {
+    val context = LocalContext.current
+    val app = context.applicationContext as DanskStiApp
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-
     val liveState by NavigationTrackingService.liveState.collectAsState()
-    val isTripActive = liveState.isTracking
-
     val snackbarHostState = remember { SnackbarHostState() }
-    val coroutineScope = rememberCoroutineScope()
 
-    val showSnackbar: (String, String?, () -> Unit) -> Unit = { message, actionLabel, onAction ->
-        coroutineScope.launch {
-            val result = snackbarHostState.showSnackbar(
-                message = message,
-                actionLabel = actionLabel,
-                duration = SnackbarDuration.Short
-            )
-            if (result == SnackbarResult.ActionPerformed) {
-                onAction()
+    val activeTripBannerState = remember(liveState) {
+        if (liveState.isTracking) {
+            val stopName = liveState.currentStage?.stopName
+            val dest = if (!stopName.isNullOrBlank()) {
+                stopName
+            } else {
+                liveState.trailName.ifBlank { "dagens mål" }
             }
+            ActiveTripBannerState(
+                isActive = true,
+                currentDay = liveState.currentDay.coerceAtLeast(1),
+                remainingKm = liveState.distanceRemainingTodayKm.coerceAtLeast(0.0),
+                destinationName = dest,
+                planId = liveState.planId.takeIf { it > 0L }
+            )
+        } else {
+            ActiveTripBannerState(isActive = false)
         }
     }
 
-    // Hide the bottom navigation bar during full-screen navigation and fullscreen map
-    val showBottomBar = currentRoute in listOf(
-        Screen.Explore.route,
-        Screen.Saved.route,
-        Screen.Offline.route
-    )
+    // Show the 4-tab bottom bar on the 4 main tabs (Requirement B)
+    val showBottomBar = currentRoute == Screen.Explore.route ||
+        currentRoute == Screen.Map.route ||
+        currentRoute == Screen.Saved.route ||
+        currentRoute == Screen.Profile.route
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
-        snackbarHost = {
-            SnackbarHost(hostState = snackbarHostState)
-        },
+        contentWindowInsets = WindowInsets.safeDrawing,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
             if (showBottomBar) {
                 DanskStiBottomBar(
                     currentRoute = currentRoute,
-                    isTripActive = isTripActive,
-                    onNavigate = { targetRoute ->
-                        navController.navigate(targetRoute) {
-                            popUpTo(navController.graph.startDestinationId) {
-                                saveState = true
-                            }
+                    activeTripState = activeTripBannerState,
+                    onContinueActiveTrip = {
+                        navController.navigate(Screen.Navigation.createRoute(activeTripBannerState.planId))
+                    },
+                    onNavigate = { route ->
+                        navController.navigate(route) {
+                            popUpTo(Screen.Explore.route) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
                         }
@@ -159,13 +176,11 @@ fun DanskStiAppNav(
             startDestination = Screen.Explore.route,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = innerPadding.calculateBottomPadding())
+                .padding(innerPadding)
         ) {
-            // 1. Udforsk (Home)
+            // Tab 1: Udforsk (Requirement C)
             composable(Screen.Explore.route) {
-                val exploreViewModel: ExploreViewModel = viewModel()
                 TrailBrowserScreen(
-                    viewModel = exploreViewModel,
                     onTrailClick = { trailId ->
                         navController.navigate(Screen.TrailDetail.createRoute(trailId))
                     },
@@ -187,28 +202,85 @@ fun DanskStiAppNav(
                 )
             }
 
-            // 2. Gemte (Saved trails, trips & gear checklist in Room)
-            composable(Screen.Saved.route) {
-                val savedViewModel: SavedViewModel = viewModel()
-                SavedPlansScreen(
-                    viewModel = savedViewModel,
+            // Tab 2: Kort (Requirement E)
+            composable(Screen.Map.route) {
+                KortScreen(
                     onTrailClick = { trailId ->
                         navController.navigate(Screen.TrailDetail.createRoute(trailId))
                     },
-                    onResumeTrip = { planId ->
-                        navController.navigate(Screen.Navigation.createRoute(planId))
+                    onOpenPlanner = { destLat, destLng, destName ->
+                        navController.navigate(
+                            Screen.RouteBuilder.createRoute(
+                                destLat = destLat,
+                                destLng = destLng,
+                                destName = destName
+                            )
+                        )
                     },
-                    onEditCustomRoute = { customRouteId ->
-                        navController.navigate(Screen.RouteBuilder.createRoute(routeId = customRouteId))
-                    },
-                    onNewCustomRoute = {
-                        navController.navigate(Screen.RouteBuilder.createRoute())
-                    },
-                    onShowSnackbar = showSnackbar
+                    onOpenOfflineMaps = {
+                        navController.navigate(Screen.Offline.route)
+                    }
                 )
             }
 
-            // 3. Navigér (Navigation Screen)
+            // Tab 3: Mine ture (Requirement H)
+            composable(Screen.Saved.route) {
+                SavedPlansScreen(
+                    onTrailClick = { trailId ->
+                        navController.navigate(Screen.TrailDetail.createRoute(trailId))
+                    },
+                    onStartNavigation = { planId ->
+                        navController.navigate(Screen.Navigation.createRoute(planId))
+                    },
+                    onCreateNewCustomRoute = {
+                        navController.navigate(Screen.RouteBuilder.createRoute())
+                    },
+                    onEditCustomRoute = { routeId ->
+                        navController.navigate(Screen.RouteBuilder.createRoute(routeId = routeId))
+                    },
+                    onEditPlan = { plan ->
+                        navController.navigate(Screen.RouteBuilder.createRoute(planId = plan.id))
+                    },
+                    onOpenPointOnMap = { _, _, _ ->
+                        navController.navigate(Screen.Map.route) {
+                            popUpTo(Screen.Explore.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    onExploreTrails = {
+                        navController.navigate(Screen.Explore.route) {
+                            popUpTo(Screen.Explore.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    onOpenMap = {
+                        navController.navigate(Screen.Map.route) {
+                            popUpTo(Screen.Explore.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+            }
+
+            // Tab 4: Profil (Requirement I)
+            composable(Screen.Profile.route) {
+                ProfileScreen(
+                    onOpenCredits = {
+                        navController.navigate(Screen.DataCredits.route)
+                    },
+                    onOpenDiagnostics = {
+                        navController.navigate(Screen.Diagnostics.route)
+                    },
+                    onOpenOfflineMaps = {
+                        navController.navigate(Screen.Offline.route)
+                    }
+                )
+            }
+
+            // Secondary Destination: Navigation (Requirement G)
             composable(
                 route = Screen.Navigation.route,
                 arguments = listOf(
@@ -219,27 +291,20 @@ fun DanskStiAppNav(
                 )
             ) { backStackEntry ->
                 val planIdArg = backStackEntry.arguments?.getLong("planId") ?: -1L
-                val planId = if (planIdArg > 0L) planIdArg else null
-                val navViewModel: NavigationViewModel = viewModel()
-                LaunchedEffect(planId) {
-                    navViewModel.initPlan(planId)
+                val navVm: NavigationViewModel = viewModel()
+                LaunchedEffect(planIdArg) {
+                    navVm.initPlan(if (planIdArg > 0L) planIdArg else null)
                 }
                 NavigationScreen(
-                    viewModel = navViewModel,
-                    onBack = {
-                        navController.popBackStack()
-                    }
+                    viewModel = navVm,
+                    onBack = { navController.popBackStack() }
                 )
             }
 
-            // 4. Offline (Offline downloaded trails & maps)
+            // Secondary Destination: Offline-kort
             composable(Screen.Offline.route) {
-                val offlineViewModel: OfflineViewModel = viewModel()
                 OfflineTrailsScreen(
-                    viewModel = offlineViewModel,
-                    onBack = {
-                        navController.popBackStack()
-                    },
+                    onBack = { navController.popBackStack() },
                     onTrailClick = { trailId ->
                         navController.navigate(Screen.TrailDetail.createRoute(trailId))
                     },
@@ -249,21 +314,17 @@ fun DanskStiAppNav(
                 )
             }
 
-            // 5. Trail Detail Page
+            // Secondary Destination: Trail Page (Requirement D)
             composable(
                 route = Screen.TrailDetail.route,
                 arguments = listOf(navArgument("trailId") { type = NavType.StringType })
             ) { backStackEntry ->
-                val trailId = backStackEntry.arguments?.getString("trailId") ?: ""
-                val trailViewModel: TrailViewModel = viewModel()
+                val trailId = backStackEntry.arguments?.getString("trailId").orEmpty()
                 TrailDetailScreen(
                     trailId = trailId,
-                    viewModel = trailViewModel,
-                    onBack = {
-                        navController.popBackStack()
-                    },
+                    onBack = { navController.popBackStack() },
                     onPlanTrip = { tid ->
-                        navController.navigate(Screen.TripPlanner.createRoute(tid))
+                        navController.navigate(Screen.RouteBuilder.createRoute(baseTrailId = tid))
                     },
                     onStartNavigation = { planId ->
                         navController.navigate(Screen.Navigation.createRoute(planId))
@@ -271,7 +332,7 @@ fun DanskStiAppNav(
                     onOpenFullscreenMap = { tid ->
                         navController.navigate(Screen.FullscreenMap.createRoute(tid))
                     },
-                    onDownloadOffline = { tid ->
+                    onDownloadOffline = {
                         navController.navigate(Screen.Offline.route)
                     },
                     onOpenDiagnostics = {
@@ -289,70 +350,50 @@ fun DanskStiAppNav(
                 )
             }
 
-            // 6. Trip Planner
-            composable(
-                route = Screen.TripPlanner.route,
-                arguments = listOf(navArgument("trailId") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val trailId = backStackEntry.arguments?.getString("trailId") ?: ""
-                val plannerViewModel: com.example.ui.viewmodel.PlannerViewModel = viewModel()
-                TripPlannerScreen(
-                    trailId = trailId,
-                    viewModel = plannerViewModel,
-                    onBack = {
-                        navController.popBackStack()
-                    },
-                    onStartTrip = { planId ->
-                        navController.navigate(Screen.Navigation.createRoute(planId)) {
-                            popUpTo(Screen.Explore.route)
-                        }
-                    }
-                )
-            }
-
-            // 7. Fullscreen Interactive Map
+            // Secondary Destination: Fullscreen Trail Map ("Vis på kort")
             composable(
                 route = Screen.FullscreenMap.route,
                 arguments = listOf(navArgument("trailId") { type = NavType.StringType })
             ) { backStackEntry ->
-                val trailId = backStackEntry.arguments?.getString("trailId") ?: ""
-                val trailViewModel: TrailViewModel = viewModel()
+                val trailId = backStackEntry.arguments?.getString("trailId").orEmpty()
                 FullscreenMapScreen(
                     trailId = trailId,
-                    viewModel = trailViewModel,
-                    onBack = {
-                        navController.popBackStack()
-                    }
+                    onBack = { navController.popBackStack() }
                 )
             }
 
-            // 8. API & Network Diagnostics
+            // Secondary Destination: Diagnostics
             composable(Screen.Diagnostics.route) {
-                val diagViewModel: com.example.ui.viewmodel.DiagnosticsViewModel = viewModel()
-                com.example.ui.screens.ApiDiagnosticsScreen(
-                    viewModel = diagViewModel,
-                    onBack = {
-                        navController.popBackStack()
-                    }
+                ApiDiagnosticsScreen(
+                    onBack = { navController.popBackStack() }
                 )
             }
 
-            // 9. Datakreditter & Licenser (Phase 7e)
+            // Secondary Destination: Data Credits
             composable(Screen.DataCredits.route) {
-                com.example.ui.screens.DataCreditsScreen(
-                    onBack = {
-                        navController.popBackStack()
-                    }
+                DataCreditsScreen(
+                    onBack = { navController.popBackStack() }
                 )
             }
 
-            // 10. Rutebygger (Phase 9)
+            // Secondary Destination: Ruteplanlægger (Requirement F)
             composable(
                 route = Screen.RouteBuilder.route,
                 arguments = listOf(
                     navArgument("routeId") {
-                        type = NavType.LongType
-                        defaultValue = -1L
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("baseTrailId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("planId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
                     },
                     navArgument("destLat") {
                         type = NavType.StringType
@@ -371,30 +412,52 @@ fun DanskStiAppNav(
                     }
                 )
             ) { backStackEntry ->
-                val rIdArg = backStackEntry.arguments?.getLong("routeId") ?: -1L
-                val rId = if (rIdArg > 0L) rIdArg else null
-                val dLat = backStackEntry.arguments?.getString("destLat")?.toDoubleOrNull()
-                val dLng = backStackEntry.arguments?.getString("destLng")?.toDoubleOrNull()
-                val dNameRaw = backStackEntry.arguments?.getString("destName")
-                val dName = if (!dNameRaw.isNullOrBlank()) {
-                    try { java.net.URLDecoder.decode(dNameRaw, "UTF-8") } catch (_: Exception) { dNameRaw }
-                } else null
+                val routeIdStr = backStackEntry.arguments?.getString("routeId")
+                val baseTrailIdRaw = backStackEntry.arguments?.getString("baseTrailId")
+                val planIdStr = backStackEntry.arguments?.getString("planId")
+                val destLatStr = backStackEntry.arguments?.getString("destLat")
+                val destLngStr = backStackEntry.arguments?.getString("destLng")
+                val destNameRaw = backStackEntry.arguments?.getString("destName")
 
-                val routeBuilderViewModel: com.example.ui.viewmodel.RouteBuilderViewModel = viewModel()
-                com.example.ui.screens.RouteBuilderScreen(
-                    routeId = rId,
-                    destLat = dLat,
-                    destLng = dLng,
-                    destName = dName,
-                    viewModel = routeBuilderViewModel,
-                    onBack = {
-                        navController.popBackStack()
-                    },
+                val routeId = routeIdStr?.toLongOrNull()
+                val baseTrailId = baseTrailIdRaw?.let {
+                    try {
+                        URLDecoder.decode(it, "UTF-8")
+                    } catch (_: Exception) {
+                        it
+                    }
+                }?.takeIf { it.isNotBlank() }
+                val planId = planIdStr?.toLongOrNull()
+                val destLat = destLatStr?.toDoubleOrNull()
+                val destLng = destLngStr?.toDoubleOrNull()
+                val destName = destNameRaw?.let {
+                    try {
+                        URLDecoder.decode(it, "UTF-8")
+                    } catch (_: Exception) {
+                        it
+                    }
+                }
+
+                val builderVm: RouteBuilderViewModel = viewModel()
+                RouteBuilderScreen(
+                    routeId = routeId,
+                    baseTrailId = baseTrailId,
+                    existingPlanId = planId,
+                    destLat = destLat,
+                    destLng = destLng,
+                    destName = destName,
+                    viewModel = builderVm,
+                    onBack = { navController.popBackStack() },
                     onSavedSuccessfully = {
-                        navController.popBackStack()
+                        navController.navigate(Screen.Saved.route) {
+                            popUpTo(Screen.Explore.route)
+                        }
                     },
-                    onPlanStages = { trailRouteId ->
-                        navController.navigate(Screen.TripPlanner.createRoute(trailRouteId))
+                    onStartNavigation = { startedPlanId ->
+                        navController.navigate(Screen.Navigation.createRoute(startedPlanId.removePrefix("route_").toLongOrNull()))
+                    },
+                    onPlanStages = { customTrailId ->
+                        navController.navigate(Screen.RouteBuilder.createRoute(baseTrailId = customTrailId))
                     }
                 )
             }

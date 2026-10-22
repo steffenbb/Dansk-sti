@@ -15,6 +15,7 @@ import com.example.data.model.TrailSegmentType
 import com.example.data.remote.OverpassApiService
 import com.example.data.remote.OverpassResponse
 import com.example.util.GeoUtils
+import com.example.util.network.applyDebugMainThreadCheck
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -65,7 +66,15 @@ class MarkedRouteRepository(
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
+        .apply {
+            if (com.example.BuildConfig.DEBUG) {
+                addInterceptor(com.example.util.network.MainThreadNetworkInterceptor())
+            }
+        }
         .build()
+
+    @Volatile
+    private var activeOverpassCall: okhttp3.Call? = null
 
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
 
@@ -78,6 +87,7 @@ class MarkedRouteRepository(
     /**
      * Retrieves marked hiking routes for the visible map area.
      * Only triggers when zoomed in to 10 or closer (zoom >= 10.0).
+     * Cancels any previous in-flight Overpass request when a new one starts.
      */
     suspend fun getMarkedRoutes(
         minLat: Double,
@@ -86,8 +96,10 @@ class MarkedRouteRepository(
         maxLng: Double,
         zoomLevel: Double
     ): List<MarkedRouteDto> = withContext(Dispatchers.IO) {
+        activeOverpassCall?.cancel()
         if (zoomLevel < 10.0) {
-            return@withContext emptyList()
+            val cached = dao.getMarkedRoutesInBbox(minLat, maxLat, minLng, maxLng)
+            return@withContext cached.map { entityToDto(it) }
         }
 
         // Clean up expired cache entries older than 7 days
@@ -128,6 +140,9 @@ class MarkedRouteRepository(
                 Log.d(TAG, "Successfully fetched and cached ${liveRoutes.size} marked routes from Overpass")
                 return@withContext liveRoutes
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            activeOverpassCall?.cancel()
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Overpass query failed: ${e.message}. Checking offline fallback cache.")
         }
@@ -142,7 +157,7 @@ class MarkedRouteRepository(
         maxLat: Double,
         minLng: Double,
         maxLng: Double
-    ): List<MarkedRouteDto> {
+    ): List<MarkedRouteDto> = withContext(Dispatchers.IO) {
         val query = """
             [out:json][timeout:25];
             (
@@ -156,6 +171,9 @@ class MarkedRouteRepository(
         var lastError: Exception? = null
 
         for (endpoint in overpassMirrors) {
+            kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]?.let { job ->
+                if (!job.isActive) throw kotlinx.coroutines.CancellationException()
+            }
             try {
                 val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
                 val request = Request.Builder()
@@ -164,17 +182,25 @@ class MarkedRouteRepository(
                     .header("User-Agent", "DanskStiApp/1.0 (Android; Outdoor Hiking Denmark)")
                     .build()
 
-                client.newCall(request).execute().use { response ->
+                val call = client.newCall(request)
+                activeOverpassCall = call
+                call.execute().use { response ->
                     if (!response.isSuccessful) {
                         throw IOException("HTTP ${response.code} from $endpoint")
                     }
-                    val jsonStr = response.body?.string() ?: return emptyList()
+                    val jsonStr = response.body?.string() ?: return@withContext emptyList()
                     val result = parseOverpassRoutesJson(jsonStr)
                     if (result.isNotEmpty()) {
-                        return result
+                        return@withContext result
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                activeOverpassCall?.cancel()
+                throw e
             } catch (e: Exception) {
+                if (activeOverpassCall?.isCanceled() == true) {
+                    throw kotlinx.coroutines.CancellationException("Overpass call cancelled")
+                }
                 lastError = e
                 Log.w(TAG, "Overpass mirror $endpoint failed: ${e.message}")
             }
@@ -183,7 +209,7 @@ class MarkedRouteRepository(
         if (lastError != null) {
             throw lastError
         }
-        return emptyList()
+        emptyList()
     }
 
     private fun parseOverpassRoutesJson(jsonStr: String): List<MarkedRouteDto> {
@@ -401,7 +427,7 @@ class MarkedRouteRepository(
         }
     }
 
-    private fun dtoToEntity(dto: MarkedRouteDto): MarkedRouteEntity {
+    fun dtoToEntity(dto: MarkedRouteDto): MarkedRouteEntity {
         val rootArr = JSONArray()
         for (line in dto.polylines) {
             val lineArr = JSONArray()

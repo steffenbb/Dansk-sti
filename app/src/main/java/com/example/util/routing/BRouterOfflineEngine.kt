@@ -157,9 +157,9 @@ class BRouterOfflineEngine(
 
                 val track = engine.foundTrack
                 if (track == null || track.nodes.isNullOrEmpty()) {
-                    val errMsg = engine.errorMessage ?: "Ingen offline rute fundet mellem punkterne"
+                    val errMsg = engine.errorMessage
                     Log.w(TAG, "No offline route found: $errMsg")
-                    return@withLock RouteLegResult.NoRoute("Ingen offline rute fundet: $errMsg")
+                    return@withLock RouteLegResult.NoRoute(BRouterOnlineEngine.translateBRouterError(errMsg))
                 }
 
                 // 9. Format track to standard GeoJSON
@@ -179,7 +179,9 @@ class BRouterOfflineEngine(
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Exception during offline routing", e)
-                RouteLegResult.Failure("Fejl ved offline ruteberegning: ${e.message}", e)
+                val isTimeout = e.message?.lowercase(Locale.ROOT)?.contains("timeout") == true ||
+                    e.message?.lowercase(Locale.ROOT)?.contains("killed") == true
+                RouteLegResult.Failure(BRouterOnlineEngine.translateBRouterError(e.message, isTimeoutException = isTimeout), e)
             }
         }
     }

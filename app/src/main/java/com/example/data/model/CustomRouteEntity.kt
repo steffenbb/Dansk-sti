@@ -29,5 +29,10 @@ data class CustomRouteEntity(
     val roadKm: Double,
     val geometryFile: String,
     val sourceName: String,
-    val fetchedAt: Long
-)
+    val fetchedAt: Long,
+    val baseTrailId: String? = null,
+    val isReverse: Boolean = false
+) {
+    val lengthKm: Double
+        get() = totalKm
+}

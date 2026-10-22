@@ -67,6 +67,29 @@ import java.util.Locale
 @Composable
 fun MarkedRouteDetailSheet(
     route: MarkedRouteDto,
+    onDismiss: () -> Unit,
+    onUseAsBaseInRouteBuilder: (MarkedRouteDto) -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    MarkedRouteDetailSheet(
+        route = route,
+        onSaveAsTrail = { r ->
+            onUseAsBaseInRouteBuilder(r)
+            val app = context.applicationContext as? com.example.DanskStiApp
+            if (app != null) {
+                app.repository.saveMarkedRouteAsTrail(r)
+            } else {
+                Result.failure( IllegalStateException("Application not initialized") )
+            }
+        },
+        onDismiss = onDismiss
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MarkedRouteDetailSheet(
+    route: MarkedRouteDto,
     onSaveAsTrail: suspend (MarkedRouteDto) -> Result<TrailEntity>,
     onOpenTrailDetails: (String) -> Unit = {},
     onDismiss: () -> Unit

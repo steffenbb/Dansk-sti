@@ -1,22 +1,35 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
-import android.net.Uri
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.DanskStiApp
 import com.example.data.local.SettingsRepository
 import com.example.data.model.CustomRouteEntity
+import com.example.data.model.FriTeltningEntity
 import com.example.data.model.GeoPointDto
-import com.example.data.model.PlannedRoute
-import com.example.data.model.RoutePoint
+import com.example.data.model.NearestPoiCategory
+import com.example.data.model.OvernightType
+import com.example.data.model.PoiEntity
+import com.example.data.model.RundturCandidate
+import com.example.data.model.ShelterEntity
+import com.example.data.model.SupplyGapWarning
+import com.example.data.model.TrailEntity
+import com.example.data.model.TrailSegmentDto
+import com.example.data.model.TripStageEntity
+import com.example.data.model.UserCustomWaypointEntity
+import com.example.data.model.WaypointWeatherEta
+import com.example.data.remote.WeatherApiService
 import com.example.data.repository.DanskStiRepository
+import com.example.data.repository.PlannedRouteRepository
+import com.example.util.GeoUtils
 import com.example.util.GpxImporter
 import com.example.util.OvernightCandidate
 import com.example.util.StagePlanner
-import com.example.util.routing.BRouterOnlineEngine
 import com.example.util.routing.BRouterOfflineEngine
+import com.example.util.routing.BRouterOnlineEngine
 import com.example.util.routing.BRouterStorageManager
 import com.example.util.routing.HybridRoutingEngine
 import com.example.util.routing.LatLng
@@ -25,21 +38,19 @@ import com.example.util.routing.LegMode
 import com.example.util.routing.RouteGeometryStorageManager
 import com.example.util.routing.RouteLegResult
 import com.example.util.routing.RouteOptions
-import android.content.Context
-import com.example.data.model.NearestPoiCategory
-import com.example.data.model.RundturCandidate
-import com.example.data.model.SupplyGapWarning
-import com.example.data.model.UserCustomWaypointEntity
-import com.example.data.model.WaypointWeatherEta
-import com.example.data.remote.WeatherApiService
-import com.example.util.routing.RouteSmartTools
 import com.example.util.routing.RoutePoint3D
+import com.example.util.routing.RouteSmartTools
 import com.example.util.routing.RouteStats
 import com.example.util.routing.RouteWaypoint
 import com.example.util.routing.RoutingEngine
+import com.example.util.routing.TrailKmMarker
+import com.example.util.routing.TrailProjection
+import com.example.util.routing.TrailSlicer
+import com.example.util.routing.WayInfo
 import com.example.util.routing.WaypointRole
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -51,30 +62,145 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.InputStream
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+
+enum class PlannerMode {
+    TRAIL, // Downloaded trail is the base line
+    FREE   // Free route builder
+}
+
+enum class SheetHeightState {
+    PEEK,
+    HALF,
+    FULL
+}
+
+data class PlannerDaySummary(
+    val dayNumber: Int,
+    val startKm: Double,
+    val endKm: Double,
+    val distanceKm: Double,
+    val ascentM: Int,
+    val descentM: Int,
+    val fromName: String,
+    val toName: String,
+    val overnightWaypointId: String?,
+    val overnightName: String,
+    val overnightTypeLabel: String,
+    val detourLabel: String?,
+    val detourKm: Double,
+    val detourAscentM: Int,
+    val bookingLabel: String?,
+    val sunsetTime: String,
+    val arrivalTime: String,
+    val isAfterSunset: Boolean,
+    val warnings: List<String>,
+    val nightWeatherSummary: String,
+    val campLat: Double,
+    val campLng: Double,
+    val estimatedHours: Double = 0.0,
+    val overnightType: String = "SHELTER",
+    val bookingRequired: Boolean = false
+) {
+    val detourDistanceKm: Double?
+        get() = detourKm.takeIf { it > 0.0 }
+    val arrivalTimeFormatted: String?
+        get() = arrivalTime
+    val arrivesAfterSunset: Boolean
+        get() = isAfterSunset
+    val sunsetFormatted: String?
+        get() = sunsetTime
+}
+
+data class PlannerMapPoi(
+    val id: String,
+    val name: String,
+    val type: String, // "SHELTER", "FRI_TELTNING", "WATER", "TOILET", "SHOP"
+    val lat: Double,
+    val lng: Double,
+    val distanceToRouteMeters: Double = 0.0,
+    val bookingRequired: Boolean = false,
+    val hasWater: Boolean = false,
+    val hasToilet: Boolean = false
+)
+
+data class PlannerMapPoiSelection(
+    val id: String,
+    val name: String,
+    val typeLabel: String,
+    val lat: Double,
+    val lng: Double,
+    val isOvernightCapable: Boolean,
+    val bookingRequired: Boolean = false
+)
 
 data class RouteAlternativeInfo(
     val index: Int,
     val lengthKm: Double,
     val ascentM: Double,
-    val pathSharePct: Double,
-    val points: List<RoutePoint3D>
+    val pathSharePct: Double?,
+    val roadKm: Double?,
+    val points: List<RoutePoint3D>,
+    val wayInfo: List<WayInfo> = emptyList()
 )
 
+typealias RouteBuilderUiState = RouteBuilderState
+
 data class RouteBuilderState(
+    val mode: PlannerMode = PlannerMode.FREE,
+    val sheetHeightState: SheetHeightState = SheetHeightState.PEEK,
+    val existingPlanId: Long? = null,
+    val baseTrailId: String? = null,
+    val baseTrail: TrailEntity? = null,
+    val baseTrailSegments: List<TrailSegmentDto> = emptyList(),
+    val baseTrailKmMarkers: List<TrailKmMarker> = emptyList(),
+    val isReverse: Boolean = false,
+    val draggingWaypointId: String? = null,
+    val draggingPinKmLabel: String? = null,
+    val tappedTrailPoint: TrailProjection? = null,
+    val showTripSettingsSheet: Boolean = false,
+    val paceKmh: Double = 4.5,
+    val dailyTargetKm: Double = 15.0,
+    val startDateMillis: Long = System.currentTimeMillis(),
+    val startTimeStr: String = "09:00",
+    val maxDetourKm: Double = 3.0,
+    val overnightPreference: OvernightType = OvernightType.BOTH,
+    val plannedStages: List<TripStageEntity> = emptyList(),
+    val daySummaries: List<PlannerDaySummary> = emptyList(),
+    val dayBoundaryWalkKms: List<Double> = emptyList(),
+    val nearbyShelters: List<ShelterEntity> = emptyList(),
+    val nearbyFriTeltning: List<FriTeltningEntity> = emptyList(),
+    val nearbyPois: List<PoiEntity> = emptyList(),
+    val nearbyPoisForPlan: List<PlannerMapPoi> = emptyList(),
+    val selectedNearbyPoiForSheet: PlannerMapPoi? = null,
+    val selectedMapPoiForSheet: PlannerMapPoiSelection? = null,
+    val replaceOvernightWaypointId: String? = null,
+    val replaceOvernightCandidates: List<OvernightCandidate> = emptyList(),
     val routeId: Long? = null,
     val routeName: String = "",
     val waypoints: List<RouteWaypoint> = emptyList(),
     val legs: Map<String, LegGeometryData> = emptyMap(),
     val loadingLegKeys: Set<String> = emptySet(),
+    val failedLegs: Map<String, String> = emptyMap(),
+    val waitingForStartPointTap: Boolean = false,
+    val movingWaypointId: String? = null,
+    val isBuiltinFallbackInUse: Boolean = BRouterOnlineEngine.isBuiltinFallbackInUse(),
+    val isLoadingCorridorPois: Boolean = false,
+    val showResetProgressDialog: Boolean = false,
     val options: RouteOptions = RouteOptions(),
-    val stats: RouteStats = RouteStats(0.0, 0.0, 0.0, 100.0, 0.0),
+    val stats: RouteStats = RouteStats(0.0, 0.0, 0.0, null, 0.0, hasWayInfo = false),
     val timeEstimateFormatted: String = "0 min",
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -92,25 +218,50 @@ data class RouteBuilderState(
     val overnightCandidatesByDay: Map<Int, List<com.example.util.OvernightCandidate>> = emptyMap(),
     val isFindingOvernight: Boolean = false,
     val showOvernightDialog: Boolean = false,
-    val supplyGapWarnings: List<com.example.data.model.SupplyGapWarning> = emptyList(),
+    val supplyGapWarnings: List<SupplyGapWarning> = emptyList(),
     val maxWaterGapKm: Double = 12.0,
     val maxShopGapKm: Double = 25.0,
-    val rundturCandidates: List<com.example.data.model.RundturCandidate> = emptyList(),
+    val rundturCandidates: List<RundturCandidate> = emptyList(),
     val isGeneratingRundtur: Boolean = false,
     val showRundturDialog: Boolean = false,
     val rundturTargetKm: Double = 15.0,
-    val waypointWeatherEtas: List<com.example.data.model.WaypointWeatherEta> = emptyList(),
+    val waypointWeatherEtas: List<WaypointWeatherEta> = emptyList(),
     val isLoadingWeather: Boolean = false,
     val isRoutingToNearest: Boolean = false,
     val showNearestPoiDialog: Boolean = false,
     val routeQuality: com.example.data.model.RouteQualityBreakdown = com.example.data.model.RouteQualityBreakdown(),
-    val customUserWaypoints: List<com.example.data.model.UserCustomWaypointEntity> = emptyList(),
+    val customUserWaypoints: List<UserCustomWaypointEntity> = emptyList(),
     val showAddCustomWaypointDialog: Boolean = false,
     val pendingCustomWaypointLocation: LatLng? = null,
-    val selectedCustomWaypointForDetails: com.example.data.model.UserCustomWaypointEntity? = null,
+    val selectedCustomWaypointForDetails: UserCustomWaypointEntity? = null,
     val isOfflineRoute: Boolean = false,
-    val routeEngineModeLabel: String = "Online rute"
-)
+    val routeEngineModeLabel: String = "Online rute",
+    val nextLegMode: LegMode = LegMode.SNAP,
+    val isOvernightToolActive: Boolean = false
+) {
+    val visibleWaypoints: List<RouteWaypoint>
+        get() = waypoints.filter { !it.isHelper }
+    val numDays: Int
+        get() = max(1, visibleWaypoints.count { it.role == WaypointRole.OVERNIGHT } + 1)
+    val baseTrailPoints: List<GeoPointDto>
+        get() = baseTrailSegments.flatMap { it.points }
+    val draggingTrailKmLabel: String?
+        get() = draggingPinKmLabel
+    val trailLineTapTarget: TrailProjection?
+        get() = tappedTrailPoint
+    val replacingOvernightWaypointId: String?
+        get() = replaceOvernightWaypointId
+    val startHour: Int
+        get() = startTimeStr.substringBefore(":").toIntOrNull() ?: 9
+    val startDateEpochMs: Long
+        get() = startDateMillis
+    val plannerMode: PlannerMode
+        get() = mode
+    val totalKm: Double
+        get() = stats.totalKm
+    val isRoutingLegCount: Int
+        get() = loadingLegKeys.size
+}
 
 class RouteBuilderViewModel(
     application: Application
@@ -141,13 +292,20 @@ class RouteBuilderViewModel(
     private data class HistorySnapshot(
         val waypoints: List<RouteWaypoint>,
         val legs: Map<String, LegGeometryData>,
-        val options: RouteOptions
+        val options: RouteOptions,
+        val isReverse: Boolean = false
     )
     private val undoStack = mutableListOf<HistorySnapshot>()
     private val redoStack = mutableListOf<HistorySnapshot>()
     private val MAX_HISTORY = 50
 
-    private var activeRoutingJob: Job? = null
+    private var mapCameraAccessJob: Job? = null
+    private var corridorAccessJob: Job? = null
+    private var supplyGapsJob: Job? = null
+    private var stagesAndPoisJob: Job? = null
+    private var nightWeatherCache: MutableMap<String, String> = mutableMapOf()
+    private var pendingSaveCallback: ((Long) -> Unit)? = null
+
     private var geometryFileName: String = "route_${UUID.randomUUID()}.json"
     private var pacingSpeedKmh: Double = 4.5
     private var startTimeStr: String = "09:00"
@@ -158,39 +316,262 @@ class RouteBuilderViewModel(
             val settings = settingsRepository.settingsFlow.first()
             pacingSpeedKmh = settings.mitTempoKmh
             startTimeStr = settings.startTime
+            _uiState.value = _uiState.value.copy(
+                paceKmh = settings.mitTempoKmh,
+                startTimeStr = settings.startTime,
+                maxDetourKm = settings.maxDetourKm
+            )
         }
-        loadAccessPolygonsForBounds(54.5, 57.8, 8.0, 15.2)
     }
 
+    fun initTrailMode(trailId: String) {
+        initializeTrailMode(trailId)
+    }
+
+    fun getBaseTrailSegments(): List<TrailSegmentDto> = _uiState.value.baseTrailSegments
+
     /**
-     * Initializes RouteBuilder for editing an existing custom route or starting a new one.
+     * Initializes Ruteplanlægger for:
+     * - TRAIL mode (`baseTrailId` / `trailId` is a downloaded trail ID, e.g. "trail_ohavsstien")
+     * - Existing route / plan (`routeId` / `existingRouteId` > 0, `existingPlanId` > 0, or `trailId` starting with "route_")
+     * - FREE mode (`trailId == null && existingRouteId == null`)
      */
     fun initialize(
+        routeId: Long? = null,
         existingRouteId: Long? = null,
+        destLat: Double? = null,
         initialDestLat: Double? = null,
+        destLng: Double? = null,
         initialDestLng: Double? = null,
-        initialDestName: String? = null
+        destName: String? = null,
+        initialDestName: String? = null,
+        gpsLat: Double? = null,
+        currentGpsLat: Double? = null,
+        gpsLng: Double? = null,
+        currentGpsLng: Double? = null,
+        baseTrailId: String? = null,
+        trailId: String? = null,
+        existingPlanId: Long? = null
     ) {
-        if (existingRouteId != null && existingRouteId > 0) {
-            loadExistingRoute(existingRouteId)
-        } else if (initialDestLat != null && initialDestLng != null) {
+        val effTrailId = baseTrailId?.takeIf { it.isNotBlank() } ?: trailId?.takeIf { it.isNotBlank() }
+        val routeIdFromTrail = effTrailId?.takeIf { it.startsWith("route_") }?.removePrefix("route_")?.toLongOrNull()
+        val effectiveRouteId = routeId?.takeIf { it > 0 }
+            ?: existingRouteId?.takeIf { it > 0 }
+            ?: routeIdFromTrail
+
+        val effDestLat = destLat ?: initialDestLat
+        val effDestLng = destLng ?: initialDestLng
+        val effDestName = destName ?: initialDestName
+        val effGpsLat = gpsLat ?: currentGpsLat
+        val effGpsLng = gpsLng ?: currentGpsLng
+
+        if (existingPlanId != null && existingPlanId > 0L) {
+            viewModelScope.launch {
+                val plan = repository.getTripPlanById(existingPlanId)
+                if (plan != null) {
+                    val linkedRouteId = plan.customRouteId ?: plan.trailId.removePrefix("route_").toLongOrNull()
+                    if (linkedRouteId != null && linkedRouteId > 0L && repository.getCustomRoute(linkedRouteId) != null) {
+                        loadExistingRoute(linkedRouteId, existingPlanId)
+                    } else {
+                        initializeTrailMode(plan.trailId, effGpsLat, effGpsLng, existingPlanId)
+                    }
+                }
+            }
+            return
+        }
+
+        if (effectiveRouteId != null && effectiveRouteId > 0) {
+            loadExistingRoute(effectiveRouteId)
+            return
+        }
+
+        if (!effTrailId.isNullOrBlank()) {
+            initializeTrailMode(effTrailId, effGpsLat, effGpsLng)
+            return
+        }
+
+        if (effDestLat != null && effDestLng != null) {
             if (_uiState.value.waypoints.isEmpty()) {
-                // Add the initial destination as a waypoint
-                val wp = RouteWaypoint(
-                    lat = initialDestLat,
-                    lng = initialDestLng,
+                val destWp = RouteWaypoint(
+                    lat = effDestLat,
+                    lng = effDestLng,
                     role = WaypointRole.END,
-                    name = initialDestName ?: "Destination"
+                    name = effDestName ?: "Destination"
                 )
-                _uiState.value = _uiState.value.copy(
-                    routeName = initialDestName?.let { "Rute til $it" } ?: "Ny rute",
-                    waypoints = listOf(wp)
-                )
+                if (effGpsLat != null && effGpsLng != null) {
+                    val startWp = RouteWaypoint(
+                        lat = effGpsLat,
+                        lng = effGpsLng,
+                        role = WaypointRole.START,
+                        legModeToNext = LegMode.SNAP,
+                        name = "Min position"
+                    )
+                    _uiState.value = _uiState.value.copy(
+                        mode = PlannerMode.FREE,
+                        routeName = effDestName?.let { "Rute til $it" } ?: "Ny rute",
+                        waypoints = listOf(startWp, destWp),
+                        waitingForStartPointTap = false,
+                        errorMessage = null
+                    )
+                    computeSingleLeg(startWp, destWp)
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        mode = PlannerMode.FREE,
+                        routeName = effDestName?.let { "Rute til $it" } ?: "Ny rute",
+                        waypoints = listOf(destWp),
+                        waitingForStartPointTap = true,
+                        errorMessage = "Vælg startpunkt - tryk på kortet"
+                    )
+                    viewModelScope.launch {
+                        _userMessage.emit("Vælg startpunkt - tryk på kortet")
+                    }
+                }
             }
         }
     }
 
-    private fun loadExistingRoute(id: Long) {
+    private fun initializeTrailMode(
+        trailId: String,
+        currentGpsLat: Double? = null,
+        currentGpsLng: Double? = null,
+        specificPlanId: Long? = null
+    ) {
+        viewModelScope.launch {
+            val existingPlan = if (specificPlanId != null && specificPlanId > 0L) {
+                repository.getTripPlanById(specificPlanId)
+            } else {
+                repository.getLatestTripPlanForTrail(trailId)
+            }
+            val linkedRouteId = existingPlan?.customRouteId
+            if (linkedRouteId != null && linkedRouteId > 0L) {
+                val existingRoute = repository.getCustomRoute(linkedRouteId)
+                if (existingRoute != null) {
+                    loadExistingRoute(linkedRouteId, existingPlan.id)
+                    return@launch
+                }
+            }
+
+            val trail = repository.getTrailById(trailId) ?: return@launch
+            val segments = repository.getTrailPoints(trail)
+            val totalKm = TrailSlicer.totalTrailKm(segments)
+            val isReverse = existingPlan?.isReverse ?: false
+            val kmMarkers = TrailSlicer.generateKmMarkers(segments, stepKm = 5.0, isReverse = isReverse)
+
+            var startKm = existingPlan?.startKm ?: 0.0
+            var endKm = existingPlan?.endKm?.takeIf { it > startKm } ?: totalKm
+
+            if (existingPlan == null && currentGpsLat != null && currentGpsLng != null && segments.isNotEmpty()) {
+                val gpsProj = TrailSlicer.projectOntoTrail(segments, currentGpsLat, currentGpsLng, isReverse)
+                if (gpsProj != null && gpsProj.distanceMeters <= 2000.0) {
+                    if (gpsProj.trailKm < totalKm - 0.5) {
+                        startKm = gpsProj.trailKm
+                        endKm = totalKm
+                    } else {
+                        startKm = 0.0
+                        endKm = gpsProj.trailKm
+                    }
+                }
+            }
+
+            val startProj = TrailSlicer.pointAtTrailKm(segments, startKm, isReverse)
+            val endProj = TrailSlicer.pointAtTrailKm(segments, endKm, isReverse)
+
+            val startWp = RouteWaypoint(
+                id = "trail_start_${trail.id}",
+                lat = startProj?.lat ?: 56.0,
+                lng = startProj?.lng ?: 10.0,
+                role = WaypointRole.START,
+                legModeToNext = LegMode.TRAIL,
+                name = if (startKm > 0.1) String.format(Locale.GERMAN, "Start (km %.1f)", startKm) else "${trail.name} Start",
+                trailKm = startKm
+            )
+            val endWp = RouteWaypoint(
+                id = "trail_end_${trail.id}",
+                lat = endProj?.lat ?: 56.1,
+                lng = endProj?.lng ?: 10.1,
+                role = WaypointRole.END,
+                legModeToNext = LegMode.TRAIL,
+                name = if (endKm < totalKm - 0.1) String.format(Locale.GERMAN, "Slut (km %.1f)", endKm) else "${trail.name} Slut",
+                trailKm = endKm
+            )
+
+            val wps = mutableListOf<RouteWaypoint>()
+            wps.add(startWp)
+            if (existingPlan != null) {
+                val existingStages = repository.getStagesForPlan(existingPlan.id)
+                if (existingStages.size > 1) {
+                    for (stage in existingStages.dropLast(1)) {
+                        val stageKm = stage.endKm.coerceIn(startKm + 0.1, max(startKm + 0.1, endKm - 0.1))
+                        val stagePt = TrailSlicer.pointAtTrailKm(segments, stageKm, isReverse)
+                        if (stagePt != null) {
+                            wps.add(
+                                RouteWaypoint(
+                                    lat = stagePt.lat,
+                                    lng = stagePt.lng,
+                                    role = WaypointRole.OVERNIGHT,
+                                    legModeToNext = LegMode.TRAIL,
+                                    name = stage.stopName.ifBlank { "Overnatning Dag ${stage.dayNumber}" },
+                                    linkedPoiId = stage.spotId,
+                                    trailKm = stageKm
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            wps.add(endWp)
+
+            val initialLegs = mutableMapOf<String, LegGeometryData>()
+            for (i in 0 until wps.size - 1) {
+                val from = wps[i]
+                val to = wps[i + 1]
+                val leg = TrailSlicer.buildTrailLegGeometry(
+                    fromWaypointId = from.id,
+                    toWaypointId = to.id,
+                    segments = segments,
+                    fromKm = from.trailKm ?: startKm,
+                    toKm = to.trailKm ?: endKm,
+                    isReverse = isReverse
+                )
+                initialLegs[leg.legKey] = leg
+            }
+
+            val parsedPref = existingPlan?.overnightType?.let {
+                try { OvernightType.valueOf(it) } catch (_: Exception) { null }
+            }
+
+            _uiState.value = _uiState.value.copy(
+                mode = PlannerMode.TRAIL,
+                existingPlanId = existingPlan?.id,
+                baseTrailId = trail.id,
+                baseTrail = trail,
+                baseTrailSegments = segments,
+                baseTrailKmMarkers = kmMarkers,
+                isReverse = isReverse,
+                routeName = trail.name,
+                waypoints = wps,
+                legs = initialLegs,
+                failedLegs = emptyMap(),
+                waitingForStartPointTap = false,
+                dailyTargetKm = existingPlan?.preferredDailyKm ?: _uiState.value.dailyTargetKm,
+                overnightPreference = parsedPref ?: _uiState.value.overnightPreference,
+                startDateMillis = existingPlan?.createdAt ?: _uiState.value.startDateMillis
+            )
+
+            withContext(Dispatchers.IO) {
+                for (leg in initialLegs.values) {
+                    RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg)
+                }
+            }
+
+            if (wps.isNotEmpty()) {
+                fetchSunsetForRoute(wps.first().lat, wps.first().lng)
+            }
+            updateRouteStats()
+        }
+    }
+
+    private fun loadExistingRoute(id: Long, specificPlanId: Long? = null) {
         viewModelScope.launch {
             val route = repository.getCustomRoute(id) ?: return@launch
             geometryFileName = route.geometryFile.ifBlank { "route_${id}.json" }
@@ -198,16 +579,66 @@ class RouteBuilderViewModel(
             val waypoints = RouteWaypoint.listFromJson(route.waypointsJson)
             val legs = withContext(Dispatchers.IO) {
                 RouteGeometryStorageManager.loadLegs(getApplication(), geometryFileName)
-            }
+            }.toMutableMap()
 
             val options = parseOptionsJson(route.optionsJson)
+            val baseTrailId = route.baseTrailId
+            val isReverse = route.isReverse
+            val baseTrail = if (!baseTrailId.isNullOrBlank()) repository.getTrailById(baseTrailId) else null
+            val segments = if (baseTrail != null) repository.getTrailPoints(baseTrail) else emptyList()
+            val kmMarkers = if (segments.isNotEmpty()) {
+                TrailSlicer.generateKmMarkers(segments, stepKm = 5.0, isReverse = isReverse)
+            } else {
+                emptyList()
+            }
+            val mode = if (baseTrail != null) PlannerMode.TRAIL else PlannerMode.FREE
+
+            if (mode == PlannerMode.TRAIL && segments.isNotEmpty()) {
+                for (i in 0 until waypoints.size - 1) {
+                    val from = waypoints[i]
+                    val to = waypoints[i + 1]
+                    val key = "${from.id}_to_${to.id}"
+                    if (!legs.containsKey(key) && from.trailKm != null && to.trailKm != null) {
+                        legs[key] = TrailSlicer.buildTrailLegGeometry(
+                            fromWaypointId = from.id,
+                            toWaypointId = to.id,
+                            segments = segments,
+                            fromKm = from.trailKm,
+                            toKm = to.trailKm,
+                            isReverse = isReverse
+                        )
+                    }
+                }
+            }
+
+            val planKey = baseTrailId ?: "route_${route.id}"
+            val existingPlan = if (specificPlanId != null && specificPlanId > 0L) {
+                repository.getTripPlanById(specificPlanId)
+            } else {
+                repository.getLatestTripPlanForTrail(planKey)
+            }
+            val parsedPref = existingPlan?.overnightType?.let {
+                try { OvernightType.valueOf(it) } catch (_: Exception) { null }
+            }
 
             _uiState.value = _uiState.value.copy(
+                mode = mode,
+                existingPlanId = existingPlan?.id,
+                baseTrailId = baseTrailId,
+                baseTrail = baseTrail,
+                baseTrailSegments = segments,
+                baseTrailKmMarkers = kmMarkers,
+                isReverse = isReverse,
                 routeId = route.id,
                 routeName = route.name,
                 waypoints = waypoints,
                 legs = legs,
-                options = options
+                failedLegs = emptyMap(),
+                waitingForStartPointTap = false,
+                options = options,
+                dailyTargetKm = existingPlan?.preferredDailyKm ?: _uiState.value.dailyTargetKm,
+                overnightPreference = parsedPref ?: _uiState.value.overnightPreference,
+                startDateMillis = existingPlan?.createdAt ?: _uiState.value.startDateMillis
             )
 
             updateRouteStats()
@@ -218,7 +649,8 @@ class RouteBuilderViewModel(
         val current = HistorySnapshot(
             waypoints = _uiState.value.waypoints,
             legs = _uiState.value.legs,
-            options = _uiState.value.options
+            options = _uiState.value.options,
+            isReverse = _uiState.value.isReverse
         )
         undoStack.add(current)
         if (undoStack.size > MAX_HISTORY) {
@@ -241,7 +673,8 @@ class RouteBuilderViewModel(
         val current = HistorySnapshot(
             waypoints = _uiState.value.waypoints,
             legs = _uiState.value.legs,
-            options = _uiState.value.options
+            options = _uiState.value.options,
+            isReverse = _uiState.value.isReverse
         )
         redoStack.add(current)
         if (redoStack.size > MAX_HISTORY) {
@@ -251,7 +684,9 @@ class RouteBuilderViewModel(
         _uiState.value = _uiState.value.copy(
             waypoints = previous.waypoints,
             legs = previous.legs,
-            options = previous.options
+            failedLegs = emptyMap(),
+            options = previous.options,
+            isReverse = previous.isReverse
         )
         updateUndoRedoAvailability()
         updateRouteStats()
@@ -263,49 +698,604 @@ class RouteBuilderViewModel(
         val current = HistorySnapshot(
             waypoints = _uiState.value.waypoints,
             legs = _uiState.value.legs,
-            options = _uiState.value.options
+            options = _uiState.value.options,
+            isReverse = _uiState.value.isReverse
         )
         undoStack.add(current)
 
         _uiState.value = _uiState.value.copy(
             waypoints = next.waypoints,
             legs = next.legs,
-            options = next.options
+            failedLegs = emptyMap(),
+            options = next.options,
+            isReverse = next.isReverse
         )
         updateUndoRedoAvailability()
         updateRouteStats()
     }
 
-    /**
-     * Map tap: Add a new waypoint at the end.
-     */
-    fun addPointAtEnd(lat: Double, lng: Double, name: String? = null) {
-        pushHistory()
-        val currentWps = _uiState.value.waypoints.toMutableList()
+    // --- TRAIL Mode Tap & Detour Actions (Requirements C & D) ---
 
-        val role = when (currentWps.size) {
-            0 -> WaypointRole.START
+    fun onTrailLineTapped(lat: Double, lng: Double) {
+        val state = _uiState.value
+        if (state.mode != PlannerMode.TRAIL || state.baseTrailSegments.isEmpty()) return
+        val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, lat, lng, state.isReverse) ?: return
+        _uiState.value = state.copy(tappedTrailPoint = proj)
+    }
+
+    fun dismissTrailTapSheet() {
+        _uiState.value = _uiState.value.copy(tappedTrailPoint = null)
+    }
+
+    fun dismissTrailLineTapSheet() = dismissTrailTapSheet()
+
+    fun trailTapStartHere() {
+        val proj = _uiState.value.tappedTrailPoint ?: return
+        dismissTrailTapSheet()
+        val state = _uiState.value
+        val wps = state.waypoints.toMutableList()
+        val startIdx = wps.indexOfFirst { it.role == WaypointRole.START }
+        if (startIdx == -1) return
+        moveWaypointOnTrailToKm(wps[startIdx].id, proj.trailKm, finishDrag = true)
+    }
+
+    fun onTrailTapStartHer() = trailTapStartHere()
+
+    fun trailTapEndHere() {
+        val proj = _uiState.value.tappedTrailPoint ?: return
+        dismissTrailTapSheet()
+        val state = _uiState.value
+        val wps = state.waypoints.toMutableList()
+        val endIdx = wps.indexOfLast { it.role == WaypointRole.END }
+        if (endIdx == -1) return
+        moveWaypointOnTrailToKm(wps[endIdx].id, proj.trailKm, finishDrag = true)
+    }
+
+    fun onTrailTapSlutHer() = trailTapEndHere()
+
+    fun trailTapOvernightHere() {
+        val proj = _uiState.value.tappedTrailPoint ?: return
+        dismissTrailTapSheet()
+        insertWaypointOnTrailAtKm(
+            trailKm = proj.trailKm,
+            role = WaypointRole.OVERNIGHT,
+            name = String.format(Locale.GERMAN, "Overnatning (km %.1f)", proj.trailKm)
+        )
+    }
+
+    fun onTrailTapOvernatHer() = trailTapOvernightHere()
+
+    fun trailTapAddViaHere() {
+        val proj = _uiState.value.tappedTrailPoint ?: return
+        dismissTrailTapSheet()
+        insertWaypointOnTrailAtKm(
+            trailKm = proj.trailKm,
+            role = WaypointRole.VIA,
+            name = String.format(Locale.GERMAN, "Punkt (km %.1f)", proj.trailKm)
+        )
+    }
+
+    fun onTrailTapTilfoejPunkt() = trailTapAddViaHere()
+
+    private fun insertWaypointOnTrailAtKm(
+        trailKm: Double,
+        role: WaypointRole,
+        name: String?,
+        linkedPoiId: String? = null
+    ) {
+        val state = _uiState.value
+        val segments = state.baseTrailSegments
+        if (segments.isEmpty()) return
+
+        pushHistory()
+        val wps = state.waypoints.toMutableList()
+        val pt = TrailSlicer.pointAtTrailKm(segments, trailKm, state.isReverse) ?: return
+
+        // Find where trailKm falls among existing trailKm waypoints
+        var insertIndex = wps.size - 1
+        for (i in 0 until wps.size - 1) {
+            val k0 = wps[i].trailKm
+            val k1 = wps[i + 1].trailKm
+            if (k0 != null && k1 != null && trailKm >= min(k0, k1) && trailKm <= max(k0, k1)) {
+                insertIndex = i + 1
+                break
+            }
+        }
+        insertIndex = insertIndex.coerceIn(1, max(1, wps.size - 1))
+
+        val newWp = RouteWaypoint(
+            lat = pt.lat,
+            lng = pt.lng,
+            role = role,
+            legModeToNext = LegMode.TRAIL,
+            name = name,
+            linkedPoiId = linkedPoiId,
+            trailKm = trailKm
+        )
+
+        val prevWp = wps[insertIndex - 1]
+        val nextWp = wps[insertIndex]
+        wps.add(insertIndex, newWp)
+        normalizeRoles(wps)
+
+        val updatedLegs = state.legs.toMutableMap()
+        updatedLegs.remove("${prevWp.id}_to_${nextWp.id}")
+
+        val leg1 = TrailSlicer.buildTrailLegGeometry(
+            fromWaypointId = prevWp.id,
+            toWaypointId = newWp.id,
+            segments = segments,
+            fromKm = prevWp.trailKm ?: 0.0,
+            toKm = trailKm,
+            isReverse = state.isReverse
+        )
+        val leg2 = TrailSlicer.buildTrailLegGeometry(
+            fromWaypointId = newWp.id,
+            toWaypointId = nextWp.id,
+            segments = segments,
+            fromKm = trailKm,
+            toKm = nextWp.trailKm ?: TrailSlicer.totalTrailKm(segments),
+            isReverse = state.isReverse
+        )
+        updatedLegs[leg1.legKey] = leg1
+        updatedLegs[leg2.legKey] = leg2
+
+        _uiState.value = state.copy(
+            waypoints = wps,
+            legs = updatedLegs
+        )
+
+        viewModelScope.launch(Dispatchers.IO) {
+            RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg1)
+            RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg2)
+        }
+        updateRouteStats()
+    }
+
+    /**
+     * Requirement D: Adds a stop or overnight pin in TRAIL or FREE mode.
+     * In TRAIL mode:
+     * - If > 50 m off the trail (or a POI/shelter/fri teltning chosen with "Overnat her" / "Tilføj som stop"),
+     *   computes a detour: TRAIL (to exit) -> SNAP (exit to pin) -> SNAP (pin to rejoin) -> TRAIL (onwards),
+     *   with hidden helper waypoints (role VIA, isHelper = true) and detour cost on the pin.
+     */
+    fun addDetourPoiToRoute(
+        lat: Double,
+        lng: Double,
+        name: String,
+        role: WaypointRole,
+        poiId: String? = null,
+        poiType: String? = null
+    ) {
+        _uiState.value = _uiState.value.copy(selectedNearbyPoiForSheet = null, selectedMapPoiForSheet = null)
+        addStopOrDetour(
+            lat = lat,
+            lng = lng,
+            role = role,
+            name = name,
+            linkedPoiId = poiId,
+            spotType = poiType
+        )
+    }
+
+    fun addOvernightDetourPoi(
+        lat: Double,
+        lng: Double,
+        name: String,
+        spotType: String = "SHELTER",
+        poiId: String? = null,
+        bookingRequired: Boolean = false,
+        hasWater: Boolean = false,
+        hasToilet: Boolean = false
+    ) {
+        addStopOrDetour(
+            lat = lat,
+            lng = lng,
+            role = WaypointRole.OVERNIGHT,
+            name = name,
+            linkedPoiId = poiId,
+            spotType = spotType,
+            bookingRequired = bookingRequired,
+            hasWater = hasWater,
+            hasToilet = hasToilet
+        )
+    }
+
+    fun selectNearbyPoiForSheet(poi: PlannerMapPoi?) {
+        _uiState.value = _uiState.value.copy(selectedNearbyPoiForSheet = poi)
+    }
+
+    fun addStopOrDetour(
+        lat: Double,
+        lng: Double,
+        role: WaypointRole,
+        name: String?,
+        linkedPoiId: String? = null,
+        spotType: String? = null,
+        bookingRequired: Boolean = false,
+        hasWater: Boolean = false,
+        hasToilet: Boolean = false
+    ) {
+        val state = _uiState.value
+        if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
+            val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, lat, lng, state.isReverse)
+            if (proj != null && proj.distanceMeters <= 50.0 && linkedPoiId == null) {
+                insertWaypointOnTrailAtKm(
+                    trailKm = proj.trailKm,
+                    role = role,
+                    name = name ?: String.format(Locale.GERMAN, "Punkt (km %.1f)", proj.trailKm)
+                )
+                return
+            }
+
+            // Off-trail detour (> 50m or explicit POI)
+            viewModelScope.launch {
+                pushHistory()
+                val wps = _uiState.value.waypoints.toMutableList()
+                val segments = _uiState.value.baseTrailSegments
+                val isRev = _uiState.value.isReverse
+                val projKm = proj?.trailKm ?: (TrailSlicer.totalTrailKm(segments) / 2.0)
+
+                var prevTrailIdx = 0
+                var nextTrailIdx = wps.lastIndex
+                for (i in wps.indices) {
+                    val km = wps[i].trailKm ?: continue
+                    if (km <= projKm) prevTrailIdx = i
+                    if (km >= projKm && i > prevTrailIdx) {
+                        nextTrailIdx = i
+                        break
+                    }
+                }
+                if (nextTrailIdx <= prevTrailIdx && wps.size >= 2) {
+                    prevTrailIdx = max(0, wps.lastIndex - 1)
+                    nextTrailIdx = wps.lastIndex
+                }
+
+                val prevTrailWp = wps[prevTrailIdx]
+                val nextTrailWp = wps[nextTrailIdx]
+
+                val rawPin = RouteWaypoint(
+                    lat = lat,
+                    lng = lng,
+                    role = role,
+                    legModeToNext = LegMode.SNAP,
+                    name = name ?: if (role == WaypointRole.OVERNIGHT) "Overnatning" else "Omvejspunkt",
+                    linkedPoiId = linkedPoiId,
+                    trailKm = null,
+                    spotType = spotType,
+                    bookingRequired = bookingRequired,
+                    hasWaterNearby = hasWater,
+                    hasToiletNearby = hasToilet
+                )
+
+                val detourPlan = TrailSlicer.buildTrailDetour(
+                    segments = segments,
+                    prevWp = prevTrailWp,
+                    nextWp = nextTrailWp,
+                    pinWp = rawPin,
+                    routingEngine = routingEngine,
+                    options = _uiState.value.options,
+                    isReverse = isRev
+                )
+
+                val updatedLegs = _uiState.value.legs.toMutableMap()
+                updatedLegs.remove("${prevTrailWp.id}_to_${nextTrailWp.id}")
+
+                wps[prevTrailIdx] = prevTrailWp.copy(legModeToNext = LegMode.TRAIL)
+                wps.addAll(
+                    prevTrailIdx + 1,
+                    listOf(detourPlan.exitHelper, detourPlan.detourWaypoint, detourPlan.rejoinHelper)
+                )
+                normalizeRoles(wps)
+
+                for (leg in detourPlan.legs) {
+                    updatedLegs[leg.legKey] = leg
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    waypoints = wps,
+                    legs = updatedLegs,
+                    selectedWaypointId = detourPlan.detourWaypoint.id
+                )
+
+                withContext(Dispatchers.IO) {
+                    for (leg in detourPlan.legs) {
+                        RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg)
+                    }
+                }
+
+                val detourLabel = TrailSlicer.formatDetourCost(
+                    detourPlan.detourWaypoint.name,
+                    detourPlan.detourCostKm,
+                    detourPlan.detourAscentM
+                )
+                _userMessage.emit(detourLabel)
+                updateRouteStats()
+            }
+            return
+        }
+
+        // FREE mode: insert as OVERNIGHT or VIA along the closest leg (or at end)
+        val wps = state.waypoints
+        if (wps.size < 2) {
+            addPointAtEnd(lat, lng, name)
+            return
+        }
+        val cand = OvernightCandidate(
+            id = linkedPoiId ?: UUID.randomUUID().toString(),
+            name = name ?: if (role == WaypointRole.OVERNIGHT) "Overnatning" else "Stop",
+            type = spotType ?: "SHELTER",
+            lat = lat,
+            lng = lng,
+            walkKm = 0.0,
+            detourMeters = 0.0,
+            bookingRequired = bookingRequired,
+            hasWaterNearby = hasWater,
+            hasToiletNearby = hasToilet
+        )
+        if (role == WaypointRole.OVERNIGHT) {
+            insertOvernightCandidate(cand)
+        } else {
+            insertViaPointOnLine(lat, lng)
+        }
+    }
+
+    fun selectMapPoi(poi: PlannerMapPoiSelection?) {
+        _uiState.value = _uiState.value.copy(selectedMapPoiForSheet = poi)
+    }
+
+    fun addSelectedPoiAsOvernight() {
+        val poi = _uiState.value.selectedMapPoiForSheet ?: return
+        _uiState.value = _uiState.value.copy(selectedMapPoiForSheet = null)
+        addStopOrDetour(
+            lat = poi.lat,
+            lng = poi.lng,
+            role = WaypointRole.OVERNIGHT,
+            name = poi.name,
+            linkedPoiId = poi.id
+        )
+    }
+
+    fun addSelectedPoiAsStop() {
+        val poi = _uiState.value.selectedMapPoiForSheet ?: return
+        _uiState.value = _uiState.value.copy(selectedMapPoiForSheet = null)
+        addStopOrDetour(
+            lat = poi.lat,
+            lng = poi.lng,
+            role = WaypointRole.VIA,
+            name = poi.name,
+            linkedPoiId = poi.id
+        )
+    }
+
+    /**
+     * Requirement C: While dragging a START/END/OVERNIGHT pin that has trailKm,
+     * project the finger position onto the trail and show "km 23,4" next to the pin while dragging.
+     * Updates totals instantly without any network request!
+     */
+    fun onWaypointDragging(waypointId: String, fingerLat: Double, fingerLng: Double): TrailProjection? {
+        val state = _uiState.value
+        if (state.mode != PlannerMode.TRAIL || state.baseTrailSegments.isEmpty()) return null
+        val wp = state.waypoints.find { it.id == waypointId } ?: return null
+        if (wp.trailKm == null) return null
+
+        val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, fingerLat, fingerLng, state.isReverse) ?: return null
+        _uiState.value = _uiState.value.copy(draggingWaypointId = waypointId)
+        moveWaypointOnTrailToKm(waypointId, proj.trailKm, finishDrag = false)
+        return proj
+    }
+
+    fun onDraggingWaypoint(waypointId: String, fingerLat: Double, fingerLng: Double) {
+        onWaypointDragging(waypointId, fingerLat, fingerLng)
+    }
+
+    fun onWaypointDragged(waypointId: String, lat: Double, lng: Double) {
+        moveWaypoint(waypointId, lat, lng)
+    }
+
+    fun moveWaypointOnTrailToKm(waypointId: String, rawTargetKm: Double, finishDrag: Boolean = true) {
+        val state = _uiState.value
+        val segments = state.baseTrailSegments
+        if (segments.isEmpty()) return
+        val wps = state.waypoints.toMutableList()
+        val index = wps.indexOfFirst { it.id == waypointId }
+        if (index == -1) return
+
+        val totalTrailKm = TrailSlicer.totalTrailKm(segments)
+        // Clamp between previous and next trailKm pins so order along the trail is preserved
+        val minAllowedKm = (index - 1 downTo 0).firstNotNullOfOrNull { wps[it].trailKm }?.plus(0.05) ?: 0.0
+        val maxAllowedKm = (index + 1 until wps.size).firstNotNullOfOrNull { wps[it].trailKm }?.minus(0.05) ?: totalTrailKm
+        val clampedKm = rawTargetKm.coerceIn(min(minAllowedKm, maxAllowedKm), max(minAllowedKm, maxAllowedKm))
+
+        val pt = TrailSlicer.pointAtTrailKm(segments, clampedKm, state.isReverse) ?: return
+        if (finishDrag) {
+            pushHistory()
+        }
+
+        val oldWp = wps[index]
+        val updatedName = when (oldWp.role) {
+            WaypointRole.START -> String.format(Locale.GERMAN, "Start (km %.1f)", clampedKm)
+            WaypointRole.END -> String.format(Locale.GERMAN, "Slut (km %.1f)", clampedKm)
+            else -> oldWp.name
+        }
+        val updatedWp = oldWp.copy(
+            lat = pt.lat,
+            lng = pt.lng,
+            trailKm = clampedKm,
+            name = updatedName
+        )
+        wps[index] = updatedWp
+
+        val updatedLegs = state.legs.toMutableMap()
+        val legsToPersist = mutableListOf<LegGeometryData>()
+
+        // Re-slice previous leg if both endpoints have trailKm
+        if (index > 0) {
+            val prevWp = wps[index - 1]
+            if (prevWp.trailKm != null) {
+                val prevLeg = TrailSlicer.buildTrailLegGeometry(
+                    fromWaypointId = prevWp.id,
+                    toWaypointId = updatedWp.id,
+                    segments = segments,
+                    fromKm = prevWp.trailKm,
+                    toKm = clampedKm,
+                    isReverse = state.isReverse
+                )
+                updatedLegs[prevLeg.legKey] = prevLeg
+                legsToPersist.add(prevLeg)
+            }
+        }
+
+        // Re-slice next leg if both endpoints have trailKm
+        if (index < wps.size - 1) {
+            val nextWp = wps[index + 1]
+            if (nextWp.trailKm != null) {
+                val nextLeg = TrailSlicer.buildTrailLegGeometry(
+                    fromWaypointId = updatedWp.id,
+                    toWaypointId = nextWp.id,
+                    segments = segments,
+                    fromKm = clampedKm,
+                    toKm = nextWp.trailKm,
+                    isReverse = state.isReverse
+                )
+                updatedLegs[nextLeg.legKey] = nextLeg
+                legsToPersist.add(nextLeg)
+            }
+        }
+
+        val kmLabel = if (finishDrag) null else String.format(Locale.GERMAN, "km %.1f", clampedKm)
+        _uiState.value = state.copy(
+            waypoints = wps,
+            legs = updatedLegs,
+            draggingWaypointId = if (finishDrag) null else waypointId,
+            draggingPinKmLabel = kmLabel,
+            movingWaypointId = if (finishDrag) null else state.movingWaypointId
+        )
+
+        if (finishDrag && legsToPersist.isNotEmpty()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                for (leg in legsToPersist) {
+                    RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg)
+                }
+            }
+        }
+        updateRouteStats()
+    }
+
+    /**
+     * Map tap:
+     * - If "Flyt punkt" mode is active (`movingWaypointId != null`), moves that waypoint to the tapped coordinates.
+     * - In TRAIL mode:
+     *   - Tapping near the trail line (<= 60 m) opens the trail tap sheet ("Start her", "Slut her", "Overnat her", "Tilføj punkt").
+     *   - Tapping off the trail (> 60 m) adds a detour stop!
+     * - In FREE mode:
+     *   - If waiting for start point tap, inserts before destination.
+     *   - Otherwise adds a new waypoint at the end.
+     */
+    fun toggleNextLegMode() {
+        val current = _uiState.value.nextLegMode
+        val next = if (current == LegMode.SNAP) LegMode.STRAIGHT else LegMode.SNAP
+        val wps = _uiState.value.waypoints.toMutableList()
+        if (wps.isNotEmpty()) {
+            val lastIdx = wps.lastIndex
+            wps[lastIdx] = wps[lastIdx].copy(legModeToNext = next)
+        }
+        _uiState.value = _uiState.value.copy(
+            nextLegMode = next,
+            waypoints = wps
+        )
+    }
+
+    fun toggleOvernightTool() {
+        val nextActive = !_uiState.value.isOvernightToolActive
+        _uiState.value = _uiState.value.copy(isOvernightToolActive = nextActive)
+    }
+
+    fun addPointAtEnd(lat: Double, lng: Double, name: String? = null) {
+        val movingId = _uiState.value.movingWaypointId
+        if (movingId != null) {
+            _uiState.value = _uiState.value.copy(movingWaypointId = null)
+            moveWaypoint(movingId, lat, lng)
+            return
+        }
+
+        val state = _uiState.value
+        if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
+            val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, lat, lng, state.isReverse)
+            if (state.isOvernightToolActive) {
+                addStopOrDetour(
+                    lat = lat,
+                    lng = lng,
+                    role = WaypointRole.OVERNIGHT,
+                    name = name ?: "Overnatning"
+                )
+                return
+            }
+            if (proj != null && proj.distanceMeters <= 60.0) {
+                _uiState.value = state.copy(tappedTrailPoint = proj)
+            } else {
+                addStopOrDetour(
+                    lat = lat,
+                    lng = lng,
+                    role = WaypointRole.VIA,
+                    name = name ?: "Stop"
+                )
+            }
+            return
+        }
+
+        val currentWps = state.waypoints.toMutableList()
+
+        // Requirement 8: Insert the next tap BEFORE the destination if waiting for start point
+        if (state.waitingForStartPointTap || (currentWps.size == 1 && currentWps.first().role == WaypointRole.END)) {
+            pushHistory()
+            val startWp = RouteWaypoint(
+                lat = lat,
+                lng = lng,
+                role = WaypointRole.START,
+                legModeToNext = state.nextLegMode,
+                name = name ?: "Start"
+            )
+            currentWps.add(0, startWp)
+            normalizeRoles(currentWps)
+            _uiState.value = _uiState.value.copy(
+                waypoints = currentWps,
+                waitingForStartPointTap = false,
+                errorMessage = null
+            )
+            if (currentWps.size >= 2) {
+                computeSingleLeg(currentWps[0], currentWps[1])
+            }
+            return
+        }
+
+        pushHistory()
+        val role = when {
+            currentWps.isEmpty() -> WaypointRole.START
+            state.isOvernightToolActive -> WaypointRole.OVERNIGHT
             else -> WaypointRole.END
         }
 
-        // If there was an existing END waypoint, change it to VIA
-        if (currentWps.isNotEmpty() && currentWps.last().role == WaypointRole.END) {
+        if (currentWps.isNotEmpty()) {
             val lastIdx = currentWps.lastIndex
-            currentWps[lastIdx] = currentWps[lastIdx].copy(role = WaypointRole.VIA)
+            val prevWpUpdated = currentWps[lastIdx].copy(
+                role = if (currentWps[lastIdx].role == WaypointRole.END) WaypointRole.VIA else currentWps[lastIdx].role,
+                legModeToNext = state.nextLegMode
+            )
+            currentWps[lastIdx] = prevWpUpdated
         }
 
         val newWp = RouteWaypoint(
             lat = lat,
             lng = lng,
             role = role,
-            legModeToNext = LegMode.SNAP,
+            legModeToNext = state.nextLegMode,
             name = name
         )
         currentWps.add(newWp)
 
         _uiState.value = _uiState.value.copy(waypoints = currentWps)
 
-        // Route ONLY the new leg from previous waypoint to new waypoint
         if (currentWps.size >= 2) {
             val prevWp = currentWps[currentWps.size - 2]
             computeSingleLeg(prevWp, newWp)
@@ -319,13 +1309,18 @@ class RouteBuilderViewModel(
      * Long-press on the line: Insert a via point at the tapped location.
      */
     fun insertViaPointOnLine(lat: Double, lng: Double) {
-        val wps = _uiState.value.waypoints
+        val state = _uiState.value
+        if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
+            addStopOrDetour(lat, lng, WaypointRole.VIA, "Via")
+            return
+        }
+
+        val wps = state.waypoints
         if (wps.size < 2) {
             addPointAtEnd(lat, lng)
             return
         }
 
-        // Find the closest leg segment to insert into
         var bestIndex = -1
         var minDistanceM = Double.MAX_VALUE
 
@@ -368,41 +1363,64 @@ class RouteBuilderViewModel(
         normalizeRoles(currentWps)
         _uiState.value = _uiState.value.copy(waypoints = currentWps)
 
-        // Re-route ONLY the two affected legs: (index-1 -> index) and (index -> index+1)
         val prevWp = currentWps[index - 1]
         val nextWp = currentWps[index + 1]
 
-        // Remove old replaced leg
         val oldKey = "${prevWp.id}_to_${nextWp.id}"
         val updatedLegs = _uiState.value.legs.toMutableMap()
         updatedLegs.remove(oldKey)
-        _uiState.value = _uiState.value.copy(legs = updatedLegs)
+        val updatedFailed = _uiState.value.failedLegs.toMutableMap()
+        updatedFailed.remove(oldKey)
+        _uiState.value = _uiState.value.copy(legs = updatedLegs, failedLegs = updatedFailed)
 
         computeSingleLeg(prevWp, newWp)
         computeSingleLeg(newWp, nextWp)
     }
 
     /**
-     * Waypoint dragged/moved: re-routes ONLY the legs touching this changed point.
+     * Waypoint dragged/moved:
+     * - In TRAIL mode, if the waypoint has `trailKm`, keeps it on the trail (Requirement C) and slices TRAIL legs immediately without network calls.
+     * - If the waypoint is an off-trail detour pin in TRAIL mode, recomputes its detour.
+     * - In FREE mode, re-routes ONLY the legs touching this changed point.
      */
     fun moveWaypoint(waypointId: String, newLat: Double, newLng: Double) {
-        val wps = _uiState.value.waypoints.toMutableList()
+        val state = _uiState.value
+        val wps = state.waypoints.toMutableList()
         val index = wps.indexOfFirst { it.id == waypointId }
         if (index == -1) return
 
-        pushHistory()
         val oldWp = wps[index]
+        if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
+            if (oldWp.trailKm != null) {
+                val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, newLat, newLng, state.isReverse)
+                if (proj != null) {
+                    moveWaypointOnTrailToKm(waypointId, proj.trailKm, finishDrag = true)
+                    return
+                }
+            } else {
+                // Moving an off-trail detour pin in TRAIL mode: remove old detour and re-add at new position
+                val role = oldWp.role
+                val name = oldWp.name
+                val poiId = oldWp.linkedPoiId
+                deleteWaypoint(waypointId)
+                addStopOrDetour(newLat, newLng, role, name, poiId)
+                return
+            }
+        }
+
+        pushHistory()
         val updatedWp = oldWp.copy(lat = newLat, lng = newLng)
         wps[index] = updatedWp
-        _uiState.value = _uiState.value.copy(waypoints = wps)
+        _uiState.value = _uiState.value.copy(
+            waypoints = wps,
+            movingWaypointId = null,
+            draggingPinKmLabel = null
+        )
 
-        // Only re-route legs touching index:
-        // 1. Previous leg (index - 1 to index)
         if (index > 0) {
             val prevWp = wps[index - 1]
             computeSingleLeg(prevWp, updatedWp)
         }
-        // 2. Next leg (index to index + 1)
         if (index < wps.size - 1) {
             val nextWp = wps[index + 1]
             computeSingleLeg(updatedWp, nextWp)
@@ -411,28 +1429,53 @@ class RouteBuilderViewModel(
 
     /**
      * Delete waypoint at index.
+     * Requirement D: In TRAIL mode, removing a detour pin removes its hidden helpers and restores the plain TRAIL leg.
      */
     fun deleteWaypoint(waypointId: String) {
-        val wps = _uiState.value.waypoints.toMutableList()
+        val state = _uiState.value
+        val wps = state.waypoints.toMutableList()
         val index = wps.indexOfFirst { it.id == waypointId }
         if (index == -1) return
 
         pushHistory()
+
+        if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
+            val (newWps, newLegs) = TrailSlicer.removeDetourAndRestoreTrailLeg(
+                waypoints = wps,
+                legs = state.legs,
+                removedWaypointId = waypointId,
+                segments = state.baseTrailSegments,
+                isReverse = state.isReverse
+            )
+            val mutableWps = newWps.toMutableList()
+            normalizeRoles(mutableWps)
+            _uiState.value = state.copy(
+                waypoints = mutableWps,
+                legs = newLegs,
+                selectedWaypointId = null
+            )
+            updateRouteStats()
+            return
+        }
+
         val removed = wps.removeAt(index)
         normalizeRoles(wps)
 
-        // Remove legs touching the removed waypoint
         val currentLegs = _uiState.value.legs.toMutableMap()
         val keysToRemove = currentLegs.keys.filter { it.contains(removed.id) }
         for (k in keysToRemove) currentLegs.remove(k)
 
+        val currentFailed = _uiState.value.failedLegs.toMutableMap()
+        val failedKeysToRemove = currentFailed.keys.filter { it.contains(removed.id) }
+        for (k in failedKeysToRemove) currentFailed.remove(k)
+
         _uiState.value = _uiState.value.copy(
             waypoints = wps,
             legs = currentLegs,
+            failedLegs = currentFailed,
             selectedWaypointId = null
         )
 
-        // If between two waypoints, route the new connection (index-1 to index)
         if (index > 0 && index < wps.size) {
             computeSingleLeg(wps[index - 1], wps[index])
         } else {
@@ -453,6 +1496,7 @@ class RouteBuilderViewModel(
         val newRole = if (current.role == WaypointRole.OVERNIGHT) WaypointRole.VIA else WaypointRole.OVERNIGHT
         wps[index] = current.copy(role = newRole)
         _uiState.value = _uiState.value.copy(waypoints = wps)
+        updateRouteStats()
     }
 
     /**
@@ -469,8 +1513,59 @@ class RouteBuilderViewModel(
         wps[index] = current.copy(legModeToNext = newMode)
         _uiState.value = _uiState.value.copy(waypoints = wps)
 
-        // Re-route this single leg
         computeSingleLeg(wps[index], wps[index + 1])
+    }
+
+    /**
+     * Requirement 6: "Prøv igen" re-runs only that failed leg.
+     */
+    fun retryFailedLeg(legKey: String) {
+        val parts = legKey.split("_to_")
+        if (parts.size != 2) return
+        val wps = _uiState.value.waypoints
+        val fromWp = wps.find { it.id == parts[0] } ?: return
+        val toWp = wps.find { it.id == parts[1] } ?: return
+        computeSingleLeg(fromWp, toWp)
+    }
+
+    /**
+     * Requirement 6: "Tegn lige linje" sets only that failed leg to STRAIGHT and computes it.
+     */
+    fun setFailedLegStraight(legKey: String) {
+        val parts = legKey.split("_to_")
+        if (parts.size != 2) return
+        val wps = _uiState.value.waypoints.toMutableList()
+        val fromIdx = wps.indexOfFirst { it.id == parts[0] }
+        val toIdx = wps.indexOfFirst { it.id == parts[1] }
+        if (fromIdx == -1 || toIdx == -1) return
+
+        pushHistory()
+        wps[fromIdx] = wps[fromIdx].copy(legModeToNext = LegMode.STRAIGHT)
+        val updatedFailed = _uiState.value.failedLegs.toMutableMap()
+        updatedFailed.remove(legKey)
+        _uiState.value = _uiState.value.copy(
+            waypoints = wps,
+            failedLegs = updatedFailed,
+            errorMessage = null
+        )
+        computeSingleLeg(wps[fromIdx], wps[toIdx])
+    }
+
+    /**
+     * Requirement 6: "Flyt punkt" selects the endpoint of the failed leg for moving (by tap or drag).
+     */
+    fun activateMovePointForFailedLeg(legKey: String) {
+        val parts = legKey.split("_to_")
+        if (parts.size != 2) return
+        val targetId = parts[1]
+        _uiState.value = _uiState.value.copy(
+            selectedWaypointId = targetId,
+            movingWaypointId = targetId,
+            errorMessage = "Tryk på kortet eller træk markøren for at flytte punktet"
+        )
+        viewModelScope.launch {
+            _userMessage.emit("Tryk på kortet eller træk markøren for at flytte punktet")
+        }
     }
 
     /**
@@ -484,41 +1579,86 @@ class RouteBuilderViewModel(
         pushHistory()
         wps[index] = wps[index].copy(name = newName.ifBlank { null })
         _uiState.value = _uiState.value.copy(waypoints = wps)
+        updateRouteStats()
     }
 
     /**
-     * "Vend rute" - Reverses the route and re-routes legs.
+     * Requirement C: "Vend rute" - Reverses the direction (`isReverse` in TRAIL mode) and recomputes everything.
      */
     fun reverseRoute() {
-        val wps = _uiState.value.waypoints
+        val state = _uiState.value
+        val wps = state.waypoints
         if (wps.size < 2) return
 
         pushHistory()
+        if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
+            val newReverse = !state.isReverse
+            val totalTrailKm = TrailSlicer.totalTrailKm(state.baseTrailSegments)
+            val reversed = wps.asReversed().mapIndexed { idx, wp ->
+                val newTrailKm = wp.trailKm?.let { (totalTrailKm - it).coerceIn(0.0, totalTrailKm) }
+                wp.copy(trailKm = newTrailKm)
+            }.toMutableList()
+            normalizeRoles(reversed)
+            // Update legModeToNext for reversed sequence: if both endpoints have trailKm, legMode is TRAIL; otherwise SNAP
+            for (i in 0 until reversed.size - 1) {
+                val from = reversed[i]
+                val to = reversed[i + 1]
+                val modeToNext = if (from.trailKm != null && to.trailKm != null) LegMode.TRAIL else LegMode.SNAP
+                reversed[i] = from.copy(legModeToNext = modeToNext)
+            }
+
+            val newMarkers = TrailSlicer.generateKmMarkers(state.baseTrailSegments, stepKm = 5.0, isReverse = newReverse)
+            _uiState.value = state.copy(
+                isReverse = newReverse,
+                baseTrailKmMarkers = newMarkers,
+                waypoints = reversed,
+                legs = emptyMap(),
+                failedLegs = emptyMap()
+            )
+            recomputeAllLegs()
+            return
+        }
+
         val reversed = wps.asReversed().map { it.copy() }.toMutableList()
         normalizeRoles(reversed)
 
         _uiState.value = _uiState.value.copy(
             waypoints = reversed,
-            legs = emptyMap()
+            legs = emptyMap(),
+            failedLegs = emptyMap()
         )
 
         recomputeAllLegs()
     }
 
     /**
-     * "Ryd" - Clears all waypoints and legs.
+     * "Ryd" - Clears all waypoints and legs (or resets to full trail in TRAIL mode).
      */
     fun clearRoute() {
+        val state = _uiState.value
+        if (state.mode == PlannerMode.TRAIL && state.baseTrailId != null) {
+            pushHistory()
+            initializeTrailMode(state.baseTrailId)
+            return
+        }
+
         pushHistory()
         _uiState.value = _uiState.value.copy(
             waypoints = emptyList(),
             legs = emptyMap(),
             loadingLegKeys = emptySet(),
-            stats = RouteStats(0.0, 0.0, 0.0, 100.0, 0.0),
+            failedLegs = emptyMap(),
+            waitingForStartPointTap = false,
+            movingWaypointId = null,
+            stats = RouteStats(0.0, 0.0, 0.0, null, 0.0, hasWayInfo = false),
             timeEstimateFormatted = "0 min",
             gpxOriginalPoints = emptyList(),
             alternatives = emptyList(),
-            selectedWaypointId = null
+            selectedWaypointId = null,
+            errorMessage = null,
+            plannedStages = emptyList(),
+            daySummaries = emptyList(),
+            dayBoundaryWalkKms = emptyList()
         )
     }
 
@@ -526,6 +1666,18 @@ class RouteBuilderViewModel(
      * "Fra min position" - Sets START at current GPS fix.
      */
     fun setStartAtGps(lat: Double, lng: Double) {
+        val state = _uiState.value
+        if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
+            val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, lat, lng, state.isReverse)
+            if (proj != null) {
+                val startWp = state.waypoints.firstOrNull { it.role == WaypointRole.START }
+                if (startWp != null) {
+                    moveWaypointOnTrailToKm(startWp.id, proj.trailKm, finishDrag = true)
+                    return
+                }
+            }
+        }
+
         pushHistory()
         val wps = _uiState.value.waypoints.toMutableList()
         val startWp = RouteWaypoint(
@@ -538,7 +1690,6 @@ class RouteBuilderViewModel(
         if (wps.isEmpty()) {
             wps.add(startWp)
         } else {
-            // Replace first or prepend
             if (wps.first().role == WaypointRole.START) {
                 wps[0] = startWp
             } else {
@@ -546,7 +1697,11 @@ class RouteBuilderViewModel(
             }
         }
         normalizeRoles(wps)
-        _uiState.value = _uiState.value.copy(waypoints = wps)
+        _uiState.value = _uiState.value.copy(
+            waypoints = wps,
+            waitingForStartPointTap = false,
+            errorMessage = null
+        )
 
         if (wps.size >= 2) {
             computeSingleLeg(wps[0], wps[1])
@@ -571,42 +1726,183 @@ class RouteBuilderViewModel(
         if (_uiState.value.options == newOptions) return
         pushHistory()
         _uiState.value = _uiState.value.copy(options = newOptions)
-        // When options change, recompute all legs that use SNAP
         recomputeAllLegs()
+    }
+
+    // --- Trip Settings Sheet ("Indstillinger for turen") (Requirement A) ---
+
+    fun setSheetHeightState(state: SheetHeightState) {
+        _uiState.value = _uiState.value.copy(sheetHeightState = state)
+    }
+
+    fun openTripSettingsSheet() {
+        _uiState.value = _uiState.value.copy(showTripSettingsSheet = true)
+    }
+
+    fun dismissTripSettingsSheet() {
+        _uiState.value = _uiState.value.copy(showTripSettingsSheet = false)
+    }
+
+    fun updateTripSettings(
+        paceKmh: Double,
+        dailyTargetKm: Double,
+        maxDetourKm: Double,
+        startHour: Int,
+        startDateEpochMs: Long,
+        overnightPref: String
+    ) {
+        val parsedPref = try {
+            OvernightType.valueOf(overnightPref)
+        } catch (_: Exception) {
+            OvernightType.BOTH
+        }
+        val formattedTime = String.format(Locale.US, "%02d:00", startHour.coerceIn(0, 23))
+        updateTripSettings(
+            paceKmh = paceKmh,
+            dailyTargetKm = dailyTargetKm,
+            startDateMillis = startDateEpochMs,
+            startTimeStr = formattedTime,
+            maxDetourKm = maxDetourKm,
+            overnightPreference = parsedPref
+        )
+    }
+
+    fun updateTripSettings(
+        paceKmh: Double,
+        dailyTargetKm: Double,
+        startDateMillis: Long,
+        startTimeStr: String,
+        maxDetourKm: Double,
+        overnightPreference: OvernightType = _uiState.value.overnightPreference
+    ) {
+        pacingSpeedKmh = paceKmh.coerceIn(2.0, 8.0)
+        this.startTimeStr = startTimeStr
+        _uiState.value = _uiState.value.copy(
+            paceKmh = pacingSpeedKmh,
+            dailyTargetKm = dailyTargetKm.coerceIn(5.0, 50.0),
+            startDateMillis = startDateMillis,
+            startTimeStr = startTimeStr,
+            maxDetourKm = maxDetourKm.coerceIn(0.2, 10.0),
+            overnightPreference = overnightPreference,
+            showTripSettingsSheet = false
+        )
+        viewModelScope.launch {
+            settingsRepository.setMitTempoKmh(pacingSpeedKmh)
+            settingsRepository.setStartTime(startTimeStr)
+            settingsRepository.setMaxDetourKm(maxDetourKm.coerceIn(0.2, 10.0))
+            settingsRepository.setDailyTargetKm(dailyTargetKm.coerceIn(5.0, 50.0))
+        }
+        nightWeatherCache.clear()
+        updateRouteStats()
     }
 
     /**
      * Computes a single leg between two waypoints.
+     * Requirement C: Legs between two pins that both have trailKm are TRAIL legs:
+     * their geometry is cut from the stored trail geometry between the two km values,
+     * respecting segment boundaries (FERRY segments stay FERRY, gaps stay gaps). No routing call!
      */
     private fun computeSingleLeg(from: RouteWaypoint, to: RouteWaypoint) {
         val legKey = "${from.id}_to_${to.id}"
+        val state = _uiState.value
+
+        // Requirement C: If both pins have trailKm and we have baseTrailSegments, slice TRAIL leg immediately!
+        if (from.trailKm != null && to.trailKm != null && state.baseTrailSegments.isNotEmpty()) {
+            val trailLeg = TrailSlicer.buildTrailLegGeometry(
+                fromWaypointId = from.id,
+                toWaypointId = to.id,
+                segments = state.baseTrailSegments,
+                fromKm = from.trailKm,
+                toKm = to.trailKm,
+                isReverse = state.isReverse
+            )
+            val updatedLegs = _uiState.value.legs.toMutableMap()
+            updatedLegs[legKey] = trailLeg
+            val updatedFailed = _uiState.value.failedLegs.toMutableMap()
+            updatedFailed.remove(legKey)
+            val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet()
+            updatedLoading.remove(legKey)
+
+            _uiState.value = _uiState.value.copy(
+                legs = updatedLegs,
+                failedLegs = updatedFailed,
+                loadingLegKeys = updatedLoading
+            )
+            viewModelScope.launch(Dispatchers.IO) {
+                RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, trailLeg)
+            }
+            updateRouteStats()
+            return
+        }
+
         val legMode = from.legModeToNext
 
         if (legMode == LegMode.STRAIGHT) {
-            // Compute direct straight line
-            val pts = listOf(
-                RoutePoint3D(from.lat, from.lng, 15.0),
-                RoutePoint3D(to.lat, to.lng, 15.0)
-            )
-            val distKm = haversineM(from.lat, from.lng, to.lat, to.lng) / 1000.0
-            val straightLeg = LegGeometryData(
-                fromWaypointId = from.id,
-                toWaypointId = to.id,
-                legMode = LegMode.STRAIGHT,
-                points = pts,
-                lengthKm = distKm,
-                ascentM = 0.0,
-                descentM = 0.0,
-                pathSharePct = 0.0,
-                roadKm = 0.0,
-                hasAccessWarning = false,
-                sourceName = "Straight"
+            val currentLoading = _uiState.value.loadingLegKeys.toMutableSet()
+            currentLoading.add(legKey)
+            val updatedFailed = _uiState.value.failedLegs.toMutableMap()
+            updatedFailed.remove(legKey)
+            _uiState.value = _uiState.value.copy(
+                loadingLegKeys = currentLoading,
+                failedLegs = updatedFailed
             )
 
-            val updatedLegs = _uiState.value.legs.toMutableMap()
-            updatedLegs[legKey] = straightLeg
-            _uiState.value = _uiState.value.copy(legs = updatedLegs)
-            updateRouteStats()
+            viewModelScope.launch {
+                val (fromEle, toEle) = withContext(Dispatchers.IO) {
+                    try {
+                        val resp = weatherService.getElevations(
+                            latitudes = "${from.lat},${to.lat}",
+                            longitudes = "${from.lng},${to.lng}"
+                        )
+                        val list = resp.elevation
+                        if (list != null && list.size >= 2) {
+                            Pair(list[0], list[1])
+                        } else {
+                            Pair(null, null)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Open-Meteo elevation lookup failed for straight leg: ${e.message}")
+                        Pair(null, null)
+                    }
+                }
+
+                val pts = listOf(
+                    RoutePoint3D(from.lat, from.lng, fromEle),
+                    RoutePoint3D(to.lat, to.lng, toEle)
+                )
+                val distKm = haversineM(from.lat, from.lng, to.lat, to.lng) / 1000.0
+                val ascent = if (fromEle != null && toEle != null && toEle > fromEle) toEle - fromEle else 0.0
+                val descent = if (fromEle != null && toEle != null && fromEle > toEle) fromEle - toEle else 0.0
+
+                val straightLeg = LegGeometryData(
+                    fromWaypointId = from.id,
+                    toWaypointId = to.id,
+                    legMode = LegMode.STRAIGHT,
+                    points = pts,
+                    lengthKm = distKm,
+                    ascentM = ascent,
+                    descentM = descent,
+                    pathSharePct = null,
+                    roadKm = 0.0,
+                    hasAccessWarning = false,
+                    sourceName = "Straight",
+                    wayInfo = emptyList()
+                )
+
+                val doneLoading = _uiState.value.loadingLegKeys.toMutableSet()
+                doneLoading.remove(legKey)
+                val updatedLegs = _uiState.value.legs.toMutableMap()
+                updatedLegs[legKey] = straightLeg
+                _uiState.value = _uiState.value.copy(
+                    legs = updatedLegs,
+                    loadingLegKeys = doneLoading,
+                    isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse()
+                )
+                withContext(Dispatchers.IO) {
+                    RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, straightLeg)
+                }
+                updateRouteStats()
+            }
             return
         }
 
@@ -628,20 +1924,10 @@ class RouteBuilderViewModel(
 
                 when (result) {
                     is RouteLegResult.Success -> {
-                        // Calculate path share % from perPointWayInfo
-                        var pathCount = 0
-                        var roadCount = 0
-                        for (w in result.perPointWayInfo) {
-                            val hw = w.highway ?: ""
-                            if (hw == "path" || hw == "footway" || hw == "bridleway" || hw == "track") {
-                                pathCount++
-                            } else if (hw == "residential" || hw == "unclassified" || hw == "tertiary" || hw == "secondary" || hw == "primary") {
-                                roadCount++
-                            }
-                        }
-                        val totalCount = result.perPointWayInfo.size
-                        val pathShare = if (totalCount > 0) (pathCount.toDouble() / totalCount * 100.0).coerceIn(0.0, 100.0) else 80.0
-                        val roadKm = if (totalCount > 0) (roadCount.toDouble() / totalCount * result.lengthKm) else 0.0
+                        val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(
+                            result.points,
+                            result.perPointWayInfo
+                        )
 
                         val legData = LegGeometryData(
                             fromWaypointId = from.id,
@@ -655,19 +1941,23 @@ class RouteBuilderViewModel(
                             roadKm = roadKm,
                             hasAccessWarning = false,
                             sourceName = result.sourceName,
-                            fetchedAt = result.fetchedAt
+                            fetchedAt = result.fetchedAt,
+                            wayInfo = result.perPointWayInfo
                         )
 
                         val updatedLegs = _uiState.value.legs.toMutableMap()
                         updatedLegs[legKey] = legData
+                        val updatedFailed = _uiState.value.failedLegs.toMutableMap()
+                        updatedFailed.remove(legKey)
 
                         _uiState.value = _uiState.value.copy(
                             legs = updatedLegs,
+                            failedLegs = updatedFailed,
                             loadingLegKeys = updatedLoading,
-                            errorMessage = null
+                            isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse(),
+                            errorMessage = if (updatedFailed.isEmpty()) null else _uiState.value.errorMessage
                         )
 
-                        // Save isolated leg in storage
                         withContext(Dispatchers.IO) {
                             RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, legData)
                         }
@@ -675,43 +1965,46 @@ class RouteBuilderViewModel(
                         updateRouteStats()
                     }
                     is RouteLegResult.ServerBusy -> {
-                        _uiState.value = _uiState.value.copy(
-                            loadingLegKeys = updatedLoading,
-                            errorMessage = result.message
-                        )
-                        _userMessage.emit(result.message)
+                        recordFailedLeg(legKey, result.message, updatedLoading)
                     }
                     is RouteLegResult.Offline -> {
-                        _uiState.value = _uiState.value.copy(
-                            loadingLegKeys = updatedLoading,
-                            errorMessage = result.message
-                        )
-                        _userMessage.emit(result.message)
+                        recordFailedLeg(legKey, result.message, updatedLoading)
                     }
                     is RouteLegResult.NoRoute -> {
-                        _uiState.value = _uiState.value.copy(
-                            loadingLegKeys = updatedLoading,
-                            errorMessage = "Ingen rute fundet på stinetværket for denne etape"
-                        )
-                        _userMessage.emit("Ingen rute fundet - prøv at flytte punktet eller skift til lige linje")
+                        recordFailedLeg(legKey, result.message, updatedLoading)
                     }
                     is RouteLegResult.Failure -> {
-                        _uiState.value = _uiState.value.copy(
-                            loadingLegKeys = updatedLoading,
-                            errorMessage = result.message
-                        )
-                        _userMessage.emit("Ruteberegningsfejl: ${result.message}")
+                        recordFailedLeg(legKey, result.message, updatedLoading)
                     }
                 }
             } catch (e: Exception) {
                 val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet()
                 updatedLoading.remove(legKey)
-                _uiState.value = _uiState.value.copy(
-                    loadingLegKeys = updatedLoading,
-                    errorMessage = e.message
-                )
+                val daMsg = BRouterOnlineEngine.translateBRouterError(e.message)
+                recordFailedLeg(legKey, daMsg, updatedLoading)
             }
         }
+    }
+
+    private suspend fun recordFailedLeg(
+        legKey: String,
+        danishMessage: String,
+        updatedLoading: Set<String>
+    ) {
+        val updatedLegs = _uiState.value.legs.toMutableMap()
+        updatedLegs.remove(legKey)
+        val updatedFailed = _uiState.value.failedLegs.toMutableMap()
+        updatedFailed[legKey] = danishMessage
+
+        _uiState.value = _uiState.value.copy(
+            legs = updatedLegs,
+            failedLegs = updatedFailed,
+            loadingLegKeys = updatedLoading,
+            isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse(),
+            errorMessage = danishMessage
+        )
+        _userMessage.emit(danishMessage)
+        updateRouteStats()
     }
 
     private fun recomputeAllLegs() {
@@ -726,15 +2019,22 @@ class RouteBuilderViewModel(
     private fun updateRouteStats() {
         val wps = _uiState.value.waypoints
         val orderedLegs = mutableListOf<LegGeometryData>()
+        val dayBoundaries = mutableListOf<Double>()
+        var cumulativeKm = 0.0
         for (i in 0 until wps.size - 1) {
             val key = "${wps[i].id}_to_${wps[i + 1].id}"
-            _uiState.value.legs[key]?.let { orderedLegs.add(it) }
+            val leg = _uiState.value.legs[key]
+            if (leg != null) {
+                orderedLegs.add(leg)
+                cumulativeKm += leg.lengthKm
+            }
+            if (wps[i + 1].role == WaypointRole.OVERNIGHT && !wps[i + 1].isHelper) {
+                dayBoundaries.add(cumulativeKm)
+            }
         }
 
         val stats = RouteGeometryStorageManager.calculateStats(orderedLegs)
 
-        // Time estimate formula (Requirement D):
-        // hours = (totalKm / mitTempo) + (ascentM / 10.0 / 60.0)
         val speed = if (pacingSpeedKmh > 0.5) pacingSpeedKmh else 4.5
         val travelHours = (stats.totalKm / speed) + (stats.ascentM / 10.0 / 60.0)
         val totalMinutes = (travelHours * 60).roundToInt()
@@ -747,8 +2047,10 @@ class RouteBuilderViewModel(
             "ca. $totalMinutes min"
         }
 
-        val isOffline = if (orderedLegs.isNotEmpty()) {
-            orderedLegs.all { it.sourceName.contains("offline", ignoreCase = true) }
+        val isOffline = if (_uiState.value.mode == PlannerMode.TRAIL && orderedLegs.all { it.legMode == LegMode.TRAIL }) {
+            true
+        } else if (orderedLegs.isNotEmpty()) {
+            orderedLegs.all { it.sourceName.contains("offline", ignoreCase = true) || it.legMode == LegMode.TRAIL }
         } else if (wps.size >= 2) {
             (0 until wps.size - 1).all { i ->
                 brouterStorageManager.areSegmentsAvailableForLeg(
@@ -767,11 +2069,78 @@ class RouteBuilderViewModel(
             stats = stats,
             timeEstimateFormatted = timeStr,
             routeQuality = quality,
+            dayBoundaryWalkKms = dayBoundaries,
             isOfflineRoute = isOffline,
-            routeEngineModeLabel = engineLabel
+            routeEngineModeLabel = engineLabel,
+            isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse()
         )
+        loadAccessPolygonsForRouteCorridor()
         evaluateAccessRules()
         analyzeSupplyGaps()
+        updateStagesAndNearbyPois()
+    }
+
+    /**
+     * Requirement 9: Load access polygons in tiles of 0.1 x 0.1 degrees for the route corridor
+     * (route bounding box + 1 km) after each route change.
+     */
+    private fun loadAccessPolygonsForRouteCorridor() {
+        val wps = _uiState.value.waypoints
+        val allPts = mutableListOf<RoutePoint3D>()
+        for (i in 0 until wps.size - 1) {
+            val key = "${wps[i].id}_to_${wps[i + 1].id}"
+            _uiState.value.legs[key]?.points?.let { allPts.addAll(it) }
+        }
+        if (allPts.isEmpty()) {
+            wps.forEach { allPts.add(RoutePoint3D(it.lat, it.lng)) }
+        }
+        if (allPts.isEmpty()) return
+
+        // 1 km buffer (~0.009 deg lat, ~0.016 deg lng in Denmark)
+        val minLat = allPts.minOf { it.lat } - 0.009
+        val maxLat = allPts.maxOf { it.lat } + 0.009
+        val minLng = allPts.minOf { it.lng } - 0.016
+        val maxLng = allPts.maxOf { it.lng } + 0.016
+
+        corridorAccessJob?.cancel()
+        corridorAccessJob = viewModelScope.launch {
+            try {
+                val corridorPolys = repository.getAccessPolygons(minLat, maxLat, minLng, maxLng)
+                val merged = (_uiState.value.accessPolygons + corridorPolys).distinctBy { it.id }
+                _uiState.value = _uiState.value.copy(accessPolygons = merged)
+                evaluateAccessRules()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed loading corridor access polygons: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Requirement 9: Load access polygons in tiles of 0.1 x 0.1 degrees for the visible map area
+     * when the Adgang layer is on and zoom >= 11 (debounced 600 ms after the map stops moving).
+     */
+    fun onMapCameraIdle(
+        minLat: Double,
+        maxLat: Double,
+        minLng: Double,
+        maxLng: Double,
+        zoom: Double,
+        isMapLayerAccessEnabled: Boolean = true
+    ) {
+        mapCameraAccessJob?.cancel()
+        if (!_uiState.value.isAccessLayerVisible || !isMapLayerAccessEnabled || zoom < 11.0) return
+
+        mapCameraAccessJob = viewModelScope.launch {
+            delay(600L)
+            try {
+                val visiblePolys = repository.getAccessPolygons(minLat, maxLat, minLng, maxLng)
+                val merged = (_uiState.value.accessPolygons + visiblePolys).distinctBy { it.id }
+                _uiState.value = _uiState.value.copy(accessPolygons = merged)
+                evaluateAccessRules()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed loading visible map access polygons: ${e.message}")
+            }
+        }
     }
 
     /**
@@ -791,14 +2160,10 @@ class RouteBuilderViewModel(
             for (altIdx in 1..3) {
                 when (val res = routingEngine.routeLeg(fromCoord, toCoord, _uiState.value.options, alternative = altIdx)) {
                     is RouteLegResult.Success -> {
-                        var pathCount = 0
-                        for (w in res.perPointWayInfo) {
-                            val hw = w.highway ?: ""
-                            if (hw == "path" || hw == "footway" || hw == "bridleway" || hw == "track") pathCount++
-                        }
-                        val share = if (res.perPointWayInfo.isNotEmpty()) {
-                            (pathCount.toDouble() / res.perPointWayInfo.size * 100.0).coerceIn(0.0, 100.0)
-                        } else 75.0
+                        val (share, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(
+                            res.points,
+                            res.perPointWayInfo
+                        )
 
                         altList.add(
                             RouteAlternativeInfo(
@@ -806,7 +2171,9 @@ class RouteBuilderViewModel(
                                 lengthKm = res.lengthKm,
                                 ascentM = res.ascentM,
                                 pathSharePct = share,
-                                points = res.points
+                                roadKm = roadKm,
+                                points = res.points,
+                                wayInfo = res.perPointWayInfo
                             )
                         )
                     }
@@ -828,7 +2195,6 @@ class RouteBuilderViewModel(
      */
     fun selectAlternative(alt: RouteAlternativeInfo) {
         pushHistory()
-        // Simplify alternative points to start, intermediate via, end
         val wps = _uiState.value.waypoints
         if (wps.size < 2) return
 
@@ -844,8 +2210,9 @@ class RouteBuilderViewModel(
             ascentM = alt.ascentM,
             descentM = 0.0,
             pathSharePct = alt.pathSharePct,
-            roadKm = alt.lengthKm * (1.0 - alt.pathSharePct / 100.0),
-            sourceName = "BRouter Alt ${alt.index}"
+            roadKm = alt.roadKm ?: 0.0,
+            sourceName = "BRouter Alt ${alt.index}",
+            wayInfo = alt.wayInfo
         )
 
         val updatedWps = listOf(startWp, endWp)
@@ -854,6 +2221,7 @@ class RouteBuilderViewModel(
         _uiState.value = _uiState.value.copy(
             waypoints = updatedWps,
             legs = updatedLegs,
+            failedLegs = emptyMap(),
             alternatives = emptyList()
         )
 
@@ -886,6 +2254,7 @@ class RouteBuilderViewModel(
                     routeName = suggestedName,
                     waypoints = result.waypoints,
                     legs = emptyMap(),
+                    failedLegs = emptyMap(),
                     gpxOriginalPoints = result.originalPoints
                 )
 
@@ -899,9 +2268,28 @@ class RouteBuilderViewModel(
     }
 
     /**
-     * Save custom route to Room (Requirement E).
+     * Requirement G: Gem builds the TripPlan, the stages (from OVERNIGHT pins) and the PlannedRoute
+     * in ONE place (PlannedRouteRepository) from the composed legs.
+     * Navigation, offline download, GPX export and recording use that PlannedRoute.
      */
-    fun saveRoute(onSuccess: (Long) -> Unit) {
+    fun saveRoute(onSuccess: (Long) -> Unit, forceResetProgress: Boolean = false) {
+        saveRouteInternal(
+            onSuccess = { savedRouteId, _ -> onSuccess(savedRouteId) },
+            forceResetProgress = forceResetProgress
+        )
+    }
+
+    fun saveAndStartNavigation(onNavigateToNavigation: (String) -> Unit) {
+        saveRouteInternal(
+            onSuccess = { _, navId -> onNavigateToNavigation(navId) },
+            forceResetProgress = true
+        )
+    }
+
+    private fun saveRouteInternal(
+        onSuccess: (Long, String) -> Unit,
+        forceResetProgress: Boolean = false
+    ) {
         val currentState = _uiState.value
         val wps = currentState.waypoints
         if (wps.size < 2) {
@@ -909,17 +2297,32 @@ class RouteBuilderViewModel(
             return
         }
 
+        pendingSaveCallback = { savedId ->
+            val navId = _uiState.value.baseTrailId ?: "route_$savedId"
+            onSuccess(savedId, navId)
+        }
         _uiState.value = _uiState.value.copy(isSaving = true)
 
         viewModelScope.launch {
             try {
-                // Determine default name if empty: "<start place> - <end place>"
+                val existingId = currentState.routeId
+                if (existingId != null && existingId > 0L && !forceResetProgress) {
+                    val hasProgress = repository.hasWalkingProgressForCustomRoute(existingId)
+                    if (hasProgress) {
+                        _uiState.value = _uiState.value.copy(
+                            isSaving = false,
+                            showResetProgressDialog = true
+                        )
+                        return@launch
+                    }
+                }
+
                 val startName = wps.first().name ?: "Start"
                 val endName = wps.last().name ?: "Slut"
-                val finalName = if (currentState.routeName.isNotBlank()) {
-                    currentState.routeName
-                } else {
-                    "$startName - $endName"
+                val finalName = when {
+                    currentState.routeName.isNotBlank() -> currentState.routeName
+                    currentState.baseTrail != null -> currentState.baseTrail.name
+                    else -> "$startName - $endName"
                 }
 
                 val optionsJson = JSONObject().apply {
@@ -932,7 +2335,7 @@ class RouteBuilderViewModel(
                 val now = System.currentTimeMillis()
 
                 val entity = CustomRouteEntity(
-                    id = currentState.routeId ?: 0L,
+                    id = existingId ?: 0L,
                     name = finalName,
                     createdAt = now,
                     updatedAt = now,
@@ -942,34 +2345,106 @@ class RouteBuilderViewModel(
                     ascentM = currentState.stats.ascentM,
                     descentM = currentState.stats.descentM,
                     pathSharePct = currentState.stats.pathSharePct ?: 0.0,
-                    roadKm = currentState.stats.roadKm,
+                    roadKm = currentState.stats.roadKm ?: 0.0,
                     geometryFile = geometryFileName,
-                    sourceName = "Rutebygger",
-                    fetchedAt = now
+                    sourceName = "Ruteplanlægger",
+                    fetchedAt = now,
+                    baseTrailId = currentState.baseTrailId,
+                    isReverse = currentState.isReverse
                 )
 
+                // Ensure all active legs are written to geometryFileName
+                val orderedLegs = mutableListOf<LegGeometryData>()
+                for (i in 0 until wps.size - 1) {
+                    val key = "${wps[i].id}_to_${wps[i + 1].id}"
+                    currentState.legs[key]?.let { orderedLegs.add(it) }
+                }
+                withContext(Dispatchers.IO) {
+                    for (leg in orderedLegs) {
+                        RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg)
+                    }
+                }
+
                 val savedId = repository.saveCustomRoute(entity)
-                _uiState.value = _uiState.value.copy(isSaving = false, routeId = savedId)
-                _userMessage.emit("Ruten er gemt under Gemte")
-                onSuccess(savedId)
+                val savedEntity = entity.copy(id = savedId)
+
+                // Build stages and PlannedRoute in ONE place (PlannedRouteRepository) and save TripPlan
+                val shelters = repository.getAllSheltersList()
+                val friTeltning = repository.getAllFriTeltningList()
+                val pois = repository.getAllPoisList()
+                val numDays = max(1, wps.count { it.role == WaypointRole.OVERNIGHT && !it.isHelper } + 1)
+
+                val (stages, _) = PlannedRouteRepository.buildStagesAndPlannedRoute(
+                    planId = 0L,
+                    trailId = currentState.baseTrailId ?: "route_$savedId",
+                    trailName = finalName,
+                    isReverse = currentState.isReverse,
+                    waypoints = wps,
+                    orderedLegs = orderedLegs,
+                    paceKmh = currentState.paceKmh,
+                    dailyTargetKm = currentState.dailyTargetKm,
+                    numDays = numDays,
+                    overnightType = currentState.overnightPreference,
+                    maxDetourKm = currentState.maxDetourKm,
+                    startTime = currentState.startTimeStr,
+                    shelters = shelters,
+                    friTeltnings = friTeltning,
+                    pois = pois,
+                    sunsetTime = sunsetTimeStr
+                )
+
+                val planTrailKey = currentState.baseTrailId ?: "route_$savedId"
+                val startKm = wps.firstOrNull()?.trailKm ?: 0.0
+                val endKm = wps.lastOrNull()?.trailKm ?: currentState.stats.totalKm
+                val savedPlanId = repository.saveTripPlanForRoute(
+                    routeId = planTrailKey,
+                    routeName = finalName,
+                    totalKm = currentState.stats.totalKm,
+                    days = stages.size.coerceAtLeast(1),
+                    overnightType = currentState.overnightPreference,
+                    stages = stages,
+                    customRouteId = savedId,
+                    isReverse = currentState.isReverse,
+                    startKm = startKm,
+                    endKm = endKm
+                )
+                repository.ensureTripPlanForCustomRoute(savedEntity, forceRecompute = false)
+
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    showResetProgressDialog = false,
+                    routeId = savedId
+                )
+                _userMessage.emit("Turen er gemt under Gemte")
+                onSuccess(savedId, savedPlanId.toString())
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to save custom route: ${e.message}")
+                Log.e(TAG, "Failed to save route/plan: ${e.message}")
                 _uiState.value = _uiState.value.copy(isSaving = false)
-                _userMessage.emit("Fejl ved gemning af rute: ${e.message}")
+                _userMessage.emit("Fejl ved gemning af tur: ${e.message}")
             }
         }
     }
 
+    fun confirmResetProgressAndSave() {
+        _uiState.value = _uiState.value.copy(showResetProgressDialog = false)
+        val callback = pendingSaveCallback ?: {}
+        saveRoute(onSuccess = callback, forceResetProgress = true)
+    }
+
+    fun dismissResetProgressDialog() {
+        _uiState.value = _uiState.value.copy(showResetProgressDialog = false, isSaving = false)
+    }
+
     /**
-     * Requirement C: "Find overnatning" button in the route builder:
-     * for each day (daily target from the planner), list overnight candidates near that day's end
-     * within max detour, using the Phase 5 scoring.
+     * Requirement E: "Foreslå overnatninger" runs the stage planner on the current route
+     * (one StagePlanner function for both modes) and inserts suggested OVERNIGHT pins as detours where needed.
+     * The user can drag, replace ("Skift overnatning" lists candidates within max detour) or delete them.
      */
-    fun findOvernightCandidates(dailyTargetKm: Double = 15.0) {
+    fun suggestOvernightStops() {
         val currentState = _uiState.value
         val wps = currentState.waypoints
         if (wps.size < 2) {
-            viewModelScope.launch { _userMessage.emit("Tilføj mindst to punkter for at finde overnatningssteder") }
+            viewModelScope.launch { _userMessage.emit("Tilføj mindst to punkter for at foreslå overnatninger") }
             return
         }
 
@@ -977,78 +2452,399 @@ class RouteBuilderViewModel(
 
         viewModelScope.launch {
             try {
+                pushHistory()
+
+                // 1. Strip existing OVERNIGHT pins (and their helper waypoints in TRAIL mode) so we plan cleanly on the current route
+                var cleanWps = currentState.waypoints.toList()
+                var cleanLegs = currentState.legs.toMap()
+                val existingOvernightIds = cleanWps.filter { it.role == WaypointRole.OVERNIGHT && !it.isHelper }.map { it.id }
+
+                if (currentState.mode == PlannerMode.TRAIL && currentState.baseTrailSegments.isNotEmpty()) {
+                    for (ovId in existingOvernightIds) {
+                        val (nextWps, nextLegs) = TrailSlicer.removeDetourAndRestoreTrailLeg(
+                            waypoints = cleanWps,
+                            legs = cleanLegs,
+                            removedWaypointId = ovId,
+                            segments = currentState.baseTrailSegments,
+                            isReverse = currentState.isReverse
+                        )
+                        cleanWps = nextWps
+                        cleanLegs = nextLegs
+                    }
+                } else {
+                    cleanWps = cleanWps.filter { it.role != WaypointRole.OVERNIGHT }
+                }
+
+                // Build ordered legs for the clean route
                 val orderedLegs = mutableListOf<LegGeometryData>()
-                for (i in 0 until wps.size - 1) {
-                    val key = "${wps[i].id}_to_${wps[i + 1].id}"
-                    currentState.legs[key]?.let { orderedLegs.add(it) }
+                for (i in 0 until cleanWps.size - 1) {
+                    val key = "${cleanWps[i].id}_to_${cleanWps[i + 1].id}"
+                    val leg = cleanLegs[key]
+                    if (leg != null) {
+                        orderedLegs.add(leg)
+                    } else if (currentState.mode == PlannerMode.TRAIL && cleanWps[i].trailKm != null && cleanWps[i + 1].trailKm != null) {
+                        val sliced = TrailSlicer.buildTrailLegGeometry(
+                            fromWaypointId = cleanWps[i].id,
+                            toWaypointId = cleanWps[i + 1].id,
+                            segments = currentState.baseTrailSegments,
+                            fromKm = cleanWps[i].trailKm!!,
+                            toKm = cleanWps[i + 1].trailKm!!,
+                            isReverse = currentState.isReverse
+                        )
+                        orderedLegs.add(sliced)
+                    }
                 }
-                val points = RouteGeometryStorageManager.getCombinedPoints(orderedLegs)
-                val totalKm = currentState.stats.totalKm
 
-                val plannedPoints = points.mapIndexed { idx, pt ->
-                    com.example.data.model.RoutePoint(
-                        lat = pt.lat,
-                        lng = pt.lng,
-                        ele = pt.ele,
-                        walkKm = (idx.toDouble() / kotlin.math.max(1, points.size - 1)) * totalKm,
-                        trailKm = (idx.toDouble() / kotlin.math.max(1, points.size - 1)) * totalKm
-                    )
-                }
-
-                val plannedRoute = com.example.data.model.PlannedRoute(
+                val basePlannedRoute = PlannedRouteRepository.buildFromComposedLegs(
                     planId = 0L,
-                    trailId = "route_preview",
-                    trailName = currentState.routeName.ifBlank { "Rute" },
-                    isReverse = false,
-                    startTrailKm = 0.0,
-                    endTrailKm = totalKm,
-                    totalWalkKm = totalKm,
-                    points = plannedPoints,
+                    trailId = currentState.baseTrailId ?: "route_preview",
+                    trailName = currentState.routeName.ifBlank { "Tur" },
+                    isReverse = currentState.isReverse,
+                    waypoints = cleanWps,
+                    orderedLegs = orderedLegs,
                     stages = emptyList()
                 )
 
                 val shelters = repository.getAllSheltersList()
                 val friTeltning = repository.getAllFriTeltningList()
-                val water = repository.getPoisByType("water")
-                val toilet = repository.getPoisByType("toilet")
+                val pois = repository.getAllPoisList()
 
-                val candidatesMap = com.example.util.StagePlanner.findCandidatesForDayTargets(
-                    plannedRoute = plannedRoute,
-                    dailyTargetKm = dailyTargetKm,
-                    maxDetourKm = 3.0,
+                val targetKm = currentState.dailyTargetKm.coerceAtLeast(5.0)
+                val autoNumDays = max(2, kotlin.math.ceil(basePlannedRoute.totalWalkKm / targetKm).toInt())
+
+                val suggestedStages = StagePlanner.calculateStages(
+                    plannedRoute = basePlannedRoute,
+                    routeName = currentState.routeName.ifBlank { "Tur" },
+                    waypoints = cleanWps,
+                    overnightWaypoints = emptyList(),
+                    paceKmh = currentState.paceKmh,
+                    dailyTargetKm = targetKm,
+                    numDays = autoNumDays,
+                    overnightType = currentState.overnightPreference,
+                    maxDetourKm = currentState.maxDetourKm,
+                    startTime = currentState.startTimeStr,
                     shelters = shelters,
                     friTeltnings = friTeltning,
-                    waterPois = water,
-                    toiletPois = toilet
+                    pois = pois,
+                    sunsetTime = sunsetTimeStr
                 )
 
+                // Reset state to cleanWps/cleanLegs before inserting the suggested OVERNIGHT stops
                 _uiState.value = _uiState.value.copy(
-                    isFindingOvernight = false,
-                    overnightCandidatesByDay = candidatesMap,
-                    showOvernightDialog = true
+                    waypoints = cleanWps,
+                    legs = cleanLegs
                 )
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed finding overnight candidates: ${e.message}")
+
+                // Insert OVERNIGHT pins for stages 1..(n-1)
+                val intermediateStages = suggestedStages.dropLast(1)
+                for (stage in intermediateStages) {
+                    if (stage.stopType != "NONE" && stage.stopType.isNotBlank() && stage.spotId != null) {
+                        addStopOrDetourSuspend(
+                            lat = stage.stopLat,
+                            lng = stage.stopLng,
+                            role = WaypointRole.OVERNIGHT,
+                            name = stage.stopName,
+                            linkedPoiId = stage.spotId
+                        )
+                    } else {
+                        // Place an on-route OVERNIGHT pin at stage.endKm
+                        val ptAtEnd = basePlannedRoute.points.minByOrNull { abs(it.walkKm - stage.endKm) }
+                        if (ptAtEnd != null) {
+                            if (currentState.mode == PlannerMode.TRAIL && currentState.baseTrailSegments.isNotEmpty()) {
+                                val proj = TrailSlicer.projectOntoTrail(
+                                    currentState.baseTrailSegments,
+                                    ptAtEnd.lat,
+                                    ptAtEnd.lng,
+                                    currentState.isReverse
+                                )
+                                if (proj != null) {
+                                    insertWaypointOnTrailAtKm(
+                                        trailKm = proj.trailKm,
+                                        role = WaypointRole.OVERNIGHT,
+                                        name = String.format(Locale.GERMAN, "Etapeslut Dag %d (km %.1f)", stage.dayNumber, proj.trailKm)
+                                    )
+                                }
+                            } else {
+                                addStopOrDetourSuspend(
+                                    lat = ptAtEnd.lat,
+                                    lng = ptAtEnd.lng,
+                                    role = WaypointRole.OVERNIGHT,
+                                    name = "Etapeslut Dag ${stage.dayNumber}",
+                                    linkedPoiId = null
+                                )
+                            }
+                        }
+                    }
+                }
+
                 _uiState.value = _uiState.value.copy(isFindingOvernight = false)
-                _userMessage.emit("Fejl ved søgning efter overnatning: ${e.message}")
+                _userMessage.emit("${intermediateStages.size} overnatninger foreslået (${intermediateStages.size + 1} dage)")
+                updateRouteStats()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed suggesting overnights: ${e.message}", e)
+                _uiState.value = _uiState.value.copy(isFindingOvernight = false)
+                _userMessage.emit("Kunne ikke foreslå overnatninger: ${e.message}")
             }
         }
+    }
+
+    private suspend fun addStopOrDetourSuspend(
+        lat: Double,
+        lng: Double,
+        role: WaypointRole,
+        name: String?,
+        linkedPoiId: String?
+    ) {
+        val state = _uiState.value
+        if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
+            val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, lat, lng, state.isReverse)
+            if (proj != null && proj.distanceMeters <= 50.0 && linkedPoiId == null) {
+                insertWaypointOnTrailAtKm(
+                    trailKm = proj.trailKm,
+                    role = role,
+                    name = name
+                )
+                return
+            }
+
+            val wps = _uiState.value.waypoints.toMutableList()
+            val segments = _uiState.value.baseTrailSegments
+            val isRev = _uiState.value.isReverse
+            val projKm = proj?.trailKm ?: (TrailSlicer.totalTrailKm(segments) / 2.0)
+
+            var prevTrailIdx = 0
+            var nextTrailIdx = wps.lastIndex
+            for (i in wps.indices) {
+                val km = wps[i].trailKm ?: continue
+                if (km <= projKm) prevTrailIdx = i
+                if (km >= projKm && i > prevTrailIdx) {
+                    nextTrailIdx = i
+                    break
+                }
+            }
+            if (nextTrailIdx <= prevTrailIdx && wps.size >= 2) {
+                prevTrailIdx = max(0, wps.lastIndex - 1)
+                nextTrailIdx = wps.lastIndex
+            }
+
+            val prevTrailWp = wps[prevTrailIdx]
+            val nextTrailWp = wps[nextTrailIdx]
+
+            val rawPin = RouteWaypoint(
+                lat = lat,
+                lng = lng,
+                role = role,
+                legModeToNext = LegMode.SNAP,
+                name = name,
+                linkedPoiId = linkedPoiId,
+                trailKm = null
+            )
+
+            val detourPlan = TrailSlicer.buildTrailDetour(
+                segments = segments,
+                prevWp = prevTrailWp,
+                nextWp = nextTrailWp,
+                pinWp = rawPin,
+                routingEngine = routingEngine,
+                options = _uiState.value.options,
+                isReverse = isRev
+            )
+
+            val updatedLegs = _uiState.value.legs.toMutableMap()
+            updatedLegs.remove("${prevTrailWp.id}_to_${nextTrailWp.id}")
+
+            wps[prevTrailIdx] = prevTrailWp.copy(legModeToNext = LegMode.TRAIL)
+            wps.addAll(
+                prevTrailIdx + 1,
+                listOf(detourPlan.exitHelper, detourPlan.detourWaypoint, detourPlan.rejoinHelper)
+            )
+            normalizeRoles(wps)
+
+            for (leg in detourPlan.legs) {
+                updatedLegs[leg.legKey] = leg
+            }
+
+            _uiState.value = _uiState.value.copy(
+                waypoints = wps,
+                legs = updatedLegs
+            )
+            withContext(Dispatchers.IO) {
+                for (leg in detourPlan.legs) {
+                    RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg)
+                }
+            }
+            return
+        }
+
+        // FREE mode
+        val cand = OvernightCandidate(
+            id = linkedPoiId ?: UUID.randomUUID().toString(),
+            name = name ?: "Overnatning",
+            type = "SHELTER",
+            lat = lat,
+            lng = lng,
+            walkKm = 0.0,
+            detourMeters = 0.0,
+            bookingRequired = false,
+            hasWaterNearby = false,
+            hasToiletNearby = false
+        )
+        insertOvernightCandidate(cand)
+    }
+
+    /**
+     * Requirement E: "Skift overnatning" lists candidates within max detour for an existing OVERNIGHT pin.
+     */
+    fun openReplaceOvernightDialog(waypointId: String) {
+        openReplaceOvernightSheet(waypointId)
+    }
+
+    fun dismissReplaceOvernightDialog() {
+        dismissReplaceOvernightSheet()
+    }
+
+    fun replaceOvernightWaypoint(waypointId: String, candidate: OvernightCandidate) {
+        _uiState.value = _uiState.value.copy(replaceOvernightWaypointId = waypointId)
+        replaceOvernightWithCandidate(candidate)
+    }
+
+    fun replaceOvernightWaypoint(candidate: OvernightCandidate) {
+        replaceOvernightWithCandidate(candidate)
+    }
+
+    fun openReplaceOvernightSheet(waypointId: String) {
+        val state = _uiState.value
+        val wp = state.waypoints.find { it.id == waypointId } ?: return
+        viewModelScope.launch {
+            val shelters = repository.getAllSheltersList()
+            val friTeltning = repository.getAllFriTeltningList()
+            val maxDetourM = state.maxDetourKm * 1000.0
+            val candidates = mutableListOf<OvernightCandidate>()
+
+            for (s in shelters) {
+                val distM = haversineM(wp.lat, wp.lng, s.lat, s.lng)
+                if (distM <= maxDetourM * 1.5) {
+                    candidates.add(
+                        OvernightCandidate(
+                            id = s.id,
+                            name = s.name,
+                            type = "SHELTER",
+                            lat = s.lat,
+                            lng = s.lng,
+                            walkKm = wp.trailKm ?: 0.0,
+                            detourMeters = distM,
+                            bookingRequired = !s.bookingUrl.isNullOrBlank(),
+                            hasWaterNearby = s.hasWaterNearby,
+                            hasToiletNearby = s.hasToiletNearby,
+                            sourceEntity = s
+                        )
+                    )
+                }
+            }
+            for (ft in friTeltning) {
+                val distM = haversineM(wp.lat, wp.lng, ft.centerLat, ft.centerLng)
+                if (distM <= maxDetourM * 1.5) {
+                    candidates.add(
+                        OvernightCandidate(
+                            id = ft.id,
+                            name = ft.name,
+                            type = "FRI_TELTNING",
+                            lat = ft.centerLat,
+                            lng = ft.centerLng,
+                            walkKm = wp.trailKm ?: 0.0,
+                            detourMeters = distM,
+                            bookingRequired = false,
+                            hasWaterNearby = false,
+                            hasToiletNearby = false
+                        )
+                    )
+                }
+            }
+
+            _uiState.value = _uiState.value.copy(
+                replaceOvernightWaypointId = waypointId,
+                replaceOvernightCandidates = candidates.sortedBy { it.detourMeters }.take(10)
+            )
+        }
+    }
+
+    fun dismissReplaceOvernightSheet() {
+        _uiState.value = _uiState.value.copy(
+            replaceOvernightWaypointId = null,
+            replaceOvernightCandidates = emptyList()
+        )
+    }
+
+    fun replaceOvernightWithCandidate(candidate: OvernightCandidate) {
+        val oldId = _uiState.value.replaceOvernightWaypointId ?: return
+        dismissReplaceOvernightSheet()
+        deleteWaypoint(oldId)
+        addStopOrDetour(
+            lat = candidate.lat,
+            lng = candidate.lng,
+            role = WaypointRole.OVERNIGHT,
+            name = candidate.name,
+            linkedPoiId = candidate.id
+        )
+    }
+
+    /**
+     * Requirement F: Dragging an overnight marker on the elevation profile chart moves that marker on the map.
+     */
+    fun moveOvernightPinByChartWalkKm(waypointId: String, targetWalkKm: Double, finishDrag: Boolean = true) {
+        val state = _uiState.value
+        val wp = state.waypoints.find { it.id == waypointId } ?: return
+        if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty() && wp.trailKm != null) {
+            val startTrailKm = state.waypoints.firstOrNull()?.trailKm ?: 0.0
+            val newTrailKm = (startTrailKm + targetWalkKm).coerceIn(0.0, TrailSlicer.totalTrailKm(state.baseTrailSegments))
+            moveWaypointOnTrailToKm(waypointId, newTrailKm, finishDrag = finishDrag)
+            return
+        }
+
+        // FREE mode or detour: find point along composed legs at targetWalkKm
+        val wps = state.waypoints
+        val orderedLegs = mutableListOf<LegGeometryData>()
+        for (i in 0 until wps.size - 1) {
+            state.legs["${wps[i].id}_to_${wps[i + 1].id}"]?.let { orderedLegs.add(it) }
+        }
+        val combined = RouteGeometryStorageManager.getCombinedPoints(orderedLegs)
+        if (combined.size < 2) return
+        val totalKm = state.stats.totalKm.coerceAtLeast(0.1)
+        val fraction = (targetWalkKm / totalKm).coerceIn(0.02, 0.98)
+        val ptIdx = (fraction * (combined.size - 1)).toInt().coerceIn(0, combined.lastIndex)
+        val pt = combined[ptIdx]
+        if (finishDrag) {
+            moveWaypoint(waypointId, pt.lat, pt.lng)
+        } else {
+            _uiState.value = state.copy(scrubbedPointOnMap = pt)
+        }
+    }
+
+    fun findOvernightCandidates(dailyTargetKm: Double = _uiState.value.dailyTargetKm) {
+        suggestOvernightStops()
     }
 
     fun dismissOvernightDialog() {
         _uiState.value = _uiState.value.copy(showOvernightDialog = false)
     }
 
-    /**
-     * Requirement C: Tap one candidate = insert it as an OVERNIGHT waypoint and re-route the two legs.
-     */
     fun insertOvernightCandidate(cand: com.example.util.OvernightCandidate) {
         dismissOvernightDialog()
+        if (_uiState.value.mode == PlannerMode.TRAIL && _uiState.value.baseTrailSegments.isNotEmpty()) {
+            addStopOrDetour(
+                lat = cand.lat,
+                lng = cand.lng,
+                role = WaypointRole.OVERNIGHT,
+                name = cand.name,
+                linkedPoiId = cand.id
+            )
+            return
+        }
+
         pushHistory()
         val wps = _uiState.value.waypoints.toMutableList()
         if (wps.size < 2) return
 
-        // Find the closest leg segment to insert into based on candidate's lat/lng
         var bestIndex = -1
         var minDistanceM = Double.MAX_VALUE
 
@@ -1099,19 +2895,285 @@ class RouteBuilderViewModel(
         }
     }
 
-    /**
-     * Requirement D: "Planlæg dage" turns a custom route into a trip plan with the existing stage planner.
-     */
     fun planStages(onNavigateToPlanner: (String) -> Unit) {
-        saveRoute { savedId ->
-            viewModelScope.launch {
-                try {
-                    val cr = repository.getCustomRoute(savedId) ?: return@launch
-                    repository.ensureTripPlanForCustomRoute(cr, forceRecompute = true)
-                    onNavigateToPlanner("route_$savedId")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error planning stages for custom route: ${e.message}")
+        saveAndStartNavigation(onNavigateToPlanner)
+    }
+
+    /**
+     * Recomputes `plannedStages`, `daySummaries` (Requirement E & F), and nearby map POIs
+     * (shelters, fri teltning, water, toilets, shops near the planned section).
+     */
+    private fun updateStagesAndNearbyPois() {
+        val state = _uiState.value
+        val wps = state.waypoints
+        if (wps.size < 2) {
+            _uiState.value = state.copy(
+                plannedStages = emptyList(),
+                daySummaries = emptyList(),
+                nearbyShelters = emptyList(),
+                nearbyFriTeltning = emptyList(),
+                nearbyPois = emptyList()
+            )
+            return
+        }
+
+        val orderedLegs = mutableListOf<LegGeometryData>()
+        for (i in 0 until wps.size - 1) {
+            val key = "${wps[i].id}_to_${wps[i + 1].id}"
+            state.legs[key]?.let { orderedLegs.add(it) }
+        }
+        if (orderedLegs.isEmpty()) return
+
+        stagesAndPoisJob?.cancel()
+        stagesAndPoisJob = viewModelScope.launch {
+            try {
+                val shelters = withContext(Dispatchers.IO) { repository.getAllSheltersList() }
+                val friTeltning = withContext(Dispatchers.IO) { repository.getAllFriTeltningList() }
+                val allPois = withContext(Dispatchers.IO) { repository.getAllPoisList() }
+
+                val allPts = orderedLegs.flatMap { it.points }
+                if (allPts.isEmpty()) return@launch
+
+                // Filter nearby POIs within ~2.5 km of the planned section bounding box & polyline
+                val minLat = allPts.minOf { it.lat } - 0.025
+                val maxLat = allPts.maxOf { it.lat } + 0.025
+                val minLng = allPts.minOf { it.lng } - 0.04
+                val maxLng = allPts.maxOf { it.lng } + 0.04
+                val samplePts = if (allPts.size > 200) {
+                    val step = max(1, allPts.size / 200)
+                    allPts.filterIndexed { idx, _ -> idx % step == 0 || idx == allPts.lastIndex }
+                } else {
+                    allPts
                 }
+
+                fun isNearPlannedSection(lat: Double, lng: Double, maxMeters: Double = 2500.0): Boolean {
+                    if (lat !in minLat..maxLat || lng !in minLng..maxLng) return false
+                    return samplePts.any { pt -> haversineM(lat, lng, pt.lat, pt.lng) <= maxMeters }
+                }
+
+                val corridorShelters = withContext(Dispatchers.Default) {
+                    shelters.filter { isNearPlannedSection(it.lat, it.lng, 2500.0) }
+                }
+                val corridorFriTeltning = withContext(Dispatchers.Default) {
+                    friTeltning.filter { isNearPlannedSection(it.centerLat, it.centerLng, 2500.0) }
+                }
+                val corridorPois = withContext(Dispatchers.Default) {
+                    allPois.filter { poi ->
+                        val t = poi.type.lowercase()
+                        (t.contains("water") || t.contains("toilet") || t.contains("shop") || t.contains("supermarket") || t.contains("grocer")) &&
+                            isNearPlannedSection(poi.lat, poi.lng, 2000.0)
+                    }
+                }
+
+                val overnightWps = wps.filter { it.role == WaypointRole.OVERNIGHT && !it.isHelper }
+                val numDays = max(1, overnightWps.size + 1)
+
+                val (stages, _) = withContext(Dispatchers.Default) {
+                    PlannedRouteRepository.buildStagesAndPlannedRoute(
+                        planId = 0L,
+                        trailId = state.baseTrailId ?: "route_preview",
+                        trailName = state.routeName.ifBlank { "Tur" },
+                        isReverse = state.isReverse,
+                        waypoints = wps,
+                        orderedLegs = orderedLegs,
+                        paceKmh = state.paceKmh,
+                        dailyTargetKm = state.dailyTargetKm,
+                        numDays = numDays,
+                        overnightType = state.overnightPreference,
+                        maxDetourKm = state.maxDetourKm,
+                        startTime = state.startTimeStr,
+                        shelters = corridorShelters,
+                        friTeltnings = corridorFriTeltning,
+                        pois = corridorPois,
+                        sunsetTime = sunsetTimeStr
+                    )
+                }
+
+                // Build PlannerDaySummary list (Requirement F)
+                val visibleWps = wps.filter { !it.isHelper }
+                val dayBoundaryWps = mutableListOf<RouteWaypoint>()
+                dayBoundaryWps.add(visibleWps.first())
+                dayBoundaryWps.addAll(overnightWps)
+                dayBoundaryWps.add(visibleWps.last())
+
+                val daySummaries = mutableListOf<PlannerDaySummary>()
+                for ((idx, stage) in stages.withIndex()) {
+                    val fromWp = dayBoundaryWps.getOrNull(idx)
+                    val toWp = dayBoundaryWps.getOrNull(idx + 1)
+                    val isLastDay = idx == stages.lastIndex
+
+                    val fromName = fromWp?.name?.ifBlank { null } ?: if (idx == 0) "Start" else "Dag $idx lejr"
+                    val toName = toWp?.name?.ifBlank { null } ?: stage.stopName.ifBlank { if (isLastDay) "Slut" else "Dag ${stage.dayNumber} lejr" }
+
+                    val detourKm = toWp?.detourCostKm ?: (stage.detourMeters / 1000.0)
+                    val detourAscent = toWp?.detourAscentM?.roundToInt() ?: 0
+                    val detourLabel = if (detourKm > 0.05) {
+                        TrailSlicer.formatDetourCost(toName, detourKm, detourAscent.toDouble())
+                    } else null
+
+                    val matchedShelter = corridorShelters.find { it.id == toWp?.linkedPoiId || it.id == stage.spotId }
+                    val matchedFt = corridorFriTeltning.find { it.id == toWp?.linkedPoiId || it.id == stage.spotId }
+
+                    val overnightTypeLabel = when {
+                        isLastDay -> "Mål"
+                        matchedShelter != null || stage.stopType == "SHELTER" -> "Shelter"
+                        matchedFt != null || stage.stopType == "FRI_TELTNING" -> "Fri teltning"
+                        toWp?.role == WaypointRole.OVERNIGHT -> "Overnatningspunkt"
+                        else -> "Åben etapeslut"
+                    }
+
+                    val bookingLabel = when {
+                        isLastDay -> null
+                        matchedShelter != null -> if (!matchedShelter.bookingUrl.isNullOrBlank() || matchedShelter.bookingRequired) "Kræver booking" else "Gratis / først-til-mølle"
+                        matchedFt != null -> "Gratis (1-2-3 reglen)"
+                        stage.bookingRequired -> "Kræver booking"
+                        else -> null
+                    }
+
+                    val campLat = toWp?.lat ?: stage.stopLat.takeIf { it != 0.0 } ?: visibleWps.last().lat
+                    val campLng = toWp?.lng ?: stage.stopLng.takeIf { it != 0.0 } ?: visibleWps.last().lng
+
+                    val dayWarnings = mutableListOf<String>()
+                    stage.warningMessage?.takeIf { it.isNotBlank() }?.let { dayWarnings.add(it) }
+                    val arrivalTimeStr = if (stage.estimatedWalkMinutes > 0) {
+                        val startH = state.startHour
+                        val totalMinutes = startH * 60 + stage.estimatedWalkMinutes
+                        val h = (totalMinutes / 60) % 24
+                        val m = totalMinutes % 60
+                        String.format(Locale.GERMAN, "kl. %02d:%02d", h, m)
+                    } else "kl. --:--"
+
+                    if (stage.isAfterSunset) {
+                        val sunsetMsg = "Ankomst ($arrivalTimeStr) er efter solnedgang ($sunsetTimeStr)"
+                        if (dayWarnings.none { it.contains("solnedgang", ignoreCase = true) }) {
+                            dayWarnings.add(sunsetMsg)
+                        }
+                    }
+                    // Include access warnings or supply gaps falling in this day's range
+                    _uiState.value.supplyGapWarnings.forEach { gap ->
+                        if (gap.endKm > stage.startKm && gap.startKm < stage.endKm) {
+                            if (dayWarnings.none { it.contains(gap.displayTitle) }) {
+                                dayWarnings.add(gap.displayTitle)
+                            }
+                        }
+                    }
+                    _uiState.value.accessWarnings.forEach { acc ->
+                        if (dayWarnings.none { it.contains(acc.message) }) {
+                            dayWarnings.add(acc.message)
+                        }
+                    }
+
+                    val nightWeather = fetchNightWeatherForDay(
+                        dayIndex = idx,
+                        startDateMillis = _uiState.value.startDateMillis,
+                        lat = campLat,
+                        lng = campLng
+                    )
+
+                    daySummaries.add(
+                        PlannerDaySummary(
+                            dayNumber = stage.dayNumber,
+                            startKm = stage.startKm,
+                            endKm = stage.endKm,
+                            distanceKm = stage.stageKm,
+                            ascentM = stage.ascentMeters.toInt(),
+                            descentM = stage.descentMeters.toInt(),
+                            fromName = fromName,
+                            toName = toName,
+                            overnightWaypointId = if (!isLastDay && toWp?.role == WaypointRole.OVERNIGHT) toWp.id else null,
+                            overnightName = toName,
+                            overnightTypeLabel = overnightTypeLabel,
+                            detourLabel = detourLabel,
+                            detourKm = detourKm,
+                            detourAscentM = detourAscent,
+                            bookingLabel = bookingLabel,
+                            sunsetTime = sunsetTimeStr,
+                            arrivalTime = arrivalTimeStr,
+                            isAfterSunset = stage.isAfterSunset,
+                            warnings = dayWarnings,
+                            nightWeatherSummary = nightWeather,
+                            campLat = campLat,
+                            campLng = campLng
+                        )
+                    )
+                }
+
+                val stageEntities = stages.map { it.toEntity(planId = 0L) }
+
+                _uiState.value = _uiState.value.copy(
+                    plannedStages = stageEntities,
+                    daySummaries = daySummaries,
+                    nearbyShelters = corridorShelters,
+                    nearbyFriTeltning = corridorFriTeltning,
+                    nearbyPois = corridorPois
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed updating stages and nearby POIs: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Requirement F: Weather per night (Open-Meteo, only within its forecast range;
+     * otherwise "Vejrudsigt ikke tilgængelig endnu").
+     */
+    private suspend fun fetchNightWeatherForDay(
+        dayIndex: Int,
+        startDateMillis: Long,
+        lat: Double,
+        lng: Double
+    ): String {
+        val targetMillis = startDateMillis + TimeUnit.DAYS.toMillis(dayIndex.toLong())
+        val nowMillis = System.currentTimeMillis()
+        val diffDays = TimeUnit.MILLISECONDS.toDays(targetMillis - nowMillis)
+        // Open-Meteo forecast range is up to 16 days ahead (0..15 days from today)
+        if (diffDays < -1 || diffDays > 15) {
+            return "Vejrudsigt ikke tilgængelig endnu"
+        }
+
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val targetDateStr = dateFormat.format(Date(targetMillis))
+        val cacheKey = "${String.format(Locale.US, "%.2f_%.2f", lat, lng)}_$targetDateStr"
+        nightWeatherCache[cacheKey]?.let { return it }
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = weatherService.getTrailWeather(
+                    lat = lat,
+                    lon = lng
+                )
+                val daily = response.daily
+                val times = daily?.time ?: emptyList()
+                val idx = times.indexOf(targetDateStr)
+                if (idx == -1) {
+                    "Vejrudsigt ikke tilgængelig endnu"
+                } else {
+                    val minTemp = daily?.tempMin?.getOrNull(idx)
+                    val maxTemp = daily?.tempMax?.getOrNull(idx)
+                    val precip = daily?.precipitationSum?.getOrNull(idx) ?: 0.0
+                    val wind = daily?.windSpeedMax?.getOrNull(idx)
+                    val sunsetRaw = daily?.sunset?.getOrNull(idx)
+                    if (!sunsetRaw.isNullOrBlank() && sunsetRaw.contains("T")) {
+                        sunsetTimeStr = sunsetRaw.substringAfter("T")
+                    }
+                    val summary = buildString {
+                        if (minTemp != null && maxTemp != null) {
+                            append("Nat ${minTemp.roundToInt()}°C / Dag ${maxTemp.roundToInt()}°C")
+                        } else if (minTemp != null) {
+                            append("Nat ${minTemp.roundToInt()}°C")
+                        }
+                        append(" · Nedbør ${String.format(Locale.GERMAN, "%.1f", precip)} mm")
+                        if (wind != null) {
+                            append(" · Vind ${wind.roundToInt()} m/s")
+                        }
+                    }
+                    nightWeatherCache[cacheKey] = summary
+                    summary
+                }
+            } catch (_: Exception) {
+                "Vejrudsigt ikke tilgængelig endnu"
             }
         }
     }
@@ -1170,7 +3232,8 @@ class RouteBuilderViewModel(
         viewModelScope.launch {
             try {
                 val polys = repository.getAccessPolygons(minLat, maxLat, minLng, maxLng)
-                _uiState.value = _uiState.value.copy(accessPolygons = polys)
+                val merged = (_uiState.value.accessPolygons + polys).distinctBy { it.id }
+                _uiState.value = _uiState.value.copy(accessPolygons = merged)
                 evaluateAccessRules()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed loading access polygons: ${e.message}")
@@ -1182,7 +3245,7 @@ class RouteBuilderViewModel(
         viewModelScope.launch {
             try {
                 val weather = repository.getTrailWeather(lat, lng)
-                val sunset = weather?.sunset
+                val sunset = weather.sunset
                 if (!sunset.isNullOrBlank()) {
                     sunsetTimeStr = sunset
                     evaluateAccessRules()
@@ -1247,14 +3310,10 @@ class RouteBuilderViewModel(
             val result = routingEngine.routeLeg(fromCoord, toCoord, detourOptions, alternative = 0)
             when (result) {
                 is RouteLegResult.Success -> {
-                    var pathCount = 0
-                    for (w in result.perPointWayInfo) {
-                        val hw = w.highway ?: ""
-                        if (hw in listOf("path", "footway", "bridleway", "track")) pathCount++
-                    }
-                    val pathShare = if (result.perPointWayInfo.isNotEmpty()) {
-                        (pathCount.toDouble() / result.perPointWayInfo.size * 100.0).coerceIn(0.0, 100.0)
-                    } else 80.0
+                    val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(
+                        result.points,
+                        result.perPointWayInfo
+                    )
 
                     val newLeg = LegGeometryData(
                         fromWaypointId = fromWp.id,
@@ -1265,9 +3324,10 @@ class RouteBuilderViewModel(
                         ascentM = result.ascentM,
                         descentM = result.descentM,
                         pathSharePct = pathShare,
-                        roadKm = result.lengthKm * (1.0 - pathShare / 100.0),
+                        roadKm = roadKm,
                         hasAccessWarning = false,
-                        sourceName = "BRouter Detour"
+                        sourceName = "BRouter Detour",
+                        wayInfo = result.perPointWayInfo
                     )
 
                     val updatedLegs = _uiState.value.legs.toMutableMap()
@@ -1289,7 +3349,11 @@ class RouteBuilderViewModel(
         }
     }
 
-    // --- Phase 12 Feature 1: Vand og mad ---
+    // --- Phase 12 Feature 1 & Requirement 16: Vand og mad (Supply gaps) ---
+    /**
+     * Requirement 16: Supply gaps use ONLY the route's own corridor POIs;
+     * while they are loading show "Henter data...". Never fall back to every POI in the database.
+     */
     fun analyzeSupplyGaps() {
         val wps = _uiState.value.waypoints
         val orderedLegs = mutableListOf<LegGeometryData>()
@@ -1299,26 +3363,58 @@ class RouteBuilderViewModel(
         }
         val points = orderedLegs.flatMap { it.points }
         if (points.size < 2) {
-            _uiState.value = _uiState.value.copy(supplyGapWarnings = emptyList())
+            supplyGapsJob?.cancel()
+            _uiState.value = _uiState.value.copy(
+                supplyGapWarnings = emptyList(),
+                isLoadingCorridorPois = false
+            )
             return
         }
 
-        viewModelScope.launch {
+        supplyGapsJob?.cancel()
+        supplyGapsJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoadingCorridorPois = true)
             try {
-                val rId = _uiState.value.routeId?.toString() ?: "temp"
-                val corridorPois = repository.getPoisForRoute(rId)
-                val allDbPois = repository.getAllPoisList()
+                val rId = _uiState.value.routeId?.toString()
+                val corridorPois: List<PoiEntity> = withContext(Dispatchers.IO) {
+                    if (rId != null) {
+                        var existing = repository.getPoisForRoute(rId)
+                        if (existing.isEmpty()) {
+                            val geoPts = points.map { GeoPointDto(it.lat, it.lng, it.ele) }
+                            repository.syncCorridorPoisForRoute(rId, geoPts)
+                            existing = repository.getPoisForRoute(rId)
+                        }
+                        existing
+                    } else {
+                        // For an unsaved draft route, filter strictly to the route's own 3km corridor
+                        val geoPts = points.map { GeoPointDto(it.lat, it.lng, it.ele) }
+                        val minLat = points.minOf { it.lat } - 0.03
+                        val maxLat = points.maxOf { it.lat } + 0.03
+                        val minLng = points.minOf { it.lng } - 0.05
+                        val maxLng = points.maxOf { it.lng } + 0.05
+                        repository.getAllPoisList().filter { poi ->
+                            poi.lat in minLat..maxLat &&
+                            poi.lng in minLng..maxLng &&
+                            GeoUtils.projectPointOnPolyline(GeoPointDto(poi.lat, poi.lng), geoPts).second <= 3000.0
+                        }
+                    }
+                }
+
                 val warnings = RouteSmartTools.analyzeSupplyGaps(
                     routePoints = points,
-                    corridorPois = if (corridorPois.isNotEmpty()) corridorPois else allDbPois,
+                    corridorPois = corridorPois,
                     maxWaterGapKm = _uiState.value.maxWaterGapKm,
-                    maxShopGapKm = _uiState.value.maxShopGapKm,
-                    allDbWaterPois = allDbPois.filter { it.type.equals("water", ignoreCase = true) },
-                    allDbShopPois = allDbPois.filter { it.type.equals("shop", ignoreCase = true) }
+                    maxShopGapKm = _uiState.value.maxShopGapKm
                 )
-                _uiState.value = _uiState.value.copy(supplyGapWarnings = warnings)
+                _uiState.value = _uiState.value.copy(
+                    supplyGapWarnings = warnings,
+                    isLoadingCorridorPois = false
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Failed analyzing supply gaps: ${e.message}")
+                _uiState.value = _uiState.value.copy(isLoadingCorridorPois = false)
             }
         }
     }
@@ -1333,7 +3429,7 @@ class RouteBuilderViewModel(
         analyzeSupplyGaps()
     }
 
-    // --- Phase 12 Feature 2: Rundtur ---
+    // --- Phase 12 Feature 2 & Requirement 12: Rundtur ---
     fun openRundturDialog() {
         _uiState.value = _uiState.value.copy(showRundturDialog = true)
     }
@@ -1346,12 +3442,27 @@ class RouteBuilderViewModel(
         _uiState.value = _uiState.value.copy(rundturTargetKm = km.coerceIn(5.0, 60.0))
     }
 
+    /**
+     * Requirement 12: Require a start point (either a waypoint on the map or a valid GPS fix).
+     * Never fall back to a hardcoded coordinate!
+     */
     fun generateRundtur(startLat: Double? = null, startLng: Double? = null) {
-        val startPt = if (startLat != null && startLng != null) {
-            LatLng(startLat, startLng)
-        } else {
-            val firstWp = _uiState.value.waypoints.firstOrNull()
-            if (firstWp != null) LatLng(firstWp.lat, firstWp.lng) else LatLng(56.15, 10.20)
+        val firstWp = _uiState.value.waypoints.firstOrNull()
+        val startPt = when {
+            firstWp != null -> LatLng(firstWp.lat, firstWp.lng)
+            startLat != null && startLng != null -> LatLng(startLat, startLng)
+            else -> null
+        }
+
+        if (startPt == null) {
+            _uiState.value = _uiState.value.copy(
+                showRundturDialog = false,
+                errorMessage = "Vælg et startpunkt på kortet først"
+            )
+            viewModelScope.launch {
+                _userMessage.emit("Vælg et startpunkt på kortet først")
+            }
+            return
         }
 
         _uiState.value = _uiState.value.copy(isGeneratingRundtur = true, showRundturDialog = true)
@@ -1386,6 +3497,7 @@ class RouteBuilderViewModel(
         _uiState.value = _uiState.value.copy(
             waypoints = candidate.waypoints,
             legs = candidate.legs,
+            failedLegs = emptyMap(),
             showRundturDialog = false,
             routeName = candidate.title
         )
@@ -1426,7 +3538,7 @@ class RouteBuilderViewModel(
         }
     }
 
-    // --- Phase 12 Feature 4: Rute til nærmeste ---
+    // --- Phase 12 Feature 4 & Requirement 12: Rute til nærmeste ---
     fun openNearestPoiDialog() {
         _uiState.value = _uiState.value.copy(showNearestPoiDialog = true)
     }
@@ -1435,12 +3547,27 @@ class RouteBuilderViewModel(
         _uiState.value = _uiState.value.copy(showNearestPoiDialog = false)
     }
 
+    /**
+     * Requirement 12: Require a start point (either a waypoint on the map or a valid GPS fix).
+     * Never fall back to a hardcoded coordinate!
+     */
     fun routeToNearest(category: NearestPoiCategory, startLat: Double? = null, startLng: Double? = null) {
-        val startPt = if (startLat != null && startLng != null) {
-            LatLng(startLat, startLng)
-        } else {
-            val firstWp = _uiState.value.waypoints.firstOrNull()
-            if (firstWp != null) LatLng(firstWp.lat, firstWp.lng) else LatLng(56.15, 10.20)
+        val lastWp = _uiState.value.waypoints.lastOrNull()
+        val startPt = when {
+            lastWp != null -> LatLng(lastWp.lat, lastWp.lng)
+            startLat != null && startLng != null -> LatLng(startLat, startLng)
+            else -> null
+        }
+
+        if (startPt == null) {
+            dismissNearestPoiDialog()
+            _uiState.value = _uiState.value.copy(
+                errorMessage = "Vælg et startpunkt på kortet først"
+            )
+            viewModelScope.launch {
+                _userMessage.emit("Vælg et startpunkt på kortet først")
+            }
+            return
         }
 
         _uiState.value = _uiState.value.copy(isRoutingToNearest = true)
@@ -1463,8 +3590,13 @@ class RouteBuilderViewModel(
                 if (match != null) {
                     val (poi, legResult) = match
                     pushHistory()
-                    val wpStart = RouteWaypoint(id = "start_nearest", lat = startPt.lat, lng = startPt.lng, role = WaypointRole.START, name = "Min position")
+                    val wpStart = RouteWaypoint(id = "start_nearest", lat = startPt.lat, lng = startPt.lng, role = WaypointRole.START, name = "Start")
                     val wpDest = RouteWaypoint(id = "dest_${poi.id}", lat = poi.lat, lng = poi.lng, role = WaypointRole.END, name = poi.name)
+
+                    val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(
+                        legResult.points,
+                        legResult.perPointWayInfo
+                    )
 
                     val leg = LegGeometryData(
                         fromWaypointId = wpStart.id,
@@ -1474,8 +3606,8 @@ class RouteBuilderViewModel(
                         lengthKm = legResult.lengthKm,
                         ascentM = legResult.ascentM,
                         descentM = legResult.descentM,
-                        pathSharePct = 85.0,
-                        roadKm = 0.2,
+                        pathSharePct = pathShare,
+                        roadKm = roadKm,
                         wayInfo = legResult.perPointWayInfo
                     )
 
@@ -1484,6 +3616,7 @@ class RouteBuilderViewModel(
                         isRoutingToNearest = false,
                         waypoints = listOf(wpStart, wpDest),
                         legs = legsMap,
+                        failedLegs = emptyMap(),
                         routeName = "Rute til ${poi.name}"
                     )
                     updateRouteStats()
@@ -1562,22 +3695,14 @@ class RouteBuilderViewModel(
         val name = _uiState.value.routeName.ifBlank { "Min rute" }
         val stats = _uiState.value.stats
         val quality = _uiState.value.routeQuality
-        val overnights = wps.count { it.role == WaypointRole.OVERNIGHT }
+        val overnightWaypoints = wps.filter { it.role == WaypointRole.OVERNIGHT && !it.isHelper }
+        val overnights = overnightWaypoints.size
 
-        val dummyTrail = com.example.data.model.TrailEntity(
-            id = "route_${_uiState.value.routeId ?: 0L}",
-            name = name,
-            description = "Brugerskabt rute (${String.format(Locale.US, "%.1f", stats.totalKm)} km)",
-            region = "Danmark",
-            parentRegion = "Danmark",
-            computedWalkingKm = stats.totalKm
-        )
-
-        val gpxStr = com.example.util.GpxExporter.generateMultiSegmentGpx(
-            trail = dummyTrail,
-            plan = null,
-            stages = emptyList(),
-            trailPoints = points,
+        val gpxStr = com.example.util.GpxExporter.generateCustomRouteGpx(
+            routeName = name,
+            description = "Planlagt rute i Dansk Sti (${String.format(Locale.US, "%.1f", stats.totalKm)} km)",
+            routePoints = points,
+            overnightWaypoints = overnightWaypoints,
             customWaypoints = _uiState.value.customUserWaypoints
         )
 
@@ -1589,7 +3714,11 @@ class RouteBuilderViewModel(
             if (overnights > 0) {
                 append("⛺ Planlagte overnatninger: $overnights\n")
             }
-            append("🌲 Underlag: ${quality.trailPct.toInt()}% sti, ${quality.trackPct.toInt()}% skov-/markvej, ${quality.asphaltPct.toInt()}% asfalt\n")
+            if (stats.hasWayInfo && stats.pathSharePct != null) {
+                append("🌲 Underlag: ${quality.trailPct.toInt()}% sti, ${quality.trackPct.toInt()}% skov-/markvej, ${quality.asphaltPct.toInt()}% asfalt\n")
+            } else {
+                append("🌲 Underlag: ukendt\n")
+            }
             append("Del med Dansk Sti")
         }
 

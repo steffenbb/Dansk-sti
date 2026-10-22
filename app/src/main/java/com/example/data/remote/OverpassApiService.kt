@@ -1,5 +1,6 @@
 package com.example.data.remote
 
+import com.example.util.network.applyDebugMainThreadCheck
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
@@ -8,42 +9,32 @@ import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Field
 import retrofit2.http.FormUrlEncoded
-import retrofit2.http.GET
 import retrofit2.http.POST
-import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
 interface OverpassApiService {
-
     @FormUrlEncoded
-    @POST("interpreter")
-    suspend fun queryOverpassPost(
+    @POST("api/interpreter")
+    suspend fun queryOverpass(
         @Field("data") query: String
     ): OverpassResponse
 
-    @GET("interpreter")
-    suspend fun queryOverpassGet(
-        @Query("data") query: String
-    ): OverpassResponse
-
     companion object {
-        private const val BASE_URL = "https://overpass-api.de/api/"
+        val ENDPOINTS = listOf(
+            "https://overpass-api.de/",
+            "https://lz4.overpass-api.de/",
+            "https://overpass.kumi.systems/"
+        )
 
-        fun create(): OverpassApiService {
+        fun create(baseUrl: String = ENDPOINTS.first()): OverpassApiService {
             val logging = HttpLoggingInterceptor().apply {
                 level = HttpLoggingInterceptor.Level.BASIC
             }
-
             val client = OkHttpClient.Builder()
                 .addInterceptor(logging)
-                .addInterceptor { chain ->
-                    val request = chain.request().newBuilder()
-                        .header("User-Agent", "DanskStiApp/1.0 (Android; Outdoor Hiking Denmark)")
-                        .build()
-                    chain.proceed(request)
-                }
-                .connectTimeout(45, TimeUnit.SECONDS)
-                .readTimeout(60, TimeUnit.SECONDS)
+                .applyDebugMainThreadCheck()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(25, TimeUnit.SECONDS)
                 .build()
 
             val moshi = Moshi.Builder()
@@ -51,7 +42,7 @@ interface OverpassApiService {
                 .build()
 
             return Retrofit.Builder()
-                .baseUrl(BASE_URL)
+                .baseUrl(baseUrl)
                 .client(client)
                 .addConverterFactory(MoshiConverterFactory.create(moshi))
                 .build()

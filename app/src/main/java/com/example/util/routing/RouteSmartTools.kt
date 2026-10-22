@@ -30,9 +30,7 @@ object RouteSmartTools {
         routePoints: List<RoutePoint3D>,
         corridorPois: List<PoiEntity>,
         maxWaterGapKm: Double = 12.0,
-        maxShopGapKm: Double = 25.0,
-        allDbWaterPois: List<PoiEntity> = emptyList(),
-        allDbShopPois: List<PoiEntity> = emptyList()
+        maxShopGapKm: Double = 25.0
     ): List<SupplyGapWarning> {
         if (routePoints.size < 2) return emptyList()
 
@@ -41,10 +39,11 @@ object RouteSmartTools {
         if (totalKm <= 0.0) return emptyList()
 
         val warnings = mutableListOf<SupplyGapWarning>()
+        val corridorWaterPois = corridorPois.filter { it.type.equals("water", ignoreCase = true) }
+        val corridorShopPois = corridorPois.filter { it.type.equals("shop", ignoreCase = true) }
 
-        // 1. Water POIs along route (detour <= 3000m)
-        val waterPoisWithKm = corridorPois
-            .filter { it.type.equals("water", ignoreCase = true) }
+        // 1. Water POIs along route (detour <= 100m directly on trail; up to 3000m in corridor are detour candidates)
+        val waterPoisWithKm = corridorWaterPois
             .map { poi ->
                 val (km, detour) = GeoUtils.projectPointOnPolyline(
                     com.example.data.model.GeoPointDto(poi.lat, poi.lng),
@@ -52,22 +51,21 @@ object RouteSmartTools {
                 )
                 Triple(poi, km, detour)
             }
-            .filter { it.third <= 3000.0 }
+            .filter { it.third <= 100.0 }
             .sortedBy { it.second }
 
-        // Find water stretches
+        // Find water stretches using only the route's own corridor POIs
         findGaps(
             type = SupplyGapType.WATER,
             totalKm = totalKm,
             maxGapKm = maxWaterGapKm,
             pois = waterPoisWithKm,
             geoRoute = geoRoute,
-            allCandidates = if (allDbWaterPois.isNotEmpty()) allDbWaterPois else corridorPois.filter { it.type.equals("water", ignoreCase = true) }
+            allCandidates = corridorWaterPois
         )?.let { warnings.addAll(it) }
 
-        // 2. Shop POIs along route (detour <= 3000m)
-        val shopPoisWithKm = corridorPois
-            .filter { it.type.equals("shop", ignoreCase = true) }
+        // 2. Shop POIs along route (detour <= 100m directly on trail; up to 3000m in corridor are detour candidates)
+        val shopPoisWithKm = corridorShopPois
             .map { poi ->
                 val (km, detour) = GeoUtils.projectPointOnPolyline(
                     com.example.data.model.GeoPointDto(poi.lat, poi.lng),
@@ -75,17 +73,17 @@ object RouteSmartTools {
                 )
                 Triple(poi, km, detour)
             }
-            .filter { it.third <= 3000.0 }
+            .filter { it.third <= 100.0 }
             .sortedBy { it.second }
 
-        // Find shop stretches
+        // Find shop stretches using only the route's own corridor POIs
         findGaps(
             type = SupplyGapType.SHOP,
             totalKm = totalKm,
             maxGapKm = maxShopGapKm,
             pois = shopPoisWithKm,
             geoRoute = geoRoute,
-            allCandidates = if (allDbShopPois.isNotEmpty()) allDbShopPois else corridorPois.filter { it.type.equals("shop", ignoreCase = true) }
+            allCandidates = corridorShopPois
         )?.let { warnings.addAll(it) }
 
         return warnings
@@ -201,7 +199,7 @@ object RouteSmartTools {
                     com.example.data.model.GeoPointDto(cand.lat, cand.lng),
                     geoRoute
                 )
-                if (detourM < minDetourMeters) {
+                if (detourM > 10.0 && detourM < minDetourMeters) {
                     minDetourMeters = detourM
                     bestCandidate = cand
                 }
@@ -535,6 +533,10 @@ object RouteSmartTools {
             val wpMid = RouteWaypoint(id = "rnd_mid_$idx", lat = returnViaLatLng.lat, lng = returnViaLatLng.lng, role = WaypointRole.VIA, name = "Returvej ($dirLabel)")
             val wpEnd = RouteWaypoint(id = "rnd_end_$idx", lat = start.lat, lng = start.lng, role = WaypointRole.END, name = "Slut (Startsted)")
 
+            val (outShare, outRoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(outResult.points, outResult.perPointWayInfo)
+            val (ret1Share, ret1RoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(ret1.points, ret1.perPointWayInfo)
+            val (ret2Share, ret2RoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(ret2.points, ret2.perPointWayInfo)
+
             val legsMap = mapOf(
                 "${wpStart.id}_to_${wpTurn.id}" to LegGeometryData(
                     fromWaypointId = wpStart.id,
@@ -544,8 +546,8 @@ object RouteSmartTools {
                     lengthKm = outResult.lengthKm,
                     ascentM = outResult.ascentM,
                     descentM = outResult.descentM,
-                    pathSharePct = 85.0,
-                    roadKm = 0.2,
+                    pathSharePct = outShare,
+                    roadKm = outRoadKm,
                     wayInfo = outResult.perPointWayInfo
                 ),
                 "${wpTurn.id}_to_${wpMid.id}" to LegGeometryData(
@@ -556,8 +558,8 @@ object RouteSmartTools {
                     lengthKm = ret1.lengthKm,
                     ascentM = ret1.ascentM,
                     descentM = ret1.descentM,
-                    pathSharePct = 85.0,
-                    roadKm = 0.2,
+                    pathSharePct = ret1Share,
+                    roadKm = ret1RoadKm,
                     wayInfo = ret1.perPointWayInfo
                 ),
                 "${wpMid.id}_to_${wpEnd.id}" to LegGeometryData(
@@ -568,8 +570,8 @@ object RouteSmartTools {
                     lengthKm = ret2.lengthKm,
                     ascentM = ret2.ascentM,
                     descentM = ret2.descentM,
-                    pathSharePct = 85.0,
-                    roadKm = 0.2,
+                    pathSharePct = ret2Share,
+                    roadKm = ret2RoadKm,
                     wayInfo = ret2.perPointWayInfo
                 )
             )

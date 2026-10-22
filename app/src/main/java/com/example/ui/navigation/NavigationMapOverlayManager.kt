@@ -44,6 +44,18 @@ class NavigationMapOverlayManager(
     private val density = context.resources.displayMetrics.density
     private fun dp(value: Float): Float = value * density
 
+    private fun Polyline.safeSetPoints(pts: List<GeoPoint>) {
+        try {
+            setPoints(pts)
+        } catch (_: Exception) {}
+    }
+
+    private fun Polygon.safeSetPoints(pts: List<GeoPoint>) {
+        try {
+            points = pts
+        } catch (_: Exception) {}
+    }
+
     // Permanent Route Overlays
     private val casingPolyline = Polyline(mapView).apply {
         outlinePaint.color = Color.WHITE
@@ -113,6 +125,7 @@ class NavigationMapOverlayManager(
     }
 
     private var currentRouteId: Long = -1L
+    private var currentRouteIsDark: Boolean? = null
     private var allRouteGeoPoints: List<GeoPoint> = emptyList()
     private var routePointsData: List<RoutePoint> = emptyList()
 
@@ -130,21 +143,22 @@ class NavigationMapOverlayManager(
     }
 
     /**
-     * Configures the planned route polylines and 250m chevrons once when the route is loaded.
+     * Configures the planned route polylines and 250m chevrons once when the route or dark mode changes.
      */
-    fun setPlannedRoute(route: PlannedRoute) {
-        if (currentRouteId == route.planId && allRouteGeoPoints.isNotEmpty()) {
+    fun setPlannedRoute(route: PlannedRoute, isDark: Boolean = false) {
+        if (currentRouteId == route.planId && currentRouteIsDark == isDark && allRouteGeoPoints.isNotEmpty()) {
             return
         }
         currentRouteId = route.planId
+        currentRouteIsDark = isDark
         routePointsData = route.points
 
         val geoPoints = route.points.map { GeoPoint(it.lat, it.lng) }
         allRouteGeoPoints = geoPoints
 
-        casingPolyline.setPoints(emptyList())
-        routePolyline.setPoints(emptyList())
-        walkedPolyline.setPoints(emptyList())
+        casingPolyline.safeSetPoints(emptyList())
+        routePolyline.safeSetPoints(emptyList())
+        walkedPolyline.safeSetPoints(emptyList())
 
         walkOverlays.forEach { mapView.overlays.remove(it) }
         walkOverlays.clear()
@@ -181,18 +195,29 @@ class NavigationMapOverlayManager(
             segments.add(curSegment)
         }
 
+        val casingColor = if (isDark) {
+            com.example.util.routing.RouteMarkerHelper.COLOR_PLANNED_CASING_DARK
+        } else {
+            com.example.util.routing.RouteMarkerHelper.COLOR_PLANNED_CASING_LIGHT
+        }
+        val routeColor = if (isDark) {
+            com.example.util.routing.RouteMarkerHelper.COLOR_PLANNED_ROUTE_DARK
+        } else {
+            com.example.util.routing.RouteMarkerHelper.COLOR_PLANNED_ROUTE_LIGHT
+        }
+
         // Draw each WALK segment with its own casing and route line (gaps are NEVER drawn as a solid line)
         val insertBaseIdx = mapView.overlays.indexOf(walkedPolyline).coerceAtLeast(0)
         for (seg in segments.filter { it.first().segmentType == TrailSegmentType.WALK }) {
             val casing = Polyline(mapView).apply {
-                outlinePaint.color = Color.WHITE
+                outlinePaint.color = casingColor
                 outlinePaint.strokeWidth = dp(10f)
                 outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
                 outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
                 setPoints(seg.map { GeoPoint(it.lat, it.lng) })
             }
             val routeLine = Polyline(mapView).apply {
-                outlinePaint.color = Color.parseColor("#1E88E5") // Strong Nordic Blue
+                outlinePaint.color = routeColor
                 outlinePaint.strokeWidth = dp(6f)
                 outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
                 outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
@@ -279,7 +304,7 @@ class NavigationMapOverlayManager(
     fun updateTonightCamp(stage: TripStage?, allPoints: List<GeoPointDto>) {
         if (stage == null || stage.stopLat == 0.0) {
             tonightCampMarker.isEnabled = false
-            campDetourPolyline.setPoints(emptyList())
+            campDetourPolyline.safeSetPoints(emptyList())
             campDetourMarker.isEnabled = false
             return
         }
@@ -302,13 +327,13 @@ class NavigationMapOverlayManager(
             val detourM = GeoUtils.distanceMeters(campPt, snapped)
 
             if (detourM > 50.0) {
-                campDetourPolyline.setPoints(listOf(GeoPoint(snapped.lat, snapped.lng), GeoPoint(campPt.lat, campPt.lng)))
+                campDetourPolyline.safeSetPoints(listOf(GeoPoint(snapped.lat, snapped.lng), GeoPoint(campPt.lat, campPt.lng)))
                 campDetourMarker.isEnabled = true
                 campDetourMarker.position = GeoPoint((campPt.lat + snapped.lat) / 2.0, (campPt.lng + snapped.lng) / 2.0)
                 campDetourMarker.title = "Afstikker til lejr: ${detourM.toInt()} m"
                 campDetourMarker.icon = MapIconUtils.getCrosshairIcon(context)
             } else {
-                campDetourPolyline.setPoints(emptyList())
+                campDetourPolyline.safeSetPoints(emptyList())
                 campDetourMarker.isEnabled = false
             }
         }
@@ -325,6 +350,8 @@ class NavigationMapOverlayManager(
         showToilets: Boolean,
         waters: List<PoiEntity>,
         showWater: Boolean,
+        shops: List<PoiEntity> = emptyList(),
+        showShops: Boolean = true,
         hazards: List<UserHazardNoteEntity>,
         showHazards: Boolean,
         parsedFriTeltning: List<Pair<FriTeltningEntity, List<GeoPointDto>>>,
@@ -424,6 +451,22 @@ class NavigationMapOverlayManager(
             }
         }
 
+        if (showShops) {
+            shops.forEach { s ->
+                clusterItems.add(
+                    MapPoiItem(
+                        id = s.id,
+                        type = "shop",
+                        name = s.name,
+                        subText = "Indkøb / Dagligvarer",
+                        lat = s.lat,
+                        lng = s.lng,
+                        payload = s
+                    )
+                )
+            }
+        }
+
         poiClusterOverlay.setItems(clusterItems)
 
         // 3. Hazards (kept as individual markers for immediate safety visibility)
@@ -460,7 +503,7 @@ class NavigationMapOverlayManager(
 
         if (lat == null || lng == null) {
             userMarker.isEnabled = false
-            accuracyPolygon.points = emptyList()
+            accuracyPolygon.safeSetPoints(emptyList())
             return
         }
 
@@ -470,9 +513,9 @@ class NavigationMapOverlayManager(
 
         // Accuracy circle when accuracy > 15m
         if (state.accuracyM > 15f) {
-            accuracyPolygon.points = Polygon.pointsAsCircle(userMarker.position, state.accuracyM.toDouble())
+            accuracyPolygon.safeSetPoints(Polygon.pointsAsCircle(userMarker.position, state.accuracyM.toDouble()))
         } else {
-            accuracyPolygon.points = emptyList()
+            accuracyPolygon.safeSetPoints(emptyList())
         }
 
         // Update walked polyline (6 dp grey) up to current position
@@ -488,7 +531,7 @@ class NavigationMapOverlayManager(
             if (state.currentSnappedPoint != null) {
                 walkedPts.add(GeoPoint(state.currentSnappedPoint.lat, state.currentSnappedPoint.lng))
             }
-            walkedPolyline.setPoints(walkedPts)
+            walkedPolyline.safeSetPoints(walkedPts)
         }
 
         if (followUser) {

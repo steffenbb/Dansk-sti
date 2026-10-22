@@ -54,7 +54,10 @@ import kotlin.math.sqrt
 fun RouteElevationProfileChart(
     points: List<RoutePoint3D>,
     modifier: Modifier = Modifier,
-    onPointScrubbed: ((RoutePoint3D?, Double) -> Unit)? = null
+    dayBoundaryWalkKms: List<Double> = emptyList(),
+    overnightWaypointIds: List<String> = emptyList(),
+    onPointScrubbed: ((RoutePoint3D?, Double) -> Unit)? = null,
+    onOvernightMarkerDragged: ((String, Double, Boolean) -> Unit)? = null
 ) {
     if (points.isEmpty()) {
         Box(
@@ -72,15 +75,12 @@ fun RouteElevationProfileChart(
         return
     }
 
-    // Filter or interpolate elevation points
     val validPoints = remember(points) {
-        // If some points lack ele, fallback with 0.0 or interpolate
         points.map { pt ->
             RoutePoint3D(pt.lat, pt.lng, pt.ele ?: 15.0)
         }
     }
 
-    // Compute cumulative distance along points
     val distancesKm = remember(validPoints) {
         val dists = FloatArray(validPoints.size)
         var sumM = 0.0
@@ -96,7 +96,6 @@ fun RouteElevationProfileChart(
 
     val totalKm = distancesKm.lastOrNull() ?: 0f
 
-    // Min and max elevations
     var minEle = Float.MAX_VALUE
     var maxEle = Float.MIN_VALUE
     for (pt in validPoints) {
@@ -108,19 +107,17 @@ fun RouteElevationProfileChart(
     if (minEle >= maxEle) {
         maxEle = minEle + 10f
     }
-    // Add padding to elevation bounds
     val elePadding = (maxEle - minEle) * 0.15f
     val displayMinEle = (minEle - elePadding).coerceAtLeast(0f)
     val displayMaxEle = maxEle + elePadding
     val eleRange = displayMaxEle - displayMinEle
 
-    // Scrub state
     var scrubFraction by remember { mutableFloatStateOf(-1f) }
     var scrubbedPoint by remember { mutableStateOf<RoutePoint3D?>(null) }
     var scrubbedKm by remember { mutableFloatStateOf(0f) }
+    var draggingOvernightId by remember { mutableStateOf<String?>(null) }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        // Stats header for scrubbed point or overview
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -144,7 +141,6 @@ fun RouteElevationProfileChart(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Gradient legend
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
@@ -180,23 +176,14 @@ fun RouteElevationProfileChart(
                 .fillMaxWidth()
                 .height(110.dp)
                 .testTag("route_elevation_chart")
-                .pointerInput(validPoints, totalKm) {
+                .pointerInput(validPoints, totalKm, dayBoundaryWalkKms, overnightWaypointIds) {
                     fun updateScrub(xPos: Float) {
                         val fraction = (xPos / size.width).coerceIn(0f, 1f)
                         scrubFraction = fraction
                         val targetKm = fraction * totalKm
                         scrubbedKm = targetKm
 
-                        // Find closest point
-                        var closestIdx = 0
-                        var minDiff = Float.MAX_VALUE
-                        for (i in distancesKm.indices) {
-                            val diff = kotlin.math.abs(distancesKm[i] - targetKm)
-                            if (diff < minDiff) {
-                                minDiff = diff
-                                closestIdx = i
-                            }
-                        }
+                        val closestIdx = findClosestIndex(distancesKm, targetKm)
                         val pt = validPoints.getOrNull(closestIdx)
                         scrubbedPoint = pt
                         onPointScrubbed?.invoke(pt, targetKm.toDouble())
@@ -208,13 +195,29 @@ fun RouteElevationProfileChart(
                         }
                     )
                 }
-                .pointerInput(validPoints, totalKm) {
+                .pointerInput(validPoints, totalKm, dayBoundaryWalkKms, overnightWaypointIds) {
                     detectDragGestures(
                         onDragStart = { offset ->
                             val fraction = (offset.x / size.width).coerceIn(0f, 1f)
                             scrubFraction = fraction
                             val targetKm = fraction * totalKm
                             scrubbedKm = targetKm
+
+                            // Check if user grabbed near an overnight day boundary marker (within 24dp horizontally)
+                            var matchedOvId: String? = null
+                            if (totalKm > 0f && dayBoundaryWalkKms.isNotEmpty() && overnightWaypointIds.isNotEmpty()) {
+                                val hitRadiusPx = 24.dp.toPx()
+                                for (i in dayBoundaryWalkKms.indices) {
+                                    val ovId = overnightWaypointIds.getOrNull(i) ?: continue
+                                    val bx = ((dayBoundaryWalkKms[i].toFloat() / totalKm).coerceIn(0f, 1f)) * size.width
+                                    if (kotlin.math.abs(offset.x - bx) <= hitRadiusPx) {
+                                        matchedOvId = ovId
+                                        break
+                                    }
+                                }
+                            }
+                            draggingOvernightId = matchedOvId
+
                             val idx = findClosestIndex(distancesKm, targetKm)
                             val pt = validPoints.getOrNull(idx)
                             scrubbedPoint = pt
@@ -230,9 +233,15 @@ fun RouteElevationProfileChart(
                             val pt = validPoints.getOrNull(idx)
                             scrubbedPoint = pt
                             onPointScrubbed?.invoke(pt, targetKm.toDouble())
+                            draggingOvernightId?.let { ovId ->
+                                onOvernightMarkerDragged?.invoke(ovId, targetKm.toDouble(), false)
+                            }
                         },
                         onDragEnd = {
-                            // Keep scrubbed point visible
+                            draggingOvernightId?.let { ovId ->
+                                onOvernightMarkerDragged?.invoke(ovId, scrubbedKm.toDouble(), true)
+                            }
+                            draggingOvernightId = null
                         }
                     )
                 }
@@ -241,7 +250,6 @@ fun RouteElevationProfileChart(
             val height = size.height
             if (validPoints.size < 2 || totalKm <= 0f) return@Canvas
 
-            // Compute screen coordinates for each point
             val xCoords = FloatArray(validPoints.size)
             val yCoords = FloatArray(validPoints.size)
 
@@ -253,7 +261,6 @@ fun RouteElevationProfileChart(
                 yCoords[i] = normalizedY * (height - 10f) + 5f
             }
 
-            // Draw filled background under profile
             val fillPath = Path().apply {
                 moveTo(xCoords[0], height)
                 for (i in validPoints.indices) {
@@ -267,7 +274,6 @@ fun RouteElevationProfileChart(
                 color = Color(0x334CAF50)
             )
 
-            // Draw coloured segments based on gradient
             for (i in 0 until validPoints.size - 1) {
                 val x1 = xCoords[i]
                 val y1 = yCoords[i]
@@ -279,9 +285,9 @@ fun RouteElevationProfileChart(
                 val gradientPct = if (dDistM > 0.1) (kotlin.math.abs(dEleM) / dDistM) * 100.0 else 0.0
 
                 val segmentColor = when {
-                    gradientPct < 3.0 -> Color(0xFF4CAF50) // Green < 3%
-                    gradientPct <= 8.0 -> Color(0xFFFFB300) // Yellow 3-8%
-                    else -> Color(0xFFE53935) // Red > 8%
+                    gradientPct < 3.0 -> Color(0xFF4CAF50)
+                    gradientPct <= 8.0 -> Color(0xFFFFB300)
+                    else -> Color(0xFFE53935)
                 }
 
                 drawLine(
@@ -293,7 +299,31 @@ fun RouteElevationProfileChart(
                 )
             }
 
-            // Draw scrub line and cursor indicator
+            // Requirement F: Draw day boundaries and overnight markers on the elevation profile
+            for (boundaryKm in dayBoundaryWalkKms) {
+                val bFraction = (boundaryKm.toFloat() / totalKm).coerceIn(0f, 1f)
+                val bx = bFraction * width
+                drawLine(
+                    color = Color(0xFFE65100),
+                    start = Offset(bx, 0f),
+                    end = Offset(bx, height),
+                    strokeWidth = 2.dp.toPx(),
+                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)
+                )
+                val bIdx = findClosestIndex(distancesKm, boundaryKm.toFloat())
+                val by = yCoords.getOrElse(bIdx) { height / 2f }
+                drawCircle(
+                    color = Color.White,
+                    radius = 7.dp.toPx(),
+                    center = Offset(bx, by)
+                )
+                drawCircle(
+                    color = Color(0xFFE65100),
+                    radius = 5.dp.toPx(),
+                    center = Offset(bx, by)
+                )
+            }
+
             if (scrubFraction in 0f..1f) {
                 val scrubX = scrubFraction * width
                 drawLine(
@@ -303,7 +333,6 @@ fun RouteElevationProfileChart(
                     strokeWidth = 1.5.dp.toPx()
                 )
 
-                // Cursor dot on profile
                 val scrubIdx = findClosestIndex(distancesKm, scrubFraction * totalKm)
                 val dotX = xCoords[scrubIdx]
                 val dotY = yCoords[scrubIdx]

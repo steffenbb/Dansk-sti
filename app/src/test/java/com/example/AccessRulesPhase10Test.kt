@@ -37,7 +37,7 @@ import org.robolectric.annotation.Config
  * 3. "Rut uden om" produces a route that avoids the area or reports it cannot.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE)
 class AccessRulesPhase10Test {
 
     private lateinit var app: Application

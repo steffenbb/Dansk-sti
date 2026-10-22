@@ -30,6 +30,10 @@ object GeoUtils {
         return distanceMeters(p1.lat, p1.lng, p2.lat, p2.lng)
     }
 
+    fun haversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        return distanceMeters(lat1, lon1, lat2, lon2)
+    }
+
     /**
      * Initial bearing from coordinate (lat1, lon1) to (lat2, lon2) in degrees [0, 360).
      */

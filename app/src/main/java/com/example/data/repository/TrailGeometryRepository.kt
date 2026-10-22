@@ -29,6 +29,8 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+import com.example.util.network.applyDebugMainThreadCheck
+
 class TrailGeometryRepository(private val context: Context) {
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     private val geometryAdapter = moshi.adapter(TrailGeometryDto::class.java)
@@ -37,6 +39,7 @@ class TrailGeometryRepository(private val context: Context) {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .callTimeout(20, TimeUnit.SECONDS)
+        .applyDebugMainThreadCheck()
         .build()
 
     private val trailsDir: File
@@ -229,14 +232,31 @@ class TrailGeometryRepository(private val context: Context) {
                         @Suppress("UNCHECKED_CAST")
                         val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
                         if (elements.isNotEmpty()) {
+                            // Requirement 22: After downloading a relation, fetch its member way tags (way(r); out tags;)
+                            // so ways with route=ferry are marked as FERRY segments.
+                            val wayTagsMap = fetchMemberWayTags(relationId)
                             for (el in elements) {
                                 val id = (el["id"] as? Number)?.toLong()
                                 val type = el["type"] as? String
                                 if (id != null && type == "relation") {
-                                    collected[id] = el
+                                    val mutableEl = el.toMutableMap()
                                     @Suppress("UNCHECKED_CAST")
                                     val members = el["members"] as? List<Map<String, Any>> ?: emptyList()
-                                    for (m in members) {
+                                    val enrichedMembers = members.map { m ->
+                                        val mType = m["type"] as? String
+                                        val mRef = (m["ref"] as? Number)?.toLong()
+                                        if (mType == "way" && mRef != null) {
+                                            val wTags = wayTagsMap[mRef]
+                                            if (wTags != null) {
+                                                val mCopy = m.toMutableMap()
+                                                mCopy["tags"] = wTags
+                                                mCopy
+                                            } else m
+                                        } else m
+                                    }
+                                    mutableEl["members"] = enrichedMembers
+                                    collected[id] = mutableEl
+                                    for (m in enrichedMembers) {
                                         val mType = m["type"] as? String
                                         val mRef = (m["ref"] as? Number)?.toLong()
                                         if (mType == "relation" && mRef != null) {
@@ -253,6 +273,87 @@ class TrailGeometryRepository(private val context: Context) {
                 Log.w("TrailGeometry", "Overpass mirror $url failed for relation $relationId: ${e.message}")
             }
         }
+    }
+
+    /**
+     * Requirement 22: Fetches member way tags for a relation using `relation($relationId); way(r); out tags;`
+     * so ways with `route=ferry` are detected and marked as FERRY segments.
+     */
+    private fun fetchMemberWayTags(relationId: Long): Map<Long, Map<String, String>> {
+        val query = """
+            [out:json][timeout:30];
+            relation($relationId);
+            way(r);
+            out tags;
+        """.trimIndent()
+
+        val overpassMirrors = listOf(
+            "https://overpass-api.de/api/interpreter",
+            "https://lz4.overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter"
+        )
+
+        for (url in overpassMirrors) {
+            try {
+                val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
+                val request = Request.Builder().url(url).post(body).header("User-Agent", "DanskSti/1.0").build()
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val jsonStr = response.body?.string() ?: return@use
+                        @Suppress("UNCHECKED_CAST")
+                        val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
+                        @Suppress("UNCHECKED_CAST")
+                        val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
+                        val result = mutableMapOf<Long, Map<String, String>>()
+                        for (el in elements) {
+                            val id = (el["id"] as? Number)?.toLong() ?: continue
+                            val type = el["type"] as? String
+                            if (type == "way") {
+                                @Suppress("UNCHECKED_CAST")
+                                val tags = el["tags"] as? Map<String, String> ?: emptyMap()
+                                result[id] = tags
+                            }
+                        }
+                        return result
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("TrailGeometry", "Way tags fetch failed on $url for relation $relationId: ${e.message}")
+            }
+        }
+        return emptyMap()
+    }
+
+    /**
+     * Requirement 13: Look up elevation for both ends of a STRAIGHT leg with Open-Meteo;
+     * if that fails, return null. Never 15.0.
+     */
+    suspend fun fetchEndpointElevations(
+        fromLat: Double,
+        fromLng: Double,
+        toLat: Double,
+        toLng: Double
+    ): Pair<Double?, Double?> = withContext(Dispatchers.IO) {
+        val url = "https://api.open-meteo.com/v1/elevation?latitude=$fromLat,$toLat&longitude=$fromLng,$toLng"
+        try {
+            val request = Request.Builder().url(url).header("User-Agent", "DanskSti/1.0").build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string()
+                    if (!jsonStr.isNullOrEmpty()) {
+                        val root = moshi.adapter(Map::class.java).fromJson(jsonStr)
+                        @Suppress("UNCHECKED_CAST")
+                        val eleList = root?.get("elevation") as? List<Number?>
+                        if (eleList != null && eleList.size >= 2) {
+                            return@withContext Pair(eleList[0]?.toDouble(), eleList[1]?.toDouble())
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("TrailGeometry", "STRAIGHT leg endpoint elevation lookup failed: ${e.message}")
+        }
+        Pair(null, null)
     }
 
     private fun downloadRelationDirectOsm(relationId: Long, collected: MutableMap<Long, Map<String, Any>>) {

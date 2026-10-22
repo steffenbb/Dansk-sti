@@ -101,6 +101,21 @@ object OfflineDownloadManager {
     }
 
     /**
+     * Requirement C: When the "Terræn" layer is on, returns (hillshadeTiles, contourTiles)
+     * to include in the offline SQLite archive (contours from zoom 14+).
+     */
+    fun calculateTerrainTilesForOffline(
+        points: List<GeoPointDto>,
+        corridorKm: Double,
+        isTerrainLayerOn: Boolean
+    ): Pair<Set<Long>, Set<Long>> {
+        if (!isTerrainLayerOn) return emptySet<Long>() to emptySet<Long>()
+        val allBaseTiles = calculateTiles(points, corridorKm)
+        val contourTiles = allBaseTiles.filterTo(HashSet()) { MapTileIndex.getZoom(it) >= 14 }
+        return allBaseTiles to contourTiles
+    }
+
+    /**
      * Measures the real average tile size from the first 20 tiles.
      */
     suspend fun measureAverageTileSize(tiles: List<Long>): Long = withContext(Dispatchers.IO) {
@@ -224,7 +239,24 @@ object OfflineDownloadManager {
             .map { it.firstOrNull() }
     }
 
+    fun getOfflineDir(context: Context): java.io.File {
+        val dir = java.io.File(context.filesDir, "offline")
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        return dir
+    }
+
+    fun getOfflineArchiveFile(context: Context, trailId: String): java.io.File {
+        val safeId = trailId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        return java.io.File(getOfflineDir(context), "$safeId.sqlite")
+    }
+
     suspend fun deleteOfflineTrail(context: Context, trailId: String) = withContext(Dispatchers.IO) {
+        val archiveFile = getOfflineArchiveFile(context, trailId)
+        if (archiveFile.exists()) {
+            archiveFile.delete()
+        }
         val app = context.applicationContext as DanskStiApp
         app.database.dao().deleteDownloadedTrail(trailId)
     }

@@ -37,13 +37,16 @@ import com.example.data.model.UserHazardNoteEntity
         com.example.data.model.AccessPolygonEntity::class,
         com.example.data.model.UserCustomWaypointEntity::class,
         com.example.data.model.MarkedRouteEntity::class,
-        com.example.data.model.MarkedRouteCacheBoxEntity::class
+        com.example.data.model.MarkedRouteCacheBoxEntity::class,
+        com.example.data.model.WaterFeatureEntity::class,
+        com.example.data.model.WaterTileCacheEntity::class
     ],
-    version = 20,
+    version = 22,
     exportSchema = true
 )
 abstract class DanskStiDatabase : RoomDatabase() {
     abstract fun dao(): DanskStiDao
+    fun danskStiDao(): DanskStiDao = dao()
 
     companion object {
         @Volatile
@@ -414,6 +417,60 @@ abstract class DanskStiDatabase : RoomDatabase() {
                 """.trimIndent())
                 // Requirement 1: Delete cached baseline access polygons
                 db.execSQL("DELETE FROM access_polygons WHERE id LIKE 'baseline_%'")
+                db.execSQL("ALTER TABLE access_polygons ADD COLUMN tileId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_access_polygons_tileId ON access_polygons(tileId)")
+            }
+        }
+
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                try {
+                    db.execSQL("ALTER TABLE custom_routes ADD COLUMN baseTrailId TEXT")
+                } catch (_: Exception) {}
+                try {
+                    db.execSQL("ALTER TABLE custom_routes ADD COLUMN isReverse INTEGER NOT NULL DEFAULT 0")
+                } catch (_: Exception) {}
+                try {
+                    db.execSQL("ALTER TABLE trip_plans ADD COLUMN customRouteId INTEGER")
+                } catch (_: Exception) {}
+            }
+        }
+
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS water_features (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        osmId INTEGER NOT NULL,
+                        name TEXT,
+                        featureType TEXT NOT NULL,
+                        subType TEXT,
+                        coordinatesJson TEXT NOT NULL,
+                        minLat REAL NOT NULL,
+                        maxLat REAL NOT NULL,
+                        minLng REAL NOT NULL,
+                        maxLng REAL NOT NULL,
+                        tileId TEXT NOT NULL,
+                        fetchedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_water_features_bbox ON water_features(minLat, maxLat, minLng, maxLng)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_water_features_tileId ON water_features(tileId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_water_features_type ON water_features(featureType)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS water_tile_cache (
+                        tileId TEXT NOT NULL PRIMARY KEY,
+                        minLat REAL NOT NULL,
+                        maxLat REAL NOT NULL,
+                        minLng REAL NOT NULL,
+                        maxLng REAL NOT NULL,
+                        fetchedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
             }
         }
 
@@ -432,7 +489,8 @@ abstract class DanskStiDatabase : RoomDatabase() {
                     MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
                     MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13,
                     MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
-                    MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20
+                    MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21,
+                    MIGRATION_21_22
                 )
                     .build()
                 INSTANCE = instance

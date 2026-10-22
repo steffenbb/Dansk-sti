@@ -23,9 +23,11 @@ data class LegGeometryData(
     val hasAccessWarning: Boolean = false,
     val sourceName: String = "BRouter",
     val fetchedAt: Long = System.currentTimeMillis(),
-    val wayInfo: List<WayInfo> = emptyList()
+    val wayInfo: List<WayInfo> = emptyList(),
+    val trailSegments: List<com.example.data.model.TrailSegmentDto> = emptyList()
 ) {
     val legKey: String get() = "${fromWaypointId}_to_${toWaypointId}"
+    val slicedSegments: List<com.example.data.model.TrailSegmentDto> get() = trailSegments
 
     fun toJson(): JSONObject {
         val obj = JSONObject()
@@ -49,6 +51,8 @@ data class LegGeometryData(
             if (pt.ele != null) ptArr.put(pt.ele)
             ptsArr.put(ptArr)
         }
+        obj.put("points", ptsArr)
+
         val wiArr = JSONArray()
         for (w in wayInfo) {
             val wObj = JSONObject()
@@ -63,6 +67,26 @@ data class LegGeometryData(
             wiArr.put(wObj)
         }
         obj.put("wayInfo", wiArr)
+
+        if (trailSegments.isNotEmpty()) {
+            val tsArr = JSONArray()
+            for (ts in trailSegments) {
+                val tsObj = JSONObject()
+                tsObj.put("type", ts.type.name)
+                tsObj.put("lengthKm", ts.lengthKm)
+                val tsPts = JSONArray()
+                for (p in ts.points) {
+                    val pArr = JSONArray()
+                    pArr.put(p.lat)
+                    pArr.put(p.lng)
+                    if (p.ele != null) pArr.put(p.ele)
+                    tsPts.put(pArr)
+                }
+                tsObj.put("points", tsPts)
+                tsArr.put(tsObj)
+            }
+            obj.put("trailSegments", tsArr)
+        }
         return obj
     }
 
@@ -103,6 +127,30 @@ data class LegGeometryData(
                 }
             }
 
+            val tsList = ArrayList<com.example.data.model.TrailSegmentDto>()
+            val tsArr = obj.optJSONArray("trailSegments")
+            if (tsArr != null) {
+                for (i in 0 until tsArr.length()) {
+                    val tsObj = tsArr.getJSONObject(i)
+                    val typeStr = tsObj.optString("type", "WALK")
+                    val type = runCatching { com.example.data.model.TrailSegmentType.valueOf(typeStr) }
+                        .getOrDefault(com.example.data.model.TrailSegmentType.WALK)
+                    val lenKm = tsObj.optDouble("lengthKm", 0.0)
+                    val tsPtsArr = tsObj.optJSONArray("points")
+                    val tsPts = ArrayList<com.example.data.model.GeoPointDto>()
+                    if (tsPtsArr != null) {
+                        for (j in 0 until tsPtsArr.length()) {
+                            val p = tsPtsArr.getJSONArray(j)
+                            val lat = p.getDouble(0)
+                            val lng = p.getDouble(1)
+                            val ele = if (p.length() > 2) p.getDouble(2) else null
+                            tsPts.add(com.example.data.model.GeoPointDto(lat, lng, ele))
+                        }
+                    }
+                    tsList.add(com.example.data.model.TrailSegmentDto(type, tsPts, lenKm))
+                }
+            }
+
             return LegGeometryData(
                 fromWaypointId = obj.getString("fromWaypointId"),
                 toWaypointId = obj.getString("toWaypointId"),
@@ -116,7 +164,8 @@ data class LegGeometryData(
                 hasAccessWarning = obj.optBoolean("hasAccessWarning", false),
                 sourceName = obj.optString("sourceName", "BRouter"),
                 fetchedAt = obj.optLong("fetchedAt", System.currentTimeMillis()),
-                wayInfo = wiList
+                wayInfo = wiList,
+                trailSegments = tsList
             )
         }
     }
@@ -267,6 +316,57 @@ object RouteGeometryStorageManager {
     }
 
     /**
+     * Requirement 14: Compute path share % and road km by distance per way section.
+     * No 80% default; returns null for pathSharePct when there is no way info.
+     */
+    fun computeWaySectionMetrics(
+        points: List<RoutePoint3D>,
+        perPointWayInfo: List<WayInfo>
+    ): Pair<Double?, Double> {
+        if (points.size < 2 || perPointWayInfo.isEmpty()) {
+            return Pair(null, 0.0)
+        }
+        val hasAnyWayTags = perPointWayInfo.any {
+            !it.highway.isNullOrBlank() || !it.surface.isNullOrBlank() || it.rawTags.isNotEmpty()
+        }
+        if (!hasAnyWayTags) {
+            return Pair(null, 0.0)
+        }
+
+        var pathDistKm = 0.0
+        var roadDistKm = 0.0
+        var totalDistKm = 0.0
+
+        for (i in 0 until points.size - 1) {
+            val p1 = points[i]
+            val p2 = points[i + 1]
+            val segKm = BRouterGeoJsonParser.distanceMeters(p1.lat, p1.lng, p2.lat, p2.lng) / 1000.0
+            totalDistKm += segKm
+
+            val w = perPointWayInfo.getOrNull(i) ?: WayInfo()
+            val hw = w.highway?.lowercase() ?: ""
+            val surf = w.surface?.lowercase() ?: ""
+
+            val isPath = hw in listOf("path", "footway", "bridleway", "track", "pedestrian", "steps", "cycleway") ||
+                surf in listOf("unpaved", "compacted", "gravel", "fine_gravel", "dirt", "ground", "earth", "grass")
+            val isRoad = hw in listOf("residential", "living_street", "service", "unclassified", "tertiary", "secondary", "primary", "trunk") ||
+                surf in listOf("asphalt", "paved", "concrete", "paving_stones")
+
+            if (isPath) {
+                pathDistKm += segKm
+            } else if (isRoad) {
+                roadDistKm += segKm
+            }
+        }
+
+        val pathShare = if (totalDistKm > 0.0) {
+            (pathDistKm / totalDistKm * 100.0).coerceIn(0.0, 100.0)
+        } else null
+
+        return Pair(pathShare, roadDistKm)
+    }
+
+    /**
      * Combines all points across legs sequentially.
      */
     fun getCombinedPoints(orderedLegs: List<LegGeometryData>): List<RoutePoint3D> {
@@ -301,20 +401,30 @@ object RouteGeometryStorageManager {
         val allPoints = mutableListOf<com.example.data.model.GeoPointDto>()
 
         for (leg in orderedLegs) {
-            val isFerry = leg.legMode == LegMode.STRAIGHT && leg.sourceName.contains("ferry", ignoreCase = true)
-            val segType = if (isFerry) com.example.data.model.TrailSegmentType.FERRY else com.example.data.model.TrailSegmentType.WALK
-            val pts = leg.points.map { com.example.data.model.GeoPointDto(it.lat, it.lng, it.ele) }
-            allPoints.addAll(pts)
-            if (segType == com.example.data.model.TrailSegmentType.WALK) {
-                totalWalkingKm += leg.lengthKm
-            }
-            segments.add(
-                com.example.data.model.TrailSegmentDto(
-                    type = segType,
-                    points = pts,
-                    lengthKm = leg.lengthKm
+            if (leg.trailSegments.isNotEmpty()) {
+                for (ts in leg.trailSegments) {
+                    allPoints.addAll(ts.points)
+                    if (ts.type != com.example.data.model.TrailSegmentType.FERRY) {
+                        totalWalkingKm += ts.lengthKm
+                    }
+                    segments.add(ts)
+                }
+            } else {
+                val isFerry = leg.legMode == LegMode.STRAIGHT && leg.sourceName.contains("ferry", ignoreCase = true)
+                val segType = if (isFerry) com.example.data.model.TrailSegmentType.FERRY else com.example.data.model.TrailSegmentType.WALK
+                val pts = leg.points.map { com.example.data.model.GeoPointDto(it.lat, it.lng, it.ele) }
+                allPoints.addAll(pts)
+                if (segType == com.example.data.model.TrailSegmentType.WALK) {
+                    totalWalkingKm += leg.lengthKm
+                }
+                segments.add(
+                    com.example.data.model.TrailSegmentDto(
+                        type = segType,
+                        points = pts,
+                        lengthKm = leg.lengthKm
+                    )
                 )
-            )
+            }
         }
 
         val lats = allPoints.map { it.lat }

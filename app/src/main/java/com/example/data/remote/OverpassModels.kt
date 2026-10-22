@@ -16,6 +16,7 @@ data class OverpassElement(
     val id: Long,
     val lat: Double? = null,
     val lon: Double? = null,
+    val center: OverpassPoint? = null,
     val tags: Map<String, String>? = null,
     val members: List<OverpassMember>? = null,
     val geometry: List<OverpassPoint>? = null,
@@ -35,3 +36,11 @@ data class OverpassPoint(
     val lat: Double,
     val lon: Double
 )
+
+data class PlaceSearchResult(
+    val displayName: String,
+    val lat: Double,
+    val lng: Double,
+    val type: String = "place"
+)
+

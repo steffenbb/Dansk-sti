@@ -7,6 +7,7 @@ import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import com.example.util.network.applyDebugMainThreadCheck
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -33,6 +34,7 @@ class OsmPoiRepository(private val context: Context) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(180, TimeUnit.SECONDS)
+        .applyDebugMainThreadCheck()
         .build()
 
     private val cacheDir: File
@@ -88,19 +90,22 @@ class OsmPoiRepository(private val context: Context) {
         }
 
         // 3. Fallback to bundled asset
+        loadBundledPois(trailId)
+    }
+
+    fun loadBundledPois(trailId: String = "trail_ohavsstien"): OsmPoiResult {
         val assetJson = readAssetOsmPois(trailId)
         if (assetJson != null) {
             try {
                 val parsed = parseOverpassJson(assetJson)
                 if (parsed.shelters.isNotEmpty() || parsed.pois.isNotEmpty()) {
-                    return@withContext parsed
+                    return parsed
                 }
             } catch (e: Exception) {
                 Log.e("OsmPoiRepo", "Failed to parse asset OSM POIs: ${e.message}", e)
             }
         }
-
-        OsmPoiResult()
+        return OsmPoiResult()
     }
 
     private fun readAssetOsmPois(trailId: String): String? {

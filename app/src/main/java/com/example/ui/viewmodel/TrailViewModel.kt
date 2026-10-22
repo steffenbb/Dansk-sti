@@ -80,7 +80,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     private val _elevationLoss = MutableStateFlow(0)
     val elevationLoss: StateFlow<Int> = _elevationLoss.asStateFlow()
 
-    private val _surfaceMix = MutableStateFlow<Map<String, Int>>(mapOf("Sti" to 70, "Grus" to 20, "Asfalt" to 10))
+    private val _surfaceMix = MutableStateFlow<Map<String, Int>>(emptyMap())
     val surfaceMix: StateFlow<Map<String, Int>> = _surfaceMix.asStateFlow()
 
     private val _weatherStart = MutableStateFlow<TrailWeatherInfo?>(null)
@@ -100,6 +100,15 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isFetchingLiveRoute = MutableStateFlow(false)
     val isFetchingLiveRoute: StateFlow<Boolean> = _isFetchingLiveRoute.asStateFlow()
+
+    private val _isSyncingPois = MutableStateFlow(false)
+    val isSyncingPois: StateFlow<Boolean> = _isSyncingPois.asStateFlow()
+
+    private val _longestGapWithoutWaterKm = MutableStateFlow(0.0)
+    val longestGapWithoutWaterKm: StateFlow<Double> = _longestGapWithoutWaterKm.asStateFlow()
+
+    private val _longestGapWithoutOvernightKm = MutableStateFlow(0.0)
+    val longestGapWithoutOvernightKm: StateFlow<Double> = _longestGapWithoutOvernightKm.asStateFlow()
 
     private var currentTrailId: String? = null
 
@@ -153,29 +162,32 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 _elevationGain.value = geom?.totalAscentM ?: 0
                 _elevationLoss.value = geom?.totalDescentM ?: 0
 
-                // Corridor Overnights & POIs
-                val shelters = repository.getSheltersForTrail(trailId)
+                // Corridor Overnights & POIs (only route's own corridor POIs, never whole DB)
+                var shelters = repository.getSheltersForTrail(trailId)
                 val friTeltning = repository.getFriTeltningForTrail(trailId)
-                val pois = repository.getPoisForTrail(trailId)
+                var pois = repository.getPoisForTrail(trailId)
+                if (shelters.isEmpty() && pois.isEmpty() && points.isNotEmpty()) {
+                    _isSyncingPois.value = true
+                    try {
+                        repository.syncCorridorPois(entity)
+                        shelters = repository.getSheltersForTrail(trailId)
+                        pois = repository.getPoisForTrail(trailId)
+                    } finally {
+                        _isSyncingPois.value = false
+                    }
+                }
 
-                // Fast bounding-box prefilter to avoid calculating 4,000+ points across all of Denmark
                 val hasPoints = points.isNotEmpty()
                 val minLat = if (hasPoints) points.minOf { it.lat } - 0.05 else -90.0
                 val maxLat = if (hasPoints) points.maxOf { it.lat } + 0.05 else 90.0
                 val minLng = if (hasPoints) points.minOf { it.lng } - 0.08 else -180.0
                 val maxLng = if (hasPoints) points.maxOf { it.lng } + 0.08 else 180.0
 
-                val nearbyShelters = if (hasPoints) {
-                    shelters.filter { it.lat in minLat..maxLat && it.lng in minLng..maxLng }
-                } else shelters.take(30)
-
+                val nearbyShelters = shelters
                 val nearbyFriTeltning = if (hasPoints) {
                     friTeltning.filter { it.centerLat in minLat..maxLat && it.centerLng in minLng..maxLng }
-                } else friTeltning.take(20)
-
-                val nearbyPois = if (hasPoints) {
-                    pois.filter { it.lat in minLat..maxLat && it.lng in minLng..maxLng }
-                } else pois.take(50)
+                } else emptyList()
+                val nearbyPois = pois
 
                 // Sort overnights by projected km along trail
                 val overnightList = mutableListOf<OvernightSpotItem>()
@@ -255,6 +267,27 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 _waterAndToilets.value = waterToilets.distinctBy { it.id }
                 _shops.value = shopList.distinctBy { it.id }
                 _transports.value = transList.distinctBy { it.id }
+
+                // Compute longest gaps along the trail using only the route's own corridor POIs
+                val totalKm = geom?.totalWalkingKm?.takeIf { it > 0.0 } ?: entity.computedWalkingKm
+                val waterKms = (listOf(0.0) +
+                    waterToilets.filter { it.type == "water" }.map { it.kmOnRoute } +
+                    overnightList.filter { it.hasWaterNearby }.map { it.kmOnRoute } +
+                    listOf(totalKm)).distinct().sorted()
+                var maxWaterGap = 0.0
+                for (i in 0 until waterKms.size - 1) {
+                    val gap = waterKms[i + 1] - waterKms[i]
+                    if (gap > maxWaterGap) maxWaterGap = gap
+                }
+                _longestGapWithoutWaterKm.value = maxWaterGap
+
+                val overnightKms = (listOf(0.0) + overnightList.map { it.kmOnRoute } + listOf(totalKm)).distinct().sorted()
+                var maxOvernightGap = 0.0
+                for (i in 0 until overnightKms.size - 1) {
+                    val gap = overnightKms[i + 1] - overnightKms[i]
+                    if (gap > maxOvernightGap) maxOvernightGap = gap
+                }
+                _longestGapWithoutOvernightKm.value = maxOvernightGap
 
                 // Weather at start and end
                 val firstPt = points.firstOrNull()

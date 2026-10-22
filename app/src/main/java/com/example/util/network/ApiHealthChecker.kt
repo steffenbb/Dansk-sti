@@ -48,6 +48,7 @@ class ApiHealthChecker(
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .callTimeout(10, TimeUnit.SECONDS)
+        .applyDebugMainThreadCheck()
         .build()
 
     suspend fun runFullDiagnostics(): DiagnosticsReport = coroutineScope {

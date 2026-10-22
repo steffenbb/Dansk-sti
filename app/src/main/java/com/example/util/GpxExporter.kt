@@ -114,6 +114,75 @@ object GpxExporter {
     }
 
     /**
+     * Generates a GPX 1.1 document for a custom or trail-based route from the Route Builder,
+     * including route waypoints (overnight stops), user custom waypoints, and 3D track points.
+     */
+    fun generateCustomRouteGpx(
+        routeName: String,
+        description: String,
+        routePoints: List<GeoPointDto>,
+        overnightWaypoints: List<com.example.util.routing.RouteWaypoint> = emptyList(),
+        customWaypoints: List<com.example.data.model.UserCustomWaypointEntity> = emptyList()
+    ): String {
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+        val nowIso = dateFormat.format(Date())
+
+        val sb = StringBuilder()
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+        sb.append("<gpx version=\"1.1\" creator=\"DanskSti - Dansk Vandrerute &amp; Shelter Guide\"\n")
+        sb.append("     xmlns=\"http://www.topografix.com/GPX/1/1\"\n")
+        sb.append("     xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n")
+        sb.append("     xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\n")
+
+        sb.append("  <metadata>\n")
+        sb.append("    <name>${escapeXml(routeName)} - DanskSti Ruteplan</name>\n")
+        sb.append("    <desc>${escapeXml(description)}</desc>\n")
+        sb.append("    <time>$nowIso</time>\n")
+        sb.append("  </metadata>\n\n")
+
+        overnightWaypoints.forEachIndexed { idx, wp ->
+            sb.append("  <wpt lat=\"${wp.lat}\" lon=\"${wp.lng}\">\n")
+            val stopLabel = wp.name?.takeIf { it.isNotBlank() } ?: "Lejr ${idx + 1}"
+            sb.append("    <name>Dag ${idx + 1} Mål: ${escapeXml(stopLabel)}</name>\n")
+            val spotDesc = wp.spotType ?: "Overnatning"
+            sb.append("    <desc>${escapeXml(spotDesc)}</desc>\n")
+            sb.append("    <sym>Campground</sym>\n")
+            sb.append("    <type>Overnight</type>\n")
+            sb.append("  </wpt>\n")
+        }
+
+        customWaypoints.forEach { wp ->
+            sb.append("  <wpt lat=\"${wp.lat}\" lon=\"${wp.lng}\">\n")
+            sb.append("    <name>${escapeXml(wp.name)}</name>\n")
+            if (wp.note.isNotBlank()) {
+                sb.append("    <desc>${escapeXml(wp.note)}</desc>\n")
+            }
+            sb.append("    <sym>Custom</sym>\n")
+            sb.append("    <type>UserWaypoint</type>\n")
+            sb.append("  </wpt>\n")
+        }
+
+        if (routePoints.isNotEmpty()) {
+            sb.append("\n  <trk>\n")
+            sb.append("    <name>${escapeXml(routeName)}</name>\n")
+            sb.append("    <trkseg>\n")
+            routePoints.forEach { pt ->
+                val eleTag = pt.ele?.let { "<ele>${String.format(Locale.US, "%.1f", it)}</ele>" } ?: ""
+                if (eleTag.isNotEmpty()) {
+                    sb.append("      <trkpt lat=\"${pt.lat}\" lon=\"${pt.lng}\">$eleTag</trkpt>\n")
+                } else {
+                    sb.append("      <trkpt lat=\"${pt.lat}\" lon=\"${pt.lng}\" />\n")
+                }
+            }
+            sb.append("    </trkseg>\n")
+            sb.append("  </trk>\n")
+        }
+
+        sb.append("</gpx>\n")
+        return sb.toString()
+    }
+
+    /**
      * Phase 7a: Generates GPX for recorded GPS tracks (either a specific day or whole trip).
      */
     fun generateRecordedTrackGpx(

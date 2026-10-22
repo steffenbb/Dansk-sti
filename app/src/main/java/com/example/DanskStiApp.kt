@@ -4,10 +4,15 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
+import android.os.StrictMode
+import android.util.Log
 import com.example.data.local.DanskStiDatabase
 import com.example.data.repository.DanskStiRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 
@@ -22,12 +27,32 @@ class DanskStiApp : Application() {
     lateinit var settingsRepository: com.example.data.local.SettingsRepository
         private set
 
+    private val _databaseError = MutableStateFlow<String?>(null)
+    val databaseError: StateFlow<String?> = _databaseError.asStateFlow()
+
+    val isDatabaseReady: Boolean
+        get() = ::database.isInitialized && ::repository.isInitialized && _databaseError.value == null
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+
+        if (BuildConfig.DEBUG) {
+            StrictMode.setThreadPolicy(
+                StrictMode.ThreadPolicy.Builder()
+                    .detectNetwork()
+                    .detectDiskReads()
+                    .detectDiskWrites()
+                    .penaltyLog()
+                    .penaltyDeathOnNetwork()
+                    .build()
+            )
+        }
+
         settingsRepository = com.example.data.local.SettingsRepository(this)
 
         // Configure osmdroid user agent & internal directories safely
+        // Keep the browsing cache in cacheDir
         try {
             val sharedPrefs = getSharedPreferences("osmdroid_prefs", MODE_PRIVATE)
             val osmdroidDir = java.io.File(filesDir, "osmdroid").apply { if (!exists()) mkdirs() }
@@ -37,41 +62,40 @@ class DanskStiApp : Application() {
             Configuration.getInstance().osmdroidTileCache = osmdroidCache
             Configuration.getInstance().userAgentValue = "DanskStiApp/1.0 (Android; Hiking in Denmark)"
         } catch (e: Exception) {
-            android.util.Log.e("DanskStiApp", "Failed to configure osmdroid: ${e.message}", e)
+            Log.e("DanskStiApp", "Failed to configure osmdroid: ${e.message}", e)
         }
 
-        // Setup Room Database with auto-recovery
+        initDatabaseSafely()
+        createNotificationChannels()
+    }
+
+    /**
+     * Requirement 17: Never delete the database.
+     * If it fails to open, record the error text for the UI error screen + "Prøv igen" button and log the exception.
+     */
+    fun initDatabaseSafely() {
         try {
-            database = DanskStiDatabase.getInstance(this)
+            val db = DanskStiDatabase.getInstance(this)
+            db.openHelper.writableDatabase
+            database = db
             repository = DanskStiRepository(database.dao(), this)
-            // Seed database asynchronously on app start
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            _databaseError.value = null
+            CoroutineScope(Dispatchers.IO).launch {
                 try {
                     repository.initializePreseededDataIfEmpty()
                 } catch (t: Throwable) {
-                    android.util.Log.e("DanskStiApp", "Failed to seed preseeded data on startup: ${t.message}", t)
+                    Log.e("DanskStiApp", "Failed to preseed database: ${t.message}", t)
                 }
             }
         } catch (e: Throwable) {
-            android.util.Log.e("DanskStiApp", "Database init failed, recreating: ${e.message}", e)
-            try {
-                DanskStiDatabase.resetInstance()
-                deleteDatabase("dansk_sti.db")
-                database = DanskStiDatabase.getInstance(this)
-                repository = DanskStiRepository(database.dao(), this)
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                    try {
-                        repository.initializePreseededDataIfEmpty()
-                    } catch (t: Throwable) {
-                        android.util.Log.e("DanskStiApp", "Failed to seed preseeded data on recovery: ${t.message}", t)
-                    }
-                }
-            } catch (fatal: Throwable) {
-                android.util.Log.e("DanskStiApp", "Fatal database error: ${fatal.message}", fatal)
-            }
+            Log.e("DanskStiApp", "Database init failed (never deleting database): ${e.message}", e)
+            _databaseError.value = e.message ?: e.javaClass.simpleName
         }
+    }
 
-        createNotificationChannels()
+    fun retryDatabaseInit() {
+        DanskStiDatabase.resetInstance()
+        initDatabaseSafely()
     }
 
     private fun createNotificationChannels() {

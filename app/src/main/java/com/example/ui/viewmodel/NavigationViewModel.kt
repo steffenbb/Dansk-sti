@@ -1,29 +1,32 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.DanskStiApp
 import com.example.data.model.DanishEmergencyInfo
+import com.example.data.model.FriTeltningEntity
 import com.example.data.model.GeoPointDto
 import com.example.data.model.PlannedRoute
+import com.example.data.model.PoiEntity
+import com.example.data.model.ShelterEntity
 import com.example.data.model.TripPlanEntity
-import com.example.data.model.TripProgressEntity
 import com.example.data.model.TripStage
+import com.example.data.model.UserHazardNoteEntity
 import com.example.data.repository.DanskStiRepository
 import com.example.data.repository.PlannedRouteRepository
 import com.example.service.NavigationLiveState
 import com.example.service.NavigationTrackingService
 import com.example.util.GeoUtils
-import com.example.util.StagePlanner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 
 data class NextStopInfo(
     val name: String,
@@ -78,6 +81,25 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private val _aheadItems = MutableStateFlow<List<AheadOnRouteItem>>(emptyList())
     val aheadItems: StateFlow<List<AheadOnRouteItem>> = _aheadItems.asStateFlow()
 
+    // Requirement 21: Route corridor POIs for overlayManager.updatePois
+    private val _routeShelters = MutableStateFlow<List<ShelterEntity>>(emptyList())
+    val routeShelters: StateFlow<List<ShelterEntity>> = _routeShelters.asStateFlow()
+
+    private val _routeFriTeltning = MutableStateFlow<List<Pair<FriTeltningEntity, List<GeoPointDto>>>>(emptyList())
+    val routeFriTeltning: StateFlow<List<Pair<FriTeltningEntity, List<GeoPointDto>>>> = _routeFriTeltning.asStateFlow()
+
+    private val _routeWaters = MutableStateFlow<List<PoiEntity>>(emptyList())
+    val routeWaters: StateFlow<List<PoiEntity>> = _routeWaters.asStateFlow()
+
+    private val _routeToilets = MutableStateFlow<List<PoiEntity>>(emptyList())
+    val routeToilets: StateFlow<List<PoiEntity>> = _routeToilets.asStateFlow()
+
+    private val _routeShops = MutableStateFlow<List<PoiEntity>>(emptyList())
+    val routeShops: StateFlow<List<PoiEntity>> = _routeShops.asStateFlow()
+
+    private val _routeHazards = MutableStateFlow<List<UserHazardNoteEntity>>(emptyList())
+    val routeHazards: StateFlow<List<UserHazardNoteEntity>> = _routeHazards.asStateFlow()
+
     private val _isBatterySaverMode = MutableStateFlow(false)
     val isBatterySaverMode: StateFlow<Boolean> = _isBatterySaverMode.asStateFlow()
 
@@ -109,6 +131,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
             NavigationTrackingService.liveState.collect { state ->
                 if (state.plannedRoute != null && _plannedRoute.value == null) {
                     _plannedRoute.value = state.plannedRoute
+                    loadRouteCorridorPois(state.plannedRoute)
                 }
                 if (state.currentDay > 0) {
                     _currentDay.value = state.currentDay
@@ -127,10 +150,79 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 }
 
-                if (state.isTracking && state.currentLat != null && state.currentLat != 0.0) {
-                    _emergencyInfo.value = repository.getEmergencyInfo(state.currentLat, state.currentLng ?: 0.0)
+                if (state.isTracking && state.currentLat != null && state.currentLng != null && state.currentLat != 0.0) {
+                    _emergencyInfo.value = repository.getEmergencyInfo(state.currentLat, state.currentLng)
                 }
             }
+        }
+    }
+
+    private fun loadRouteCorridorPois(route: PlannedRoute) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val trailId = route.trailId
+                val geoPoints = route.points.map { GeoPointDto(it.lat, it.lng, it.ele) }
+
+                var shelters = repository.getSheltersForTrail(trailId)
+                var pois = repository.getPoisForTrail(trailId)
+                if (shelters.isEmpty() && pois.isEmpty() && geoPoints.isNotEmpty()) {
+                    if (trailId.startsWith("route_")) {
+                        repository.syncCorridorPoisForRoute(trailId.removePrefix("route_"), geoPoints)
+                    } else {
+                        repository.getTrailById(trailId)?.let { repository.syncCorridorPois(it) }
+                    }
+                    shelters = repository.getSheltersForTrail(trailId)
+                    pois = repository.getPoisForTrail(trailId)
+                }
+
+                _routeShelters.value = shelters
+                _routeWaters.value = pois.filter { it.type.equals("water", ignoreCase = true) }
+                _routeToilets.value = pois.filter { it.type.equals("toilet", ignoreCase = true) }
+                _routeShops.value = pois.filter { it.type.equals("shop", ignoreCase = true) }
+
+                // Filter Fri Teltning to route corridor (<= 3000m) and parse boundaries
+                val allFri = repository.getAllFriTeltningList()
+                val corridorFri = if (geoPoints.isNotEmpty()) {
+                    allFri.filter { ft ->
+                        val (_, detourM) = GeoUtils.projectPointOnPolyline(
+                            GeoPointDto(ft.centerLat, ft.centerLng),
+                            geoPoints
+                        )
+                        detourM <= 3000.0
+                    }
+                } else emptyList()
+
+                _routeFriTeltning.value = corridorFri.map { ft ->
+                    ft to parsePolygonCoords(ft.polygonJson)
+                }
+
+                val hazards = repository.getHazardNotesForTrail(trailId).firstOrNull() ?: emptyList()
+                _routeHazards.value = hazards
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun parsePolygonCoords(polygonJson: String?): List<GeoPointDto> {
+        if (polygonJson.isNullOrBlank()) return emptyList()
+        return try {
+            val arr = JSONArray(polygonJson)
+            val pts = mutableListOf<GeoPointDto>()
+            for (i in 0 until arr.length()) {
+                val item = arr.get(i)
+                if (item is JSONArray && item.length() >= 2) {
+                    val v0 = item.getDouble(0)
+                    val v1 = item.getDouble(1)
+                    // GeoJSON coordinates are [lng, lat] or [lat, lng]; Denmark lat is 54..58, lng is 8..16
+                    if (v0 in 53.0..59.0) {
+                        pts.add(GeoPointDto(v0, v1))
+                    } else {
+                        pts.add(GeoPointDto(v1, v0))
+                    }
+                }
+            }
+            pts
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 
@@ -147,6 +239,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 val route = plannedRouteRepo.loadPlannedRoute(targetId)
                 if (route != null) {
                     _plannedRoute.value = route
+                    loadRouteCorridorPois(route)
                 }
                 val plan = repository.getTripPlanById(targetId)
                 if (plan != null) {
@@ -171,6 +264,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 val route = plannedRouteRepo.loadPlannedRoute(planId)
                 if (route != null) {
                     _plannedRoute.value = route
+                    loadRouteCorridorPois(route)
                 }
                 val plan = repository.getTripPlanById(planId) ?: return@withContext
                 _activePlan.value = plan
@@ -284,11 +378,15 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    // --- Phase 7d: Share my current coordinates & map link (on request only) ---
+    // --- Phase 7d & Requirement 12: Share my current coordinates & map link (disable until GPS fix exists) ---
     fun shareCurrentLocation(context: android.content.Context) {
         val state = liveState.value
-        val lat = state.currentLat ?: 55.6761
-        val lng = state.currentLng ?: 12.5683
+        val lat = state.currentLat
+        val lng = state.currentLng
+        if (lat == null || lng == null) {
+            Toast.makeText(context, "Venter på GPS-position", Toast.LENGTH_SHORT).show()
+            return
+        }
         val trailName = state.trailName.ifBlank { "Dansk Sti" }
         val walkedKm = String.format(java.util.Locale.US, "%.1f", state.distanceWalkedTodayKm)
 

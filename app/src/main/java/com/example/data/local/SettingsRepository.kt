@@ -13,20 +13,63 @@ import kotlinx.coroutines.flow.map
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "dansk_sti_settings")
 
-enum class BaseMapType(val displayName: String, val attribution: String) {
-    SKAERMKORT("Skærmkortet", "Klimadatastyrelsen / Skærmkortet"),
-    FRILUFTSKORT("Friluftskort", "© OpenStreetMap • Thunderforest / OpenTopoMap"),
-    LUFTFOTO("Luftfoto", "GeoDanmark / Klimadatastyrelsen Ortofoto");
+enum class BaseMapType(
+    val displayName: String,
+    val sheetTitle: String,
+    val attribution: String
+) {
+    SKAERMKORT("Skærmkortet", "Topografisk", "Klimadatastyrelsen / Skærmkortet"),
+    FRILUFTSKORT("Friluftskort", "Udendørs", "© OpenStreetMap • Thunderforest / OpenTopoMap"),
+    LUFTFOTO("Luftfoto", "Luftfoto", "GeoDanmark / Klimadatastyrelsen Ortofoto");
 
     companion object {
         fun fromString(value: String?): BaseMapType {
-            return entries.find { it.name.equals(value, ignoreCase = true) } ?: SKAERMKORT
+            if (value.isNullOrBlank()) return SKAERMKORT
+            return when (value.trim().uppercase()) {
+                "SKAERMKORT", "TOPOGRAFISK", "SKÆRMKORTET" -> SKAERMKORT
+                "FRILUFTSKORT", "UDENDOERS", "UDENDØRS", "OUTDOORS" -> FRILUFTSKORT
+                "LUFTFOTO", "ORTOFOTO" -> LUFTFOTO
+                else -> entries.find {
+                    it.name.equals(value, ignoreCase = true) ||
+                        it.displayName.equals(value, ignoreCase = true) ||
+                        it.sheetTitle.equals(value, ignoreCase = true)
+                } ?: SKAERMKORT
+            }
         }
     }
 }
 
+enum class MapDarkMode(val displayName: String) {
+    FOLLOW_SYSTEM("Følg telefonen"),
+    ALWAYS_LIGHT("Altid lyst"),
+    ALWAYS_DARK("Altid mørkt");
+
+    val title: String
+        get() = displayName
+
+    fun resolveIsDark(isSystemDark: Boolean): Boolean = when (this) {
+        FOLLOW_SYSTEM -> isSystemDark
+        ALWAYS_LIGHT -> false
+        ALWAYS_DARK -> true
+    }
+
+    companion object {
+        fun fromString(value: String?): MapDarkMode {
+            if (value.isNullOrBlank()) return FOLLOW_SYSTEM
+            return entries.find {
+                it.name.equals(value, ignoreCase = true) ||
+                    it.displayName.equals(value, ignoreCase = true)
+            } ?: FOLLOW_SYSTEM
+        }
+    }
+}
+
+typealias DarkMapMode = MapDarkMode
+
 data class MapLayersState(
     val baseMap: BaseMapType = BaseMapType.SKAERMKORT,
+    val showTerrain: Boolean = true,
+    val showWaterLayer: Boolean = true,
     val showMarkedRoutes: Boolean = true,
     val showAccess: Boolean = true,
     val showShelters: Boolean = true,
@@ -35,15 +78,29 @@ data class MapLayersState(
     val showToilets: Boolean = true,
     val showShops: Boolean = false,
     val showTransport: Boolean = false,
-    val showMyPoints: Boolean = true
-)
+    val showMyPoints: Boolean = true,
+    val mapDarkMode: MapDarkMode = MapDarkMode.FOLLOW_SYSTEM
+) {
+    val showAccessLand: Boolean
+        get() = showAccess
+    val showWaterPois: Boolean
+        get() = showWater
+    val showTransit: Boolean
+        get() = showTransport
+    val darkMapMode: MapDarkMode
+        get() = mapDarkMode
+
+    fun resolveIsDark(isSystemDark: Boolean): Boolean = mapDarkMode.resolveIsDark(isSystemDark)
+    fun resolveIsDarkMap(isSystemDark: Boolean): Boolean = mapDarkMode.resolveIsDark(isSystemDark)
+}
 
 data class AppSettings(
     val mitTempoKmh: Double = 4.0,
     val units: String = "metric",
     val startTime: String = "09:00",
     val maxDetourKm: Double = 1.5,
-    val dailyTargetKm: Double = 15.0
+    val dailyTargetKm: Double = 15.0,
+    val mapDarkMode: MapDarkMode = MapDarkMode.FOLLOW_SYSTEM
 )
 
 class SettingsRepository(private val context: Context) {
@@ -54,8 +111,11 @@ class SettingsRepository(private val context: Context) {
         val KEY_MAX_DETOUR = doublePreferencesKey("max_detour_km")
         val KEY_DAILY_TARGET = doublePreferencesKey("daily_target_km")
 
-        // Map Layers & Base Map Keys (Phase 13)
+        // Map Layers & Base Map Keys
         val KEY_BASE_MAP = stringPreferencesKey("base_map_type")
+        val KEY_MAP_DARK_MODE = stringPreferencesKey("map_dark_mode")
+        val KEY_OVERLAY_TERRAIN = booleanPreferencesKey("overlay_terrain")
+        val KEY_OVERLAY_WATER_BODIES = booleanPreferencesKey("overlay_water_bodies")
         val KEY_OVERLAY_MARKED_ROUTES = booleanPreferencesKey("overlay_marked_routes")
         val KEY_OVERLAY_ACCESS = booleanPreferencesKey("overlay_access")
         val KEY_OVERLAY_SHELTERS = booleanPreferencesKey("overlay_shelters")
@@ -73,13 +133,16 @@ class SettingsRepository(private val context: Context) {
             units = prefs[KEY_UNITS] ?: "metric",
             startTime = prefs[KEY_START_TIME] ?: "09:00",
             maxDetourKm = prefs[KEY_MAX_DETOUR] ?: 1.5,
-            dailyTargetKm = prefs[KEY_DAILY_TARGET] ?: 15.0
+            dailyTargetKm = prefs[KEY_DAILY_TARGET] ?: 15.0,
+            mapDarkMode = MapDarkMode.fromString(prefs[KEY_MAP_DARK_MODE])
         )
     }
 
     val mapLayersFlow: Flow<MapLayersState> = context.dataStore.data.map { prefs ->
         MapLayersState(
             baseMap = BaseMapType.fromString(prefs[KEY_BASE_MAP]),
+            showTerrain = prefs[KEY_OVERLAY_TERRAIN] ?: true,
+            showWaterLayer = prefs[KEY_OVERLAY_WATER_BODIES] ?: true,
             showMarkedRoutes = prefs[KEY_OVERLAY_MARKED_ROUTES] ?: true,
             showAccess = prefs[KEY_OVERLAY_ACCESS] ?: true,
             showShelters = prefs[KEY_OVERLAY_SHELTERS] ?: true,
@@ -88,13 +151,32 @@ class SettingsRepository(private val context: Context) {
             showToilets = prefs[KEY_OVERLAY_TOILETS] ?: true,
             showShops = prefs[KEY_OVERLAY_SHOPS] ?: false,
             showTransport = prefs[KEY_OVERLAY_TRANSPORT] ?: false,
-            showMyPoints = prefs[KEY_OVERLAY_MY_POINTS] ?: true
+            showMyPoints = prefs[KEY_OVERLAY_MY_POINTS] ?: true,
+            mapDarkMode = MapDarkMode.fromString(prefs[KEY_MAP_DARK_MODE])
         )
     }
 
     suspend fun setBaseMap(type: BaseMapType) {
         context.dataStore.edit { prefs ->
             prefs[KEY_BASE_MAP] = type.name
+        }
+    }
+
+    suspend fun setMapDarkMode(mode: MapDarkMode) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_MAP_DARK_MODE] = mode.name
+        }
+    }
+
+    suspend fun setOverlayTerrain(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_OVERLAY_TERRAIN] = enabled
+        }
+    }
+
+    suspend fun setOverlayWaterLayer(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_OVERLAY_WATER_BODIES] = enabled
         }
     }
 
@@ -181,4 +263,6 @@ class SettingsRepository(private val context: Context) {
             prefs[KEY_DAILY_TARGET] = dailyKm
         }
     }
+
+    suspend fun setDarkMapMode(mode: MapDarkMode) = setMapDarkMode(mode)
 }

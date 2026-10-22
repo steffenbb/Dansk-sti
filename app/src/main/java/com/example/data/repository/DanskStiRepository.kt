@@ -54,20 +54,26 @@ class DanskStiRepository(
     suspend fun initializePreseededDataIfEmpty() = withContext(Dispatchers.IO) {
         initMutex.withLock {
             try {
+                val initialTrails = PreseededData.getInitialTrails()
                 val trailCount = dao.getTrailCount()
                 if (trailCount == 0) {
-                    dao.insertTrails(PreseededData.getInitialTrails())
-                    Log.d("DanskStiRepo", "Preseeded ${PreseededData.getInitialTrails().size} initial trails inserted into Room")
+                    dao.insertTrails(initialTrails)
+                    Log.d("DanskStiRepo", "Preseeded ${initialTrails.size} initial trails inserted into Room")
                 }
 
-                // Ensure GeoFA data is loaded into Room
+                // Ensure GeoFA + OSM data is loaded into Room
                 val shelterCount = dao.getShelterCount()
                 if (shelterCount == 0) {
                     try {
                         // First load from pre-bundled assets for instant, reliable startup
                         var shelters = geoFaRepository.loadBundledShelters()
                         var friTeltnings = geoFaRepository.loadBundledFriTeltning()
-                        var pois = geoFaRepository.loadBundledPois()
+                        var pois = geoFaRepository.loadBundledPois().toMutableList()
+
+                        // Also include bundled OSM POIs (shops, transit, water, toilets) and nationwide shops/stations
+                        val bundledOsm = osmPoiRepository.loadBundledPois("trail_ohavsstien")
+                        pois.addAll(bundledOsm.pois)
+                        pois.addAll(getPreseededDanishShopsAndTransit())
 
                         // If bundled files were empty or unavailable, fall back to online fetch
                         if (shelters.isEmpty()) {
@@ -77,12 +83,12 @@ class DanskStiRepository(
                             friTeltnings = geoFaRepository.fetchGeoFaFriTeltning()
                         }
                         if (pois.isEmpty()) {
-                            pois = geoFaRepository.fetchGeoFaPois()
+                            pois.addAll(geoFaRepository.fetchGeoFaPois())
                         }
 
                         val waterPois = pois.filter { it.type == "water" }
                         val toiletPois = pois.filter { it.type == "toilet" }
-                        
+
                         // Optimized distance checking with bounding-box pre-filtering (~0.005 lat, ~0.008 lng is ~500m in Denmark)
                         val computedShelters = shelters.map { sh ->
                             val hasWater = waterPois.any { w ->
@@ -106,17 +112,294 @@ class DanskStiRepository(
                             friTeltnings.chunked(100).forEach { dao.insertFriTeltning(it) }
                         }
                         if (pois.isNotEmpty()) {
-                            pois.chunked(250).forEach { dao.insertPois(it) }
+                            pois.distinctBy { it.id }.chunked(250).forEach { dao.insertPois(it) }
                         }
-                        Log.d("DanskStiRepo", "GeoFA initial data loaded: ${computedShelters.size} shelters, ${friTeltnings.size} fri teltning, ${pois.size} pois")
+                        Log.d("DanskStiRepo", "GeoFA + OSM initial data loaded: ${computedShelters.size} shelters, ${friTeltnings.size} fri teltning, ${pois.size} pois")
                     } catch (t: Throwable) {
                         Log.e("DanskStiRepo", "Failed to load initial GeoFA data: ${t.message}", t)
                     }
+                } else {
+                    // Ensure nationwide shops and transit POIs exist even if DB was partially seeded previously
+                    val existingShops = dao.getPoisByType("shop")
+                    if (existingShops.isEmpty()) {
+                        val bundledOsm = osmPoiRepository.loadBundledPois("trail_ohavsstien")
+                        val extraPois = (bundledOsm.pois + getPreseededDanishShopsAndTransit()).distinctBy { it.id }
+                        extraPois.chunked(250).forEach { dao.insertPois(it) }
+                    }
                 }
+
+                // Seed initial marked routes, access polygons, and water features for map overlays if empty
+                seedInitialMapOverlaysIfEmpty(initialTrails)
             } catch (t: Throwable) {
                 Log.e("DanskStiRepo", "Error in initializePreseededDataIfEmpty: ${t.message}", t)
             }
         }
+    }
+
+    private suspend fun seedInitialMapOverlaysIfEmpty(trails: List<TrailEntity>) {
+        try {
+            // 1. Marked routes ("Afmærkede ruter") from bundled trail geometries
+            val existingMarked = dao.getMarkedRoutesInBbox(54.4, 58.0, 7.8, 15.5)
+            if (existingMarked.isEmpty()) {
+                val markedEntities = mutableListOf<com.example.data.model.MarkedRouteEntity>()
+                trails.forEachIndexed { idx, trail ->
+                    val geom = geometryRepository.loadGeometry(trail.id)
+                    val segments = geom?.segments?.map { it.points }?.filter { it.size >= 2 } ?: emptyList()
+                    if (segments.isNotEmpty()) {
+                        val allPts = segments.flatten()
+                        val minLat = allPts.minOf { it.lat }
+                        val maxLat = allPts.maxOf { it.lat }
+                        val minLng = allPts.minOf { it.lng }
+                        val maxLng = allPts.maxOf { it.lng }
+                        val dto = com.example.data.model.MarkedRouteDto(
+                            osmRelationId = trail.osmRelationId ?: (900000L + idx),
+                            name = trail.name,
+                            lengthKm = trail.lengthKm,
+                            operator = "Naturstyrelsen / Dansk Vandrelaug",
+                            routeType = "hiking",
+                            network = "nwn",
+                            symbol = "Vandrerute",
+                            colorHex = MarkedRouteRepository.PALETTE[idx % MarkedRouteRepository.PALETTE.size],
+                            polylines = segments,
+                            minLat = minLat,
+                            maxLat = maxLat,
+                            minLng = minLng,
+                            maxLng = maxLng
+                        )
+                        markedEntities.add(markedRouteRepository.dtoToEntity(dto))
+                    }
+                }
+                if (markedEntities.isNotEmpty()) {
+                    dao.insertMarkedRoutes(markedEntities)
+                }
+            }
+
+            // 2. Access polygons ("Adgangsforhold" - Naturstyrelsen state forests, private woods & nature reserves)
+            val existingAccess = dao.getAccessPolygonsInBoundingBox(54.4, 58.0, 7.8, 15.5)
+                .filter { it.type != "EMPTY_TILE_SENTINEL" }
+            if (existingAccess.isEmpty()) {
+                val accessEntities = getPreseededAccessPolygons().map { poly ->
+                    val centerLat = poly.coordinates.map { it.lat }.average()
+                    val centerLng = poly.coordinates.map { it.lng }.average()
+                    val tileId = "tile_${kotlin.math.floor(centerLat * 10.0).toInt()}_${kotlin.math.floor(centerLng * 10.0).toInt()}"
+                    accessLandRepo.modelToEntity(poly, tileId)
+                }
+                dao.insertAccessPolygons(accessEntities)
+            }
+
+            // 3. Water features ("Vand" - Danish lakes, rivers, wetlands, and springs)
+            val existingWater = dao.getWaterFeaturesInBbox(54.4, 58.0, 7.8, 15.5)
+            if (existingWater.isEmpty()) {
+                val waterRepo = WaterLayerRepository(dao, apiService)
+                val now = System.currentTimeMillis()
+                val waterEntities = getPreseededWaterFeatures(waterRepo, now)
+                dao.insertWaterFeatures(waterEntities)
+            }
+        } catch (t: Throwable) {
+            Log.w("DanskStiRepo", "Failed seeding initial map overlays: ${t.message}")
+        }
+    }
+
+    private fun getPreseededDanishShopsAndTransit(): List<PoiEntity> {
+        val now = System.currentTimeMillis()
+        return listOf(
+            // Nationwide Supermarkets / Groceries ("shop")
+            PoiEntity("dk_shop_skovping_brugs", "shop", "SuperBrugsen Skørping (Rold Skov)", 56.8358, 9.8895, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_silkeborg_netto", "shop", "Netto Silkeborg (Hærvejen / Søhøjlandet)", 56.1695, 9.5462, "yes", false, "07:00-22:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_ry_kvickly", "shop", "Kvickly Ry (Himmelbjerget)", 56.0908, 9.7615, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_viborg_meny", "shop", "MENY Viborg (Hærvejen)", 56.4525, 9.4035, "yes", false, "07:00-21:00", "Dagrofa", null, "osm", now),
+            PoiEntity("dk_shop_jelling_brugs", "shop", "SuperBrugsen Jelling (Hærvejen)", 55.7562, 9.4188, "yes", false, "07:00-20:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_ebeltoft_kvickly", "shop", "Kvickly Ebeltoft (Mols Bjerge)", 56.1965, 10.6775, "yes", false, "08:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_knebel_brugs", "shop", "Dagli'Brugsen Knebel (Mols Bjerge)", 56.2128, 10.4832, "yes", false, "07:30-19:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_klitmoeller_brugs", "shop", "Spar Klitmøller (Nationalpark Thy)", 57.0412, 8.4905, "yes", false, "07:30-20:00", "Spar", null, "osm", now),
+            PoiEntity("dk_shop_vorupoer_meny", "shop", "MENY Nørre Vorupør (Vestkyststien)", 56.9575, 8.3712, "yes", false, "07:30-20:00", "Dagrofa", null, "osm", now),
+            PoiEntity("dk_shop_faaborg_netto", "shop", "Netto Faaborg (Øhavsstien)", 55.0968, 10.2442, "yes", false, "07:00-22:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_svendborg_foetex", "shop", "føtex Svendborg (Øhavsstien)", 55.0605, 10.6095, "yes", false, "07:00-21:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_rudkoebing_brugs", "shop", "SuperBrugsen Rudkøbing (Langeland)", 54.9372, 10.7135, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_marstal_brugs", "shop", "SuperBrugsen Marstal (Ærø)", 54.8555, 10.5142, "yes", false, "07:00-20:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_soenderborg_foetex", "shop", "føtex Sønderborg (Gendarmstien)", 54.9102, 9.7918, "yes", false, "07:00-21:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_broager_brugs", "shop", "SuperBrugsen Broager (Gendarmstien)", 54.8895, 9.6745, "yes", false, "07:00-20:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_stege_brugs", "shop", "SuperBrugsen Stege (Camønoen)", 54.9855, 12.2852, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_borre_brugs", "shop", "Dagli'Brugsen Borre (Møns Klint)", 54.9962, 12.4415, "yes", false, "07:30-19:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_hillerod_foetex", "shop", "føtex Hillerød (Nordsjællandsruten)", 55.9288, 12.3015, "yes", false, "07:00-21:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_helsingor_kvickly", "shop", "Kvickly Helsingør (Nordsjælland)", 56.0345, 12.6112, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_roskilde_foetex", "shop", "føtex Roskilde (Fjordstien / Sjællandsleden)", 55.6415, 12.0815, "yes", false, "07:00-21:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_allinge_brugs", "shop", "SuperBrugsen Allinge (Bornholm Kyststi)", 55.2762, 14.8012, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_roenne_kvickly", "shop", "Kvickly Rønne (Bornholm)", 55.1015, 14.7025, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_nexoe_netto", "shop", "Netto Nexø (Bornholm)", 55.0615, 15.1312, "yes", false, "07:00-22:00", "Salling Group", null, "osm", now),
+            // Nationwide Transit / Stations ("train_station", "bus_stop", "ferry_terminal")
+            PoiEntity("dk_transit_skoerping_st", "train_station", "Skørping Station (DSB / Rold Skov)", 56.8365, 9.8842, "yes", false, null, "DSB", null, "osm", now),
+            PoiEntity("dk_transit_silkeborg_st", "train_station", "Silkeborg Station", 56.1642, 9.5458, "yes", false, null, "DSB / Arriva", null, "osm", now),
+            PoiEntity("dk_transit_ry_st", "train_station", "Ry Station (Søhøjlandet)", 56.0915, 9.7602, "yes", false, null, "Arriva", null, "osm", now),
+            PoiEntity("dk_transit_viborg_st", "train_station", "Viborg Station (Hærvejen)", 56.4482, 9.3965, "yes", false, null, "DSB / Arriva", null, "osm", now),
+            PoiEntity("dk_transit_svendborg_st", "train_station", "Svendborg Station (Øhavsstien)", 55.0592, 10.6122, "yes", false, null, "GoCollective", null, "osm", now),
+            PoiEntity("dk_transit_soenderborg_st", "train_station", "Sønderborg Station (Gendarmstien)", 54.9125, 9.7825, "yes", false, null, "DSB", null, "osm", now),
+            PoiEntity("dk_transit_hillerod_st", "train_station", "Hillerød Station (Gribskovbanen)", 55.9272, 12.3105, "yes", false, null, "DSB / Lokaltog", null, "osm", now),
+            PoiEntity("dk_transit_roskilde_st", "train_station", "Roskilde Station (Fjordstien)", 55.6392, 12.0892, "yes", false, null, "DSB", null, "osm", now),
+            PoiEntity("dk_transit_roenne_faerge", "ferry_terminal", "Rønne Færgeterminal (Bornholmslinjen)", 55.0985, 14.6925, "yes", true, null, "Bornholmslinjen", null, "osm", now)
+        )
+    }
+
+    private fun getPreseededAccessPolygons(): List<com.example.data.model.access.AccessPolygon> {
+        return listOf(
+            com.example.data.model.access.AccessPolygon(
+                id = "nst_forest_rold_skov",
+                name = "Rold Skov & Rebild Bakker (Statsskov)",
+                type = com.example.data.model.access.AccessLandType.STATE_FOREST_FREE_TENT,
+                coordinates = listOf(
+                    com.example.util.routing.LatLng(56.78, 9.80),
+                    com.example.util.routing.LatLng(56.85, 9.80),
+                    com.example.util.routing.LatLng(56.85, 9.95),
+                    com.example.util.routing.LatLng(56.78, 9.95)
+                ),
+                source = "Naturstyrelsen",
+                operatorOrOwner = "Naturstyrelsen Himmerland"
+            ),
+            com.example.data.model.access.AccessPolygon(
+                id = "nst_forest_silkeborg_skovene",
+                name = "Silkeborgskovene & Nordskoven (Statsskov)",
+                type = com.example.data.model.access.AccessLandType.STATE_FOREST_FREE_TENT,
+                coordinates = listOf(
+                    com.example.util.routing.LatLng(56.11, 9.52),
+                    com.example.util.routing.LatLng(56.17, 9.52),
+                    com.example.util.routing.LatLng(56.17, 9.68),
+                    com.example.util.routing.LatLng(56.11, 9.68)
+                ),
+                source = "Naturstyrelsen",
+                operatorOrOwner = "Naturstyrelsen Søhøjlandet"
+            ),
+            com.example.data.model.access.AccessPolygon(
+                id = "fredning_mols_bjerge",
+                name = "Nationalpark Mols Bjerge (Fredet natur)",
+                type = com.example.data.model.access.AccessLandType.NATURE_RESERVE,
+                coordinates = listOf(
+                    com.example.util.routing.LatLng(56.19, 10.48),
+                    com.example.util.routing.LatLng(56.26, 10.48),
+                    com.example.util.routing.LatLng(56.26, 10.60),
+                    com.example.util.routing.LatLng(56.19, 10.60)
+                ),
+                source = "Danmarks Miljøportal",
+                operatorOrOwner = "Naturstyrelsen Kronjylland"
+            ),
+            com.example.data.model.access.AccessPolygon(
+                id = "nst_forest_gribskov",
+                name = "Gribskov (Nationalpark Kongernes Nordsjælland)",
+                type = com.example.data.model.access.AccessLandType.STATE_FOREST_FREE_TENT,
+                coordinates = listOf(
+                    com.example.util.routing.LatLng(55.95, 12.25),
+                    com.example.util.routing.LatLng(56.04, 12.25),
+                    com.example.util.routing.LatLng(56.04, 12.38),
+                    com.example.util.routing.LatLng(55.95, 12.38)
+                ),
+                source = "Naturstyrelsen",
+                operatorOrOwner = "Naturstyrelsen Nordsjælland"
+            ),
+            com.example.data.model.access.AccessPolygon(
+                id = "priv_forest_svanninge_bakker",
+                name = "Svanninge Bakker & Bjerge (Bikubenfonden / Skov)",
+                type = com.example.data.model.access.AccessLandType.PRIVATE_FOREST,
+                coordinates = listOf(
+                    com.example.util.routing.LatLng(55.12, 10.22),
+                    com.example.util.routing.LatLng(55.16, 10.22),
+                    com.example.util.routing.LatLng(55.16, 10.29),
+                    com.example.util.routing.LatLng(55.12, 10.29)
+                ),
+                source = "OpenStreetMap",
+                operatorOrOwner = "Bikubenfonden"
+            ),
+            com.example.data.model.access.AccessPolygon(
+                id = "nst_forest_almindingen",
+                name = "Almindingen (Bornholm Statsskov)",
+                type = com.example.data.model.access.AccessLandType.STATE_FOREST_FREE_TENT,
+                coordinates = listOf(
+                    com.example.util.routing.LatLng(55.09, 14.88),
+                    com.example.util.routing.LatLng(55.15, 14.88),
+                    com.example.util.routing.LatLng(55.15, 15.00),
+                    com.example.util.routing.LatLng(55.09, 15.00)
+                ),
+                source = "Naturstyrelsen",
+                operatorOrOwner = "Naturstyrelsen Bornholm"
+            )
+        )
+    }
+
+    private fun getPreseededWaterFeatures(
+        waterRepo: WaterLayerRepository,
+        now: Long
+    ): List<com.example.data.model.WaterFeatureEntity> {
+        return listOf(
+            waterRepo.buildEntity(
+                id = "lake_madum_soe_seed",
+                osmId = 910001L,
+                name = "Store Økssø & Madum Sø",
+                featureType = com.example.data.model.WaterFeatureType.LAKE,
+                subType = "water",
+                pts = listOf(
+                    GeoPointDto(56.795, 9.925),
+                    GeoPointDto(56.812, 9.925),
+                    GeoPointDto(56.812, 9.955),
+                    GeoPointDto(56.795, 9.955)
+                ),
+                tileId = "water_tile_seed_rold",
+                fetchedAt = now
+            ),
+            waterRepo.buildEntity(
+                id = "lake_juls_soe_seed",
+                osmId = 910002L,
+                name = "Julsø & Borre Sø (Himmelbjerget)",
+                featureType = com.example.data.model.WaterFeatureType.LAKE,
+                subType = "water",
+                pts = listOf(
+                    GeoPointDto(56.105, 9.610),
+                    GeoPointDto(56.130, 9.610),
+                    GeoPointDto(56.130, 9.710),
+                    GeoPointDto(56.105, 9.710)
+                ),
+                tileId = "water_tile_seed_silkeborg",
+                fetchedAt = now
+            ),
+            waterRepo.buildEntity(
+                id = "river_gudenaaen_seed",
+                osmId = 910003L,
+                name = "Gudenåen",
+                featureType = com.example.data.model.WaterFeatureType.RIVER,
+                subType = "river",
+                pts = listOf(
+                    GeoPointDto(55.980, 9.680),
+                    GeoPointDto(56.090, 9.755),
+                    GeoPointDto(56.165, 9.550),
+                    GeoPointDto(56.380, 9.650),
+                    GeoPointDto(56.455, 10.035)
+                ),
+                tileId = "water_tile_seed_gudenaa",
+                fetchedAt = now
+            ),
+            waterRepo.buildEntity(
+                id = "lake_esrum_soe_seed",
+                osmId = 910004L,
+                name = "Esrum Sø",
+                featureType = com.example.data.model.WaterFeatureType.LAKE,
+                subType = "water",
+                pts = listOf(
+                    GeoPointDto(55.960, 12.350),
+                    GeoPointDto(56.040, 12.350),
+                    GeoPointDto(56.040, 12.410),
+                    GeoPointDto(55.960, 12.410)
+                ),
+                tileId = "water_tile_seed_esrum",
+                fetchedAt = now
+            ),
+            waterRepo.buildEntity(
+                id = "spring_blaa_kilde_seed",
+                osmId = 910005L,
+                name = "Blåkilde & Ravnkilde",
+                featureType = com.example.data.model.WaterFeatureType.SPRING,
+                subType = "spring",
+                pts = listOf(GeoPointDto(56.815, 9.860)),
+                tileId = "water_tile_seed_spring",
+                fetchedAt = now
+            )
+        )
     }
 
     fun getAllTrails(): Flow<List<TrailEntity>> = dao.getAllTrails()
@@ -493,27 +776,62 @@ class DanskStiRepository(
 
     // --- Shelters, Fri Teltning, and POIs for Trail Corridor ---
     suspend fun getSheltersForTrail(trailId: String): List<ShelterEntity> = withContext(Dispatchers.IO) {
-        val corridor = dao.getSheltersForTrail(trailId)
-        if (corridor.isNotEmpty()) corridor else dao.getAllSheltersList()
+        if (dao.getShelterCount() == 0) {
+            initializePreseededDataIfEmpty()
+        }
+        if (trailId.startsWith("route_")) {
+            return@withContext dao.getSheltersForRoute(trailId.removePrefix("route_"), 3000.0)
+        }
+        val joined = dao.getSheltersForTrail(trailId)
+        if (joined.isNotEmpty()) return@withContext joined
+
+        val trail = dao.getTrailById(trailId) ?: return@withContext emptyList()
+        val allShelters = dao.getAllSheltersList()
+        if (trail.bboxSouth != null && trail.bboxNorth != null && trail.bboxWest != null && trail.bboxEast != null) {
+            allShelters.filter { s ->
+                s.lat in (trail.bboxSouth - 0.03)..(trail.bboxNorth + 0.03) &&
+                    s.lng in (trail.bboxWest - 0.05)..(trail.bboxEast + 0.05)
+            }
+        } else {
+            emptyList()
+        }
     }
 
     suspend fun getSheltersForRoute(routeId: String, maxDetour: Double = 3000.0): List<ShelterEntity> = withContext(Dispatchers.IO) {
-        val corridor = dao.getSheltersForRoute(routeId, maxDetour)
-        if (corridor.isNotEmpty()) corridor else dao.getAllSheltersList()
+        dao.getSheltersForRoute(routeId, maxDetour)
     }
 
     suspend fun getFriTeltningForTrail(trailId: String): List<FriTeltningEntity> = withContext(Dispatchers.IO) {
+        if (dao.getFriTeltningCount() == 0) {
+            initializePreseededDataIfEmpty()
+        }
         dao.getAllFriTeltningList()
     }
 
     suspend fun getPoisForTrail(trailId: String): List<PoiEntity> = withContext(Dispatchers.IO) {
-        val corridor = dao.getPoisForTrail(trailId)
-        if (corridor.isNotEmpty()) corridor else dao.getAllPoisList()
+        if (dao.getPoiCount() == 0) {
+            initializePreseededDataIfEmpty()
+        }
+        if (trailId.startsWith("route_")) {
+            return@withContext dao.getPoisForRoute(trailId.removePrefix("route_"), 3000.0)
+        }
+        val joined = dao.getPoisForTrail(trailId)
+        if (joined.isNotEmpty()) return@withContext joined
+
+        val trail = dao.getTrailById(trailId) ?: return@withContext emptyList()
+        val allPois = dao.getAllPoisList()
+        if (trail.bboxSouth != null && trail.bboxNorth != null && trail.bboxWest != null && trail.bboxEast != null) {
+            allPois.filter { p ->
+                p.lat in (trail.bboxSouth - 0.03)..(trail.bboxNorth + 0.03) &&
+                    p.lng in (trail.bboxWest - 0.05)..(trail.bboxEast + 0.05)
+            }
+        } else {
+            emptyList()
+        }
     }
 
     suspend fun getPoisForRoute(routeId: String, maxDetour: Double = 3000.0): List<PoiEntity> = withContext(Dispatchers.IO) {
-        val corridor = dao.getPoisForRoute(routeId, maxDetour)
-        if (corridor.isNotEmpty()) corridor else dao.getAllPoisList()
+        dao.getPoisForRoute(routeId, maxDetour)
     }
 
     // --- Save and Manage Plans in Room ---
@@ -594,7 +912,7 @@ class DanskStiRepository(
     }
 
     /**
-     * Requirement D: Saves a trip plan for a custom route.
+     * Requirement D & G: Saves a trip plan for a route (TRAIL or FREE mode) linked via customRouteId.
      */
     suspend fun saveTripPlanForRoute(
         routeId: String,
@@ -605,23 +923,31 @@ class DanskStiRepository(
         stages: List<TripStage>,
         paceKmh: Double = 4.0,
         maxDetourKm: Double = 1.5,
-        startTime: String = "09:00"
+        startTime: String = "09:00",
+        customRouteId: Long? = routeId.toLongOrNull(),
+        baseTrailId: String? = null,
+        startKm: Double = 0.0,
+        endKm: Double = totalKm,
+        isReverse: Boolean = false,
+        preferredDailyKm: Double = 15.0
     ): Long = withContext(Dispatchers.IO) {
         val totalDist = if (stages.isNotEmpty()) stages.sumOf { it.stageKm } else totalKm
+        val effectiveTrailId = baseTrailId?.takeIf { it.isNotBlank() } ?: "route_$routeId"
         val plan = TripPlanEntity(
-            trailId = "route_$routeId",
+            trailId = effectiveTrailId,
             trailName = routeName,
-            startKm = 0.0,
-            endKm = totalDist,
-            isReverse = false,
+            startKm = startKm,
+            endKm = if (endKm > 0.0) endKm else totalDist,
+            isReverse = isReverse,
             totalDistanceKm = totalDist,
-            targetDays = days,
+            targetDays = max(1, stages.size.takeIf { it > 0 } ?: days),
             overnightType = overnightType.name,
-            preferredDailyKm = totalDist / max(1, days),
+            preferredDailyKm = if (preferredDailyKm > 0.0) preferredDailyKm else (totalDist / max(1, days)),
             stagesJson = serializeStages(stages),
             paceKmh = paceKmh,
             maxDetourKm = maxDetourKm,
-            startTime = startTime
+            startTime = startTime,
+            customRouteId = customRouteId
         )
         val planId = dao.insertTripPlan(plan)
         if (stages.isNotEmpty()) {
@@ -641,19 +967,40 @@ class DanskStiRepository(
         planId
     }
 
+    suspend fun hasWalkingProgressForCustomRoute(routeId: Long): Boolean = withContext(Dispatchers.IO) {
+        val existingPlans = dao.getAllTripPlansList().filter {
+            it.customRouteId == routeId || it.trailId == "route_$routeId" || it.trailId == routeId.toString()
+        }
+        existingPlans.any { plan ->
+            val progress = dao.getTripProgressSync(plan.id)
+            val dayStats = dao.getAllRecordedDayStatsSync(plan.id)
+            (progress != null && (progress.totalDistanceWalkedKm > 0.0 || progress.distanceWalkedTodayKm > 0.0 || progress.currentDay > 1)) ||
+                dayStats.any { it.distanceKm > 0.0 }
+        }
+    }
+
     /**
-     * Ensures a custom route is saved as a TripPlan and PlannedRoute so it can be navigated.
+     * Requirement G: Gem builds the TripPlan, the stages (from OVERNIGHT pins) and the PlannedRoute
+     * in ONE place (PlannedRouteRepository) from the composed legs.
      */
     suspend fun ensureTripPlanForCustomRoute(
         route: com.example.data.model.CustomRouteEntity,
-        forceRecompute: Boolean = false
+        forceRecompute: Boolean = false,
+        paceKmh: Double = 4.0,
+        dailyTargetKm: Double = 15.0,
+        maxDetourKm: Double = 1.5,
+        startTime: String = "09:00",
+        overnightType: OvernightType = OvernightType.BOTH,
+        sunsetTime: String? = null
     ): Long = withContext(Dispatchers.IO) {
-        val existingPlans = dao.getAllTripPlansList().filter { it.trailId == "route_${route.id}" || it.trailId == route.id.toString() }
+        val existingPlans = dao.getAllTripPlansList().filter {
+            it.customRouteId == route.id || it.trailId == "route_${route.id}" || it.trailId == route.id.toString()
+        }
         if (!forceRecompute && existingPlans.isNotEmpty()) {
             return@withContext existingPlans.first().id
         }
         if (forceRecompute && existingPlans.isNotEmpty()) {
-            existingPlans.forEach { dao.deleteTripPlan(it.id) }
+            existingPlans.forEach { deleteTripPlan(it.id) }
         }
 
         val legs = com.example.util.routing.RouteGeometryStorageManager.loadLegs(context, route.geometryFile)
@@ -668,57 +1015,51 @@ class DanskStiRepository(
         val geom = com.example.util.routing.RouteGeometryStorageManager.convertCustomRouteToTrailGeometry(route.id.toString(), orderedLegs, route.name)
         geometryRepository.saveRouteGeometry(route.id.toString(), geom)
 
-        val points = orderedLegs.flatMap { it.points }.map { GeoPointDto(it.lat, it.lng, it.ele) }
-        val plannedPoints = points.mapIndexed { idx, pt ->
-            com.example.data.model.RoutePoint(
-                lat = pt.lat,
-                lng = pt.lng,
-                ele = pt.ele,
-                walkKm = (idx.toDouble() / max(1, points.size - 1)) * route.totalKm,
-                trailKm = (idx.toDouble() / max(1, points.size - 1)) * route.totalKm
-            )
+        val points = geom.segments.flatMap { it.points }
+        if (points.isNotEmpty()) {
+            syncCorridorPoisForRoute(route.id.toString(), points)
         }
-        val overnightWps = wps.filter { it.role == com.example.util.routing.WaypointRole.OVERNIGHT }
-        val days = if (overnightWps.isNotEmpty()) overnightWps.size + 1 else max(1, kotlin.math.ceil(route.totalKm / 15.0).toInt())
 
-        val plannedRoute = PlannedRoute(
+        val effectiveTrailId = route.baseTrailId?.takeIf { it.isNotBlank() } ?: "route_${route.id}"
+        val plannedRouteRepo = PlannedRouteRepository(context)
+        val (stages, builtPlannedRoute) = plannedRouteRepo.buildStagesAndPlannedRoute(
             planId = 0L,
-            trailId = "route_${route.id}",
+            trailId = effectiveTrailId,
             trailName = route.name,
-            isReverse = false,
-            startTrailKm = 0.0,
-            endTrailKm = route.totalKm,
-            totalWalkKm = route.totalKm,
-            points = plannedPoints,
-            stages = emptyList<com.example.data.model.TripStage>()
-        )
-
-        // Sync corridor POIs
-        syncCorridorPoisForRoute(route.id.toString(), points)
-
-        val stages = StagePlanner.calculateStagesForCustomRoute(
-            plannedRoute = plannedRoute,
-            routeName = route.name,
+            isReverse = route.isReverse,
             waypoints = wps,
-            overnightWaypoints = overnightWps,
-            dailyTargetKm = 15.0,
-            numDays = days,
+            orderedLegs = orderedLegs,
+            paceKmh = paceKmh,
+            dailyTargetKm = dailyTargetKm,
+            overnightType = overnightType,
+            maxDetourKm = maxDetourKm,
+            startTime = startTime,
             shelters = dao.getAllSheltersList(),
             friTeltnings = dao.getAllFriTeltningList(),
-            pois = dao.getAllPoisList()
+            pois = dao.getAllPoisList(),
+            sunsetTime = sunsetTime
         )
 
         val planId = saveTripPlanForRoute(
             routeId = route.id.toString(),
             routeName = route.name,
-            totalKm = route.totalKm,
-            days = days,
-            overnightType = OvernightType.BOTH,
-            stages = stages
+            totalKm = builtPlannedRoute.totalWalkKm,
+            days = stages.size,
+            overnightType = overnightType,
+            stages = stages,
+            paceKmh = paceKmh,
+            maxDetourKm = maxDetourKm,
+            startTime = startTime,
+            customRouteId = route.id,
+            baseTrailId = route.baseTrailId,
+            startKm = builtPlannedRoute.startTrailKm,
+            endKm = builtPlannedRoute.endTrailKm,
+            isReverse = route.isReverse,
+            preferredDailyKm = dailyTargetKm
         )
 
-        val fullPlannedRoute = plannedRoute.copy(planId = planId, stages = stages)
-        PlannedRouteRepository(context).savePlannedRoute(fullPlannedRoute)
+        val fullPlannedRoute = builtPlannedRoute.copy(planId = planId, stages = stages)
+        plannedRouteRepo.savePlannedRoute(fullPlannedRoute)
 
         planId
     }
@@ -761,11 +1102,124 @@ class DanskStiRepository(
     }
 
     suspend fun deleteDownloadedTrail(trailId: String) = withContext(Dispatchers.IO) {
+        val archiveFile = com.example.util.OfflineDownloadManager.getOfflineArchiveFile(context, trailId)
+        if (archiveFile.exists()) {
+            archiveFile.delete()
+        }
         dao.deleteDownloadedTrail(trailId)
     }
 
     // --- Saved Trails (Phase 6) ---
     fun getAllSavedTrails(): Flow<List<com.example.data.model.SavedTrailEntity>> = dao.getAllSavedTrails()
+
+    fun getSavedTrails(): Flow<List<TrailEntity>> =
+        kotlinx.coroutines.flow.combine(dao.getAllTrails(), dao.getAllSavedTrails()) { trails, saved ->
+            val savedIds = saved.map { it.trailId }.toSet()
+            trails.filter { it.id in savedIds }
+        }
+
+    fun getAllSheltersFlow(): Flow<List<ShelterEntity>> = dao.getAllShelters()
+
+    fun getAllFriTeltningFlow(): Flow<List<FriTeltningEntity>> = dao.getAllFriTeltning()
+
+    fun getAllPoisFlow(): Flow<List<PoiEntity>> = dao.getAllPois()
+
+    suspend fun getAllFriTeltning(): List<FriTeltningEntity> = getAllFriTeltningList()
+
+    suspend fun getShelterCountForTrail(trailId: String): Int = withContext(Dispatchers.IO) {
+        val attached = dao.getSheltersForTrail(trailId)
+        if (attached.isNotEmpty()) {
+            attached.size
+        } else {
+            val trail = dao.getTrailById(trailId)
+            val allSh = dao.getAllSheltersList()
+            if (trail?.bboxSouth != null && trail.bboxNorth != null && trail.bboxWest != null && trail.bboxEast != null) {
+                allSh.count { s ->
+                    s.lat in (trail.bboxSouth - 0.03)..(trail.bboxNorth + 0.03) &&
+                        s.lng in (trail.bboxWest - 0.05)..(trail.bboxEast + 0.05)
+                }
+            } else {
+                0
+            }
+        }
+    }
+
+    suspend fun saveTrail(trailId: String) = withContext(Dispatchers.IO) {
+        dao.insertSavedTrail(com.example.data.model.SavedTrailEntity(trailId = trailId))
+    }
+
+    suspend fun unsaveTrail(trailId: String) = withContext(Dispatchers.IO) {
+        dao.deleteSavedTrail(trailId)
+    }
+
+    suspend fun searchPlacesInDenmark(query: String): List<com.example.data.remote.PlaceSearchResult> =
+        withContext(Dispatchers.IO) {
+            val q = query.trim()
+            if (q.length < 2) return@withContext emptyList()
+            val results = mutableListOf<com.example.data.remote.PlaceSearchResult>()
+
+            // 1. Shelters matching query
+            dao.getAllSheltersList()
+                .filter { it.name.contains(q, ignoreCase = true) }
+                .take(5)
+                .forEach { s ->
+                    results.add(
+                        com.example.data.remote.PlaceSearchResult(
+                            displayName = "${s.name} (Shelter)",
+                            lat = s.lat,
+                            lng = s.lng,
+                            type = "shelter"
+                        )
+                    )
+                }
+
+            // 2. Fri teltning matching query
+            dao.getAllFriTeltningList()
+                .filter { it.name.contains(q, ignoreCase = true) }
+                .take(4)
+                .forEach { ft ->
+                    results.add(
+                        com.example.data.remote.PlaceSearchResult(
+                            displayName = "${ft.name} (Fri teltning)",
+                            lat = ft.centerLat,
+                            lng = ft.centerLng,
+                            type = "fri_teltning"
+                        )
+                    )
+                }
+
+            // 3. POIs matching query
+            dao.getAllPoisList()
+                .filter { it.name.contains(q, ignoreCase = true) }
+                .take(4)
+                .forEach { poi ->
+                    results.add(
+                        com.example.data.remote.PlaceSearchResult(
+                            displayName = poi.name,
+                            lat = poi.lat,
+                            lng = poi.lng,
+                            type = poi.type
+                        )
+                    )
+                }
+
+            results.take(8)
+        }
+
+    suspend fun downloadTrailOffline(
+        trailId: String,
+        corridorKm: Double = 1.0,
+        onProgress: (String) -> Unit = {}
+    ) = withContext(Dispatchers.IO) {
+        val trail = getTrailById(trailId) ?: return@withContext
+        onProgress("Henter offline-kort for ${trail.name}...")
+        com.example.util.OfflineDownloadManager.enqueueDownload(
+            context = context,
+            trailId = trailId,
+            trailName = trail.name,
+            corridorKm = corridorKm
+        )
+    }
 
     fun isTrailSaved(trailId: String): Flow<Boolean> = dao.isTrailSaved(trailId)
 
@@ -962,62 +1416,71 @@ class DanskStiRepository(
         userLng: Double,
         maxRadiusKm: Double = 10.0
     ): List<com.example.data.model.NearbyOvernightSpot> = withContext(Dispatchers.IO) {
+        if (dao.getShelterCount() == 0) {
+            initializePreseededDataIfEmpty()
+        }
+
+        // Sanitize out-of-Denmark coordinates (e.g. Android Emulator default California GPS)
+        val inDenmark = userLat in 54.4..58.0 && userLng in 7.8..15.5
+        val effectiveLat = if (inDenmark) userLat else 56.05
+        val effectiveLng = if (inDenmark) userLng else 9.65
+
         val maxMeters = maxRadiusKm * 1000.0
         val results = mutableListOf<com.example.data.model.NearbyOvernightSpot>()
+        val allCandidates = mutableListOf<com.example.data.model.NearbyOvernightSpot>()
 
         // 1. Shelters
         val shelters = dao.getAllSheltersList()
         for (s in shelters) {
-            // Rough bounding check first: ~0.1 deg lat is ~11 km
-            if (kotlin.math.abs(s.lat - userLat) <= 0.12 && kotlin.math.abs(s.lng - userLng) <= 0.20) {
-                val d = GeoUtils.distanceMeters(userLat, userLng, s.lat, s.lng)
-                if (d <= maxMeters) {
-                    results.add(
-                        com.example.data.model.NearbyOvernightSpot(
-                            id = "shelter_${s.id}",
-                            name = s.name,
-                            type = "SHELTER",
-                            lat = s.lat,
-                            lng = s.lng,
-                            distanceMeters = d,
-                            bookingRequired = s.bookingRequired,
-                            bookingUrl = s.bookingUrl,
-                            hasWaterNearby = s.hasWaterNearby,
-                            hasToiletNearby = s.hasToiletNearby,
-                            description = s.description ?: s.ownership
-                        )
-                    )
-                }
+            val d = GeoUtils.distanceMeters(effectiveLat, effectiveLng, s.lat, s.lng)
+            val spot = com.example.data.model.NearbyOvernightSpot(
+                id = "shelter_${s.id}",
+                name = s.name,
+                type = "SHELTER",
+                lat = s.lat,
+                lng = s.lng,
+                distanceMeters = d,
+                bookingRequired = s.bookingRequired,
+                bookingUrl = s.bookingUrl,
+                hasWaterNearby = s.hasWaterNearby,
+                hasToiletNearby = s.hasToiletNearby,
+                description = s.description ?: s.ownership
+            )
+            allCandidates.add(spot)
+            if (d <= maxMeters) {
+                results.add(spot)
             }
         }
 
         // 2. Fri Teltning
         val friTeltnings = dao.getAllFriTeltningList()
         for (ft in friTeltnings) {
-            if (kotlin.math.abs(ft.centerLat - userLat) <= 0.12 && kotlin.math.abs(ft.centerLng - userLng) <= 0.20) {
-                val d = GeoUtils.distanceMeters(userLat, userLng, ft.centerLat, ft.centerLng)
-                if (d <= maxMeters) {
-                    results.add(
-                        com.example.data.model.NearbyOvernightSpot(
-                            id = "friteltning_${ft.id}",
-                            name = ft.name,
-                            type = "FRI_TELTNING",
-                            lat = ft.centerLat,
-                            lng = ft.centerLng,
-                            distanceMeters = d,
-                            bookingRequired = false,
-                            bookingUrl = ft.rulesUrl,
-                            hasWaterNearby = true,
-                            hasToiletNearby = false,
-                            description = ft.rulesSummary ?: "Fri teltning efter 1-2-3 reglen"
-                        )
-                    )
-                }
+            val d = GeoUtils.distanceMeters(effectiveLat, effectiveLng, ft.centerLat, ft.centerLng)
+            val spot = com.example.data.model.NearbyOvernightSpot(
+                id = "friteltning_${ft.id}",
+                name = ft.name,
+                type = "FRI_TELTNING",
+                lat = ft.centerLat,
+                lng = ft.centerLng,
+                distanceMeters = d,
+                bookingRequired = false,
+                bookingUrl = ft.rulesUrl,
+                hasWaterNearby = true,
+                hasToiletNearby = false,
+                description = ft.rulesSummary ?: "Fri teltning efter 1-2-3 reglen"
+            )
+            allCandidates.add(spot)
+            if (d <= maxMeters) {
+                results.add(spot)
             }
         }
 
-        results.sortBy { it.distanceMeters }
-        results
+        if (results.isNotEmpty()) {
+            results.sortBy { it.distanceMeters }
+            results
+        } else {
+            allCandidates.sortedBy { it.distanceMeters }.take(15)
+        }
     }
 
     // Custom Routes (Phase 9 - Rutebygger)

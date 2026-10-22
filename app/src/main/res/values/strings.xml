@@ -1,3 +1,203 @@
 <resources>
     <string name="app_name">Dansk Sti</string>
+
+    <!-- Bottom Navigation & Active Trip Bar (Requirement B) -->
+    <string name="nav_explore">Udforsk</string>
+    <string name="nav_map">Kort</string>
+    <string name="nav_saved">Mine ture</string>
+    <string name="nav_profile">Profil</string>
+    <string name="active_trip_continue">Fortsæt</string>
+    <string name="active_trip_format">Dag %1$d · %2$s km til %3$s · Fortsæt</string>
+    <string name="active_trip_bar_cd">Aktiv tur: Dag %1$d, %2$s kilometer til %3$s. Tryk for at fortsætte navigation</string>
+
+    <!-- Udforsk / Discovery (Requirement C) -->
+    <string name="explore_title">Udforsk</string>
+    <string name="explore_search_hint">Søg efter ruter og steder…</string>
+    <string name="explore_clear_search_cd">Ryd søgning</string>
+    <string name="cd_search">Søg</string>
+    <string name="cd_clear_search">Ryd søgning</string>
+    <string name="cd_close">Luk</string>
+    <string name="cd_delete_item">Slet element</string>
+    <string name="cd_bookmark_add">Gem rute i bogmærker</string>
+    <string name="cd_bookmark_remove">Fjern rute fra bogmærker</string>
+    <string name="dialog_cancel">Annuller</string>
+    <string name="filter_region">Region</string>
+    <string name="filter_length">Længde</string>
+    <string name="filter_multiday">Flerdages</string>
+    <string name="filter_shelters_along">Shelters undervejs</string>
+    <string name="filter_fri_teltning">Fri teltning</string>
+    <string name="explore_filter_region">Region</string>
+    <string name="explore_filter_length">Længde</string>
+    <string name="explore_filter_multiday">Flerdages</string>
+    <string name="explore_filter_shelters">Shelters undervejs</string>
+    <string name="explore_filter_fri_teltning">Fri teltning</string>
+    <string name="toggle_list">Liste</string>
+    <string name="toggle_map">Kort</string>
+    <string name="explore_view_list">Liste</string>
+    <string name="explore_view_map">Kort</string>
+    <string name="section_near_you">Nær dig</string>
+    <string name="section_saved">Gemte</string>
+    <string name="section_all_trails">Alle ruter</string>
+    <string name="explore_section_near_you">Nær dig</string>
+    <string name="explore_section_saved">Gemte</string>
+    <string name="explore_section_all_trails">Alle ruter</string>
+    <string name="near_you_location_needed">Slå placering til for at se vandreruter tæt på dig.</string>
+    <string name="near_you_enable_location">Tillad placering</string>
+    <string name="explore_near_you_permission">Slå placering til for at se vandreruter tæt på dig.</string>
+    <string name="explore_near_you_action">Tillad placering</string>
+    <string name="trail_card_stats_format">%1$s km · +%2$s m · ca. %3$d %4$s</string>
+    <string name="trail_card_overnight_format">%1$d shelters · %2$d fri teltning</string>
+    <string name="day_singular">dag</string>
+    <string name="day_plural">dage</string>
+    <string name="bookmark_add_cd">Gem rute</string>
+    <string name="bookmark_remove_cd">Fjern fra gemte ruter</string>
+    <string name="explore_empty_message">Ingen vandreruter matcher dine valgte filtre.</string>
+    <string name="explore_reset_filters">Nulstil filtre</string>
+    <string name="explore_empty_trails">Ingen vandreruter matcher dine valgte filtre.</string>
+    <string name="explore_empty_action">Nulstil filtre</string>
+    <string name="explore_error_message">Kunne ikke indlæse ruter.</string>
+
+    <!-- Trail Detail Page (Requirement D) -->
+    <string name="trail_data_date_format">Data: %1$s</string>
+    <string name="stat_length">Længde</string>
+    <string name="stat_elevation">Stigning</string>
+    <string name="stat_estimated_time">Estimeret tid</string>
+    <string name="stat_type">Type</string>
+    <string name="route_type_loop">Rundtur</string>
+    <string name="route_type_point_to_point">Strækning</string>
+    <string name="action_save">Gem</string>
+    <string name="action_saved">Gemt</string>
+    <string name="action_download_offline">Hent offline</string>
+    <string name="action_share">Del</string>
+    <string name="action_view_on_map">Vis på kort</string>
+    <string name="tab_overview">Oversigt</string>
+    <string name="tab_overnight">Overnatning</string>
+    <string name="tab_water_food">Vand &amp; mad</string>
+    <string name="tab_weather">Vejr</string>
+    <string name="tab_transport">Transport</string>
+    <string name="btn_plan_trip">Planlæg tur</string>
+    <string name="trail_loading_message">Henter ruteoplysninger…</string>
+    <string name="trail_error_message">Kunne ikke hente rutedata fra OpenStreetMap.</string>
+    <string name="trail_empty_overnight">Ingen registrerede overnatningssteder langs denne rute endnu.</string>
+    <string name="trail_empty_water_food">Ingen vandposter eller indkøb fundet langs ruten endnu.</string>
+    <string name="trail_empty_weather">Vejrudsigten kunne ikke hentes lige nu.</string>
+    <string name="trail_empty_transport">Ingen togstationer eller busstop fundet tæt på ruten.</string>
+    <string name="sync_pois_action">Opdater langs ruten</string>
+
+    <!-- Kort Tab / onX-style Map (Requirement E) -->
+    <string name="map_search_hint">Søg ruter, shelters eller steder…</string>
+    <string name="map_btn_layers">Lag</string>
+    <string name="map_btn_compass">Kompas</string>
+    <string name="map_btn_my_location">Min position</string>
+    <string name="map_tool_plan_route">Planlæg rute</string>
+    <string name="map_tool_save_point">Gem punkt</string>
+    <string name="map_tool_measure_distance">Mål afstand</string>
+    <string name="map_tool_offline_maps">Offline-kort</string>
+    <string name="measure_distance_hint">Tryk på kortet for at måle fugleflugtslinje</string>
+    <string name="map_measure_instruction">Tryk på kortet for at måle fugleflugtslinje</string>
+    <string name="measure_distance_total_format">Afstand: %1$s (%2$d punkter)</string>
+    <string name="measure_clear">Ryd</string>
+    <string name="map_measure_clear">Ryd</string>
+    <string name="save_point_dialog_title">Gem punkt</string>
+    <string name="save_point_name_label">Navn på punkt</string>
+    <string name="save_point_note_label">Noter (valgfrit)</string>
+
+    <!-- Ruteplanlægger Toolbar (Requirement F) -->
+    <string name="planner_title">Ruteplanlægger</string>
+    <string name="planner_tap_to_rename">Tryk for at omdøbe</string>
+    <string name="planner_tool_undo">Fortryd</string>
+    <string name="planner_tool_redo">Gendan</string>
+    <string name="planner_tool_follow_trails">Følg stier</string>
+    <string name="planner_tool_straight_line">Lige linje</string>
+    <string name="planner_tool_reverse">Vend</string>
+    <string name="planner_tool_overnight">Overnatning</string>
+    <string name="planner_tool_save">Gem</string>
+
+    <!-- Navigation (Requirement G) -->
+    <string name="nav_top_card_format">Dag %1$d af %2$d · %3$s km tilbage i dag · ankomst ca. %4$s</string>
+    <string name="nav_next_overnight">Overnatning</string>
+    <string name="nav_next_water">Vand</string>
+    <string name="nav_next_shop">Indkøb</string>
+    <string name="nav_ahead_on_route">Foran dig på ruten</string>
+    <string name="nav_stop_for_today">Stop for i dag</string>
+    <string name="nav_sos">SOS</string>
+    <string name="nav_sos_cd">Nødkald SOS 112 og vis nøjagtige koordinater</string>
+
+    <!-- Mine ture / Library (Requirement H) -->
+    <string name="library_title">Mine ture</string>
+    <string name="segment_plans">Planer</string>
+    <string name="segment_routes">Ruter</string>
+    <string name="segment_points">Punkter</string>
+    <string name="segment_recordings">Optagelser</string>
+    <string name="segment_offline">Offline</string>
+    <string name="library_tab_plans">Planer</string>
+    <string name="library_tab_routes">Ruter</string>
+    <string name="library_tab_points">Punkter</string>
+    <string name="library_tab_recordings">Optagelser</string>
+    <string name="library_tab_offline">Offline</string>
+    <string name="library_deleted_snackbar">Slettet</string>
+    <string name="library_undo_action">Fortryd</string>
+    <string name="snackbar_deleted_plan">Turplan slettet</string>
+    <string name="snackbar_deleted_route">Rute slettet</string>
+    <string name="snackbar_deleted_point">Punkt slettet</string>
+    <string name="snackbar_deleted_recording">Optagelse slettet</string>
+    <string name="snackbar_deleted_offline">Offline-kort slettet</string>
+    <string name="snackbar_undo">Fortryd</string>
+    <string name="empty_plans_message">Du har ingen gemte turplaner endnu.</string>
+    <string name="empty_plans_action">Planlæg ny tur</string>
+    <string name="empty_routes_message">Du har ingen gemte ruter endnu.</string>
+    <string name="empty_routes_action">Byg ny rute</string>
+    <string name="empty_points_message">Du har ingen gemte punkter på kortet endnu.</string>
+    <string name="empty_points_action">Åbn kortet</string>
+    <string name="empty_recordings_message">Ingen optagede vandrespor endnu.</string>
+    <string name="empty_recordings_action">Start en tur</string>
+    <string name="empty_offline_message">Ingen ruter eller kort er hentet til offline brug endnu.</string>
+    <string name="empty_offline_action">Hent offline-data</string>
+    <string name="library_empty_plans">Du har ingen gemte turplaner endnu.</string>
+    <string name="library_empty_plans_action">Planlæg ny tur</string>
+    <string name="library_empty_routes">Du har ingen gemte ruter endnu.</string>
+    <string name="library_empty_routes_action">Byg ny rute</string>
+    <string name="library_empty_points">Du har ingen gemte punkter på kortet endnu.</string>
+    <string name="library_empty_points_action">Åbn kortet</string>
+    <string name="library_empty_recordings">Ingen optagede vandrespor endnu.</string>
+    <string name="library_empty_recordings_action">Udforsk ruter</string>
+    <string name="library_empty_offline">Ingen ruter eller kort er hentet til offline brug endnu.</string>
+    <string name="library_empty_offline_action">Udforsk ruter</string>
+
+    <!-- Profil / Settings (Requirement I) -->
+    <string name="profile_title">Profil</string>
+    <string name="profile_section_hiking">Vandring &amp; Tempo</string>
+    <string name="setting_my_pace">Mit tempo</string>
+    <string name="setting_daily_target">Dagligt mål</string>
+    <string name="setting_start_time">Starttidspunkt</string>
+    <string name="profile_section_map_display">Kort &amp; Visning</string>
+    <string name="setting_dark_map">Kort i mørke</string>
+    <string name="setting_units">Enheder</string>
+    <string name="units_metric">Metrisk (km, m)</string>
+    <string name="units_imperial">Imperisk (mi, ft)</string>
+    <string name="profile_section_storage">Data og lagerplads</string>
+    <string name="storage_offline_maps">Offline-kort</string>
+    <string name="storage_routing_data">Rutedata (BRouter)</string>
+    <string name="storage_clear_cache">Ryd cache</string>
+    <string name="storage_cache_cleared">Midlertidig cache er ryddet</string>
+    <string name="profile_section_api_keys">API-nøgler</string>
+    <string name="api_key_dataforsyningen">Dataforsyningen (Skærmkort, Luftfoto, DHM)</string>
+    <string name="api_key_thunderforest">Thunderforest (Udendørskort)</string>
+    <string name="api_key_configured">Konfigureret</string>
+    <string name="api_key_missing">Ikke sat (bruger åben fallback)</string>
+    <string name="profile_section_about">Om appen</string>
+    <string name="about_data_credits">Datakreditter &amp; Kilder</string>
+    <string name="about_diagnostics">API &amp; Netværksdiagnostik</string>
+    <string name="about_version_tap_hint">Tryk 7 gange på Om appen for at åbne diagnostik</string>
+
+    <!-- Common States & Accessibility (Requirement J) -->
+    <string name="btn_retry">Prøv igen</string>
+    <string name="state_Close_or_retry">Prøv igen</string>
+    <string name="state_error_default">Der opstod en fejl under indlæsning.</string>
+    <string name="btn_back">Tilbage</string>
+    <string name="btn_close">Luk</string>
+    <string name="btn_cancel">Annuller</string>
+    <string name="btn_save">Gem</string>
+    <string name="btn_delete">Slet</string>
+    <string name="loading_skeleton_cd">Indlæser indhold</string>
 </resources>

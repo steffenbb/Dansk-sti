@@ -23,15 +23,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BatterySaver
@@ -48,6 +52,7 @@ import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Wc
 import androidx.compose.material3.Button
@@ -63,15 +68,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.ui.navigation.NavigationMapOverlayManager
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -129,6 +131,14 @@ fun NavigationScreen(
     val isBatterySaverMode by viewModel.isBatterySaverMode.collectAsState()
     val showSosSheet by viewModel.showSosSheet.collectAsState()
     val emergencyInfo by viewModel.emergencyInfo.collectAsState()
+    val routeShelters by viewModel.routeShelters.collectAsState()
+    val routeFriTeltning by viewModel.routeFriTeltning.collectAsState()
+    val routeWaters by viewModel.routeWaters.collectAsState()
+    val routeToilets by viewModel.routeToilets.collectAsState()
+    val routeShops by viewModel.routeShops.collectAsState()
+    val routeHazards by viewModel.routeHazards.collectAsState()
+
+    val hasGpsFix = liveState.currentLat != null && liveState.currentLng != null
 
     // Phase 7a: Recorded GPS Track & Day stats
     val allRecordedDayStats by viewModel.allRecordedDayStats.collectAsState()
@@ -140,20 +150,10 @@ fun NavigationScreen(
     var overlayManagerRef by remember { mutableStateOf<NavigationMapOverlayManager?>(null) }
     val isDark = isSystemInDarkTheme()
 
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, mapViewRef) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> mapViewRef?.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapViewRef?.onPause()
-                Lifecycle.Event.ON_DESTROY -> mapViewRef?.onDetach()
-                else -> {}
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            mapViewRef?.onDetach()
+    LaunchedEffect(isBatterySaverMode) {
+        if (isBatterySaverMode) {
+            mapViewRef = null
+            overlayManagerRef = null
         }
     }
 
@@ -206,21 +206,30 @@ fun NavigationScreen(
                         color = Color(0xFF222222),
                         border = BorderStroke(1.dp, Color(0xFF444444)),
                         modifier = Modifier
+                            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                             .clickable { viewModel.setBatterySaverMode(false) }
                             .testTag("exit_battery_mode_button")
                     ) {
-                        Text(
-                            text = "Afslut",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                        )
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = "Afslut",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
 
-                // Center: Large numbers only
+                // Center: Large numbers only (scrollable at 200% font scale)
                 Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                        .padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -233,11 +242,13 @@ fun NavigationScreen(
 
                     // Large remaining distance
                     Text(
-                        text = "${String.format(Locale.US, "%.1f", distanceRemainingToday)} km",
-                        color = Color.White,
-                        fontSize = 54.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = (-1).sp
+                        text = "${com.example.ui.components.formatDanishKm(distanceRemainingToday, 1)} km",
+                        style = com.example.ui.theme.TabularBodyStyle.copy(
+                            color = Color.White,
+                            fontSize = 54.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = (-1).sp
+                        )
                     )
                     Text(
                         text = "tilbage i dag",
@@ -254,10 +265,12 @@ fun NavigationScreen(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "${String.format(Locale.US, "%.1f", liveState.speedKmh)} km/t",
-                                color = Color.White,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold
+                                text = "${com.example.ui.components.formatDanishKm(liveState.speedKmh, 1)} km/t",
+                                style = com.example.ui.theme.TabularBodyStyle.copy(
+                                    color = Color.White,
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             )
                             Text(
                                 text = "Gangtempo",
@@ -269,16 +282,18 @@ fun NavigationScreen(
                         nextOvernight?.let { next ->
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "${String.format(Locale.US, "%.1f", next.distanceRemainingKm)} km",
-                                    color = AmberAccent,
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = "${com.example.ui.components.formatDanishKm(next.distanceRemainingKm, 1)} km",
+                                    style = com.example.ui.theme.TabularBodyStyle.copy(
+                                        color = AmberAccent,
+                                        fontSize = 24.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 )
                                 Text(
                                     text = next.name,
                                     color = Color.Gray,
                                     fontSize = 12.sp,
-                                    maxLines = 1
+                                    maxLines = 2
                                 )
                             }
                         }
@@ -293,9 +308,11 @@ fun NavigationScreen(
                             val movSecs = currentDayStat?.movingTimeSeconds ?: 0L
                             Text(
                                 text = formatMovingTime(movSecs),
-                                color = Color.White,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold
+                                style = com.example.ui.theme.TabularBodyStyle.copy(
+                                    color = Color.White,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             )
                             Text(
                                 text = "Aktiv tid",
@@ -308,9 +325,11 @@ fun NavigationScreen(
                             val ascent = currentDayStat?.ascentMeters ?: 0
                             Text(
                                 text = "+$ascent m",
-                                color = ForestGreenLight,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold
+                                style = com.example.ui.theme.TabularBodyStyle.copy(
+                                    color = ForestGreenLight,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             )
                             Text(
                                 text = "Stigning",
@@ -336,11 +355,12 @@ fun NavigationScreen(
                             shape = RoundedCornerShape(12.dp),
                             color = AlertRed,
                             modifier = Modifier
+                                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                                 .clickable { viewModel.setSosSheet(true) }
                                 .testTag("battery_mode_sos_button")
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -359,29 +379,30 @@ fun NavigationScreen(
                             }
                         }
 
-                        // Share position button (Phase 7d)
+                        // Share position button (Phase 7d & Requirement 12)
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = Color(0xFF222222),
                             border = BorderStroke(1.dp, Color(0xFF444444)),
                             modifier = Modifier
-                                .clickable { viewModel.shareCurrentLocation(context) }
+                                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                .clickable(enabled = hasGpsFix) { viewModel.shareCurrentLocation(context) }
                                 .testTag("battery_mode_share_button")
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Share,
                                     contentDescription = null,
-                                    tint = Color.White,
+                                    tint = if (hasGpsFix) Color.White else Color.Gray,
                                     modifier = Modifier.size(15.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Del position",
-                                    color = Color.White,
+                                    text = if (hasGpsFix) "Del position" else "Venter på GPS-position",
+                                    color = if (hasGpsFix) Color.White else Color.Gray,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -402,52 +423,114 @@ fun NavigationScreen(
     } else {
         // --- NORMAL FULLSCREEN NAVIGATION MODE ---
         Box(modifier = modifier.fillMaxSize()) {
-            // 1. Map fills the screen
-            AndroidView(
-                factory = { ctx ->
-                    MapView(ctx).apply {
-                        mapViewRef = this
-                        setMultiTouchControls(true)
-                        zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
-                        DanskStiTileSource.applyTo(this, isDark)
-                        controller.setZoom(15.0)
+            // 1. Shared DanskStiMap fills the screen
+            val navUserGeoPoint = remember(liveState.currentLat, liveState.currentLng) {
+                val lat = liveState.currentLat
+                val lng = liveState.currentLng
+                if (lat != null && lng != null) GeoPoint(lat, lng) else null
+            }
+            val navCombinedPois = remember(routeToilets, routeWaters, routeShops) {
+                routeToilets + routeWaters + routeShops
+            }
 
-                        setOnTouchListener { _, event ->
-                            if (event.action == android.view.MotionEvent.ACTION_DOWN ||
-                                event.action == android.view.MotionEvent.ACTION_MOVE
-                            ) {
-                                isFollowingUser = false
-                            }
-                            false
-                        }
+            val navFriTeltningEntities = remember(routeFriTeltning) {
+                routeFriTeltning.map { it.first }
+            }
 
-                        val mgr = NavigationMapOverlayManager(
-                            mapView = this,
-                            context = ctx,
-                            onSelectPoi = { /* POI clicked */ }
-                        )
-                        overlayManagerRef = mgr
+            com.example.ui.map.DanskStiMap(
+                modifier = Modifier.fillMaxSize(),
+                mapTestTag = "navigation_map_view",
+                initialZoom = 15.0,
+                isSystemDarkOverride = isDark,
+                userLocation = navUserGeoPoint,
+                userHeadingDegrees = liveState.bearing,
+                userAccuracyMeters = liveState.accuracyM,
+                shelters = routeShelters,
+                friTeltning = navFriTeltningEntities,
+                pois = navCombinedPois,
+                controlsTopPadding = 140.dp,
+                attributionBottomPadding = 160.dp,
+                layersButtonTestTag = "map_button_layers",
+                compassButtonTestTag = "map_button_compass",
+                myLocationButtonTestTag = "map_button_locate",
+                onMyLocationClick = {
+                    isFollowingUser = true
+                    val lat = liveState.currentLat
+                    val lng = liveState.currentLng
+                    if (lat != null && lng != null) {
+                        mapViewRef?.controller?.animateTo(GeoPoint(lat, lng))
                     }
                 },
-                update = { mapView ->
-                    DanskStiTileSource.applyTo(mapView, isDark)
-
-                    plannedRoute?.let { route ->
-                        overlayManagerRef?.setPlannedRoute(route)
+                onMapReady = { mv ->
+                    mapViewRef = mv
+                    // Requirement 21: Turn follow mode off only on a real drag (movement beyond ViewConfiguration touch slop), not on ACTION_DOWN.
+                    val touchSlop = android.view.ViewConfiguration.get(mv.context).scaledTouchSlop
+                    var touchDownX = 0f
+                    var touchDownY = 0f
+                    mv.setOnTouchListener { _, event ->
+                        when (event.actionMasked) {
+                            android.view.MotionEvent.ACTION_DOWN -> {
+                                touchDownX = event.x
+                                touchDownY = event.y
+                            }
+                            android.view.MotionEvent.ACTION_MOVE -> {
+                                val dx = event.x - touchDownX
+                                val dy = event.y - touchDownY
+                                if (kotlin.math.hypot(dx, dy) > touchSlop) {
+                                    isFollowingUser = false
+                                }
+                            }
+                        }
+                        false
                     }
 
+                    val mgr = NavigationMapOverlayManager(
+                        mapView = mv,
+                        context = mv.context,
+                        onSelectPoi = { /* POI clicked */ }
+                    )
+                    overlayManagerRef = mgr
+                },
+                updateOverlaysKey = Triple(plannedRoute, liveState, isFollowingUser),
+                onUpdateOverlays = { _, _, isDarkMap ->
+                    plannedRoute?.let { route ->
+                        overlayManagerRef?.setPlannedRoute(route, isDarkMap)
+                    }
+                    overlayManagerRef?.updatePois(
+                        shelters = routeShelters,
+                        showShelters = true,
+                        toilets = routeToilets,
+                        showToilets = true,
+                        waters = routeWaters,
+                        showWater = true,
+                        shops = routeShops,
+                        showShops = true,
+                        hazards = routeHazards,
+                        showHazards = true,
+                        parsedFriTeltning = routeFriTeltning,
+                        showFriTeltning = true
+                    )
                     overlayManagerRef?.updateTonightCamp(liveState.currentStage, emptyList())
                     overlayManagerRef?.onLocationTick(liveState, isFollowingUser)
-                },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .testTag("navigation_map_view")
+                }
             )
 
-            // 2. Top bar: today's stage "Dag 2 af 7 · 9,4 km tilbage i dag" + SOS + Back
+            // 2. Top card: "Dag 2 af 7 · 9,4 km tilbage i dag · ankomst ca. 16:40" (Requirement G)
+            val totalDaysCount = (activePlan?.targetDays ?: plannedRoute?.stages?.size ?: 1).coerceAtLeast(1)
+            val remKmFormatted = com.example.ui.components.formatDanishKm(distanceRemainingToday, 1)
+            val arrivalClock = remember(distanceRemainingToday, liveState.speedKmh) {
+                val effectivePace = if (liveState.speedKmh > 1.5) liveState.speedKmh else 4.2
+                val hoursLeft = (distanceRemainingToday / effectivePace).coerceIn(0.0, 24.0)
+                val totalMinutesFrom9 = (9 * 60 + (hoursLeft * 60).toInt()) % (24 * 60)
+                val hh = totalMinutesFrom9 / 60
+                val mm = (totalMinutesFrom9 % 60 / 5) * 5
+                String.format(Locale.ROOT, "%02d:%02d", hh, mm)
+            }
+            val topCardHeadline = "Dag $currentDay af $totalDaysCount · $remKmFormatted km tilbage i dag · ankomst ca. $arrivalClock"
+
             Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surface,
+                shape = com.example.ui.theme.CardShape,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                 tonalElevation = 6.dp,
                 shadowElevation = 6.dp,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
@@ -456,17 +539,18 @@ fun NavigationScreen(
                     .statusBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
                     .align(Alignment.TopCenter)
+                    .testTag("nav_top_card")
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
                         onClick = onBack,
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(48.dp)
                             .testTag("nav_back_button")
                     ) {
                         Icon(
@@ -481,11 +565,13 @@ fun NavigationScreen(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = todayStageText,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
+                            text = topCardHeadline,
+                            style = com.example.ui.theme.TabularBodyStyle.copy(
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
                             color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1
+                            modifier = Modifier.testTag("nav_top_headline_text")
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
@@ -496,9 +582,9 @@ fun NavigationScreen(
                             )
                             Spacer(modifier = Modifier.width(5.dp))
                             Text(
-                                text = "GPS aktiv • ${String.format(Locale.US, "%.1f", liveState.speedKmh)} km/t",
-                                fontSize = 11.sp,
-                                color = ForestGreenLight,
+                                text = "GPS aktiv • ${com.example.ui.components.formatDanishKm(liveState.speedKmh, 1)} km/t",
+                                style = com.example.ui.theme.TabularLabelStyle,
+                                color = ForestGreenPrimary,
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -508,7 +594,7 @@ fun NavigationScreen(
                     IconButton(
                         onClick = { viewModel.toggleBatterySaver() },
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(48.dp)
                             .testTag("toggle_battery_mode_button")
                     ) {
                         Icon(
@@ -519,36 +605,19 @@ fun NavigationScreen(
                         )
                     }
 
-                    // Share current location button (Phase 7d)
+                    // Share current location button (Phase 7d & Requirement 12)
                     IconButton(
                         onClick = { viewModel.shareCurrentLocation(context) },
+                        enabled = hasGpsFix,
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(48.dp)
                             .testTag("nav_share_location_top_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Share,
-                            contentDescription = "Del min position",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            contentDescription = if (hasGpsFix) "Del min position" else "Venter på GPS-position",
+                            tint = if (hasGpsFix) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                             modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Red small SOS button
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = AlertRed,
-                        modifier = Modifier
-                            .padding(start = 4.dp)
-                            .clickable { viewModel.setSosSheet(true) }
-                            .testTag("nav_sos_button")
-                    ) {
-                        Text(
-                            text = "SOS",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -595,95 +664,9 @@ fun NavigationScreen(
                 }
             }
 
-            // 3. Map buttons on the right: locate/follow, compass, layers
-            Column(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // Locate / Follow button
-                Surface(
-                    shape = CircleShape,
-                    color = if (isFollowingUser) ForestGreenPrimary else MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
-                    shadowElevation = 6.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .clickable {
-                            isFollowingUser = true
-                            val lat = liveState.currentLat
-                            val lng = liveState.currentLng
-                            if (lat != null && lng != null) {
-                                mapViewRef?.controller?.animateTo(GeoPoint(lat, lng))
-                            }
-                        }
-                        .testTag("map_button_locate")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.MyLocation,
-                            contentDescription = "Centrer min position",
-                            tint = if (isFollowingUser) Color.White else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-
-                // Compass button
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
-                    shadowElevation = 6.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .clickable {
-                            mapViewRef?.mapOrientation = 0f
-                        }
-                        .testTag("map_button_compass")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Explore,
-                            contentDescription = "Nulstil kompas mod nord",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-
-                // Layers button
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
-                    shadowElevation = 6.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .clickable { viewModel.cycleMapTileMode() }
-                        .testTag("map_button_layers")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Layers,
-                            contentDescription = "Skift kortlag",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-
-            // 4. Bottom card (Next overnight, Next water/toilet/shop) + Swipe up = "Foran dig på ruten" list + elevation
+            // 4. Bottom card (Next overnight, Next water, Next shop) + Swipe up = "Foran dig på ruten" + elevation + Stop for i dag + SOS (Requirement G)
             Surface(
-                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                shape = com.example.ui.theme.SheetTopShape,
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 8.dp,
                 shadowElevation = 8.dp,
@@ -692,17 +675,19 @@ fun NavigationScreen(
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
+                    .testTag("nav_bottom_card")
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    // Drag/Toggle Pill
+                    // Drag/Toggle Pill ("Foran dig på ruten")
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { isDrawerExpanded = !isDrawerExpanded },
+                            .clickable { isDrawerExpanded = !isDrawerExpanded }
+                            .testTag("nav_expand_ahead_button"),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
@@ -716,89 +701,135 @@ fun NavigationScreen(
                                     .clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Foran dig på ruten",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
                             Icon(
                                 imageVector = if (isDrawerExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                                contentDescription = if (isDrawerExpanded) "Skjul foran dig" else "Vis foran dig",
+                                contentDescription = if (isDrawerExpanded) "Skjul foran dig på ruten" else "Vis foran dig på ruten",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Primary Summary: Next Overnight & Next Amenity
+                    // Requirement G: Next overnight, next water, next shop, each with km along the route
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Next overnight
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
+                        // 1. Next overnight
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("nav_next_overnight_row")
                         ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = ForestGreenPrimary.copy(alpha = 0.15f),
-                                modifier = Modifier.size(36.dp)
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Cabin,
-                                        contentDescription = null,
-                                        tint = ForestGreenPrimary,
-                                        modifier = Modifier.size(18.dp)
+                                Icon(
+                                    imageVector = Icons.Default.Cabin,
+                                    contentDescription = "Næste overnatning",
+                                    tint = ForestGreenPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text(
+                                        text = nextOvernight?.name ?: "Overnatning",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = nextOvernight?.let { "${com.example.ui.components.formatDanishKm(it.distanceRemainingKm, 1)} km" } ?: "-- km",
+                                        style = com.example.ui.theme.TabularLabelStyle,
+                                        color = ForestGreenPrimary
                                     )
                                 }
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = nextOvernight?.name ?: "Mål for i dag",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1
-                                )
-                                Text(
-                                    text = nextOvernight?.let { "${String.format(Locale.US, "%.1f", it.distanceRemainingKm)} km tilbage" } ?: "Ingen lejr registreret",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
 
-                        // Next water/amenity
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                shape = CircleShape,
-                                color = NordicBlue.copy(alpha = 0.15f),
-                                modifier = Modifier.size(36.dp)
+                        // 2. Next water
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("nav_next_water_row")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.LocalDrink,
-                                        contentDescription = null,
-                                        tint = NordicBlue,
-                                        modifier = Modifier.size(18.dp)
+                                Icon(
+                                    imageVector = Icons.Default.LocalDrink,
+                                    contentDescription = "Næste vandpost",
+                                    tint = NordicBlue,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text(
+                                        text = nextWater?.name ?: "Vandpost",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = nextWater?.let { "${com.example.ui.components.formatDanishKm(it.distanceRemainingKm, 1)} km" } ?: "-- km",
+                                        style = com.example.ui.theme.TabularLabelStyle,
+                                        color = NordicBlue
                                     )
                                 }
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = nextWater?.let { "${String.format(Locale.US, "%.1f", it.distanceRemainingKm)} km" } ?: "-- km",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
+                        }
+
+                        // 3. Next shop
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("nav_next_shop_row")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ShoppingCart,
+                                    contentDescription = "Næste indkøb",
+                                    tint = AmberAccent,
+                                    modifier = Modifier.size(18.dp)
                                 )
-                                Text(
-                                    text = "Vandpost",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text(
+                                        text = nextShop?.name ?: "Indkøb",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = nextShop?.let { "${com.example.ui.components.formatDanishKm(it.distanceRemainingKm, 1)} km" } ?: "-- km",
+                                        style = com.example.ui.theme.TabularLabelStyle,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
@@ -964,16 +995,21 @@ fun NavigationScreen(
                                         }
                                     }
 
-                                    // Del min position button (Phase 7d)
+                                    // Del min position button (Phase 7d & Requirement 12)
                                     OutlinedButton(
                                         onClick = { viewModel.shareCurrentLocation(context) },
+                                        enabled = hasGpsFix,
                                         shape = RoundedCornerShape(10.dp),
                                         modifier = Modifier.fillMaxWidth().testTag("share_current_location_button"),
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                     ) {
-                                        Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp), tint = NordicBlue)
+                                        Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp), tint = if (hasGpsFix) NordicBlue else Color.Gray)
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Del min aktuelle position (kortlink)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                                        Text(
+                                            text = if (hasGpsFix) "Del min aktuelle position (kortlink)" else "Venter på GPS-position",
+                                            fontSize = 12.sp,
+                                            color = if (hasGpsFix) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
 
                                     // Multi-day history
@@ -1006,6 +1042,58 @@ fun NavigationScreen(
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Requirement G: Large "Stop for i dag" and a small red SOS button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = {
+                                viewModel.stopTrip()
+                                onBack()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 52.dp)
+                                .testTag("stop_for_today_button")
+                        ) {
+                            Text(
+                                text = "Stop for i dag",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = AlertRed,
+                            shadowElevation = 4.dp,
+                            modifier = Modifier
+                                .heightIn(min = 52.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable { viewModel.setSosSheet(true) }
+                                .testTag("nav_sos_button")
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "SOS",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color.White
+                                )
                             }
                         }
                     }
@@ -1062,8 +1150,14 @@ fun NavigationScreen(
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        val coordsText = emergencyInfo?.decimalCoords
+                            ?: if (liveState.currentLat != null && liveState.currentLng != null) {
+                                "${liveState.currentLat}, ${liveState.currentLng}"
+                            } else {
+                                "Venter på GPS-position"
+                            }
                         Text(
-                            text = emergencyInfo?.decimalCoords ?: "${liveState.currentLat ?: 55.0}, ${liveState.currentLng ?: 10.0}",
+                            text = coordsText,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface

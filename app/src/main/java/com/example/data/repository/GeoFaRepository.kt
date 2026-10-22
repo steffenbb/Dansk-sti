@@ -7,7 +7,9 @@ import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import com.example.util.network.applyDebugMainThreadCheck
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -21,6 +23,7 @@ class GeoFaRepository(private val context: Context) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(25, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
+        .applyDebugMainThreadCheck()
         .build()
 
     private val cacheDir: File
@@ -165,7 +168,7 @@ class GeoFaRepository(private val context: Context) {
         }
     }
 
-    private fun queryWithRetry(sql: String): String? {
+    private suspend fun queryWithRetry(sql: String): String? = withContext(Dispatchers.IO) {
         val encodedSql = URLEncoder.encode(sql, "UTF-8")
         val url = "https://geofa.geodanmark.dk/api/v2/sql/fkg?q=$encodedSql&format=geojson&geoformat=geojson&srs=4326"
 
@@ -178,7 +181,7 @@ class GeoFaRepository(private val context: Context) {
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         val body = response.body?.string()
-                        if (!body.isNullOrBlank()) return body
+                        if (!body.isNullOrBlank()) return@withContext body
                     } else {
                         Log.w("GeoFaRepo", "GeoFA HTTP ${response.code} on attempt $attempt")
                     }
@@ -187,12 +190,10 @@ class GeoFaRepository(private val context: Context) {
                 Log.w("GeoFaRepo", "GeoFA error on attempt $attempt: ${e.message}")
             }
             if (attempt < 3) {
-                try {
-                    Thread.sleep((attempt * 1500).toLong())
-                } catch (_: InterruptedException) {}
+                delay((attempt * 1500).toLong())
             }
         }
-        return null
+        null
     }
 
     @Suppress("UNCHECKED_CAST")

@@ -43,7 +43,7 @@ import java.io.File
 import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE)
 class RoutePhase11Test {
 
     private lateinit var app: Application
@@ -399,7 +399,7 @@ class RoutePhase11Test {
         val allWaypoints = listOf(wpStart, wpOvernight1, wpOvernight2, wpEnd)
         val overnightWaypoints = listOf(wpOvernight1, wpOvernight2)
 
-        val stages = StagePlanner.calculateStagesForCustomRoute(
+        val stages = StagePlanner.calculateStages(
             plannedRoute = plannedRoute,
             routeName = "3-dages vandring",
             waypoints = allWaypoints,

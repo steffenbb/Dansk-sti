@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Forest
@@ -27,16 +28,17 @@ import androidx.compose.material.icons.filled.Landscape
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Terrain
+import androidx.compose.material.icons.filled.Water
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Wc
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,6 +52,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,6 +62,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.BaseMapType
+import com.example.data.local.MapDarkMode
 import com.example.data.local.MapLayersState
 import com.example.ui.theme.AmberAccent
 import com.example.ui.theme.ForestGreenLight
@@ -66,12 +70,39 @@ import com.example.ui.theme.ForestGreenPrimary
 import com.example.ui.theme.NordicBlue
 
 /**
- * Phase 13 Requirement D:
- * Comprehensive Layers Sheet for planning.
- * - Base map selector: Skærmkortet, Friluftskort, Luftfoto
- * - Overlays: Afmærkede ruter, Adgang, Shelters, Fri teltning, Vand, Toiletter, Butikker, Transport, Mine punkter
- * - Fully synchronized with DataStore via SettingsRepository.
+ * Comprehensive Layers Sheet for Dansk Sti:
+ * - Base map selector: Topografisk (Skærmkortet), Udendørs (Thunderforest / OpenTopoMap), Luftfoto
+ * - Dark map setting ("Kort i mørke"): Følg telefonen / Altid lyst / Altid mørkt
+ * - Overlays: Terræn (DHM skyggekort + kurver), Vand (søer, vandløb, vådområder, kilder),
+ *   Afmærkede ruter, Adgangsforhold, Shelters, Fri teltning, Drikkevand, Toiletter, Butikker, Transport, Mine punkter
  */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MapLayersBottomSheet(
+    state: MapLayersState,
+    settingsRepository: com.example.data.local.SettingsRepository,
+    onDismiss: () -> Unit
+) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    MapLayersBottomSheet(
+        layersState = state,
+        onBaseMapChanged = { scope.launch { settingsRepository.setBaseMap(it) } },
+        onToggleMarkedRoutes = { scope.launch { settingsRepository.setOverlayMarkedRoutes(it) } },
+        onToggleAccess = { scope.launch { settingsRepository.setOverlayAccess(it) } },
+        onToggleShelters = { scope.launch { settingsRepository.setOverlayShelters(it) } },
+        onToggleFriTeltning = { scope.launch { settingsRepository.setOverlayFriTeltning(it) } },
+        onToggleWater = { scope.launch { settingsRepository.setOverlayWater(it) } },
+        onToggleToilets = { scope.launch { settingsRepository.setOverlayToilets(it) } },
+        onToggleShops = { scope.launch { settingsRepository.setOverlayShops(it) } },
+        onToggleTransport = { scope.launch { settingsRepository.setOverlayTransport(it) } },
+        onToggleMyPoints = { scope.launch { settingsRepository.setOverlayMyPoints(it) } },
+        onToggleTerrain = { scope.launch { settingsRepository.setOverlayTerrain(it) } },
+        onToggleWaterLayer = { scope.launch { settingsRepository.setOverlayWaterLayer(it) } },
+        onMapDarkModeChanged = { scope.launch { settingsRepository.setMapDarkMode(it) } },
+        onDismiss = onDismiss
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapLayersBottomSheet(
@@ -86,7 +117,10 @@ fun MapLayersBottomSheet(
     onToggleShops: (Boolean) -> Unit,
     onToggleTransport: (Boolean) -> Unit,
     onToggleMyPoints: (Boolean) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onToggleTerrain: (Boolean) -> Unit = {},
+    onToggleWaterLayer: (Boolean) -> Unit = {},
+    onMapDarkModeChanged: (MapDarkMode) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -152,8 +186,8 @@ fun MapLayersBottomSheet(
             Spacer(modifier = Modifier.height(8.dp))
 
             BaseMapOptionCard(
-                title = "Skærmkortet",
-                subtitle = "Danmarks officielle topografiske kort (SDFI/Klimadatastyrelsen)",
+                title = "Topografisk",
+                subtitle = "Skærmkortet — Danmarks officielle topografiske kort (SDFI)",
                 icon = Icons.Default.Map,
                 isSelected = layersState.baseMap == BaseMapType.SKAERMKORT,
                 onClick = { onBaseMapChanged(BaseMapType.SKAERMKORT) },
@@ -163,8 +197,8 @@ fun MapLayersBottomSheet(
             Spacer(modifier = Modifier.height(8.dp))
 
             BaseMapOptionCard(
-                title = "Friluftskort",
-                subtitle = "OSM-baseret vandrekort med trampestier, skovspor & kurver",
+                title = "Udendørs",
+                subtitle = "Thunderforest Outdoors / OpenTopoMap med stier & kurver",
                 icon = Icons.Default.Terrain,
                 isSelected = layersState.baseMap == BaseMapType.FRILUFTSKORT,
                 onClick = { onBaseMapChanged(BaseMapType.FRILUFTSKORT) },
@@ -182,7 +216,62 @@ fun MapLayersBottomSheet(
                 testTag = "base_map_luftfoto"
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 1B. DARK MAP SETTING ("Kort i mørke")
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DarkMode,
+                    contentDescription = null,
+                    tint = ForestGreenPrimary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = "Kort i mørke",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("map_dark_mode_selector"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                MapDarkMode.entries.forEach { mode ->
+                    val selected = layersState.mapDarkMode == mode
+                    FilterChip(
+                        selected = selected,
+                        onClick = { onMapDarkModeChanged(mode) },
+                        label = {
+                            Text(
+                                text = mode.displayName,
+                                fontSize = 12.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = ForestGreenPrimary.copy(alpha = 0.16f),
+                            selectedLabelColor = ForestGreenPrimary
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = selected,
+                            borderColor = if (selected) ForestGreenPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+                        ),
+                        modifier = Modifier.testTag("map_dark_mode_${mode.name.lowercase()}")
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -195,6 +284,26 @@ fun MapLayersBottomSheet(
                 color = ForestGreenPrimary
             )
             Spacer(modifier = Modifier.height(8.dp))
+
+            LayerToggleRow(
+                title = "Terræn",
+                subtitle = "DHM terræn-skyggekort og højdekurver (fra zoom 14)",
+                icon = Icons.Default.Landscape,
+                iconTint = ForestGreenPrimary,
+                checked = layersState.showTerrain,
+                onCheckedChange = onToggleTerrain,
+                testTag = "toggle_layer_terrain"
+            )
+
+            LayerToggleRow(
+                title = "Vand",
+                subtitle = "Søer, vådområder, åer, bække og kilder (fra zoom 12)",
+                icon = Icons.Default.Water,
+                iconTint = NordicBlue,
+                checked = layersState.showWaterLayer,
+                onCheckedChange = onToggleWaterLayer,
+                testTag = "toggle_layer_water_bodies"
+            )
 
             LayerToggleRow(
                 title = "Afmærkede ruter",
@@ -419,3 +528,46 @@ private fun LayerToggleRow(
         )
     }
 }
+
+@Composable
+fun MapAttributionPill(
+    layersState: MapLayersState,
+    isDarkMode: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val activeCredits = buildList {
+        when (layersState.baseMap) {
+            BaseMapType.SKAERMKORT -> add("© Klimadatastyrelsen (Skærmkortet)")
+            BaseMapType.FRILUFTSKORT -> add("© OpenTopoMap / Thunderforest · © OpenStreetMap")
+            BaseMapType.LUFTFOTO -> add("© GeoDanmark Ortofoto / Esri")
+        }
+        if (layersState.showTerrain) {
+            add("DHM Terræn")
+        }
+        if (layersState.showWaterLayer) {
+            add("© OSM Vand")
+        }
+        if (layersState.showAccess) {
+            add("MiljøGIS / Fredninger")
+        }
+        if (layersState.showShelters || layersState.showFriTeltning) {
+            add("GeoFA / Naturstyrelsen")
+        }
+    }.distinct().joinToString(" · ")
+
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = if (isDarkMode) Color(0xCC141A16) else Color(0xD9FFFFFF),
+        border = BorderStroke(0.5.dp, if (isDarkMode) Color(0x44FFFFFF) else Color(0x22000000)),
+        modifier = modifier
+    ) {
+        Text(
+            text = activeCredits,
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+            color = if (isDarkMode) Color(0xFFD0DDD4) else Color(0xFF2B352E),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+        )
+    }
+}
+

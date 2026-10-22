@@ -206,24 +206,45 @@ class BRouterStorageManager private constructor(context: Context) {
     }
 
     /**
-     * Ensures that dansk-vandring.brf and lookups.dat are copied from assets to the profiles directory.
+     * Ensures that dansk-vandring.brf and lookups.dat are copied from assets to the profiles directory
+     * whenever their content differs from the copy on disk (comparing SHA-256 hashes), not only when missing.
      */
     fun ensureProfilesCopied(context: Context) {
-        copyAssetIfNeeded(context, "brouter/dansk-vandring.brf", File(profilesDir, "dansk-vandring.brf"))
-        copyAssetIfNeeded(context, "brouter/lookups.dat", File(profilesDir, "lookups.dat"))
+        copyAssetIfDifferent(context, "brouter/dansk-vandring.brf", File(profilesDir, "dansk-vandring.brf"))
+        copyAssetIfDifferent(context, "brouter/lookups.dat", File(profilesDir, "lookups.dat"))
     }
 
-    private fun copyAssetIfNeeded(context: Context, assetPath: String, destFile: File) {
+    private fun copyAssetIfDifferent(context: Context, assetPath: String, destFile: File) {
         try {
-            if (destFile.exists() && destFile.length() > 0) return
-            context.assets.open(assetPath).use { input ->
-                FileOutputStream(destFile).use { output ->
-                    input.copyTo(output)
+            val assetBytes = context.assets.open(assetPath).use { it.readBytes() }
+            val assetHash = sha256Hex(assetBytes)
+
+            val diskHash = if (destFile.exists() && destFile.length() > 0L) {
+                try {
+                    sha256Hex(destFile.readBytes())
+                } catch (_: Exception) {
+                    null
                 }
+            } else {
+                null
             }
-            Log.i(TAG, "Copied asset $assetPath to ${destFile.absolutePath}")
+
+            if (assetHash == diskHash) {
+                return
+            }
+
+            destFile.parentFile?.mkdirs()
+            FileOutputStream(destFile).use { output ->
+                output.write(assetBytes)
+            }
+            Log.i(TAG, "Copied asset $assetPath to ${destFile.absolutePath} (hash=$assetHash)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed copying asset $assetPath", e)
         }
+    }
+
+    private fun sha256Hex(bytes: ByteArray): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+        return digest.joinToString("") { "%02x".format(it) }
     }
 }

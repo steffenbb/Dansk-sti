@@ -6,72 +6,81 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// Typography: Single sans-serif family; trail names 20 sp bold, stats 16 sp semibold, labels 12 sp
+// Requirement A:
+// One type scale:
+// - display: 28 sp bold (screen titles)
+// - title: 20 sp semibold (trail names)
+// - body: 16 sp
+// - label: 13 sp
+// Numbers in stats use tabular figures ("tnum").
+
+const val TABULAR_FIGURES_FEATURE = "tnum"
+
+val DisplayTextStyle = TextStyle(
+    fontFamily = FontFamily.SansSerif,
+    fontWeight = FontWeight.Bold,
+    fontSize = 28.sp,
+    lineHeight = 34.sp,
+    fontFeatureSettings = TABULAR_FIGURES_FEATURE
+)
+
+val TitleTextStyle = TextStyle(
+    fontFamily = FontFamily.SansSerif,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 20.sp,
+    lineHeight = 26.sp,
+    fontFeatureSettings = TABULAR_FIGURES_FEATURE
+)
+
+val BodyTextStyle = TextStyle(
+    fontFamily = FontFamily.SansSerif,
+    fontWeight = FontWeight.Normal,
+    fontSize = 16.sp,
+    lineHeight = 24.sp,
+    fontFeatureSettings = TABULAR_FIGURES_FEATURE
+)
+
+val BodySemiBoldTextStyle = TextStyle(
+    fontFamily = FontFamily.SansSerif,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 16.sp,
+    lineHeight = 22.sp,
+    fontFeatureSettings = TABULAR_FIGURES_FEATURE
+)
+
+val LabelTextStyle = TextStyle(
+    fontFamily = FontFamily.SansSerif,
+    fontWeight = FontWeight.Medium,
+    fontSize = 13.sp,
+    lineHeight = 18.sp,
+    fontFeatureSettings = TABULAR_FIGURES_FEATURE
+)
+
+val TabularStatsTextStyle = TextStyle(
+    fontFamily = FontFamily.SansSerif,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 16.sp,
+    lineHeight = 22.sp,
+    fontFeatureSettings = TABULAR_FIGURES_FEATURE
+)
+
+val TabularBodyStyle = TabularStatsTextStyle
+val TabularLabelStyle = LabelTextStyle
+
 val Typography = Typography(
-    headlineLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
-        fontSize = 24.sp,
-        lineHeight = 30.sp
-    ),
-    headlineMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
-        fontSize = 20.sp, // Trail names: 20 sp bold
-        lineHeight = 26.sp
-    ),
-    titleLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
-        fontSize = 20.sp, // Trail names: 20 sp bold
-        lineHeight = 26.sp
-    ),
-    titleMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp, // Stats: 16 sp semibold
-        lineHeight = 22.sp
-    ),
-    titleSmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp,
-        lineHeight = 20.sp
-    ),
-    bodyLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
-        fontSize = 16.sp,
-        lineHeight = 24.sp
-    ),
-    bodyMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        lineHeight = 20.sp
-    ),
-    bodySmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
-        fontSize = 12.sp, // Labels: 12 sp
-        lineHeight = 16.sp
-    ),
-    labelLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp,
-        lineHeight = 20.sp
-    ),
-    labelMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
-        fontSize = 12.sp, // Labels: 12 sp
-        lineHeight = 16.sp
-    ),
-    labelSmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
-        fontSize = 12.sp, // Labels: 12 sp
-        lineHeight = 16.sp
-    )
+    displayLarge = DisplayTextStyle,
+    displayMedium = DisplayTextStyle,
+    displaySmall = DisplayTextStyle,
+    headlineLarge = DisplayTextStyle, // 28 sp bold (screen titles)
+    headlineMedium = TitleTextStyle,  // 20 sp semibold (trail names)
+    headlineSmall = TitleTextStyle,
+    titleLarge = TitleTextStyle,      // 20 sp semibold (trail names)
+    titleMedium = BodySemiBoldTextStyle, // 16 sp semibold (stats)
+    titleSmall = LabelTextStyle.copy(fontWeight = FontWeight.SemiBold), // 13 sp
+    bodyLarge = BodyTextStyle,        // 16 sp
+    bodyMedium = BodyTextStyle,       // 16 sp
+    bodySmall = LabelTextStyle,       // 13 sp
+    labelLarge = LabelTextStyle.copy(fontWeight = FontWeight.SemiBold), // 13 sp
+    labelMedium = LabelTextStyle,     // 13 sp
+    labelSmall = LabelTextStyle       // 13 sp
 )

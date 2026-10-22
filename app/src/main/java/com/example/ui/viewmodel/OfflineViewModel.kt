@@ -44,7 +44,7 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
 
     private val repository: DanskStiRepository = (application as DanskStiApp).repository
     private val storageManager: BRouterStorageManager = BRouterStorageManager.getInstance(application)
-    private val workManager: WorkManager = WorkManager.getInstance(application)
+    private val workManager: WorkManager? = runCatching { WorkManager.getInstance(application) }.getOrNull()
 
     val downloadedTrails: StateFlow<List<DownloadedTrailEntity>> = repository.getAllDownloadedTrails()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -63,7 +63,8 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
     private val _brouterDiskStateTrigger = MutableStateFlow(System.currentTimeMillis())
 
     val brouterDataState: StateFlow<BRouterDataState> = combine(
-        workManager.getWorkInfosForUniqueWorkFlow(BRouterSegmentDownloadWorker.UNIQUE_WORK_NAME),
+        workManager?.getWorkInfosForUniqueWorkFlow(BRouterSegmentDownloadWorker.UNIQUE_WORK_NAME)
+            ?: MutableStateFlow(emptyList()),
         _brouterWifiOnly,
         _brouterDiskStateTrigger
     ) { workInfos, wifiOnly, _ ->
