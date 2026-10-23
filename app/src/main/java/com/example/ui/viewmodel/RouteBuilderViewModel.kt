@@ -436,7 +436,15 @@ class RouteBuilderViewModel(
         currentGpsLng: Double? = null,
         specificPlanId: Long? = null
     ) {
-        viewModelScope.launch {
+        val preseededTrail = com.example.data.local.PreseededData.getInitialTrails().find { it.id == trailId }
+        _uiState.value = _uiState.value.copy(
+            mode = PlannerMode.TRAIL,
+            baseTrailId = trailId,
+            baseTrail = preseededTrail ?: _uiState.value.baseTrail,
+            routeName = preseededTrail?.name ?: _uiState.value.routeName,
+            waitingForStartPointTap = false
+        )
+        viewModelScope.launch(Dispatchers.Default) {
             val existingPlan = if (specificPlanId != null && specificPlanId > 0L) {
                 repository.getTripPlanById(specificPlanId)
             } else {
@@ -540,23 +548,25 @@ class RouteBuilderViewModel(
                 try { OvernightType.valueOf(it) } catch (_: Exception) { null }
             }
 
-            _uiState.value = _uiState.value.copy(
-                mode = PlannerMode.TRAIL,
-                existingPlanId = existingPlan?.id,
-                baseTrailId = trail.id,
-                baseTrail = trail,
-                baseTrailSegments = segments,
-                baseTrailKmMarkers = kmMarkers,
-                isReverse = isReverse,
-                routeName = trail.name,
-                waypoints = wps,
-                legs = initialLegs,
-                failedLegs = emptyMap(),
-                waitingForStartPointTap = false,
-                dailyTargetKm = existingPlan?.preferredDailyKm ?: _uiState.value.dailyTargetKm,
-                overnightPreference = parsedPref ?: _uiState.value.overnightPreference,
-                startDateMillis = existingPlan?.createdAt ?: _uiState.value.startDateMillis
-            )
+            updateRouteStats { current ->
+                current.copy(
+                    mode = PlannerMode.TRAIL,
+                    existingPlanId = existingPlan?.id,
+                    baseTrailId = trail.id,
+                    baseTrail = trail,
+                    baseTrailSegments = segments,
+                    baseTrailKmMarkers = kmMarkers,
+                    isReverse = isReverse,
+                    routeName = trail.name,
+                    waypoints = wps,
+                    legs = initialLegs,
+                    failedLegs = emptyMap(),
+                    waitingForStartPointTap = false,
+                    dailyTargetKm = existingPlan?.preferredDailyKm ?: current.dailyTargetKm,
+                    overnightPreference = parsedPref ?: current.overnightPreference,
+                    startDateMillis = existingPlan?.createdAt ?: current.startDateMillis
+                )
+            }
 
             withContext(Dispatchers.IO) {
                 for (leg in initialLegs.values) {
@@ -567,7 +577,6 @@ class RouteBuilderViewModel(
             if (wps.isNotEmpty()) {
                 fetchSunsetForRoute(wps.first().lat, wps.first().lng)
             }
-            updateRouteStats()
         }
     }
 
@@ -929,7 +938,7 @@ class RouteBuilderViewModel(
             }
 
             // Off-trail detour (> 50m or explicit POI)
-            viewModelScope.launch {
+            viewModelScope.launch(Dispatchers.Default) {
                 pushHistory()
                 val wps = _uiState.value.waypoints.toMutableList()
                 val segments = _uiState.value.baseTrailSegments
@@ -992,11 +1001,13 @@ class RouteBuilderViewModel(
                     updatedLegs[leg.legKey] = leg
                 }
 
-                _uiState.value = _uiState.value.copy(
-                    waypoints = wps,
-                    legs = updatedLegs,
-                    selectedWaypointId = detourPlan.detourWaypoint.id
-                )
+                updateRouteStats { current ->
+                    current.copy(
+                        waypoints = wps,
+                        legs = updatedLegs,
+                        selectedWaypointId = detourPlan.detourWaypoint.id
+                    )
+                }
 
                 withContext(Dispatchers.IO) {
                     for (leg in detourPlan.legs) {
@@ -1010,7 +1021,6 @@ class RouteBuilderViewModel(
                     detourPlan.detourAscentM
                 )
                 _userMessage.emit(detourLabel)
-                updateRouteStats()
             }
             return
         }
@@ -2016,14 +2026,15 @@ class RouteBuilderViewModel(
         }
     }
 
-    private fun updateRouteStats() {
-        val wps = _uiState.value.waypoints
+    private fun updateRouteStats(transform: ((RouteBuilderState) -> RouteBuilderState)? = null) {
+        val currentState = transform?.invoke(_uiState.value) ?: _uiState.value
+        val wps = currentState.waypoints
         val orderedLegs = mutableListOf<LegGeometryData>()
         val dayBoundaries = mutableListOf<Double>()
         var cumulativeKm = 0.0
         for (i in 0 until wps.size - 1) {
             val key = "${wps[i].id}_to_${wps[i + 1].id}"
-            val leg = _uiState.value.legs[key]
+            val leg = currentState.legs[key]
             if (leg != null) {
                 orderedLegs.add(leg)
                 cumulativeKm += leg.lengthKm
@@ -2047,7 +2058,7 @@ class RouteBuilderViewModel(
             "ca. $totalMinutes min"
         }
 
-        val isOffline = if (_uiState.value.mode == PlannerMode.TRAIL && orderedLegs.all { it.legMode == LegMode.TRAIL }) {
+        val isOffline = if (currentState.mode == PlannerMode.TRAIL && orderedLegs.all { it.legMode == LegMode.TRAIL }) {
             true
         } else if (orderedLegs.isNotEmpty()) {
             orderedLegs.all { it.sourceName.contains("offline", ignoreCase = true) || it.legMode == LegMode.TRAIL }
@@ -2065,11 +2076,46 @@ class RouteBuilderViewModel(
         val engineLabel = if (isOffline) "Offline rute" else "Online rute"
 
         val quality = RouteSmartTools.analyzeRouteQuality(orderedLegs)
-        _uiState.value = _uiState.value.copy(
+        val (syncStages, syncDaySummaries) = if (wps.size >= 2 && orderedLegs.isNotEmpty()) {
+            val overnightWps = wps.filter { it.role == WaypointRole.OVERNIGHT && !it.isHelper }
+            val numDays = max(1, overnightWps.size + 1)
+            val (builtStages, _) = PlannedRouteRepository.buildStagesAndPlannedRoute(
+                planId = 0L,
+                trailId = currentState.baseTrailId ?: "route_preview",
+                trailName = currentState.routeName.ifBlank { "Tur" },
+                isReverse = currentState.isReverse,
+                waypoints = wps,
+                orderedLegs = orderedLegs,
+                paceKmh = currentState.paceKmh,
+                dailyTargetKm = currentState.dailyTargetKm,
+                numDays = numDays,
+                overnightType = currentState.overnightPreference,
+                maxDetourKm = currentState.maxDetourKm,
+                startTime = currentState.startTimeStr,
+                shelters = currentState.nearbyShelters,
+                friTeltnings = currentState.nearbyFriTeltning,
+                pois = currentState.nearbyPois,
+                sunsetTime = sunsetTimeStr
+            )
+            val summaries = buildDaySummariesSync(
+                state = currentState,
+                wps = wps,
+                stages = builtStages,
+                corridorShelters = currentState.nearbyShelters,
+                corridorFriTeltning = currentState.nearbyFriTeltning
+            )
+            builtStages.map { it.toEntity(planId = 0L) } to summaries
+        } else {
+            emptyList<TripStageEntity>() to emptyList<PlannerDaySummary>()
+        }
+
+        _uiState.value = currentState.copy(
             stats = stats,
             timeEstimateFormatted = timeStr,
             routeQuality = quality,
             dayBoundaryWalkKms = dayBoundaries,
+            plannedStages = syncStages,
+            daySummaries = syncDaySummaries,
             isOfflineRoute = isOffline,
             routeEngineModeLabel = engineLabel,
             isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse()
@@ -2303,7 +2349,7 @@ class RouteBuilderViewModel(
         }
         _uiState.value = _uiState.value.copy(isSaving = true)
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             try {
                 val existingId = currentState.routeId
                 if (existingId != null && existingId > 0L && !forceResetProgress) {
@@ -2374,7 +2420,7 @@ class RouteBuilderViewModel(
                 val pois = repository.getAllPoisList()
                 val numDays = max(1, wps.count { it.role == WaypointRole.OVERNIGHT && !it.isHelper } + 1)
 
-                val (stages, _) = PlannedRouteRepository.buildStagesAndPlannedRoute(
+                val (stages, builtPlannedRoute) = PlannedRouteRepository.buildStagesAndPlannedRoute(
                     planId = 0L,
                     trailId = currentState.baseTrailId ?: "route_$savedId",
                     trailName = finalName,
@@ -2404,11 +2450,14 @@ class RouteBuilderViewModel(
                     overnightType = currentState.overnightPreference,
                     stages = stages,
                     customRouteId = savedId,
+                    baseTrailId = currentState.baseTrailId,
                     isReverse = currentState.isReverse,
                     startKm = startKm,
                     endKm = endKm
                 )
-                repository.ensureTripPlanForCustomRoute(savedEntity, forceRecompute = false)
+                PlannedRouteRepository(getApplication()).savePlannedRoute(
+                    builtPlannedRoute.copy(planId = savedPlanId, stages = stages)
+                )
 
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
@@ -2925,7 +2974,7 @@ class RouteBuilderViewModel(
         if (orderedLegs.isEmpty()) return
 
         stagesAndPoisJob?.cancel()
-        stagesAndPoisJob = viewModelScope.launch {
+        stagesAndPoisJob = viewModelScope.launch(Dispatchers.Default) {
             try {
                 val shelters = withContext(Dispatchers.IO) { repository.getAllSheltersList() }
                 val friTeltning = withContext(Dispatchers.IO) { repository.getAllFriTeltningList() }
@@ -2951,168 +3000,181 @@ class RouteBuilderViewModel(
                     return samplePts.any { pt -> haversineM(lat, lng, pt.lat, pt.lng) <= maxMeters }
                 }
 
-                val corridorShelters = withContext(Dispatchers.Default) {
-                    shelters.filter { isNearPlannedSection(it.lat, it.lng, 2500.0) }
-                }
-                val corridorFriTeltning = withContext(Dispatchers.Default) {
-                    friTeltning.filter { isNearPlannedSection(it.centerLat, it.centerLng, 2500.0) }
-                }
-                val corridorPois = withContext(Dispatchers.Default) {
-                    allPois.filter { poi ->
-                        val t = poi.type.lowercase()
-                        (t.contains("water") || t.contains("toilet") || t.contains("shop") || t.contains("supermarket") || t.contains("grocer")) &&
-                            isNearPlannedSection(poi.lat, poi.lng, 2000.0)
-                    }
+                val corridorShelters = shelters.filter { isNearPlannedSection(it.lat, it.lng, 2500.0) }
+                val corridorFriTeltning = friTeltning.filter { isNearPlannedSection(it.centerLat, it.centerLng, 2500.0) }
+                val corridorPois = allPois.filter { poi ->
+                    val t = poi.type.lowercase()
+                    (t.contains("water") || t.contains("toilet") || t.contains("shop") || t.contains("supermarket") || t.contains("grocer")) &&
+                        isNearPlannedSection(poi.lat, poi.lng, 2000.0)
                 }
 
                 val overnightWps = wps.filter { it.role == WaypointRole.OVERNIGHT && !it.isHelper }
                 val numDays = max(1, overnightWps.size + 1)
 
-                val (stages, _) = withContext(Dispatchers.Default) {
-                    PlannedRouteRepository.buildStagesAndPlannedRoute(
-                        planId = 0L,
-                        trailId = state.baseTrailId ?: "route_preview",
-                        trailName = state.routeName.ifBlank { "Tur" },
-                        isReverse = state.isReverse,
-                        waypoints = wps,
-                        orderedLegs = orderedLegs,
-                        paceKmh = state.paceKmh,
-                        dailyTargetKm = state.dailyTargetKm,
-                        numDays = numDays,
-                        overnightType = state.overnightPreference,
-                        maxDetourKm = state.maxDetourKm,
-                        startTime = state.startTimeStr,
-                        shelters = corridorShelters,
-                        friTeltnings = corridorFriTeltning,
-                        pois = corridorPois,
-                        sunsetTime = sunsetTimeStr
-                    )
-                }
+                val (stages, _) = PlannedRouteRepository.buildStagesAndPlannedRoute(
+                    planId = 0L,
+                    trailId = state.baseTrailId ?: "route_preview",
+                    trailName = state.routeName.ifBlank { "Tur" },
+                    isReverse = state.isReverse,
+                    waypoints = wps,
+                    orderedLegs = orderedLegs,
+                    paceKmh = state.paceKmh,
+                    dailyTargetKm = state.dailyTargetKm,
+                    numDays = numDays,
+                    overnightType = state.overnightPreference,
+                    maxDetourKm = state.maxDetourKm,
+                    startTime = state.startTimeStr,
+                    shelters = corridorShelters,
+                    friTeltnings = corridorFriTeltning,
+                    pois = corridorPois,
+                    sunsetTime = sunsetTimeStr
+                )
 
-                // Build PlannerDaySummary list (Requirement F)
-                val visibleWps = wps.filter { !it.isHelper }
-                val dayBoundaryWps = mutableListOf<RouteWaypoint>()
-                dayBoundaryWps.add(visibleWps.first())
-                dayBoundaryWps.addAll(overnightWps)
-                dayBoundaryWps.add(visibleWps.last())
-
-                val daySummaries = mutableListOf<PlannerDaySummary>()
-                for ((idx, stage) in stages.withIndex()) {
-                    val fromWp = dayBoundaryWps.getOrNull(idx)
-                    val toWp = dayBoundaryWps.getOrNull(idx + 1)
-                    val isLastDay = idx == stages.lastIndex
-
-                    val fromName = fromWp?.name?.ifBlank { null } ?: if (idx == 0) "Start" else "Dag $idx lejr"
-                    val toName = toWp?.name?.ifBlank { null } ?: stage.stopName.ifBlank { if (isLastDay) "Slut" else "Dag ${stage.dayNumber} lejr" }
-
-                    val detourKm = toWp?.detourCostKm ?: (stage.detourMeters / 1000.0)
-                    val detourAscent = toWp?.detourAscentM?.roundToInt() ?: 0
-                    val detourLabel = if (detourKm > 0.05) {
-                        TrailSlicer.formatDetourCost(toName, detourKm, detourAscent.toDouble())
-                    } else null
-
-                    val matchedShelter = corridorShelters.find { it.id == toWp?.linkedPoiId || it.id == stage.spotId }
-                    val matchedFt = corridorFriTeltning.find { it.id == toWp?.linkedPoiId || it.id == stage.spotId }
-
-                    val overnightTypeLabel = when {
-                        isLastDay -> "Mål"
-                        matchedShelter != null || stage.stopType == "SHELTER" -> "Shelter"
-                        matchedFt != null || stage.stopType == "FRI_TELTNING" -> "Fri teltning"
-                        toWp?.role == WaypointRole.OVERNIGHT -> "Overnatningspunkt"
-                        else -> "Åben etapeslut"
-                    }
-
-                    val bookingLabel = when {
-                        isLastDay -> null
-                        matchedShelter != null -> if (!matchedShelter.bookingUrl.isNullOrBlank() || matchedShelter.bookingRequired) "Kræver booking" else "Gratis / først-til-mølle"
-                        matchedFt != null -> "Gratis (1-2-3 reglen)"
-                        stage.bookingRequired -> "Kræver booking"
-                        else -> null
-                    }
-
-                    val campLat = toWp?.lat ?: stage.stopLat.takeIf { it != 0.0 } ?: visibleWps.last().lat
-                    val campLng = toWp?.lng ?: stage.stopLng.takeIf { it != 0.0 } ?: visibleWps.last().lng
-
-                    val dayWarnings = mutableListOf<String>()
-                    stage.warningMessage?.takeIf { it.isNotBlank() }?.let { dayWarnings.add(it) }
-                    val arrivalTimeStr = if (stage.estimatedWalkMinutes > 0) {
-                        val startH = state.startHour
-                        val totalMinutes = startH * 60 + stage.estimatedWalkMinutes
-                        val h = (totalMinutes / 60) % 24
-                        val m = totalMinutes % 60
-                        String.format(Locale.GERMAN, "kl. %02d:%02d", h, m)
-                    } else "kl. --:--"
-
-                    if (stage.isAfterSunset) {
-                        val sunsetMsg = "Ankomst ($arrivalTimeStr) er efter solnedgang ($sunsetTimeStr)"
-                        if (dayWarnings.none { it.contains("solnedgang", ignoreCase = true) }) {
-                            dayWarnings.add(sunsetMsg)
-                        }
-                    }
-                    // Include access warnings or supply gaps falling in this day's range
-                    _uiState.value.supplyGapWarnings.forEach { gap ->
-                        if (gap.endKm > stage.startKm && gap.startKm < stage.endKm) {
-                            if (dayWarnings.none { it.contains(gap.displayTitle) }) {
-                                dayWarnings.add(gap.displayTitle)
-                            }
-                        }
-                    }
-                    _uiState.value.accessWarnings.forEach { acc ->
-                        if (dayWarnings.none { it.contains(acc.message) }) {
-                            dayWarnings.add(acc.message)
-                        }
-                    }
-
-                    val nightWeather = fetchNightWeatherForDay(
-                        dayIndex = idx,
-                        startDateMillis = _uiState.value.startDateMillis,
-                        lat = campLat,
-                        lng = campLng
-                    )
-
-                    daySummaries.add(
-                        PlannerDaySummary(
-                            dayNumber = stage.dayNumber,
-                            startKm = stage.startKm,
-                            endKm = stage.endKm,
-                            distanceKm = stage.stageKm,
-                            ascentM = stage.ascentMeters.toInt(),
-                            descentM = stage.descentMeters.toInt(),
-                            fromName = fromName,
-                            toName = toName,
-                            overnightWaypointId = if (!isLastDay && toWp?.role == WaypointRole.OVERNIGHT) toWp.id else null,
-                            overnightName = toName,
-                            overnightTypeLabel = overnightTypeLabel,
-                            detourLabel = detourLabel,
-                            detourKm = detourKm,
-                            detourAscentM = detourAscent,
-                            bookingLabel = bookingLabel,
-                            sunsetTime = sunsetTimeStr,
-                            arrivalTime = arrivalTimeStr,
-                            isAfterSunset = stage.isAfterSunset,
-                            warnings = dayWarnings,
-                            nightWeatherSummary = nightWeather,
-                            campLat = campLat,
-                            campLng = campLng
-                        )
-                    )
-                }
-
+                val initialDaySummaries = buildDaySummariesSync(
+                    state = _uiState.value,
+                    wps = wps,
+                    stages = stages,
+                    corridorShelters = corridorShelters,
+                    corridorFriTeltning = corridorFriTeltning
+                )
                 val stageEntities = stages.map { it.toEntity(planId = 0L) }
 
                 _uiState.value = _uiState.value.copy(
                     plannedStages = stageEntities,
-                    daySummaries = daySummaries,
+                    daySummaries = initialDaySummaries,
                     nearbyShelters = corridorShelters,
                     nearbyFriTeltning = corridorFriTeltning,
                     nearbyPois = corridorPois
                 )
+
+                // Enrich with night weather asynchronously without delaying daySummaries availability
+                val weatherEnrichedSummaries = initialDaySummaries.mapIndexed { idx, summary ->
+                    val nightWeather = fetchNightWeatherForDay(
+                        dayIndex = idx,
+                        startDateMillis = _uiState.value.startDateMillis,
+                        lat = summary.campLat,
+                        lng = summary.campLng
+                    )
+                    summary.copy(nightWeatherSummary = nightWeather)
+                }
+                _uiState.value = _uiState.value.copy(daySummaries = weatherEnrichedSummaries)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Failed updating stages and nearby POIs: ${e.message}")
             }
         }
+    }
+
+    private fun buildDaySummariesSync(
+        state: RouteBuilderUiState,
+        wps: List<RouteWaypoint>,
+        stages: List<com.example.data.model.TripStage>,
+        corridorShelters: List<ShelterEntity>,
+        corridorFriTeltning: List<FriTeltningEntity>
+    ): List<PlannerDaySummary> {
+        val visibleWps = wps.filter { !it.isHelper }
+        if (visibleWps.isEmpty()) return emptyList()
+        val overnightWps = wps.filter { it.role == WaypointRole.OVERNIGHT && !it.isHelper }
+        val dayBoundaryWps = mutableListOf<RouteWaypoint>()
+        dayBoundaryWps.add(visibleWps.first())
+        dayBoundaryWps.addAll(overnightWps)
+        dayBoundaryWps.add(visibleWps.last())
+
+        val daySummaries = mutableListOf<PlannerDaySummary>()
+        for ((idx, stage) in stages.withIndex()) {
+            val fromWp = dayBoundaryWps.getOrNull(idx)
+            val toWp = dayBoundaryWps.getOrNull(idx + 1)
+            val isLastDay = idx == stages.lastIndex
+
+            val fromName = fromWp?.name?.ifBlank { null } ?: if (idx == 0) "Start" else "Dag $idx lejr"
+            val toName = toWp?.name?.ifBlank { null } ?: stage.stopName.ifBlank { if (isLastDay) "Slut" else "Dag ${stage.dayNumber} lejr" }
+
+            val detourKm = toWp?.detourCostKm ?: (stage.detourMeters / 1000.0)
+            val detourAscent = toWp?.detourAscentM?.roundToInt() ?: 0
+            val detourLabel = if (detourKm > 0.05) {
+                TrailSlicer.formatDetourCost(toName, detourKm, detourAscent.toDouble())
+            } else null
+
+            val matchedShelter = corridorShelters.find { it.id == toWp?.linkedPoiId || it.id == stage.spotId }
+            val matchedFt = corridorFriTeltning.find { it.id == toWp?.linkedPoiId || it.id == stage.spotId }
+
+            val overnightTypeLabel = when {
+                isLastDay -> "Mål"
+                matchedShelter != null || stage.stopType == "SHELTER" || toWp?.spotType == "SHELTER" -> "Shelter"
+                matchedFt != null || stage.stopType == "FRI_TELTNING" || toWp?.spotType == "FRI_TELTNING" -> "Fri teltning"
+                toWp?.role == WaypointRole.OVERNIGHT -> "Overnatningspunkt"
+                else -> "Åben etapeslut"
+            }
+
+            val bookingLabel = when {
+                isLastDay -> null
+                matchedShelter != null -> if (!matchedShelter.bookingUrl.isNullOrBlank() || matchedShelter.bookingRequired) "Kræver booking" else "Gratis / først-til-mølle"
+                matchedFt != null -> "Gratis (1-2-3 reglen)"
+                stage.bookingRequired || toWp?.bookingRequired == true -> "Kræver booking"
+                else -> null
+            }
+
+            val campLat = toWp?.lat ?: stage.stopLat.takeIf { it != 0.0 } ?: visibleWps.last().lat
+            val campLng = toWp?.lng ?: stage.stopLng.takeIf { it != 0.0 } ?: visibleWps.last().lng
+
+            val dayWarnings = mutableListOf<String>()
+            stage.warningMessage?.takeIf { it.isNotBlank() }?.let { dayWarnings.add(it) }
+            val arrivalTimeStr = if (stage.estimatedWalkMinutes > 0) {
+                val startH = state.startHour
+                val totalMinutes = startH * 60 + stage.estimatedWalkMinutes
+                val h = (totalMinutes / 60) % 24
+                val m = totalMinutes % 60
+                String.format(Locale.GERMAN, "kl. %02d:%02d", h, m)
+            } else "kl. --:--"
+
+            if (stage.isAfterSunset) {
+                val sunsetMsg = "Ankomst ($arrivalTimeStr) er efter solnedgang ($sunsetTimeStr)"
+                if (dayWarnings.none { it.contains("solnedgang", ignoreCase = true) }) {
+                    dayWarnings.add(sunsetMsg)
+                }
+            }
+            state.supplyGapWarnings.forEach { gap ->
+                if (gap.endKm > stage.startKm && gap.startKm < stage.endKm) {
+                    if (dayWarnings.none { it.contains(gap.displayTitle) }) {
+                        dayWarnings.add(gap.displayTitle)
+                    }
+                }
+            }
+            state.accessWarnings.forEach { acc ->
+                if (dayWarnings.none { it.contains(acc.message) }) {
+                    dayWarnings.add(acc.message)
+                }
+            }
+
+            daySummaries.add(
+                PlannerDaySummary(
+                    dayNumber = stage.dayNumber,
+                    startKm = stage.startKm,
+                    endKm = stage.endKm,
+                    distanceKm = stage.stageKm,
+                    ascentM = stage.ascentMeters.toInt(),
+                    descentM = stage.descentMeters.toInt(),
+                    fromName = fromName,
+                    toName = toName,
+                    overnightWaypointId = if (!isLastDay && toWp?.role == WaypointRole.OVERNIGHT) toWp.id else null,
+                    overnightName = toName,
+                    overnightTypeLabel = overnightTypeLabel,
+                    detourLabel = detourLabel,
+                    detourKm = detourKm,
+                    detourAscentM = detourAscent,
+                    bookingLabel = bookingLabel,
+                    sunsetTime = sunsetTimeStr,
+                    arrivalTime = arrivalTimeStr,
+                    isAfterSunset = stage.isAfterSunset,
+                    warnings = dayWarnings,
+                    nightWeatherSummary = "Vejrudsigt indlæses...",
+                    campLat = campLat,
+                    campLng = campLng
+                )
+            )
+        }
+        return daySummaries
     }
 
     /**

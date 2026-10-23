@@ -475,12 +475,21 @@ object TrailSlicer {
         val baseProj = projectOntoTrail(segments, pinWp.lat, pinWp.lng, minBoundKm, maxBoundKm)
             ?: pointAtTrailKm(segments, (canonicalPrevKm + canonicalNextKm) / 2.0, isReverse = false)!!
 
+        val pinLatLng = LatLng(pinWp.lat, pinWp.lng)
+        val useMultiCandidate = (routingEngine as? HybridRoutingEngine)?.canRouteLegOffline(
+            LatLng(baseProj.lat, baseProj.lng),
+            pinLatLng
+        ) == true
         val dirSign = if (isCanonicalReversed) -1.0 else 1.0
-        val candidateKms = listOf(
-            (baseProj.trailKm - 0.5 * dirSign).coerceIn(minBoundKm, maxBoundKm),
-            baseProj.trailKm.coerceIn(minBoundKm, maxBoundKm),
-            (baseProj.trailKm + 0.5 * dirSign).coerceIn(minBoundKm, maxBoundKm)
-        ).distinctBy { (it * 1000.0).toInt() }
+        val candidateKms = if (useMultiCandidate) {
+            listOf(
+                (baseProj.trailKm - 0.5 * dirSign).coerceIn(minBoundKm, maxBoundKm),
+                baseProj.trailKm.coerceIn(minBoundKm, maxBoundKm),
+                (baseProj.trailKm + 0.5 * dirSign).coerceIn(minBoundKm, maxBoundKm)
+            ).distinctBy { (it * 1000.0).toInt() }
+        } else {
+            listOf(baseProj.trailKm.coerceIn(minBoundKm, maxBoundKm))
+        }
 
         val candidateProjections = candidateKms.mapNotNull { pointAtTrailKm(segments, it, isReverse = false) }
             .ifEmpty { listOf(baseProj) }
@@ -494,8 +503,6 @@ object TrailSlicer {
             val descentM: Double,
             val sourceName: String
         )
-
-        val pinLatLng = LatLng(pinWp.lat, pinWp.lng)
 
         // 1. Find best exit candidate (shortest route candidate -> pin)
         val exitCandidates = mutableListOf<RoutedCandidate>()
@@ -541,7 +548,7 @@ object TrailSlicer {
         }
         val bestExit = exitCandidates.minByOrNull { it.lengthKm }!!
 
-        // 2. Find best rejoin candidate after or at exit (shortest route pin -> candidate)
+        // 2. Find best rejoin candidate after or at exit (reuse reversed exit candidate if already routed)
         val validRejoinProjs = candidateProjections.filter {
             if (!isCanonicalReversed) it.trailKm >= bestExit.proj.trailKm - 1e-6
             else it.trailKm <= bestExit.proj.trailKm + 1e-6
@@ -549,42 +556,57 @@ object TrailSlicer {
 
         val rejoinCandidates = mutableListOf<RoutedCandidate>()
         for (cand in validRejoinProjs) {
-            val res = routingEngine.routeLeg(
-                from = pinLatLng,
-                to = LatLng(cand.lat, cand.lng),
-                options = options,
-                alternative = 0
-            )
-            when (res) {
-                is RouteLegResult.Success -> {
-                    rejoinCandidates.add(
-                        RoutedCandidate(
-                            proj = cand,
-                            points = res.points,
-                            wayInfo = res.perPointWayInfo,
-                            lengthKm = res.lengthKm,
-                            ascentM = res.ascentM,
-                            descentM = res.descentM,
-                            sourceName = res.sourceName
-                        )
+            val matchedExit = exitCandidates.find { kotlin.math.abs(it.proj.trailKm - cand.trailKm) < 1e-5 }
+            if (matchedExit != null) {
+                rejoinCandidates.add(
+                    RoutedCandidate(
+                        proj = cand,
+                        points = matchedExit.points.reversed(),
+                        wayInfo = matchedExit.wayInfo.reversed(),
+                        lengthKm = matchedExit.lengthKm,
+                        ascentM = matchedExit.descentM,
+                        descentM = matchedExit.ascentM,
+                        sourceName = matchedExit.sourceName
                     )
-                }
-                else -> {
-                    val distKm = haversineMeters(pinWp.lat, pinWp.lng, cand.lat, cand.lng) / 1000.0
-                    rejoinCandidates.add(
-                        RoutedCandidate(
-                            proj = cand,
-                            points = listOf(
-                                RoutePoint3D(pinWp.lat, pinWp.lng, cand.elevationM),
-                                RoutePoint3D(cand.lat, cand.lng, cand.elevationM)
-                            ),
-                            wayInfo = listOf(WayInfo(highway = "path", surface = "unpaved")),
-                            lengthKm = distKm,
-                            ascentM = 0.0,
-                            descentM = 0.0,
-                            sourceName = "Offline-Snap"
+                )
+            } else {
+                val res = routingEngine.routeLeg(
+                    from = pinLatLng,
+                    to = LatLng(cand.lat, cand.lng),
+                    options = options,
+                    alternative = 0
+                )
+                when (res) {
+                    is RouteLegResult.Success -> {
+                        rejoinCandidates.add(
+                            RoutedCandidate(
+                                proj = cand,
+                                points = res.points,
+                                wayInfo = res.perPointWayInfo,
+                                lengthKm = res.lengthKm,
+                                ascentM = res.ascentM,
+                                descentM = res.descentM,
+                                sourceName = res.sourceName
+                            )
                         )
-                    )
+                    }
+                    else -> {
+                        val distKm = haversineMeters(pinWp.lat, pinWp.lng, cand.lat, cand.lng) / 1000.0
+                        rejoinCandidates.add(
+                            RoutedCandidate(
+                                proj = cand,
+                                points = listOf(
+                                    RoutePoint3D(pinWp.lat, pinWp.lng, cand.elevationM),
+                                    RoutePoint3D(cand.lat, cand.lng, cand.elevationM)
+                                ),
+                                wayInfo = listOf(WayInfo(highway = "path", surface = "unpaved")),
+                                lengthKm = distKm,
+                                ascentM = 0.0,
+                                descentM = 0.0,
+                                sourceName = "Offline-Snap"
+                            )
+                        )
+                    }
                 }
             }
         }

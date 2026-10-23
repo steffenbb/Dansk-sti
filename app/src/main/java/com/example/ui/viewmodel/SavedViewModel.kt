@@ -48,26 +48,26 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
 
     // 1. Planer
     val savedPlans: StateFlow<List<TripPlanEntity>> = repository.getAllTripPlans()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // 2. Ruter (Saved trails + Custom routes)
     val savedTrails: StateFlow<List<TrailEntity>> = repository.getSavedTrails()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val customRoutes: StateFlow<List<CustomRouteEntity>> = repository.getAllCustomRoutes()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // 3. Punkter
     val customWaypoints: StateFlow<List<UserCustomWaypointEntity>> = dao.getAllCustomWaypoints()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // 4. Optagelser
     val recordedDays: StateFlow<List<RecordedDayStatEntity>> = dao.getAllRecordedDayStats()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // 5. Offline
     val downloadedTrails: StateFlow<List<DownloadedTrailEntity>> = repository.getAllDownloadedTrails()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _brouterWifiOnly = MutableStateFlow(storageManager.isWifiOnlyDefault())
     private val _brouterDiskStateTrigger = MutableStateFlow(System.currentTimeMillis())

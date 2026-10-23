@@ -18,11 +18,27 @@ import org.osmdroid.config.Configuration
 
 class DanskStiApp : Application() {
 
-    lateinit var database: DanskStiDatabase
-        private set
+    private var databaseField: DanskStiDatabase? = null
+    private var repositoryField: DanskStiRepository? = null
 
-    lateinit var repository: DanskStiRepository
-        private set
+    val database: DanskStiDatabase
+        get() {
+            val currentSingleton = DanskStiDatabase.getInstance(this)
+            val existing = databaseField
+            if (existing == null || existing !== currentSingleton || !existing.isOpen) {
+                databaseField = currentSingleton
+                repositoryField = DanskStiRepository(currentSingleton.dao(), this)
+            }
+            return databaseField!!
+        }
+
+    val repository: DanskStiRepository
+        get() {
+            val db = database
+            return repositoryField ?: DanskStiRepository(db.dao(), this).also {
+                repositoryField = it
+            }
+        }
 
     lateinit var settingsRepository: com.example.data.local.SettingsRepository
         private set
@@ -31,7 +47,7 @@ class DanskStiApp : Application() {
     val databaseError: StateFlow<String?> = _databaseError.asStateFlow()
 
     val isDatabaseReady: Boolean
-        get() = ::database.isInitialized && ::repository.isInitialized && _databaseError.value == null
+        get() = databaseField != null && repositoryField != null && _databaseError.value == null
 
     override fun onCreate() {
         super.onCreate()
@@ -77,8 +93,8 @@ class DanskStiApp : Application() {
         try {
             val db = DanskStiDatabase.getInstance(this)
             db.openHelper.writableDatabase
-            database = db
-            repository = DanskStiRepository(database.dao(), this)
+            databaseField = db
+            repositoryField = DanskStiRepository(db.dao(), this)
             _databaseError.value = null
             CoroutineScope(Dispatchers.IO).launch {
                 try {

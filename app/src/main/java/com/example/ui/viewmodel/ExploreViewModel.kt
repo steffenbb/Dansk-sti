@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -78,8 +79,9 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    val allTrails: StateFlow<List<TrailEntity>> = repository.getAllTrails()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val allTrails: StateFlow<List<TrailEntity>> = repository.getAllTrails().map { list ->
+        if (list.isEmpty()) com.example.data.local.PreseededData.getInitialTrails() else list
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.local.PreseededData.getInitialTrails())
 
     val savedTrails: StateFlow<List<TrailEntity>> = repository.getSavedTrails()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

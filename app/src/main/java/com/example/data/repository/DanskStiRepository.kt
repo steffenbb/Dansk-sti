@@ -59,6 +59,13 @@ class DanskStiRepository(
                 if (trailCount == 0) {
                     dao.insertTrails(initialTrails)
                     Log.d("DanskStiRepo", "Preseeded ${initialTrails.size} initial trails inserted into Room")
+                } else {
+                    for (preTrail in initialTrails) {
+                        val existing = dao.getTrailById(preTrail.id)
+                        if (existing == null || existing.computedWalkingKm <= 0.0 || existing.bboxSouth == null) {
+                            dao.insertTrail(preTrail)
+                        }
+                    }
                 }
 
                 // Ensure GeoFA + OSM data is loaded into Room
@@ -204,39 +211,39 @@ class DanskStiRepository(
         val now = System.currentTimeMillis()
         return listOf(
             // Nationwide Supermarkets / Groceries ("shop")
-            PoiEntity("dk_shop_skovping_brugs", "shop", "SuperBrugsen Skørping (Rold Skov)", 56.8358, 9.8895, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_silkeborg_netto", "shop", "Netto Silkeborg (Hærvejen / Søhøjlandet)", 56.1695, 9.5462, "yes", false, "07:00-22:00", "Salling Group", null, "osm", now),
-            PoiEntity("dk_shop_ry_kvickly", "shop", "Kvickly Ry (Himmelbjerget)", 56.0908, 9.7615, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_viborg_meny", "shop", "MENY Viborg (Hærvejen)", 56.4525, 9.4035, "yes", false, "07:00-21:00", "Dagrofa", null, "osm", now),
-            PoiEntity("dk_shop_jelling_brugs", "shop", "SuperBrugsen Jelling (Hærvejen)", 55.7562, 9.4188, "yes", false, "07:00-20:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_ebeltoft_kvickly", "shop", "Kvickly Ebeltoft (Mols Bjerge)", 56.1965, 10.6775, "yes", false, "08:00-21:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_knebel_brugs", "shop", "Dagli'Brugsen Knebel (Mols Bjerge)", 56.2128, 10.4832, "yes", false, "07:30-19:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_klitmoeller_brugs", "shop", "Spar Klitmøller (Nationalpark Thy)", 57.0412, 8.4905, "yes", false, "07:30-20:00", "Spar", null, "osm", now),
-            PoiEntity("dk_shop_vorupoer_meny", "shop", "MENY Nørre Vorupør (Vestkyststien)", 56.9575, 8.3712, "yes", false, "07:30-20:00", "Dagrofa", null, "osm", now),
-            PoiEntity("dk_shop_faaborg_netto", "shop", "Netto Faaborg (Øhavsstien)", 55.0968, 10.2442, "yes", false, "07:00-22:00", "Salling Group", null, "osm", now),
-            PoiEntity("dk_shop_svendborg_foetex", "shop", "føtex Svendborg (Øhavsstien)", 55.0605, 10.6095, "yes", false, "07:00-21:00", "Salling Group", null, "osm", now),
-            PoiEntity("dk_shop_rudkoebing_brugs", "shop", "SuperBrugsen Rudkøbing (Langeland)", 54.9372, 10.7135, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_marstal_brugs", "shop", "SuperBrugsen Marstal (Ærø)", 54.8555, 10.5142, "yes", false, "07:00-20:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_soenderborg_foetex", "shop", "føtex Sønderborg (Gendarmstien)", 54.9102, 9.7918, "yes", false, "07:00-21:00", "Salling Group", null, "osm", now),
-            PoiEntity("dk_shop_broager_brugs", "shop", "SuperBrugsen Broager (Gendarmstien)", 54.8895, 9.6745, "yes", false, "07:00-20:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_stege_brugs", "shop", "SuperBrugsen Stege (Camønoen)", 54.9855, 12.2852, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_borre_brugs", "shop", "Dagli'Brugsen Borre (Møns Klint)", 54.9962, 12.4415, "yes", false, "07:30-19:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_hillerod_foetex", "shop", "føtex Hillerød (Nordsjællandsruten)", 55.9288, 12.3015, "yes", false, "07:00-21:00", "Salling Group", null, "osm", now),
-            PoiEntity("dk_shop_helsingor_kvickly", "shop", "Kvickly Helsingør (Nordsjælland)", 56.0345, 12.6112, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_roskilde_foetex", "shop", "føtex Roskilde (Fjordstien / Sjællandsleden)", 55.6415, 12.0815, "yes", false, "07:00-21:00", "Salling Group", null, "osm", now),
-            PoiEntity("dk_shop_allinge_brugs", "shop", "SuperBrugsen Allinge (Bornholm Kyststi)", 55.2762, 14.8012, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_roenne_kvickly", "shop", "Kvickly Rønne (Bornholm)", 55.1015, 14.7025, "yes", false, "07:00-21:00", "Coop", null, "osm", now),
-            PoiEntity("dk_shop_nexoe_netto", "shop", "Netto Nexø (Bornholm)", 55.0615, 15.1312, "yes", false, "07:00-22:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_skovping_brugs", "shop", "SuperBrugsen Skørping (Rold Skov)", 56.8358, 9.8895, "yes", false, "trail_rold_skov", "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_silkeborg_netto", "shop", "Netto Silkeborg (Hærvejen / Søhøjlandet)", 56.1695, 9.5462, "yes", false, "trail_haervejen", "07:00-22:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_ry_kvickly", "shop", "Kvickly Ry (Himmelbjerget)", 56.0908, 9.7615, "yes", false, "trail_himmelbjerget", "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_viborg_meny", "shop", "MENY Viborg (Hærvejen)", 56.4525, 9.4035, "yes", false, "trail_haervejen", "07:00-21:00", "Dagrofa", null, "osm", now),
+            PoiEntity("dk_shop_jelling_brugs", "shop", "SuperBrugsen Jelling (Hærvejen)", 55.7562, 9.4188, "yes", false, "trail_haervejen", "07:00-20:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_ebeltoft_kvickly", "shop", "Kvickly Ebeltoft (Mols Bjerge)", 56.1965, 10.6775, "yes", false, "trail_mols_bjerge", "08:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_knebel_brugs", "shop", "Dagli'Brugsen Knebel (Mols Bjerge)", 56.2128, 10.4832, "yes", false, "trail_mols_bjerge", "07:30-19:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_klitmoeller_brugs", "shop", "Spar Klitmøller (Nationalpark Thy)", 57.0412, 8.4905, "yes", false, "trail_vestkyststien", "07:30-20:00", "Spar", null, "osm", now),
+            PoiEntity("dk_shop_vorupoer_meny", "shop", "MENY Nørre Vorupør (Vestkyststien)", 56.9575, 8.3712, "yes", false, "trail_vestkyststien", "07:30-20:00", "Dagrofa", null, "osm", now),
+            PoiEntity("dk_shop_faaborg_netto", "shop", "Netto Faaborg (Øhavsstien)", 55.0968, 10.2442, "yes", false, "trail_ohavsstien", "07:00-22:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_svendborg_foetex", "shop", "føtex Svendborg (Øhavsstien)", 55.0605, 10.6095, "yes", false, "trail_ohavsstien", "07:00-21:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_rudkoebing_brugs", "shop", "SuperBrugsen Rudkøbing (Langeland)", 54.9372, 10.7135, "yes", false, "trail_ohavsstien", "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_marstal_brugs", "shop", "SuperBrugsen Marstal (Ærø)", 54.8555, 10.5142, "yes", false, "trail_ohavsstien", "07:00-20:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_soenderborg_foetex", "shop", "føtex Sønderborg (Gendarmstien)", 54.9102, 9.7918, "yes", false, "trail_gendarmstien", "07:00-21:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_broager_brugs", "shop", "SuperBrugsen Broager (Gendarmstien)", 54.8895, 9.6745, "yes", false, "trail_gendarmstien", "07:00-20:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_stege_brugs", "shop", "SuperBrugsen Stege (Camønoen)", 54.9855, 12.2852, "yes", false, "trail_camonoen", "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_borre_brugs", "shop", "Dagli'Brugsen Borre (Møns Klint)", 54.9962, 12.4415, "yes", false, "trail_camonoen", "07:30-19:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_hillerod_foetex", "shop", "føtex Hillerød (Nordsjællandsruten)", 55.9288, 12.3015, "yes", false, "trail_nordsjaelland", "07:00-21:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_helsingor_kvickly", "shop", "Kvickly Helsingør (Nordsjælland)", 56.0345, 12.6112, "yes", false, "trail_nordsjaelland", "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_roskilde_foetex", "shop", "føtex Roskilde (Fjordstien / Sjællandsleden)", 55.6415, 12.0815, "yes", false, "trail_fjordstien", "07:00-21:00", "Salling Group", null, "osm", now),
+            PoiEntity("dk_shop_allinge_brugs", "shop", "SuperBrugsen Allinge (Bornholm Kyststi)", 55.2762, 14.8012, "yes", false, "trail_bornholm", "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_roenne_kvickly", "shop", "Kvickly Rønne (Bornholm)", 55.1015, 14.7025, "yes", false, "trail_bornholm", "07:00-21:00", "Coop", null, "osm", now),
+            PoiEntity("dk_shop_nexoe_netto", "shop", "Netto Nexø (Bornholm)", 55.0615, 15.1312, "yes", false, "trail_bornholm", "07:00-22:00", "Salling Group", null, "osm", now),
             // Nationwide Transit / Stations ("train_station", "bus_stop", "ferry_terminal")
-            PoiEntity("dk_transit_skoerping_st", "train_station", "Skørping Station (DSB / Rold Skov)", 56.8365, 9.8842, "yes", false, null, "DSB", null, "osm", now),
-            PoiEntity("dk_transit_silkeborg_st", "train_station", "Silkeborg Station", 56.1642, 9.5458, "yes", false, null, "DSB / Arriva", null, "osm", now),
-            PoiEntity("dk_transit_ry_st", "train_station", "Ry Station (Søhøjlandet)", 56.0915, 9.7602, "yes", false, null, "Arriva", null, "osm", now),
-            PoiEntity("dk_transit_viborg_st", "train_station", "Viborg Station (Hærvejen)", 56.4482, 9.3965, "yes", false, null, "DSB / Arriva", null, "osm", now),
-            PoiEntity("dk_transit_svendborg_st", "train_station", "Svendborg Station (Øhavsstien)", 55.0592, 10.6122, "yes", false, null, "GoCollective", null, "osm", now),
-            PoiEntity("dk_transit_soenderborg_st", "train_station", "Sønderborg Station (Gendarmstien)", 54.9125, 9.7825, "yes", false, null, "DSB", null, "osm", now),
-            PoiEntity("dk_transit_hillerod_st", "train_station", "Hillerød Station (Gribskovbanen)", 55.9272, 12.3105, "yes", false, null, "DSB / Lokaltog", null, "osm", now),
-            PoiEntity("dk_transit_roskilde_st", "train_station", "Roskilde Station (Fjordstien)", 55.6392, 12.0892, "yes", false, null, "DSB", null, "osm", now),
-            PoiEntity("dk_transit_roenne_faerge", "ferry_terminal", "Rønne Færgeterminal (Bornholmslinjen)", 55.0985, 14.6925, "yes", true, null, "Bornholmslinjen", null, "osm", now)
+            PoiEntity("dk_transit_skoerping_st", "train_station", "Skørping Station (DSB / Rold Skov)", 56.8365, 9.8842, "yes", false, "trail_rold_skov", null, "DSB", null, "osm", now),
+            PoiEntity("dk_transit_silkeborg_st", "train_station", "Silkeborg Station", 56.1642, 9.5458, "yes", false, "trail_haervejen", null, "DSB / Arriva", null, "osm", now),
+            PoiEntity("dk_transit_ry_st", "train_station", "Ry Station (Søhøjlandet)", 56.0915, 9.7602, "yes", false, "trail_himmelbjerget", null, "Arriva", null, "osm", now),
+            PoiEntity("dk_transit_viborg_st", "train_station", "Viborg Station (Hærvejen)", 56.4482, 9.3965, "yes", false, "trail_haervejen", null, "DSB / Arriva", null, "osm", now),
+            PoiEntity("dk_transit_svendborg_st", "train_station", "Svendborg Station (Øhavsstien)", 55.0592, 10.6122, "yes", false, "trail_ohavsstien", null, "GoCollective", null, "osm", now),
+            PoiEntity("dk_transit_soenderborg_st", "train_station", "Sønderborg Station (Gendarmstien)", 54.9125, 9.7825, "yes", false, "trail_gendarmstien", null, "DSB", null, "osm", now),
+            PoiEntity("dk_transit_hillerod_st", "train_station", "Hillerød Station (Gribskovbanen)", 55.9272, 12.3105, "yes", false, "trail_nordsjaelland", null, "DSB / Lokaltog", null, "osm", now),
+            PoiEntity("dk_transit_roskilde_st", "train_station", "Roskilde Station (Fjordstien)", 55.6392, 12.0892, "yes", false, "trail_fjordstien", null, "DSB", null, "osm", now),
+            PoiEntity("dk_transit_roenne_faerge", "ferry_terminal", "Rønne Færgeterminal (Bornholmslinjen)", 55.0985, 14.6925, "yes", true, "trail_bornholm", null, "Bornholmslinjen", null, "osm", now)
         )
     }
 
@@ -245,7 +252,7 @@ class DanskStiRepository(
             com.example.data.model.access.AccessPolygon(
                 id = "nst_forest_rold_skov",
                 name = "Rold Skov & Rebild Bakker (Statsskov)",
-                type = com.example.data.model.access.AccessLandType.STATE_FOREST_FREE_TENT,
+                type = com.example.data.model.access.AccessLandType.PUBLIC_FOREST,
                 coordinates = listOf(
                     com.example.util.routing.LatLng(56.78, 9.80),
                     com.example.util.routing.LatLng(56.85, 9.80),
@@ -258,7 +265,7 @@ class DanskStiRepository(
             com.example.data.model.access.AccessPolygon(
                 id = "nst_forest_silkeborg_skovene",
                 name = "Silkeborgskovene & Nordskoven (Statsskov)",
-                type = com.example.data.model.access.AccessLandType.STATE_FOREST_FREE_TENT,
+                type = com.example.data.model.access.AccessLandType.PUBLIC_FOREST,
                 coordinates = listOf(
                     com.example.util.routing.LatLng(56.11, 9.52),
                     com.example.util.routing.LatLng(56.17, 9.52),
@@ -271,7 +278,7 @@ class DanskStiRepository(
             com.example.data.model.access.AccessPolygon(
                 id = "fredning_mols_bjerge",
                 name = "Nationalpark Mols Bjerge (Fredet natur)",
-                type = com.example.data.model.access.AccessLandType.NATURE_RESERVE,
+                type = com.example.data.model.access.AccessLandType.UNCULTIVATED_LAND,
                 coordinates = listOf(
                     com.example.util.routing.LatLng(56.19, 10.48),
                     com.example.util.routing.LatLng(56.26, 10.48),
@@ -284,7 +291,7 @@ class DanskStiRepository(
             com.example.data.model.access.AccessPolygon(
                 id = "nst_forest_gribskov",
                 name = "Gribskov (Nationalpark Kongernes Nordsjælland)",
-                type = com.example.data.model.access.AccessLandType.STATE_FOREST_FREE_TENT,
+                type = com.example.data.model.access.AccessLandType.PUBLIC_FOREST,
                 coordinates = listOf(
                     com.example.util.routing.LatLng(55.95, 12.25),
                     com.example.util.routing.LatLng(56.04, 12.25),
@@ -310,7 +317,7 @@ class DanskStiRepository(
             com.example.data.model.access.AccessPolygon(
                 id = "nst_forest_almindingen",
                 name = "Almindingen (Bornholm Statsskov)",
-                type = com.example.data.model.access.AccessLandType.STATE_FOREST_FREE_TENT,
+                type = com.example.data.model.access.AccessLandType.PUBLIC_FOREST,
                 coordinates = listOf(
                     com.example.util.routing.LatLng(55.09, 14.88),
                     com.example.util.routing.LatLng(55.15, 14.88),
@@ -641,77 +648,85 @@ class DanskStiRepository(
      * Requirement B: Sync POIs along a custom route polyline using GeoFA and Overpass around corridor.
      * Projects onto route and stores in TrailPoi with routeId.
      */
-    suspend fun syncCorridorPoisForRoute(routeId: String, points: List<GeoPointDto>): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun syncCorridorPoisForRoute(
+        routeId: String,
+        points: List<GeoPointDto>,
+        fetchRemoteOsm: Boolean = false
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             if (points.isEmpty()) return@withContext Result.success(Unit)
 
-            // 1. Ensure GeoFA datasets are in Room
+            // 1. Ensure datasets are in Room (use local preseed first for instant offline response)
             if (dao.getShelterCount() == 0) {
-                val gfShelters = geoFaRepository.fetchGeoFaShelters()
-                val gfFri = geoFaRepository.fetchGeoFaFriTeltning()
-                val gfPois = geoFaRepository.fetchGeoFaPois()
-                if (gfShelters.isNotEmpty()) dao.insertShelters(gfShelters)
-                if (gfFri.isNotEmpty()) dao.insertFriTeltning(gfFri)
-                if (gfPois.isNotEmpty()) dao.insertPois(gfPois)
+                initializePreseededDataIfEmpty()
+                if (fetchRemoteOsm && dao.getShelterCount() == 0) {
+                    val gfShelters = geoFaRepository.fetchGeoFaShelters()
+                    val gfFri = geoFaRepository.fetchGeoFaFriTeltning()
+                    val gfPois = geoFaRepository.fetchGeoFaPois()
+                    if (gfShelters.isNotEmpty()) dao.insertShelters(gfShelters)
+                    if (gfFri.isNotEmpty()) dao.insertFriTeltning(gfFri)
+                    if (gfPois.isNotEmpty()) dao.insertPois(gfPois)
+                }
             }
 
-            // 2. Fetch OSM POIs along route polyline (Phase 11 Requirement B)
-            val osmResult = osmPoiRepository.fetchPoisForPolyline(points)
-
-            // 3. De-duplicate GeoFA vs OSM items within 50 m
             val existingShelters = dao.getAllSheltersList().toMutableList()
             val existingPois = dao.getAllPoisList().toMutableList()
 
-            val updatedShelters = mutableListOf<ShelterEntity>()
-            val newShelters = mutableListOf<ShelterEntity>()
+            // 2. Optionally fetch OSM POIs along route polyline when online sync is requested
+            if (fetchRemoteOsm) {
+                val osmResult = osmPoiRepository.fetchPoisForPolyline(points)
 
-            for (osmSh in osmResult.shelters) {
-                val matchIdx = existingShelters.indexOfFirst { gf ->
-                    GeoUtils.distanceMeters(gf.lat, gf.lng, osmSh.lat, osmSh.lng) <= 50.0
+                val updatedShelters = mutableListOf<ShelterEntity>()
+                val newShelters = mutableListOf<ShelterEntity>()
+
+                for (osmSh in osmResult.shelters) {
+                    val matchIdx = existingShelters.indexOfFirst { gf ->
+                        GeoUtils.distanceMeters(gf.lat, gf.lng, osmSh.lat, osmSh.lng) <= 50.0
+                    }
+                    if (matchIdx >= 0) {
+                        val gf = existingShelters[matchIdx]
+                        val merged = gf.copy(
+                            description = if (gf.description.isNullOrBlank() || gf.description == "Ukendt") osmSh.description ?: gf.description else gf.description,
+                            bookingUrl = gf.bookingUrl ?: osmSh.bookingUrl,
+                            ownership = gf.ownership ?: osmSh.ownership,
+                            capacity = gf.capacity ?: osmSh.capacity,
+                            shelterType = if (gf.shelterType == "Shelter" && !osmSh.shelterType.isNullOrBlank()) osmSh.shelterType else gf.shelterType
+                        )
+                        existingShelters[matchIdx] = merged
+                        updatedShelters.add(merged)
+                    } else {
+                        newShelters.add(osmSh)
+                        existingShelters.add(osmSh)
+                    }
                 }
-                if (matchIdx >= 0) {
-                    val gf = existingShelters[matchIdx]
-                    val merged = gf.copy(
-                        description = if (gf.description.isNullOrBlank() || gf.description == "Ukendt") osmSh.description ?: gf.description else gf.description,
-                        bookingUrl = gf.bookingUrl ?: osmSh.bookingUrl,
-                        ownership = gf.ownership ?: osmSh.ownership,
-                        capacity = gf.capacity ?: osmSh.capacity,
-                        shelterType = if (gf.shelterType == "Shelter" && !osmSh.shelterType.isNullOrBlank()) osmSh.shelterType else gf.shelterType
-                    )
-                    existingShelters[matchIdx] = merged
-                    updatedShelters.add(merged)
-                } else {
-                    newShelters.add(osmSh)
-                    existingShelters.add(osmSh)
+
+                val updatedPois = mutableListOf<PoiEntity>()
+                val newPois = mutableListOf<PoiEntity>()
+
+                for (osmPoi in osmResult.pois) {
+                    val matchIdx = existingPois.indexOfFirst { gf ->
+                        gf.type == osmPoi.type && GeoUtils.distanceMeters(gf.lat, gf.lng, osmPoi.lat, osmPoi.lng) <= 50.0
+                    }
+                    if (matchIdx >= 0) {
+                        val gf = existingPois[matchIdx]
+                        val merged = gf.copy(
+                            openingHours = gf.openingHours ?: osmPoi.openingHours,
+                            operator = gf.operator ?: osmPoi.operator,
+                            website = gf.website ?: osmPoi.website
+                        )
+                        existingPois[matchIdx] = merged
+                        updatedPois.add(merged)
+                    } else {
+                        newPois.add(osmPoi)
+                        existingPois.add(osmPoi)
+                    }
                 }
+
+                if (updatedShelters.isNotEmpty()) dao.insertShelters(updatedShelters)
+                if (newShelters.isNotEmpty()) dao.insertShelters(newShelters)
+                if (updatedPois.isNotEmpty()) dao.insertPois(updatedPois)
+                if (newPois.isNotEmpty()) dao.insertPois(newPois)
             }
-
-            val updatedPois = mutableListOf<PoiEntity>()
-            val newPois = mutableListOf<PoiEntity>()
-
-            for (osmPoi in osmResult.pois) {
-                val matchIdx = existingPois.indexOfFirst { gf ->
-                    gf.type == osmPoi.type && GeoUtils.distanceMeters(gf.lat, gf.lng, osmPoi.lat, osmPoi.lng) <= 50.0
-                }
-                if (matchIdx >= 0) {
-                    val gf = existingPois[matchIdx]
-                    val merged = gf.copy(
-                        openingHours = gf.openingHours ?: osmPoi.openingHours,
-                        operator = gf.operator ?: osmPoi.operator,
-                        website = gf.website ?: osmPoi.website
-                    )
-                    existingPois[matchIdx] = merged
-                    updatedPois.add(merged)
-                } else {
-                    newPois.add(osmPoi)
-                    existingPois.add(osmPoi)
-                }
-            }
-
-            if (updatedShelters.isNotEmpty()) dao.insertShelters(updatedShelters)
-            if (newShelters.isNotEmpty()) dao.insertShelters(newShelters)
-            if (updatedPois.isNotEmpty()) dao.insertPois(updatedPois)
-            if (newPois.isNotEmpty()) dao.insertPois(newPois)
 
             // 4. Compute hasWaterNearby / hasToiletNearby on shelters within 500m
             val allWaterPois = existingPois.filter { it.type == "water" }

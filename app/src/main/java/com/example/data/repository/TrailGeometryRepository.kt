@@ -58,7 +58,10 @@ class TrailGeometryRepository(private val context: Context) {
     }
 
     suspend fun isGeometryCached(trailId: String): Boolean = withContext(Dispatchers.IO) {
-        getRouteGeometryFile(trailId).exists() || getGeometryFile(trailId).exists()
+        getRouteGeometryFile(trailId).exists() ||
+            getGeometryFile(trailId).exists() ||
+            File(context.filesDir, "trail_geom_$trailId.json").exists() ||
+            com.example.data.local.PreseededData.getFallbackTrailGeometry(trailId) != null
     }
 
     suspend fun loadGeometry(trailId: String): TrailGeometryDto? = withContext(Dispatchers.IO) {
@@ -79,7 +82,7 @@ class TrailGeometryRepository(private val context: Context) {
             }
         }
 
-        // 2. Check trails directory
+        // 2. Check trails directory (.json.gz)
         val file = getGeometryFile(trailId)
         if (file.exists()) {
             try {
@@ -96,7 +99,19 @@ class TrailGeometryRepository(private val context: Context) {
             }
         }
 
-        null
+        // 3. Check plain JSON file in filesDir (e.g. trail_geom_<trailId>.json)
+        val plainFile = File(context.filesDir, "trail_geom_$trailId.json")
+        if (plainFile.exists()) {
+            try {
+                val dto = geometryAdapter.fromJson(plainFile.readText())
+                if (dto != null) return@withContext dto
+            } catch (e: Exception) {
+                Log.e("TrailGeometry", "Failed to load plain JSON geometry for $trailId", e)
+            }
+        }
+
+        // 4. Fall back to pre-seeded geometry for the 12 core Danish trails
+        com.example.data.local.PreseededData.getFallbackTrailGeometry(trailId)
     }
 
     suspend fun saveGeometry(geometry: TrailGeometryDto) = withContext(Dispatchers.IO) {

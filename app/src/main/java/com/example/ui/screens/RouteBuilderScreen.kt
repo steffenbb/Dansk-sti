@@ -364,9 +364,12 @@ fun RouteBuilderScreen(
                                     }
                                     showRenameDialog = true
                                 }
-                                .testTag("route_title_header")
+                                .testTag("planner_top_rename_chip")
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.testTag("route_title_header")
+                            ) {
                                 Text(
                                     text = uiState.routeName.ifBlank {
                                         if (uiState.mode == PlannerMode.TRAIL) uiState.baseTrail?.name ?: "Ruteplanlægger" else "Ny rute"
@@ -400,7 +403,7 @@ fun RouteBuilderScreen(
                             shape = RoundedCornerShape(16.dp),
                             color = MaterialTheme.colorScheme.primaryContainer,
                             border = BorderStroke(1.dp, ForestGreenPrimary.copy(alpha = 0.35f)),
-                            modifier = Modifier.testTag("route_top_stats_chip")
+                            modifier = Modifier.testTag("planner_top_stats_chip")
                         ) {
                             Text(
                                 text = String.format(
@@ -413,7 +416,9 @@ fun RouteBuilderScreen(
                                 style = com.example.ui.theme.TabularLabelStyle.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 maxLines = 1,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                modifier = Modifier
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    .testTag("route_top_stats_chip")
                             )
                         }
                     }
