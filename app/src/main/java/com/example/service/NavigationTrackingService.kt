@@ -65,7 +65,8 @@ data class NavigationLiveState(
     val bearingToPointAhead: Float = 0f,
     val isCompleted: Boolean = false,
     val plannedRoute: PlannedRoute? = null,
-    val privateForestSunsetWarning: String? = null
+    val privateForestSunsetWarning: String? = null,
+    val locationPermissionMissing: Boolean = false
 )
 
 class NavigationTrackingService : Service() {
@@ -182,14 +183,24 @@ class NavigationTrackingService : Service() {
             offRouteMeters = 0.0
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: SecurityException) {
+            Log.e("NavService", "SecurityException in startForeground; stopping cleanly", e)
+            _liveState.value = _liveState.value.copy(
+                isTracking = false,
+                locationPermissionMissing = true
             )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+            stopSelf()
+            return
         }
 
         val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000L)
@@ -204,7 +215,17 @@ class NavigationTrackingService : Service() {
             }
         }
 
-        fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback!!, Looper.getMainLooper())
+        try {
+            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback!!, Looper.getMainLooper())
+        } catch (e: SecurityException) {
+            Log.e("NavService", "SecurityException requesting location updates; stopping cleanly", e)
+            _liveState.value = _liveState.value.copy(
+                isTracking = false,
+                locationPermissionMissing = true
+            )
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
     private fun handleNewLocation(location: Location) {
@@ -527,10 +548,31 @@ class NavigationTrackingService : Service() {
         private val _liveState = MutableStateFlow(NavigationLiveState())
         val liveState: StateFlow<NavigationLiveState> = _liveState.asStateFlow()
 
+        fun hasLocationPermission(context: Context): Boolean {
+            val fine = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val coarse = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            return fine || coarse
+        }
+
         /**
-         * Starts navigation with ONLY planId in the Intent.
+         * Starts navigation with ONLY planId in the Intent, after verifying location permission.
          */
-        fun start(context: Context, planId: Long) {
+        fun start(context: Context, planId: Long): Boolean {
+            if (!hasLocationPermission(context)) {
+                Log.w("NavService", "Location permission missing; not starting NavigationTrackingService")
+                _liveState.value = _liveState.value.copy(
+                    isTracking = false,
+                    locationPermissionMissing = true
+                )
+                return false
+            }
+            _liveState.value = _liveState.value.copy(locationPermissionMissing = false)
             val intent = Intent(context, NavigationTrackingService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_PLAN_ID, planId)
@@ -540,6 +582,7 @@ class NavigationTrackingService : Service() {
             } else {
                 context.startService(intent)
             }
+            return true
         }
 
         fun stop(context: Context) {

@@ -179,7 +179,9 @@ object TrailSlicer {
                         TrailSegmentDto(
                             type = TrailSegmentType.WALK,
                             points = slicedPts,
-                            lengthKm = segWalkMeters / 1000.0
+                            lengthKm = segWalkMeters / 1000.0,
+                            highway = seg.highway,
+                            surface = seg.surface
                         )
                     )
                 }
@@ -207,8 +209,8 @@ object TrailSlicer {
                 allPoints.add(RoutePoint3D(p.lat, p.lng, p.ele))
                 wayInfos.add(
                     WayInfo(
-                        highway = if (isFerry) "ferry" else "path",
-                        surface = if (isFerry) "ferry" else "unpaved"
+                        highway = if (isFerry) "ferry" else seg.highway,
+                        surface = if (isFerry) "ferry" else seg.surface
                     )
                 )
                 if (i > 0) {
@@ -436,21 +438,23 @@ object TrailSlicer {
         val detourWaypoint: RouteWaypoint,
         val rejoinHelper: RouteWaypoint,
         val legToExit: LegGeometryData,
-        val legExitToPin: LegGeometryData,
-        val legPinToRejoin: LegGeometryData,
+        val legExitToPin: LegGeometryData?,
+        val legPinToRejoin: LegGeometryData?,
         val legRejoinToNext: LegGeometryData,
         val detourCostKm: Double,
-        val detourAscentM: Double
+        val detourAscentM: Double,
+        val failedLegs: Map<String, String> = emptyMap()
     ) {
         val legs: List<LegGeometryData>
-            get() = listOf(legToExit, legExitToPin, legPinToRejoin, legRejoinToNext)
+            get() = listOfNotNull(legToExit, legExitToPin, legPinToRejoin, legRejoinToNext)
     }
 
     /**
-     * Requirement D: Builds a TRAIL -> SNAP (exit to pin) -> SNAP (pin to rejoin) -> TRAIL detour
+     * Requirement D & Fix Round 5 Item 8: Builds a TRAIL -> SNAP (exit to pin) -> SNAP (pin to rejoin) -> TRAIL detour
      * between [prevWp] and [nextWp] (both on the trail with trailKm != null).
      * Tests candidate exit/rejoin points on the trail (projected point, 500 m before, 500 m after)
-     * with [routingEngine] and keeps the shortest.
+     * with [routingEngine] and chooses ONLY among candidates that routed successfully.
+     * If none did, records a failed leg so the UI renders a red dashed line with "Prøv igen" / "Tegn lige linje".
      */
     suspend fun buildTrailDetour(
         segments: List<TrailSegmentDto>,
@@ -476,20 +480,12 @@ object TrailSlicer {
             ?: pointAtTrailKm(segments, (canonicalPrevKm + canonicalNextKm) / 2.0, isReverse = false)!!
 
         val pinLatLng = LatLng(pinWp.lat, pinWp.lng)
-        val useMultiCandidate = (routingEngine as? HybridRoutingEngine)?.canRouteLegOffline(
-            LatLng(baseProj.lat, baseProj.lng),
-            pinLatLng
-        ) == true
         val dirSign = if (isCanonicalReversed) -1.0 else 1.0
-        val candidateKms = if (useMultiCandidate) {
-            listOf(
-                (baseProj.trailKm - 0.5 * dirSign).coerceIn(minBoundKm, maxBoundKm),
-                baseProj.trailKm.coerceIn(minBoundKm, maxBoundKm),
-                (baseProj.trailKm + 0.5 * dirSign).coerceIn(minBoundKm, maxBoundKm)
-            ).distinctBy { (it * 1000.0).toInt() }
-        } else {
-            listOf(baseProj.trailKm.coerceIn(minBoundKm, maxBoundKm))
-        }
+        val candidateKms = listOf(
+            (baseProj.trailKm - 0.5 * dirSign).coerceIn(minBoundKm, maxBoundKm),
+            baseProj.trailKm.coerceIn(minBoundKm, maxBoundKm),
+            (baseProj.trailKm + 0.5 * dirSign).coerceIn(minBoundKm, maxBoundKm)
+        ).distinctBy { (it * 1000.0).toInt() }
 
         val candidateProjections = candidateKms.mapNotNull { pointAtTrailKm(segments, it, isReverse = false) }
             .ifEmpty { listOf(baseProj) }
@@ -504,8 +500,17 @@ object TrailSlicer {
             val sourceName: String
         )
 
-        // 1. Find best exit candidate (shortest route candidate -> pin)
+        fun extractErrorMessage(res: RouteLegResult): String = when (res) {
+            is RouteLegResult.Offline -> res.message
+            is RouteLegResult.NoRoute -> res.message
+            is RouteLegResult.ServerBusy -> res.message
+            is RouteLegResult.Failure -> res.message
+            is RouteLegResult.Success -> ""
+        }.ifBlank { "Kunne ikke beregne rute til punktet" }
+
+        // 1. Find best exit candidate among candidates that routed successfully
         val exitCandidates = mutableListOf<RoutedCandidate>()
+        var lastExitError = "Kunne ikke beregne rute til punktet"
         for (cand in candidateProjections) {
             val res = routingEngine.routeLeg(
                 from = LatLng(cand.lat, cand.lng),
@@ -528,33 +533,21 @@ object TrailSlicer {
                     )
                 }
                 else -> {
-                    val distKm = haversineMeters(cand.lat, cand.lng, pinWp.lat, pinWp.lng) / 1000.0
-                    exitCandidates.add(
-                        RoutedCandidate(
-                            proj = cand,
-                            points = listOf(
-                                RoutePoint3D(cand.lat, cand.lng, cand.elevationM),
-                                RoutePoint3D(pinWp.lat, pinWp.lng, cand.elevationM)
-                            ),
-                            wayInfo = listOf(WayInfo(highway = "path", surface = "unpaved")),
-                            lengthKm = distKm,
-                            ascentM = 0.0,
-                            descentM = 0.0,
-                            sourceName = "Offline-Snap"
-                        )
-                    )
+                    lastExitError = extractErrorMessage(res)
                 }
             }
         }
-        val bestExit = exitCandidates.minByOrNull { it.lengthKm }!!
+        val bestExit = exitCandidates.minByOrNull { it.lengthKm }
+        val exitProj = bestExit?.proj ?: baseProj
 
-        // 2. Find best rejoin candidate after or at exit (reuse reversed exit candidate if already routed)
+        // 2. Find best rejoin candidate after or at exit among candidates that routed successfully
         val validRejoinProjs = candidateProjections.filter {
-            if (!isCanonicalReversed) it.trailKm >= bestExit.proj.trailKm - 1e-6
-            else it.trailKm <= bestExit.proj.trailKm + 1e-6
-        }.ifEmpty { listOf(bestExit.proj) }
+            if (!isCanonicalReversed) it.trailKm >= exitProj.trailKm - 1e-6
+            else it.trailKm <= exitProj.trailKm + 1e-6
+        }.ifEmpty { listOf(exitProj) }
 
         val rejoinCandidates = mutableListOf<RoutedCandidate>()
+        var lastRejoinError = lastExitError
         for (cand in validRejoinProjs) {
             val matchedExit = exitCandidates.find { kotlin.math.abs(it.proj.trailKm - cand.trailKm) < 1e-5 }
             if (matchedExit != null) {
@@ -591,39 +584,34 @@ object TrailSlicer {
                         )
                     }
                     else -> {
-                        val distKm = haversineMeters(pinWp.lat, pinWp.lng, cand.lat, cand.lng) / 1000.0
-                        rejoinCandidates.add(
-                            RoutedCandidate(
-                                proj = cand,
-                                points = listOf(
-                                    RoutePoint3D(pinWp.lat, pinWp.lng, cand.elevationM),
-                                    RoutePoint3D(cand.lat, cand.lng, cand.elevationM)
-                                ),
-                                wayInfo = listOf(WayInfo(highway = "path", surface = "unpaved")),
-                                lengthKm = distKm,
-                                ascentM = 0.0,
-                                descentM = 0.0,
-                                sourceName = "Offline-Snap"
-                            )
-                        )
+                        lastRejoinError = extractErrorMessage(res)
                     }
                 }
             }
         }
-        val bestRejoin = rejoinCandidates.minByOrNull { it.lengthKm }!!
+        val bestRejoin = rejoinCandidates.minByOrNull { it.lengthKm }
+        val rejoinProj = bestRejoin?.proj ?: exitProj
 
-        // 3. Calculate detour cost compared to staying on the trail between exit and rejoin
-        val bypassedSlice = sliceTrail(segments, bestExit.proj.trailKm, bestRejoin.proj.trailKm)
-        val detourCostKm = max(0.001, (bestExit.lengthKm + bestRejoin.lengthKm) - bypassedSlice.lengthKm)
-        val detourAscentM = max(0.0, (bestExit.ascentM + bestRejoin.ascentM) - bypassedSlice.ascentM)
+        // 3. Calculate detour cost compared to staying on the trail between exit and rejoin (only when routed)
+        val bypassedSlice = sliceTrail(segments, exitProj.trailKm, rejoinProj.trailKm)
+        val detourCostKm = if (bestExit != null && bestRejoin != null) {
+            max(0.001, (bestExit.lengthKm + bestRejoin.lengthKm) - bypassedSlice.lengthKm)
+        } else {
+            0.0
+        }
+        val detourAscentM = if (bestExit != null && bestRejoin != null) {
+            max(0.0, (bestExit.ascentM + bestRejoin.ascentM) - bypassedSlice.ascentM)
+        } else {
+            0.0
+        }
 
-        val exitReportedKm = if (isReverse) (total - bestExit.proj.trailKm).coerceIn(0.0, total) else bestExit.proj.trailKm
-        val rejoinReportedKm = if (isReverse) (total - bestRejoin.proj.trailKm).coerceIn(0.0, total) else bestRejoin.proj.trailKm
+        val exitReportedKm = if (isReverse) (total - exitProj.trailKm).coerceIn(0.0, total) else exitProj.trailKm
+        val rejoinReportedKm = if (isReverse) (total - rejoinProj.trailKm).coerceIn(0.0, total) else rejoinProj.trailKm
 
         val exitHelper = RouteWaypoint(
             id = "exit_${pinWp.id}",
-            lat = bestExit.proj.lat,
-            lng = bestExit.proj.lng,
+            lat = exitProj.lat,
+            lng = exitProj.lng,
             role = WaypointRole.VIA,
             legModeToNext = LegMode.SNAP,
             trailKm = exitReportedKm,
@@ -636,14 +624,14 @@ object TrailSlicer {
             legModeToNext = LegMode.SNAP,
             trailKm = null,
             isHelper = false,
-            detourCostKm = detourCostKm,
-            detourAscentM = detourAscentM
+            detourCostKm = if (bestExit != null && bestRejoin != null) detourCostKm else null,
+            detourAscentM = if (bestExit != null && bestRejoin != null) detourAscentM else null
         )
 
         val rejoinHelper = RouteWaypoint(
             id = "rejoin_${pinWp.id}",
-            lat = bestRejoin.proj.lat,
-            lng = bestRejoin.proj.lng,
+            lat = rejoinProj.lat,
+            lng = rejoinProj.lng,
             role = WaypointRole.VIA,
             legModeToNext = LegMode.TRAIL,
             trailKm = rejoinReportedKm,
@@ -652,7 +640,8 @@ object TrailSlicer {
             name = "Rejoin"
         )
 
-        val sliceToExit = sliceTrail(segments, canonicalPrevKm, bestExit.proj.trailKm)
+        val sliceToExit = sliceTrail(segments, canonicalPrevKm, exitProj.trailKm)
+        val (toExitPathShare, toExitRoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(sliceToExit.points, sliceToExit.wayInfo)
         val legToExit = LegGeometryData(
             fromWaypointId = prevWp.id,
             toWaypointId = exitHelper.id,
@@ -661,44 +650,58 @@ object TrailSlicer {
             lengthKm = sliceToExit.lengthKm,
             ascentM = sliceToExit.ascentM,
             descentM = sliceToExit.descentM,
-            pathSharePct = 100.0,
-            roadKm = 0.0,
+            pathSharePct = toExitPathShare,
+            roadKm = toExitRoadKm ?: 0.0,
             sourceName = "Trail",
             wayInfo = sliceToExit.wayInfo,
             trailSegments = sliceToExit.trailSegments
         )
 
-        val (exitPathShare, exitRoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(bestExit.points, bestExit.wayInfo)
-        val legExitToPin = LegGeometryData(
-            fromWaypointId = exitHelper.id,
-            toWaypointId = updatedPinWp.id,
-            legMode = LegMode.SNAP,
-            points = bestExit.points,
-            lengthKm = bestExit.lengthKm,
-            ascentM = bestExit.ascentM,
-            descentM = bestExit.descentM,
-            pathSharePct = exitPathShare ?: 100.0,
-            roadKm = exitRoadKm,
-            sourceName = bestExit.sourceName,
-            wayInfo = bestExit.wayInfo
-        )
+        val failedLegs = mutableMapOf<String, String>()
+        val exitLegKey = "${exitHelper.id}_to_${updatedPinWp.id}"
+        val legExitToPin = if (bestExit != null) {
+            val (exitPathShare, exitRoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(bestExit.points, bestExit.wayInfo)
+            LegGeometryData(
+                fromWaypointId = exitHelper.id,
+                toWaypointId = updatedPinWp.id,
+                legMode = LegMode.SNAP,
+                points = bestExit.points,
+                lengthKm = bestExit.lengthKm,
+                ascentM = bestExit.ascentM,
+                descentM = bestExit.descentM,
+                pathSharePct = exitPathShare,
+                roadKm = exitRoadKm ?: 0.0,
+                sourceName = bestExit.sourceName,
+                wayInfo = bestExit.wayInfo
+            )
+        } else {
+            failedLegs[exitLegKey] = lastExitError
+            null
+        }
 
-        val (rejoinPathShare, rejoinRoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(bestRejoin.points, bestRejoin.wayInfo)
-        val legPinToRejoin = LegGeometryData(
-            fromWaypointId = updatedPinWp.id,
-            toWaypointId = rejoinHelper.id,
-            legMode = LegMode.SNAP,
-            points = bestRejoin.points,
-            lengthKm = bestRejoin.lengthKm,
-            ascentM = bestRejoin.ascentM,
-            descentM = bestRejoin.descentM,
-            pathSharePct = rejoinPathShare ?: 100.0,
-            roadKm = rejoinRoadKm,
-            sourceName = bestRejoin.sourceName,
-            wayInfo = bestRejoin.wayInfo
-        )
+        val rejoinLegKey = "${updatedPinWp.id}_to_${rejoinHelper.id}"
+        val legPinToRejoin = if (bestRejoin != null) {
+            val (rejoinPathShare, rejoinRoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(bestRejoin.points, bestRejoin.wayInfo)
+            LegGeometryData(
+                fromWaypointId = updatedPinWp.id,
+                toWaypointId = rejoinHelper.id,
+                legMode = LegMode.SNAP,
+                points = bestRejoin.points,
+                lengthKm = bestRejoin.lengthKm,
+                ascentM = bestRejoin.ascentM,
+                descentM = bestRejoin.descentM,
+                pathSharePct = rejoinPathShare,
+                roadKm = rejoinRoadKm ?: 0.0,
+                sourceName = bestRejoin.sourceName,
+                wayInfo = bestRejoin.wayInfo
+            )
+        } else {
+            failedLegs[rejoinLegKey] = lastRejoinError
+            null
+        }
 
-        val sliceFromRejoin = sliceTrail(segments, bestRejoin.proj.trailKm, canonicalNextKm)
+        val sliceFromRejoin = sliceTrail(segments, rejoinProj.trailKm, canonicalNextKm)
+        val (fromRejoinPathShare, fromRejoinRoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(sliceFromRejoin.points, sliceFromRejoin.wayInfo)
         val legRejoinToNext = LegGeometryData(
             fromWaypointId = rejoinHelper.id,
             toWaypointId = nextWp.id,
@@ -707,8 +710,8 @@ object TrailSlicer {
             lengthKm = sliceFromRejoin.lengthKm,
             ascentM = sliceFromRejoin.ascentM,
             descentM = sliceFromRejoin.descentM,
-            pathSharePct = 100.0,
-            roadKm = 0.0,
+            pathSharePct = fromRejoinPathShare,
+            roadKm = fromRejoinRoadKm ?: 0.0,
             sourceName = "Trail",
             wayInfo = sliceFromRejoin.wayInfo,
             trailSegments = sliceFromRejoin.trailSegments
@@ -723,7 +726,8 @@ object TrailSlicer {
             legPinToRejoin = legPinToRejoin,
             legRejoinToNext = legRejoinToNext,
             detourCostKm = detourCostKm,
-            detourAscentM = detourAscentM
+            detourAscentM = detourAscentM,
+            failedLegs = failedLegs
         )
     }
 
@@ -777,6 +781,7 @@ object TrailSlicer {
         val canonicalFrom = if (isReverse) (total - fromKm).coerceIn(0.0, total) else fromKm
         val canonicalTo = if (isReverse) (total - toKm).coerceIn(0.0, total) else toKm
         val sliced = sliceTrail(segments, canonicalFrom, canonicalTo)
+        val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(sliced.points, sliced.wayInfo)
         return LegGeometryData(
             fromWaypointId = fromWaypointId,
             toWaypointId = toWaypointId,
@@ -785,8 +790,8 @@ object TrailSlicer {
             lengthKm = sliced.lengthKm,
             ascentM = sliced.ascentM,
             descentM = sliced.descentM,
-            pathSharePct = 100.0,
-            roadKm = 0.0,
+            pathSharePct = pathShare,
+            roadKm = roadKm ?: 0.0,
             sourceName = "Trail",
             wayInfo = sliced.wayInfo,
             trailSegments = sliced.trailSegments

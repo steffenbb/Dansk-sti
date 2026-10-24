@@ -76,7 +76,7 @@ class DanskStiApp : Application() {
             Configuration.getInstance().load(this, sharedPrefs)
             Configuration.getInstance().osmdroidBasePath = osmdroidDir
             Configuration.getInstance().osmdroidTileCache = osmdroidCache
-            Configuration.getInstance().userAgentValue = "DanskStiApp/1.0 (Android; Hiking in Denmark)"
+            Configuration.getInstance().userAgentValue = com.example.util.network.NetworkConstants.USER_AGENT
         } catch (e: Exception) {
             Log.e("DanskStiApp", "Failed to configure osmdroid: ${e.message}", e)
         }

@@ -109,7 +109,7 @@ class OfflineDownloadWorker(
                     conn = (url.openConnection() as HttpURLConnection).apply {
                         connectTimeout = 8000
                         readTimeout = 8000
-                        setRequestProperty("User-Agent", "DanskStiApp/1.0 (Android; Offline Hike Cache)")
+                        setRequestProperty("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
                     }
 
                     if (conn.responseCode == HttpURLConnection.HTTP_OK) {

@@ -198,6 +198,9 @@ data class RouteBuilderState(
     val movingWaypointId: String? = null,
     val isBuiltinFallbackInUse: Boolean = BRouterOnlineEngine.isBuiltinFallbackInUse(),
     val isLoadingCorridorPois: Boolean = false,
+    val corridorPoisOfflineNotice: String? = null,
+    val isDownloadingTrailGeometry: Boolean = false,
+    val trailGeometryDownloadFailed: Boolean = false,
     val showResetProgressDialog: Boolean = false,
     val options: RouteOptions = RouteOptions(),
     val stats: RouteStats = RouteStats(0.0, 0.0, 0.0, null, 0.0, hasWayInfo = false),
@@ -430,6 +433,11 @@ class RouteBuilderViewModel(
         }
     }
 
+    fun retryDownloadTrailGeometry() {
+        val tid = _uiState.value.baseTrailId ?: return
+        initializeTrailMode(tid, specificPlanId = _uiState.value.existingPlanId)
+    }
+
     private fun initializeTrailMode(
         trailId: String,
         currentGpsLat: Double? = null,
@@ -442,9 +450,15 @@ class RouteBuilderViewModel(
             baseTrailId = trailId,
             baseTrail = preseededTrail ?: _uiState.value.baseTrail,
             routeName = preseededTrail?.name ?: _uiState.value.routeName,
-            waitingForStartPointTap = false
+            waitingForStartPointTap = false,
+            trailGeometryDownloadFailed = false,
+            errorMessage = null
         )
         viewModelScope.launch(Dispatchers.Default) {
+            val isCached = repository.geometryRepository.isGeometryCached(trailId)
+            if (!isCached) {
+                _uiState.value = _uiState.value.copy(isDownloadingTrailGeometry = true)
+            }
             val existingPlan = if (specificPlanId != null && specificPlanId > 0L) {
                 repository.getTripPlanById(specificPlanId)
             } else {
@@ -459,7 +473,16 @@ class RouteBuilderViewModel(
                 }
             }
 
-            val trail = repository.getTrailById(trailId) ?: return@launch
+            val trail = repository.getTrailById(trailId)
+            if (trail == null) {
+                _uiState.value = _uiState.value.copy(
+                    isDownloadingTrailGeometry = false,
+                    trailGeometryDownloadFailed = true,
+                    errorMessage = "Ruten kunne ikke hentes"
+                )
+                return@launch
+            }
+
             val segments = repository.getTrailPoints(trail)
             val totalKm = TrailSlicer.totalTrailKm(segments)
             val isReverse = existingPlan?.isReverse ?: false
@@ -484,10 +507,27 @@ class RouteBuilderViewModel(
             val startProj = TrailSlicer.pointAtTrailKm(segments, startKm, isReverse)
             val endProj = TrailSlicer.pointAtTrailKm(segments, endKm, isReverse)
 
+            if (segments.isEmpty() || startProj == null || endProj == null) {
+                _uiState.value = _uiState.value.copy(
+                    mode = PlannerMode.TRAIL,
+                    existingPlanId = existingPlan?.id,
+                    baseTrailId = trail.id,
+                    baseTrail = trail,
+                    baseTrailSegments = emptyList(),
+                    baseTrailKmMarkers = emptyList(),
+                    waypoints = emptyList(),
+                    legs = emptyMap(),
+                    isDownloadingTrailGeometry = false,
+                    trailGeometryDownloadFailed = true,
+                    errorMessage = "Ruten kunne ikke hentes"
+                )
+                return@launch
+            }
+
             val startWp = RouteWaypoint(
                 id = "trail_start_${trail.id}",
-                lat = startProj?.lat ?: 56.0,
-                lng = startProj?.lng ?: 10.0,
+                lat = startProj.lat,
+                lng = startProj.lng,
                 role = WaypointRole.START,
                 legModeToNext = LegMode.TRAIL,
                 name = if (startKm > 0.1) String.format(Locale.GERMAN, "Start (km %.1f)", startKm) else "${trail.name} Start",
@@ -495,8 +535,8 @@ class RouteBuilderViewModel(
             )
             val endWp = RouteWaypoint(
                 id = "trail_end_${trail.id}",
-                lat = endProj?.lat ?: 56.1,
-                lng = endProj?.lng ?: 10.1,
+                lat = endProj.lat,
+                lng = endProj.lng,
                 role = WaypointRole.END,
                 legModeToNext = LegMode.TRAIL,
                 name = if (endKm < totalKm - 0.1) String.format(Locale.GERMAN, "Slut (km %.1f)", endKm) else "${trail.name} Slut",
@@ -562,6 +602,9 @@ class RouteBuilderViewModel(
                     legs = initialLegs,
                     failedLegs = emptyMap(),
                     waitingForStartPointTap = false,
+                    isDownloadingTrailGeometry = false,
+                    trailGeometryDownloadFailed = false,
+                    errorMessage = null,
                     dailyTargetKm = existingPlan?.preferredDailyKm ?: current.dailyTargetKm,
                     overnightPreference = parsedPref ?: current.overnightPreference,
                     startDateMillis = existingPlan?.createdAt ?: current.startDateMillis
@@ -1002,9 +1045,14 @@ class RouteBuilderViewModel(
                 }
 
                 updateRouteStats { current ->
+                    val mergedFailed = current.failedLegs.toMutableMap().apply {
+                        putAll(detourPlan.failedLegs)
+                    }
                     current.copy(
                         waypoints = wps,
                         legs = updatedLegs,
+                        failedLegs = mergedFailed,
+                        errorMessage = detourPlan.failedLegs.values.firstOrNull() ?: current.errorMessage,
                         selectedWaypointId = detourPlan.detourWaypoint.id
                     )
                 }
@@ -2453,7 +2501,8 @@ class RouteBuilderViewModel(
                     baseTrailId = currentState.baseTrailId,
                     isReverse = currentState.isReverse,
                     startKm = startKm,
-                    endKm = endKm
+                    endKm = endKm,
+                    existingPlanId = currentState.existingPlanId
                 )
                 PlannedRouteRepository(getApplication()).savePlannedRoute(
                     builtPlannedRoute.copy(planId = savedPlanId, stages = stages)
@@ -2462,14 +2511,19 @@ class RouteBuilderViewModel(
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
                     showResetProgressDialog = false,
-                    routeId = savedId
+                    routeId = savedId,
+                    existingPlanId = savedPlanId
                 )
-                _userMessage.emit("Turen er gemt under Gemte")
-                onSuccess(savedId, savedPlanId.toString())
+                withContext(Dispatchers.Main) {
+                    _userMessage.emit("Turen er gemt under Gemte")
+                    onSuccess(savedId, savedPlanId.toString())
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save route/plan: ${e.message}")
                 _uiState.value = _uiState.value.copy(isSaving = false)
-                _userMessage.emit("Fejl ved gemning af tur: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    _userMessage.emit("Fejl ved gemning af tur: ${e.message}")
+                }
             }
         }
     }
@@ -2713,9 +2767,14 @@ class RouteBuilderViewModel(
                 updatedLegs[leg.legKey] = leg
             }
 
+            val mergedFailed = _uiState.value.failedLegs.toMutableMap().apply {
+                putAll(detourPlan.failedLegs)
+            }
             _uiState.value = _uiState.value.copy(
                 waypoints = wps,
-                legs = updatedLegs
+                legs = updatedLegs,
+                failedLegs = mergedFailed,
+                errorMessage = detourPlan.failedLegs.values.firstOrNull() ?: _uiState.value.errorMessage
             )
             withContext(Dispatchers.IO) {
                 for (leg in detourPlan.legs) {
@@ -3388,7 +3447,7 @@ class RouteBuilderViewModel(
                         pathSharePct = pathShare,
                         roadKm = roadKm,
                         hasAccessWarning = false,
-                        sourceName = "BRouter Detour",
+                        sourceName = result.sourceName,
                         wayInfo = result.perPointWayInfo
                     )
 
@@ -3402,7 +3461,12 @@ class RouteBuilderViewModel(
                         RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, newLeg)
                     }
                     updateRouteStats()
-                    _userMessage.emit("Ruten er omlagt uden om ${poly.name ?: "området"}")
+                    _userMessage.emit(
+                        "Ruten er omlagt online uden om ${poly.name ?: "området"} (no-go områder beregnes online)"
+                    )
+                }
+                is RouteLegResult.Offline -> {
+                    _userMessage.emit(result.message)
                 }
                 else -> {
                     _userMessage.emit("Kunne ikke finde en rute uden om ${poly.name ?: "området"}")
@@ -3435,7 +3499,16 @@ class RouteBuilderViewModel(
 
         supplyGapsJob?.cancel()
         supplyGapsJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoadingCorridorPois = true)
+            val online = repository.isDeviceOnline()
+            val offlineNotice = if (!online) {
+                "Offline – henter ikke interessepunkter langs ruten fra OpenStreetMap"
+            } else {
+                null
+            }
+            _uiState.value = _uiState.value.copy(
+                isLoadingCorridorPois = true,
+                corridorPoisOfflineNotice = offlineNotice
+            )
             try {
                 val rId = _uiState.value.routeId?.toString()
                 val corridorPois: List<PoiEntity> = withContext(Dispatchers.IO) {
@@ -3470,13 +3543,17 @@ class RouteBuilderViewModel(
                 )
                 _uiState.value = _uiState.value.copy(
                     supplyGapWarnings = warnings,
-                    isLoadingCorridorPois = false
+                    isLoadingCorridorPois = false,
+                    corridorPoisOfflineNotice = offlineNotice
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Failed analyzing supply gaps: ${e.message}")
-                _uiState.value = _uiState.value.copy(isLoadingCorridorPois = false)
+                _uiState.value = _uiState.value.copy(
+                    isLoadingCorridorPois = false,
+                    corridorPoisOfflineNotice = offlineNotice
+                )
             }
         }
     }

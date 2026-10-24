@@ -187,8 +187,51 @@
     <string name="api_key_missing">Ikke sat (bruger åben fallback)</string>
     <string name="profile_section_about">Om appen</string>
     <string name="about_data_credits">Datakreditter &amp; Kilder</string>
+    <string name="about_privacy">Privatliv &amp; Databrug</string>
     <string name="about_diagnostics">API &amp; Netværksdiagnostik</string>
     <string name="about_version_tap_hint">Tryk 7 gange på Om appen for at åbne diagnostik</string>
+    <string name="storage_saved_routes_count_format">%1$d gemte ruter</string>
+    <string name="storage_brouter_all_downloaded">Danmark klar til offline ruteplanlægning</string>
+    <string name="storage_brouter_segments_format">%1$d af %2$d segmenter hentet</string>
+    <string name="storage_brouter_update">Opdater rutedata</string>
+    <string name="storage_brouter_download">Hent offline rutedata (Danmark)</string>
+    <string name="setting_pace_value_format">%.1f km/t</string>
+    <string name="setting_daily_target_value_format">%.0f km / dag</string>
+    <string name="setting_start_time_value_format">kl. %1$s</string>
+
+    <!-- Privatliv & Databrug (Item 9) -->
+    <string name="privacy_title">Privatliv &amp; Databrug</string>
+    <string name="privacy_subtitle">Ingen konti, ingen reklamer og ingen sporing</string>
+    <string name="privacy_no_tracking_headline">Ingen brugerkonti, reklamer eller sporing</string>
+    <string name="privacy_no_tracking_body">Dansk Sti kræver ingen oprettelse af konto, indeholder ingen reklamer og anvender ingen analyse- eller sporingsværktøjer. Dine gemte turplaner, ruter, egne punkter og GPS-spor gemmes udelukkende lokalt på din enhed.</string>
+    <string name="privacy_services_section_title">Tjenester der modtager koordinater</string>
+    <string name="privacy_services_intro">Når du bruger onlinefunktioner i appen, sendes de relevante geografiske koordinater eller kortudsnit kun til følgende tjenester for at hente kort-, rute- og vejrdata:</string>
+    <string name="privacy_service_brouter_title">brouter.de</string>
+    <string name="privacy_service_brouter_desc">Modtager start-, slut- og rutepunkter ( samt eventuelle no-go polygoner ) ved online ruteplanlægning langs stier.</string>
+    <string name="privacy_service_overpass_title">overpass-api.de</string>
+    <string name="privacy_service_overpass_desc">Modtager kortudsnit eller rutekorridorer ved opslag af vandreruter, shelters, vandposter, toiletter, indkøb, kollektiv trafik og adgangsforhold i OpenStreetMap.</string>
+    <string name="privacy_service_openmeteo_title">api.open-meteo.com</string>
+    <string name="privacy_service_openmeteo_desc">Modtager koordinater langs ruten ved hentning af lokale vejrudsigter, solnedgangstider og terrænhøjder (Copernicus DEM).</string>
+    <string name="privacy_service_dataforsyningen_title">api.dataforsyningen.dk</string>
+    <string name="privacy_service_dataforsyningen_desc">Modtager kortudsnit (bounding box) ved visning og offline-download af Skærmkortet, GeoDanmark Luftfoto og Danmarks Højdemodel (DHM).</string>
+    <string name="privacy_service_tiles_title">Kortfliseudbyderen (tile provider)</string>
+    <string name="privacy_service_tiles_desc">Den valgte kortfliseudbyder (Dataforsyningen, Thunderforest Outdoors, OpenTopoMap eller OpenStreetMap) modtager kortflise-koordinater (zoom, x, y) for det viste kortområde.</string>
+
+    <!-- Permissions & Navigation (Item 2 & Item 10) -->
+    <string name="location_permission_required_title">Placeringstilladelse kræves</string>
+    <string name="location_permission_required_explanation">Dansk Sti bruger din GPS-placering til at vise din position på kortet, beregne resterende afstand til dagens overnatning og advare hvis du kommer væk fra ruten.</string>
+    <string name="grant_location_permission_action">Giv tilladelse</string>
+    <string name="nav_battery_saver_label">STRØMSPARER</string>
+    <string name="nav_battery_saver_exit">Afslut</string>
+    <string name="nav_remaining_today_label">tilbage i dag</string>
+    <string name="nav_walking_pace_label">Gangtempo</string>
+    <string name="nav_active_time_label">Aktiv tid</string>
+    <string name="nav_share_position">Del position</string>
+    <string name="nav_waiting_for_gps">Venter på GPS-position</string>
+    <string name="nav_sos_112">SOS 112</string>
+    <string name="nav_private_forest_hours_note">I privat skov må du kun færdes på stier fra kl. 06:00 til solnedgang.</string>
+    <string name="db_error_title">Databasen kunne ikke åbnes</string>
+    <string name="db_error_unknown">Ukendt databasefejl</string>
 
     <!-- Common States & Accessibility (Requirement J) -->
     <string name="btn_retry">Prøv igen</string>

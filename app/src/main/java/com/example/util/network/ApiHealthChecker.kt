@@ -101,7 +101,7 @@ class ApiHealthChecker(
         try {
             val request = Request.Builder()
                 .url(testUrl)
-                .header("User-Agent", "DanskSti/1.0")
+                .header("User-Agent", NetworkConstants.USER_AGENT)
                 .build()
             client.newCall(request).execute().use { response ->
                 val elapsed = System.currentTimeMillis() - start
@@ -164,7 +164,7 @@ class ApiHealthChecker(
                 val request = Request.Builder()
                     .url(url)
                     .post(body)
-                    .header("User-Agent", "DanskSti/1.0")
+                    .header("User-Agent", NetworkConstants.USER_AGENT)
                     .build()
                 client.newCall(request).execute().use { response ->
                     val elapsed = System.currentTimeMillis() - start
@@ -210,7 +210,7 @@ class ApiHealthChecker(
         try {
             val request = Request.Builder()
                 .url(testUrl)
-                .header("User-Agent", "DanskSti/1.0")
+                .header("User-Agent", NetworkConstants.USER_AGENT)
                 .build()
             client.newCall(request).execute().use { response ->
                 val elapsed = System.currentTimeMillis() - start
@@ -257,7 +257,7 @@ class ApiHealthChecker(
         try {
             val request = Request.Builder()
                 .url(testUrl)
-                .header("User-Agent", "DanskSti/1.0")
+                .header("User-Agent", NetworkConstants.USER_AGENT)
                 .build()
             client.newCall(request).execute().use { response ->
                 val elapsed = System.currentTimeMillis() - start
@@ -307,7 +307,7 @@ class ApiHealthChecker(
         try {
             val req = Request.Builder()
                 .url(testUrl)
-                .header("User-Agent", "DanskSti/1.8")
+                .header("User-Agent", NetworkConstants.USER_AGENT)
                 .get()
                 .build()
             client.newCall(req).execute().use { resp ->

@@ -11,7 +11,9 @@ enum class TrailSegmentType {
 data class TrailSegmentDto(
     val type: TrailSegmentType,
     val points: List<GeoPointDto> = emptyList(),
-    val lengthKm: Double = 0.0
+    val lengthKm: Double = 0.0,
+    val highway: String? = null,
+    val surface: String? = null
 )
 
 @JsonClass(generateAdapter = true)

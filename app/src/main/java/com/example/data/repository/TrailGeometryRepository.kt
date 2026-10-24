@@ -60,8 +60,7 @@ class TrailGeometryRepository(private val context: Context) {
     suspend fun isGeometryCached(trailId: String): Boolean = withContext(Dispatchers.IO) {
         getRouteGeometryFile(trailId).exists() ||
             getGeometryFile(trailId).exists() ||
-            File(context.filesDir, "trail_geom_$trailId.json").exists() ||
-            com.example.data.local.PreseededData.getFallbackTrailGeometry(trailId) != null
+            File(context.filesDir, "trail_geom_$trailId.json").exists()
     }
 
     suspend fun loadGeometry(trailId: String): TrailGeometryDto? = withContext(Dispatchers.IO) {
@@ -110,8 +109,7 @@ class TrailGeometryRepository(private val context: Context) {
             }
         }
 
-        // 4. Fall back to pre-seeded geometry for the 12 core Danish trails
-        com.example.data.local.PreseededData.getFallbackTrailGeometry(trailId)
+        null
     }
 
     suspend fun saveGeometry(geometry: TrailGeometryDto) = withContext(Dispatchers.IO) {
@@ -186,7 +184,7 @@ class TrailGeometryRepository(private val context: Context) {
         for (url in mirrors) {
             try {
                 val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
-                val request = Request.Builder().url(url).post(body).header("User-Agent", "DanskSti/1.0").build()
+                val request = Request.Builder().url(url).post(body).header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT).build()
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@use
                     val jsonStr = response.body?.string() ?: return@use
@@ -238,7 +236,7 @@ class TrailGeometryRepository(private val context: Context) {
         for (url in overpassMirrors) {
             try {
                 val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
-                val request = Request.Builder().url(url).post(body).header("User-Agent", "DanskSti/1.0").build()
+                val request = Request.Builder().url(url).post(body).header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT).build()
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         val jsonStr = response.body?.string() ?: return@use
@@ -311,7 +309,7 @@ class TrailGeometryRepository(private val context: Context) {
         for (url in overpassMirrors) {
             try {
                 val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
-                val request = Request.Builder().url(url).post(body).header("User-Agent", "DanskSti/1.0").build()
+                val request = Request.Builder().url(url).post(body).header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT).build()
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         val jsonStr = response.body?.string() ?: return@use
@@ -351,7 +349,7 @@ class TrailGeometryRepository(private val context: Context) {
     ): Pair<Double?, Double?> = withContext(Dispatchers.IO) {
         val url = "https://api.open-meteo.com/v1/elevation?latitude=$fromLat,$toLat&longitude=$fromLng,$toLng"
         try {
-            val request = Request.Builder().url(url).header("User-Agent", "DanskSti/1.0").build()
+            val request = Request.Builder().url(url).header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT).build()
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     val jsonStr = response.body?.string()
@@ -377,7 +375,7 @@ class TrailGeometryRepository(private val context: Context) {
         try {
             val request = Request.Builder()
                 .url(url)
-                .header("User-Agent", "DanskSti/1.0")
+                .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
@@ -514,7 +512,13 @@ class TrailGeometryRepository(private val context: Context) {
             val isFerry = (role == "ferry") || (tags["route"] == "ferry") || (tags["highway"] == "ferry")
             val segType = if (isFerry) TrailSegmentType.FERRY else TrailSegmentType.WALK
 
-            val wayData = WayData(type = segType, points = pts, role = role)
+            val wayData = WayData(
+                type = segType,
+                points = pts,
+                role = role,
+                highway = tags["highway"],
+                surface = tags["surface"]
+            )
             if (role == "alternative" || role == "excursion") {
                 sideBranchWays.add(wayData)
             } else {
@@ -527,10 +531,10 @@ class TrailGeometryRepository(private val context: Context) {
 
         // Simplify with Douglas-Peucker at 4m
         val simplifiedMain = mainSegments.map { seg ->
-            InternalSegment(seg.type, douglasPeucker(seg.points, 4.0).toMutableList())
+            InternalSegment(seg.type, douglasPeucker(seg.points, 4.0).toMutableList(), seg.highway, seg.surface)
         }
         val simplifiedSide = sideSegments.map { seg ->
-            InternalSegment(seg.type, douglasPeucker(seg.points, 4.0).toMutableList())
+            InternalSegment(seg.type, douglasPeucker(seg.points, 4.0).toMutableList(), seg.highway, seg.surface)
         }
 
         // Keep Douglas-Peucker (4m) points as route geometry; resample 100m ONLY for elevation lookup
@@ -585,10 +589,10 @@ class TrailGeometryRepository(private val context: Context) {
             totalAscentM = if (hasElevationData) totalAscent.toInt() else null,
             totalDescentM = if (hasElevationData) totalDescent.toInt() else null,
             gapsOver200mCount = gapsOver200mCount,
-            bboxNorth = if (maxLat > -90.0) maxLat else 56.0,
-            bboxSouth = if (minLat < 90.0) minLat else 54.0,
-            bboxEast = if (maxLng > -180.0) maxLng else 13.0,
-            bboxWest = if (minLng < 180.0) minLng else 8.0,
+            bboxNorth = if (maxLat > -90.0) maxLat else 0.0,
+            bboxSouth = if (minLat < 90.0) minLat else 0.0,
+            bboxEast = if (maxLng > -180.0) maxLng else 0.0,
+            bboxWest = if (minLng < 180.0) minLng else 0.0,
             osmTimestamp = osmTimestamp
         )
     }
@@ -596,12 +600,16 @@ class TrailGeometryRepository(private val context: Context) {
     private data class WayData(
         val type: TrailSegmentType,
         val points: List<GeoPointDto>,
-        val role: String
+        val role: String,
+        val highway: String? = null,
+        val surface: String? = null
     )
 
     private data class InternalSegment(
         val type: TrailSegmentType,
-        val points: MutableList<GeoPointDto>
+        val points: MutableList<GeoPointDto>,
+        val highway: String? = null,
+        val surface: String? = null
     )
 
     private fun stitchWays(ways: List<WayData>): Pair<List<InternalSegment>, List<TrailGapDto>> {
@@ -609,18 +617,24 @@ class TrailGeometryRepository(private val context: Context) {
         val gaps = mutableListOf<TrailGapDto>()
         var curPts = mutableListOf<GeoPointDto>()
         var curType = TrailSegmentType.WALK
+        var curHighway: String? = null
+        var curSurface: String? = null
 
         for (w in ways) {
             if (curPts.isEmpty()) {
                 curPts.addAll(w.points)
                 curType = w.type
+                curHighway = w.highway
+                curSurface = w.surface
                 continue
             }
 
             if (w.type != curType) {
-                segments.add(InternalSegment(curType, curPts))
+                segments.add(InternalSegment(curType, curPts, curHighway, curSurface))
                 curPts = w.points.toMutableList()
                 curType = w.type
+                curHighway = w.highway
+                curSurface = w.surface
                 continue
             }
 
@@ -635,10 +649,14 @@ class TrailGeometryRepository(private val context: Context) {
             val gap = min(dNorm, dFlip)
 
             if (gap > 30.0) {
-                segments.add(InternalSegment(curType, curPts))
+                segments.add(InternalSegment(curType, curPts, curHighway, curSurface))
                 gaps.add(TrailGapDto(fromPoint = last, toPoint = oriented.first(), gapMeters = gap))
                 curPts = oriented.toMutableList()
+                curHighway = w.highway
+                curSurface = w.surface
             } else {
+                if (curHighway == null && w.highway != null) curHighway = w.highway
+                if (curSurface == null && w.surface != null) curSurface = w.surface
                 if (gap < 1.0) {
                     curPts.addAll(oriented.drop(1))
                 } else {
@@ -648,7 +666,7 @@ class TrailGeometryRepository(private val context: Context) {
         }
 
         if (curPts.isNotEmpty()) {
-            segments.add(InternalSegment(curType, curPts))
+            segments.add(InternalSegment(curType, curPts, curHighway, curSurface))
         }
 
         return Pair(segments, gaps)
@@ -674,7 +692,9 @@ class TrailGeometryRepository(private val context: Context) {
                     TrailSegmentDto(
                         type = seg.type,
                         points = realPts.map { GeoPointDto(it.lat, it.lng, null) },
-                        lengthKm = km
+                        lengthKm = km,
+                        highway = seg.highway,
+                        surface = seg.surface
                     )
                 )
                 continue
@@ -727,7 +747,7 @@ class TrailGeometryRepository(private val context: Context) {
                 val lons = chunk.joinToString(",") { it.lng.toString() }
                 val url = "https://api.open-meteo.com/v1/elevation?latitude=$lats&longitude=$lons"
                 try {
-                    val request = Request.Builder().url(url).header("User-Agent", "DanskSti/1.0").build()
+                    val request = Request.Builder().url(url).header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT).build()
                     client.newCall(request).execute().use { response ->
                         if (response.isSuccessful) {
                             val jsonStr = response.body?.string()
@@ -762,7 +782,9 @@ class TrailGeometryRepository(private val context: Context) {
                     TrailSegmentDto(
                         type = seg.type,
                         points = realPts.map { GeoPointDto(it.lat, it.lng, null) },
-                        lengthKm = km
+                        lengthKm = km,
+                        highway = seg.highway,
+                        surface = seg.surface
                     )
                 )
                 continue
@@ -805,7 +827,15 @@ class TrailGeometryRepository(private val context: Context) {
                 GeoPointDto(pt.lat, pt.lng, ele)
             }
 
-            resultSegments.add(TrailSegmentDto(type = seg.type, points = finalRealPoints, lengthKm = km))
+            resultSegments.add(
+                TrailSegmentDto(
+                    type = seg.type,
+                    points = finalRealPoints,
+                    lengthKm = km,
+                    highway = seg.highway,
+                    surface = seg.surface
+                )
+            )
         }
 
         return resultSegments

@@ -391,6 +391,7 @@ fun DanskStiMap(
                 .semantics { contentDescription = "Kort" },
             factory = { ctx ->
                 MapView(ctx).apply {
+                    tag = mapTestTag
                     DanskStiTileSource.configureOsmdroid(ctx)
                     DanskStiTileSource.applyBaseMapTo(this, mapLayersState.baseMap, effectiveIsDark)
                     setMultiTouchControls(isInteractive)

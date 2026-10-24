@@ -4,8 +4,11 @@ import android.content.Context
 import android.util.Log
 import com.example.data.local.DanskStiDao
 import com.example.data.local.DanskStiDatabase
+import com.example.util.network.NetworkConstants
 import com.example.util.network.applyDebugMainThreadCheck
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
@@ -67,6 +70,7 @@ class BRouterOnlineEngine(
         @Volatile
         private var lastProfileSyntaxError: String? = null
 
+        private val profileUploadMutex = Mutex()
         private val rateLimitLock = Any()
         @Volatile
         private var lastServerRequestMs: Long = 0L
@@ -165,86 +169,90 @@ class BRouterOnlineEngine(
     suspend fun uploadProfileToServer(): String? = withContext(Dispatchers.IO) {
         uploadedServerProfileId?.let { return@withContext it }
 
-        val now = System.currentTimeMillis()
-        if (profileUploadAttempted) return@withContext uploadedServerProfileId
-        if (lastProfileUploadFailureMs > 0L && (now - lastProfileUploadFailureMs) < NETWORK_RETRY_COOLDOWN_MS) {
-            return@withContext null
-        }
+        profileUploadMutex.withLock {
+            uploadedServerProfileId?.let { return@withContext it }
 
-        val assets = assetManager ?: context?.assets ?: return@withContext null
-        val brfContent = try {
-            assets.open("brouter/dansk-vandring.brf").bufferedReader(Charsets.UTF_8).use { it.readText() }
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not read dansk-vandring.brf from assets: ${e.message}")
-            return@withContext null
-        }
+            val now = System.currentTimeMillis()
+            if (profileUploadAttempted) return@withContext uploadedServerProfileId
+            if (lastProfileUploadFailureMs > 0L && (now - lastProfileUploadFailureMs) < NETWORK_RETRY_COOLDOWN_MS) {
+                return@withContext null
+            }
 
-        if (brfContent.isBlank()) return@withContext null
+            val assets = assetManager ?: context?.assets ?: return@withContext null
+            val brfContent = try {
+                assets.open("brouter/dansk-vandring.brf").bufferedReader(Charsets.UTF_8).use { it.readText() }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not read dansk-vandring.brf from assets: ${e.message}")
+                return@withContext null
+            }
 
-        try {
-            val uploadUrl = if (baseUrl.endsWith("/")) "${baseUrl}profile" else "$baseUrl/profile"
-            val reqBody = brfContent.toRequestBody("text/plain; charset=utf-8".toMediaType())
-            val req = Request.Builder()
-                .url(uploadUrl)
-                .header("User-Agent", "DanskSti/1.8 (https://dansksti.app; contact@dansksti.app)")
-                .post(reqBody)
-                .build()
+            if (brfContent.isBlank()) return@withContext null
 
-            client.newCall(req).execute().use { resp ->
-                val body = resp.body?.string().orEmpty().trim()
-                val code = resp.code
+            try {
+                val uploadUrl = if (baseUrl.endsWith("/")) "${baseUrl}profile" else "$baseUrl/profile"
+                val reqBody = brfContent.toRequestBody("text/plain; charset=utf-8".toMediaType())
+                val req = Request.Builder()
+                    .url(uploadUrl)
+                    .header("User-Agent", NetworkConstants.USER_AGENT)
+                    .post(reqBody)
+                    .build()
 
-                if (resp.isSuccessful && body.isNotEmpty()) {
-                    val profileId = if (body.startsWith("{")) {
-                        val json = JSONObject(body)
-                        val serverErr = json.optString("error", "").takeIf { it.isNotBlank() }
-                        if (serverErr != null) {
+                client.newCall(req).execute().use { resp ->
+                    val body = resp.body?.string().orEmpty().trim()
+                    val code = resp.code
+
+                    if (resp.isSuccessful && body.isNotEmpty()) {
+                        val profileId = if (body.startsWith("{")) {
+                            val json = JSONObject(body)
+                            val serverErr = json.optString("error", "").takeIf { it.isNotBlank() }
+                            if (serverErr != null) {
+                                profileUploadAttempted = true
+                                lastProfileSyntaxError = serverErr
+                                usingBuiltinFallback = true
+                                Log.e(TAG, "BRouter server rejected profile syntax: $serverErr")
+                                return@withContext null
+                            }
+                            json.optString("profileid", "").takeIf { it.isNotBlank() }
+                        } else if (body.startsWith("custom_") && !body.contains(" ") && body.length < 64) {
+                            body
+                        } else {
                             profileUploadAttempted = true
-                            lastProfileSyntaxError = serverErr
+                            lastProfileSyntaxError = body
                             usingBuiltinFallback = true
-                            Log.e(TAG, "BRouter server rejected profile syntax: $serverErr")
+                            Log.e(TAG, "BRouter server rejected profile syntax: $body")
                             return@withContext null
                         }
-                        json.optString("profileid", "").takeIf { it.isNotBlank() }
-                    } else if (body.startsWith("custom_") && !body.contains(" ") && body.length < 64) {
-                        body
-                    } else {
-                        profileUploadAttempted = true
-                        lastProfileSyntaxError = body
-                        usingBuiltinFallback = true
-                        Log.e(TAG, "BRouter server rejected profile syntax: $body")
-                        return@withContext null
-                    }
 
-                    if (!profileId.isNullOrBlank()) {
+                        if (!profileId.isNullOrBlank()) {
+                            profileUploadAttempted = true
+                            lastProfileSyntaxError = null
+                            uploadedServerProfileId = profileId
+                            usingBuiltinFallback = false
+                            Log.i(TAG, "Uploaded dansk-vandring.brf to BRouter server: profileid=$profileId")
+                            return@withContext profileId
+                        }
+                    } else if (code in 400..499) {
+                        val exactError = body.ifBlank { "HTTP $code ved upload af dansk-vandring.brf" }
                         profileUploadAttempted = true
-                        lastProfileSyntaxError = null
-                        uploadedServerProfileId = profileId
-                        usingBuiltinFallback = false
-                        Log.i(TAG, "Uploaded dansk-vandring.brf to BRouter server: profileid=$profileId")
-                        return@withContext profileId
+                        lastProfileSyntaxError = exactError
+                        usingBuiltinFallback = true
+                        Log.e(TAG, "BRouter server rejected profile upload (HTTP $code): $exactError")
+                        return@withContext null
+                    } else {
+                        lastProfileUploadFailureMs = System.currentTimeMillis()
+                        Log.w(TAG, "Profile upload transient server error HTTP $code: $body")
                     }
-                } else if (code in 400..499) {
-                    val exactError = body.ifBlank { "HTTP $code ved upload af dansk-vandring.brf" }
-                    profileUploadAttempted = true
-                    lastProfileSyntaxError = exactError
-                    usingBuiltinFallback = true
-                    Log.e(TAG, "BRouter server rejected profile upload (HTTP $code): $exactError")
-                    return@withContext null
-                } else {
-                    lastProfileUploadFailureMs = System.currentTimeMillis()
-                    Log.w(TAG, "Profile upload transient server error HTTP $code: $body")
                 }
+            } catch (e: Exception) {
+                if (e is IllegalStateException && e.message == "Network on main thread") {
+                    throw e
+                }
+                lastProfileUploadFailureMs = System.currentTimeMillis()
+                Log.w(TAG, "Profile upload to BRouter failed (will retry after 60s): ${e.message}")
             }
-        } catch (e: Exception) {
-            if (e is IllegalStateException && e.message == "Network on main thread") {
-                throw e
-            }
-            lastProfileUploadFailureMs = System.currentTimeMillis()
-            Log.w(TAG, "Profile upload to BRouter failed (will retry after 60s): ${e.message}")
+            usingBuiltinFallback = true
+            return@withContext null
         }
-        usingBuiltinFallback = true
-        return@withContext null
     }
 
     private suspend fun enforceRateLimit() {
@@ -326,7 +334,7 @@ class BRouterOnlineEngine(
 
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "DanskSti/1.8 (https://dansksti.app; contact@dansksti.app)")
+            .header("User-Agent", NetworkConstants.USER_AGENT)
             .get()
             .build()
 
@@ -360,7 +368,7 @@ class BRouterOnlineEngine(
                         if (retryUrl != null) {
                             val retryReq = Request.Builder()
                                 .url(retryUrl)
-                                .header("User-Agent", "DanskSti/1.8 (https://dansksti.app; contact@dansksti.app)")
+                                .header("User-Agent", NetworkConstants.USER_AGENT)
                                 .get()
                                 .build()
                             enforceRateLimit()
@@ -446,6 +454,20 @@ class BRouterOnlineEngine(
                 )
             }
             builder.addQueryParameter("nogos", nogosParam)
+        }
+
+        // Pass polygonal no-go areas ("Rut uden om") as polygons=lon,lat,lon,lat,...|...
+        if (options.noGoAreas.isNotEmpty()) {
+            val polygonsParam = options.noGoAreas
+                .filter { it.size >= 3 }
+                .joinToString("|") { ring ->
+                    ring.joinToString(",") { pt ->
+                        String.format(Locale.US, "%.6f,%.6f", pt.lng, pt.lat)
+                    }
+                }
+            if (polygonsParam.isNotEmpty()) {
+                builder.addEncodedQueryParameter("polygons", polygonsParam)
+            }
         }
 
         // Only send custom profile parameters when using custom uploaded profile

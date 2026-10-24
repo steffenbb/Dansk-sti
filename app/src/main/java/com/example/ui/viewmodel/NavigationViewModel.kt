@@ -100,6 +100,15 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private val _routeHazards = MutableStateFlow<List<UserHazardNoteEntity>>(emptyList())
     val routeHazards: StateFlow<List<UserHazardNoteEntity>> = _routeHazards.asStateFlow()
 
+    private val _needsLocationPermission = MutableStateFlow(false)
+    val needsLocationPermission: StateFlow<Boolean> = _needsLocationPermission.asStateFlow()
+
+    private val _needsNotificationPermission = MutableStateFlow(false)
+    val needsNotificationPermission: StateFlow<Boolean> = _needsNotificationPermission.asStateFlow()
+
+    private var pendingStartPlanId: Long? = null
+    private var notificationPermissionPromptedThisSession: Boolean = false
+
     private val _isBatterySaverMode = MutableStateFlow(false)
     val isBatterySaverMode: StateFlow<Boolean> = _isBatterySaverMode.asStateFlow()
 
@@ -250,12 +259,24 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                     _activeStages.value = stages
                 }
 
-                // If tracking is not active, start it
+                // If tracking is not active, start it (startTrip checks location permission first)
                 if (!NavigationTrackingService.liveState.value.isTracking) {
                     startTrip(targetId)
                 }
             }
         }
+    }
+
+    fun hasLocationPermission(): Boolean {
+        return NavigationTrackingService.hasLocationPermission(getApplication())
+    }
+
+    fun hasNotificationPermission(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return true
+        return androidx.core.content.ContextCompat.checkSelfPermission(
+            getApplication(),
+            android.Manifest.permission.POST_NOTIFICATIONS
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
     }
 
     fun startTrip(planId: Long) {
@@ -272,6 +293,21 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 _activeStages.value = stages
 
                 plannedRouteRepo.saveLastActivePlanId(planId)
+                pendingStartPlanId = planId
+
+                if (!hasLocationPermission()) {
+                    _needsLocationPermission.value = true
+                    return@withContext
+                }
+                _needsLocationPermission.value = false
+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+                    !hasNotificationPermission() && !notificationPermissionPromptedThisSession
+                ) {
+                    notificationPermissionPromptedThisSession = true
+                    _needsNotificationPermission.value = true
+                    return@withContext
+                }
 
                 // Start background tracking service (service restores existing progress from DB)
                 NavigationTrackingService.start(
@@ -279,6 +315,37 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                     planId = planId
                 )
             }
+        }
+    }
+
+    fun onLocationPermissionResult(granted: Boolean) {
+        if (granted && hasLocationPermission()) {
+            _needsLocationPermission.value = false
+            val targetId = pendingStartPlanId ?: _activePlan.value?.id ?: return
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+                !hasNotificationPermission() && !notificationPermissionPromptedThisSession
+            ) {
+                notificationPermissionPromptedThisSession = true
+                _needsNotificationPermission.value = true
+            } else {
+                NavigationTrackingService.start(
+                    context = getApplication(),
+                    planId = targetId
+                )
+            }
+        } else {
+            _needsLocationPermission.value = true
+        }
+    }
+
+    fun onNotificationPermissionResult(@Suppress("UNUSED_PARAMETER") granted: Boolean) {
+        _needsNotificationPermission.value = false
+        val targetId = pendingStartPlanId ?: _activePlan.value?.id ?: return
+        if (hasLocationPermission()) {
+            NavigationTrackingService.start(
+                context = getApplication(),
+                planId = targetId
+            )
         }
     }
 

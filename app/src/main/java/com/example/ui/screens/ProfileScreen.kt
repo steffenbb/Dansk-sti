@@ -22,7 +22,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.BugReport
@@ -33,6 +35,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Speed
@@ -41,17 +44,22 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -119,6 +127,15 @@ fun ProfileScreen(
 
     var aboutTapCount by rememberSaveable { mutableIntStateOf(0) }
     val showDiagnostics = isDebugBuild || aboutTapCount >= 7
+    var showPrivacyScreen by rememberSaveable { mutableStateOf(false) }
+
+    if (showPrivacyScreen) {
+        PrivacyScreen(
+            onBack = { showPrivacyScreen = false },
+            modifier = modifier
+        )
+        return
+    }
 
     var cacheClearedMessage by remember { mutableStateOf<String?>(null) }
     val cacheClearedText = stringResource(R.string.storage_cache_cleared)
@@ -493,7 +510,7 @@ fun ProfileScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "${downloadedTrails.size} gemte ruter",
+                                text = stringResource(R.string.storage_saved_routes_count_format, downloadedTrails.size),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -535,9 +552,13 @@ fun ProfileScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             val statusSub = if (brouterState.isAllDownloaded) {
-                                "Danmark klar til offline ruteplanlægning"
+                                stringResource(R.string.storage_brouter_all_downloaded)
                             } else {
-                                "${brouterState.downloadedSegments.size} af ${brouterState.segments.size} segmenter hentet"
+                                stringResource(
+                                    R.string.storage_brouter_segments_format,
+                                    brouterState.downloadedSegments.size,
+                                    brouterState.segments.size
+                                )
                             }
                             Text(
                                 text = statusSub,
@@ -579,7 +600,11 @@ fun ProfileScreen(
                         Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(Spacing.s2))
                         Text(
-                            text = if (brouterState.isAllDownloaded) "Opdater rutedata" else "Hent offline rutedata (Danmark)"
+                            text = if (brouterState.isAllDownloaded) {
+                                stringResource(R.string.storage_brouter_update)
+                            } else {
+                                stringResource(R.string.storage_brouter_download)
+                            }
                         )
                     }
                 }
@@ -713,6 +738,43 @@ fun ProfileScreen(
                     )
                 }
 
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = Spacing.s2),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                // Privatliv & Databrug (Item 9)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = MinTouchTargetSize)
+                        .clickable { showPrivacyScreen = true }
+                        .testTag("profile_privacy_button"),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.PrivacyTip,
+                            contentDescription = null,
+                            tint = ForestGreenPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(Spacing.s2))
+                        Text(
+                            text = stringResource(R.string.about_privacy),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = stringResource(R.string.about_privacy),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 // Diagnostics: only in debug builds or behind "Om appen" tapped 7 times
                 if (showDiagnostics) {
                     HorizontalDivider(
@@ -833,3 +895,148 @@ private fun ApiKeyStatusRow(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PrivacyScreen(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    BackHandler {
+        onBack()
+    }
+
+    val services = listOf(
+        stringResource(R.string.privacy_service_brouter_title) to stringResource(R.string.privacy_service_brouter_desc),
+        stringResource(R.string.privacy_service_overpass_title) to stringResource(R.string.privacy_service_overpass_desc),
+        stringResource(R.string.privacy_service_openmeteo_title) to stringResource(R.string.privacy_service_openmeteo_desc),
+        stringResource(R.string.privacy_service_dataforsyningen_title) to stringResource(R.string.privacy_service_dataforsyningen_desc),
+        stringResource(R.string.privacy_service_tiles_title) to stringResource(R.string.privacy_service_tiles_desc)
+    )
+
+    Scaffold(
+        modifier = modifier.fillMaxSize().testTag("privacy_screen"),
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            text = stringResource(R.string.privacy_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = stringResource(R.string.privacy_subtitle),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.testTag("privacy_back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.btn_back)
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+        }
+    ) { paddingValues ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .testTag("privacy_screen_list"),
+            contentPadding = PaddingValues(Spacing.s4),
+            verticalArrangement = Arrangement.spacedBy(Spacing.s3)
+        ) {
+            item {
+                Card(
+                    shape = CardShape,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, ForestGreenPrimary.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth().testTag("privacy_no_tracking_card")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(Spacing.s4),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.s2)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.PrivacyTip,
+                                contentDescription = null,
+                                tint = ForestGreenPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(Spacing.s2))
+                            Text(
+                                text = stringResource(R.string.privacy_no_tracking_headline),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.privacy_no_tracking_body),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            item {
+                Text(
+                    text = stringResource(R.string.privacy_services_section_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(top = Spacing.s2)
+                )
+                Spacer(modifier = Modifier.height(Spacing.s1))
+                Text(
+                    text = stringResource(R.string.privacy_services_intro),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            items(services.size) { index ->
+                val (serviceName, serviceDesc) = services[index]
+                Card(
+                    shape = CardShape,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("privacy_service_card_$index")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(Spacing.s4),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.s1)
+                    ) {
+                        Text(
+                            text = serviceName,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = ForestGreenPrimary
+                        )
+                        Text(
+                            text = serviceDesc,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+

@@ -572,7 +572,7 @@ object DanskStiTileSourceHelper {
         try {
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", "DanskSti/1.8 (Android WMS Capabilities)")
+                .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
                 .get()
                 .build()
             client.newCall(req).execute().use { resp ->
@@ -606,7 +606,7 @@ object DanskStiTileSourceHelper {
             try {
                 val req = Request.Builder()
                     .url(url)
-                    .header("User-Agent", "DanskSti/1.8 (Android DHM Capabilities)")
+                    .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
                     .get()
                     .build()
                 client.newCall(req).execute().use { resp ->
@@ -713,6 +713,26 @@ object DanskStiTileSourceHelper {
     /**
      * Applies the designated base map, hue-preserving dark filter, and attribution to any MapView.
      */
+    fun isNetworkAvailable(context: Context): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                ?: return false
+            val net = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(net) ?: return false
+            caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun hasOfflineSqliteArchives(context: Context): Boolean {
+        val offlineDir = File(context.filesDir, "offline")
+        val sqliteFiles = offlineDir.listFiles { file ->
+            file.isFile && file.name.endsWith(".sqlite", ignoreCase = true) && file.length() > 0L
+        }
+        return !sqliteFiles.isNullOrEmpty()
+    }
+
     fun applyTo(
         mapView: MapView,
         baseMap: BaseMapType = BaseMapType.SKAERMKORT,
@@ -720,10 +740,19 @@ object DanskStiTileSourceHelper {
         allowOsmFallback: Boolean = userConfirmedOsmFallback
     ) {
         ensureCapabilitiesLoadedAsync()
+        val offlineWithArchives = !isNetworkAvailable(mapView.context) && hasOfflineSqliteArchives(mapView.context)
 
         when (baseMap) {
             BaseMapType.SKAERMKORT -> {
-                if (hasValidKey) {
+                if (offlineWithArchives) {
+                    // Item 5: When offline, use the light Skærmkort archive with the dark colour filter
+                    if (mapView.tileProvider.tileSource?.name() != skaermkortInstance.name()) {
+                        mapView.setTileSource(skaermkortInstance)
+                    }
+                    mapView.overlayManager.tilesOverlay.isEnabled = true
+                    mapView.overlays.removeAll { it is NoKeyOverlay }
+                    applyDarkMapFilter(mapView, isDarkMode)
+                } else if (hasValidKey) {
                     val targetSource = if (isDarkMode) skaermkortDarkInstance else skaermkortInstance
                     if (mapView.tileProvider.tileSource?.name() != targetSource.name()) {
                         mapView.setTileSource(targetSource)
@@ -803,7 +832,7 @@ object DanskStiTileSourceHelper {
 
     fun configureOsmdroid(context: Context) {
         val config = org.osmdroid.config.Configuration.getInstance()
-        config.userAgentValue = context.packageName.ifBlank { "com.example.dansksti" }
+        config.userAgentValue = com.example.util.network.NetworkConstants.USER_AGENT
         val baseDir = File(context.filesDir, "osmdroid")
         val tileCache = File(context.cacheDir, "osmdroid/tiles")
         baseDir.mkdirs()
@@ -891,6 +920,8 @@ object DanskStiTileSourceHelper {
                     try {
                         DatabaseFileArchive.getDatabaseFileArchive(file)?.apply {
                             setIgnoreTileSource(false)
+                        }?.let { dbArchive ->
+                            FallbackSkaermkortArchiveFile(dbArchive)
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Could not open offline archive ${file.name}: ${e.message}")
@@ -909,6 +940,29 @@ object DanskStiTileSourceHelper {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed attaching offline SQLite archives: ${e.message}")
+        }
+    }
+
+    /**
+     * Wraps a DatabaseFileArchive so that in dark mode (when the active tile source is
+     * "DanskSti_Skaermkort_dtk_skaermkort_daempet"), if no dark tile exists in the archive,
+     * it serves the downloaded light "DanskSti_Skaermkort" tile (which is rendered with the
+     * dark ColorMatrixColorFilter on the map's TilesOverlay).
+     */
+    private class FallbackSkaermkortArchiveFile(
+        private val delegate: DatabaseFileArchive
+    ) : IArchiveFile by delegate {
+        override fun getInputStream(
+            pTileSource: org.osmdroid.tileprovider.tilesource.ITileSource?,
+            pMapTileIndex: Long
+        ): java.io.InputStream? {
+            val direct = delegate.getInputStream(pTileSource, pMapTileIndex)
+            if (direct != null) return direct
+            val sourceName = pTileSource?.name().orEmpty()
+            if (sourceName.startsWith("DanskSti_Skaermkort") && sourceName != skaermkortInstance.name()) {
+                return delegate.getInputStream(skaermkortInstance, pMapTileIndex)
+            }
+            return null
         }
     }
 

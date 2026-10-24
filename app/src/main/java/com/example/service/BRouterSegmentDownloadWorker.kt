@@ -116,7 +116,7 @@ class BRouterSegmentDownloadWorker(
 
             val request = Request.Builder()
                 .url(url)
-                .header("User-Agent", "DanskSti/1.0 (offline routing sync)")
+                .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
                 .get()
                 .build()
 

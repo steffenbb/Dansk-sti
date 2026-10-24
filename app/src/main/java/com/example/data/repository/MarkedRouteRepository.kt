@@ -179,7 +179,7 @@ class MarkedRouteRepository(
                 val request = Request.Builder()
                     .url(endpoint)
                     .post(body)
-                    .header("User-Agent", "DanskStiApp/1.0 (Android; Outdoor Hiking Denmark)")
+                    .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
                     .build()
 
                 val call = client.newCall(request)

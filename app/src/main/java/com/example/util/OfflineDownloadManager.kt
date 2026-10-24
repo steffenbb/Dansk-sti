@@ -135,7 +135,7 @@ object OfflineDownloadManager {
                     connectTimeout = 3000
                     readTimeout = 3000
                     requestMethod = "HEAD"
-                    setRequestProperty("User-Agent", "DanskStiApp/1.0 (Android; Offline Size Probe)")
+                    setRequestProperty("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
                 }
 
                 val contentLength = conn.contentLengthLong
@@ -148,7 +148,7 @@ object OfflineDownloadManager {
                     val getConn = (url.openConnection() as HttpURLConnection).apply {
                         connectTimeout = 3000
                         readTimeout = 3000
-                        setRequestProperty("User-Agent", "DanskStiApp/1.0")
+                        setRequestProperty("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
                     }
                     if (getConn.responseCode == 200) {
                         val stream = getConn.inputStream

@@ -295,7 +295,7 @@ class AccessLandRepository(
 
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "DanskSti/1.8 (Danmarks Miljoepris Vandring)")
+            .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
             .get()
             .build()
 
@@ -420,7 +420,7 @@ class AccessLandRepository(
         val requestBody = query.toRequestBody("text/plain".toMediaType())
         val request = Request.Builder()
             .url("https://overpass-api.de/api/interpreter")
-            .header("User-Agent", "DanskSti/1.7 (contact: easysidedk.brydskov@gmail.com)")
+            .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
             .post(requestBody)
             .build()
 

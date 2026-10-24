@@ -1,9 +1,13 @@
 package com.example.ui.screens
 
+import android.Manifest
 import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -137,8 +141,31 @@ fun NavigationScreen(
     val routeToilets by viewModel.routeToilets.collectAsState()
     val routeShops by viewModel.routeShops.collectAsState()
     val routeHazards by viewModel.routeHazards.collectAsState()
+    val needsLocationPermission by viewModel.needsLocationPermission.collectAsState()
+    val needsNotificationPermission by viewModel.needsNotificationPermission.collectAsState()
 
     val hasGpsFix = liveState.currentLat != null && liveState.currentLng != null
+    val isLocationPermissionMissing = needsLocationPermission || liveState.locationPermissionMissing
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        viewModel.onLocationPermissionResult(granted)
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.onNotificationPermissionResult(granted)
+    }
+
+    LaunchedEffect(needsNotificationPermission) {
+        if (needsNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     // Phase 7a: Recorded GPS Track & Day stats
     val allRecordedDayStats by viewModel.allRecordedDayStats.collectAsState()
@@ -490,6 +517,9 @@ fun NavigationScreen(
                         onSelectPoi = { /* POI clicked */ }
                     )
                     overlayManagerRef = mgr
+                    plannedRoute?.let { route ->
+                        mgr.setPlannedRoute(route, isDark)
+                    }
                 },
                 updateOverlaysKey = Triple(plannedRoute, liveState, isFollowingUser),
                 onUpdateOverlays = { _, _, isDarkMap ->
@@ -619,6 +649,70 @@ fun NavigationScreen(
                             tint = if (hasGpsFix) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                             modifier = Modifier.size(20.dp)
                         )
+                    }
+                }
+            }
+
+            // 2a. Location Permission Explanation Banner when location permission is missing (Item 2)
+            if (isLocationPermissionMissing) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 6.dp,
+                    border = BorderStroke(1.dp, AmberAccent),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 76.dp, start = 16.dp, end = 16.dp)
+                        .testTag("location_permission_card")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MyLocation,
+                                contentDescription = null,
+                                tint = ForestGreenPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = androidx.compose.ui.res.stringResource(com.example.R.string.location_permission_required_title),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Text(
+                            text = androidx.compose.ui.res.stringResource(com.example.R.string.location_permission_required_explanation),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Button(
+                            onClick = {
+                                locationPermissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                    )
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("grant_location_permission_button")
+                        ) {
+                            Text(
+                                text = androidx.compose.ui.res.stringResource(com.example.R.string.grant_location_permission_action),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }

@@ -151,6 +151,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 _trailPoints.value = points
                 val geom = repository.getTrailGeometry(trailId)
                 _trailGeometry.value = geom
+                repository.getTrailById(trailId)?.let { _trail.value = it }
 
                 if (points.isEmpty()) {
                     _routeError.value = "Kunne ikke hente rutedata fra OpenStreetMap. Tjek din internetforbindelse eller prøv igen senere."

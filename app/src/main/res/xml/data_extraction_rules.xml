@@ -1,7 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
+        <include domain="database" path="." />
+        <include domain="sharedpref" path="." />
+        <exclude domain="sharedpref" path="osmdroid_prefs.xml" />
+        <include domain="file" path="." />
+        <exclude domain="file" path="offline" />
+        <exclude domain="file" path="brouter" />
+        <exclude domain="file" path="osmdroid" />
+        <exclude domain="file" path="trail_geometries" />
+        <exclude domain="file" path="geofa_cache" />
+        <exclude domain="file" path="osm_pois_cache" />
     </cloud-backup>
     <device-transfer>
+        <include domain="database" path="." />
+        <include domain="sharedpref" path="." />
+        <exclude domain="sharedpref" path="osmdroid_prefs.xml" />
+        <include domain="file" path="." />
+        <exclude domain="file" path="offline" />
+        <exclude domain="file" path="brouter" />
+        <exclude domain="file" path="osmdroid" />
+        <exclude domain="file" path="trail_geometries" />
+        <exclude domain="file" path="geofa_cache" />
+        <exclude domain="file" path="osm_pois_cache" />
     </device-transfer>
 </data-extraction-rules>

@@ -15,49 +15,6 @@ import org.osmdroid.views.overlay.Polyline
 import kotlin.math.roundToInt
 
 /**
- * Requirement D: Water overlay "Vand" (on by default from zoom 12)
- * - Draw lakes and wetland as fills (lakes 45 % blue, wetland hatched or 25 %),
- *   rivers 3 dp, streams and ditches 1.5 dp, all in a clear blue that differs from the route colour.
- * - Springs as small blue dots.
- * - Updates in place and only recreates child overlays when data or dark mode actually changes.
- */
-object WaterMapOverlayHelper {
-
-    // Clear hydrographic cyan-blue (#0091EA light / #00B0FF dark), distinct from route (#1E88E5 / #64B5F6)
-    const val COLOR_WATER_CLEAR_BLUE_LIGHT = 0xFF0091EA.toInt()
-    const val COLOR_WATER_CLEAR_BLUE_DARK = 0xFF00B0FF.toInt()
-
-    // Alpha constants: lakes 45% (115/255), wetlands 25% (64/255)
-    val ALPHA_LAKE_FILL: Int = (255 * 0.45f).roundToInt() // 115
-    val ALPHA_WETLAND_FILL: Int = (255 * 0.25f).roundToInt() // 64
-    const val ALPHA_WATERWAY_LINE = 225
-
-    const val RIVER_WIDTH_DP = 3.0f
-    const val STREAM_WIDTH_DP = 1.5f
-    const val SPRING_DOT_RADIUS_DP = 4.0f
-
-    fun withAlpha(rgbColor: Int, alpha: Int): Int {
-        return (rgbColor and 0x00FFFFFF) or ((alpha.coerceIn(0, 255)) shl 24)
-    }
-
-    fun getWaterBaseColor(isDark: Boolean): Int {
-        return if (isDark) COLOR_WATER_CLEAR_BLUE_DARK else COLOR_WATER_CLEAR_BLUE_LIGHT
-    }
-
-    fun getLakeFillColor(isDark: Boolean): Int {
-        return withAlpha(getWaterBaseColor(isDark), ALPHA_LAKE_FILL)
-    }
-
-    fun getWetlandFillColor(isDark: Boolean): Int {
-        return withAlpha(getWaterBaseColor(isDark), ALPHA_WETLAND_FILL)
-    }
-
-    fun getWaterwayLineColor(isDark: Boolean): Int {
-        return withAlpha(getWaterBaseColor(isDark), ALPHA_WATERWAY_LINE)
-    }
-}
-
-/**
  * Stable-keyed FolderOverlay ("water") that caches constructed osmdroid Polygons, Polylines,
  * and Spring dots and only rebuilds when the underlying feature set or dark mode changes.
  */
@@ -69,6 +26,39 @@ class WaterLayerOverlay : FolderOverlay() {
 
     init {
         name = "water"
+    }
+
+    companion object {
+        const val COLOR_WATER_CLEAR_BLUE_LIGHT = 0xFF0091EA.toInt()
+        const val COLOR_WATER_CLEAR_BLUE_DARK = 0xFF00B0FF.toInt()
+
+        val ALPHA_LAKE_FILL: Int = (255 * 0.45f).roundToInt() // 115
+        val ALPHA_WETLAND_FILL: Int = (255 * 0.25f).roundToInt() // 64
+        const val ALPHA_WATERWAY_LINE = 225
+
+        const val RIVER_WIDTH_DP = 3.0f
+        const val STREAM_WIDTH_DP = 1.5f
+        const val SPRING_DOT_RADIUS_DP = 4.0f
+
+        fun withAlpha(rgbColor: Int, alpha: Int): Int {
+            return (rgbColor and 0x00FFFFFF) or ((alpha.coerceIn(0, 255)) shl 24)
+        }
+
+        fun getWaterBaseColor(isDark: Boolean): Int {
+            return if (isDark) COLOR_WATER_CLEAR_BLUE_DARK else COLOR_WATER_CLEAR_BLUE_LIGHT
+        }
+
+        fun getLakeFillColor(isDark: Boolean): Int {
+            return withAlpha(getWaterBaseColor(isDark), ALPHA_LAKE_FILL)
+        }
+
+        fun getWetlandFillColor(isDark: Boolean): Int {
+            return withAlpha(getWaterBaseColor(isDark), ALPHA_WETLAND_FILL)
+        }
+
+        fun getWaterwayLineColor(isDark: Boolean): Int {
+            return withAlpha(getWaterBaseColor(isDark), ALPHA_WATERWAY_LINE)
+        }
     }
 
     fun updateFeatures(
@@ -89,12 +79,12 @@ class WaterLayerOverlay : FolderOverlay() {
             return true
         }
 
-        val baseBlue = WaterMapOverlayHelper.getWaterBaseColor(isDark)
-        val lakeFill = WaterMapOverlayHelper.getLakeFillColor(isDark)
-        val lakeStroke = WaterMapOverlayHelper.withAlpha(baseBlue, 185)
-        val wetlandFill = WaterMapOverlayHelper.getWetlandFillColor(isDark)
-        val wetlandStroke = WaterMapOverlayHelper.withAlpha(baseBlue, 150)
-        val waterwayColor = WaterMapOverlayHelper.getWaterwayLineColor(isDark)
+        val baseBlue = getWaterBaseColor(isDark)
+        val lakeFill = getLakeFillColor(isDark)
+        val lakeStroke = withAlpha(baseBlue, 185)
+        val wetlandFill = getWetlandFillColor(isDark)
+        val wetlandStroke = withAlpha(baseBlue, 150)
+        val waterwayColor = getWaterwayLineColor(isDark)
 
         val springPoints = mutableListOf<Pair<GeoPoint, String?>>()
 
@@ -156,7 +146,7 @@ class WaterLayerOverlay : FolderOverlay() {
                             title = feature.name ?: "Å / Kanal"
                             setPoints(geoPoints)
                             outlinePaint.color = waterwayColor
-                            outlinePaint.strokeWidth = WaterMapOverlayHelper.RIVER_WIDTH_DP * safeDensity
+                            outlinePaint.strokeWidth = RIVER_WIDTH_DP * safeDensity
                             outlinePaint.style = Paint.Style.STROKE
                             outlinePaint.strokeCap = Paint.Cap.ROUND
                             outlinePaint.strokeJoin = Paint.Join.ROUND
@@ -174,7 +164,7 @@ class WaterLayerOverlay : FolderOverlay() {
                             title = feature.name ?: "Bæk / Grøft"
                             setPoints(geoPoints)
                             outlinePaint.color = waterwayColor
-                            outlinePaint.strokeWidth = WaterMapOverlayHelper.STREAM_WIDTH_DP * safeDensity
+                            outlinePaint.strokeWidth = STREAM_WIDTH_DP * safeDensity
                             outlinePaint.style = Paint.Style.STROKE
                             outlinePaint.strokeCap = Paint.Cap.ROUND
                             outlinePaint.strokeJoin = Paint.Join.ROUND
@@ -201,7 +191,7 @@ class WaterLayerOverlay : FolderOverlay() {
                     springs = springPoints,
                     dotColor = baseBlue,
                     haloColor = if (isDark) 0xDD101418.toInt() else 0xEEFFFFFF.toInt(),
-                    radiusPx = WaterMapOverlayHelper.SPRING_DOT_RADIUS_DP * safeDensity,
+                    radiusPx = SPRING_DOT_RADIUS_DP * safeDensity,
                     haloStrokePx = 1.5f * safeDensity
                 )
             )

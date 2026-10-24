@@ -304,7 +304,11 @@ fun RouteBuilderScreen(
     // Handle toast messages
     LaunchedEffect(Unit) {
         viewModel.userMessage.collect { msg ->
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                if (android.os.Looper.myLooper() != null) {
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
@@ -475,7 +479,6 @@ fun RouteBuilderScreen(
             com.example.ui.map.DanskStiMap(
                 modifier = Modifier.fillMaxSize(),
                 mapTestTag = "route_builder_map",
-                initialCenter = GeoPoint(56.0, 10.0),
                 initialZoom = 7.5,
                 isSystemDarkOverride = isDark,
                 customWaypoints = uiState.customUserWaypoints,
@@ -684,6 +687,94 @@ fun RouteBuilderScreen(
                     }
                 }
 
+                if (uiState.isDownloadingTrailGeometry) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, ForestGreenPrimary),
+                        shadowElevation = 4.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("banner_downloading_trail_geometry")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = ForestGreenPrimary
+                            )
+                            Text(
+                                text = "Henter rutens spor...",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+
+                if (uiState.trailGeometryDownloadFailed) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.5.dp, Color(0xFFC62828)),
+                        shadowElevation = 6.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("banner_trail_download_failed")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Ruten kunne ikke hentes",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFC62828),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = { viewModel.retryDownloadTrailGeometry() },
+                                colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                modifier = Modifier
+                                    .height(34.dp)
+                                    .testTag("btn_retry_trail_download")
+                            ) {
+                                Text("Prøv igen", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                uiState.corridorPoisOfflineNotice?.let { notice ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shadowElevation = 3.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("banner_corridor_pois_offline")
+                    ) {
+                        Text(
+                            text = notice,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+
                 uiState.failedLegs.entries.forEach { (legKey, errorMsg) ->
                     Surface(
                         shape = RoundedCornerShape(12.dp),
@@ -777,9 +868,11 @@ fun RouteBuilderScreen(
                 FloatingActionButton(
                     onClick = {
                         val center = mapViewInstance?.mapCenter
-                        val lat = center?.latitude ?: 56.15
-                        val lng = center?.longitude ?: 11.5
-                        viewModel.openAddCustomWaypointDialog(lat, lng)
+                        if (center != null && (center.latitude != 0.0 || center.longitude != 0.0)) {
+                            viewModel.openAddCustomWaypointDialog(center.latitude, center.longitude)
+                        } else {
+                            Toast.makeText(context, "Kortposition ikke klar endnu", Toast.LENGTH_SHORT).show()
+                        }
                     },
                     containerColor = MaterialTheme.colorScheme.surface,
                     contentColor = Color(0xFF7B1FA2),

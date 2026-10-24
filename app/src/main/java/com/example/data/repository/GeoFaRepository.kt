@@ -176,7 +176,7 @@ class GeoFaRepository(private val context: Context) {
             try {
                 val request = Request.Builder()
                     .url(url)
-                    .header("User-Agent", "DanskSti/1.0 (Android Trail App)")
+                    .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
                     .build()
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {

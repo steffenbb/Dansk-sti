@@ -265,32 +265,34 @@ object StagePlanner {
             // Last day ends at END
             val finalDay = overnightWaypoints.size + 1
             val endWp = waypoints.lastOrNull { !it.isHelper }
-            val endLat = endWp?.lat ?: plannedRoute.points.lastOrNull()?.lat ?: 56.0
-            val endLng = endWp?.lng ?: plannedRoute.points.lastOrNull()?.lng ?: 10.0
+            val endLat = endWp?.lat ?: plannedRoute.points.lastOrNull()?.lat
+            val endLng = endWp?.lng ?: plannedRoute.points.lastOrNull()?.lng
             val destName = endWp?.name?.takeIf { it.isNotBlank() } ?: "Mål: $effectiveRouteName"
 
-            val finalStage = createTripStage(
-                dayNumber = finalDay,
-                startKm = prevKm,
-                endKm = totalWalkKm,
-                fromName = prevName,
-                toName = destName,
-                stopType = "DESTINATION",
-                stopLat = endLat,
-                stopLng = endLng,
-                bookingRequired = false,
-                hasWaterNearby = waterPois.any { GeoUtils.distanceMeters(endLat, endLng, it.lat, it.lng) <= 500.0 },
-                hasToiletNearby = toiletPois.any { GeoUtils.distanceMeters(endLat, endLng, it.lat, it.lng) <= 500.0 },
-                detourMeters = 0.0,
-                plannedRoute = plannedRoute,
-                paceKmh = paceKmh,
-                startTime = startTime,
-                sunsetTime = effSunset,
-                waterPois = waterPois,
-                shopPois = shopPois,
-                spotId = null
-            )
-            stages.add(finalStage)
+            if (endLat != null && endLng != null) {
+                val finalStage = createTripStage(
+                    dayNumber = finalDay,
+                    startKm = prevKm,
+                    endKm = totalWalkKm,
+                    fromName = prevName,
+                    toName = destName,
+                    stopType = "DESTINATION",
+                    stopLat = endLat,
+                    stopLng = endLng,
+                    bookingRequired = false,
+                    hasWaterNearby = waterPois.any { GeoUtils.distanceMeters(endLat, endLng, it.lat, it.lng) <= 500.0 },
+                    hasToiletNearby = toiletPois.any { GeoUtils.distanceMeters(endLat, endLng, it.lat, it.lng) <= 500.0 },
+                    detourMeters = 0.0,
+                    plannedRoute = plannedRoute,
+                    paceKmh = paceKmh,
+                    startTime = startTime,
+                    sunsetTime = effSunset,
+                    waterPois = waterPois,
+                    shopPois = shopPois,
+                    spotId = null
+                )
+                stages.add(finalStage)
+            }
             return stages
         }
 
@@ -321,7 +323,10 @@ object StagePlanner {
                 // Last day ends at route end (Requirement C)
                 val stageStartKm = prevEndWalkKm
                 val stageEndKm = totalWalkKm
-                val goalPt = plannedRoute.points.lastOrNull() ?: RoutePoint(55.0, 10.0, 0.0, totalWalkKm, fallbackTotalTrailKm)
+                val endWp = waypoints.lastOrNull { !it.isHelper }
+                val goalPt = plannedRoute.points.lastOrNull()
+                    ?: endWp?.let { RoutePoint(it.lat, it.lng, 0.0, totalWalkKm, fallbackTotalTrailKm) }
+                    ?: continue
 
                 // Check candidate at/near route end
                 val windowCandidates = candidates.filter {
@@ -427,8 +432,9 @@ object StagePlanner {
                     val warnMsg = "Ingen overnatning fundet nær km $kmLabel"
 
                     val ptAtKm = plannedRoute.points.find { it.walkKm >= stageEndKm } ?: plannedRoute.points.lastOrNull()
-                    val lat = ptAtKm?.lat ?: 55.0
-                    val lng = ptAtKm?.lng ?: 10.0
+                    val endWp = waypoints.lastOrNull { !it.isHelper }
+                    val lat = ptAtKm?.lat ?: endWp?.lat ?: continue
+                    val lng = ptAtKm?.lng ?: endWp?.lng ?: continue
 
                     val stage = createTripStage(
                         dayNumber = day,
@@ -545,7 +551,7 @@ object StagePlanner {
             val reachesRouteEnd = isLast && (totalWalkKm <= (targetKm + 3.0))
 
             if (reachesRouteEnd) {
-                val goalPt = plannedRoute.points.lastOrNull() ?: RoutePoint(55.0, 10.0, 0.0, totalWalkKm, trail.computedWalkingKm)
+                val goalPt = plannedRoute.points.lastOrNull() ?: continue
                 val windowCandidates = allCandidates.filter {
                     it.walkKm >= (totalWalkKm - 4.0) &&
                             it.walkKm <= (totalWalkKm + 3.0) &&
@@ -639,9 +645,9 @@ object StagePlanner {
                     val stageEndKm = min(totalWalkKm, targetKm)
                     val kmLabel = String.format(Locale.US, "%.1f", targetKm)
                     val warnMsg = "Ingen overnatning fundet nær km $kmLabel"
-                    val ptAtKm = plannedRoute.points.find { it.walkKm >= stageEndKm } ?: plannedRoute.points.lastOrNull()
-                    val lat = ptAtKm?.lat ?: 55.0
-                    val lng = ptAtKm?.lng ?: 10.0
+                    val ptAtKm = plannedRoute.points.find { it.walkKm >= stageEndKm } ?: plannedRoute.points.lastOrNull() ?: continue
+                    val lat = ptAtKm.lat
+                    val lng = ptAtKm.lng
 
                     val stage = createTripStage(
                         dayNumber = day,
@@ -723,13 +729,13 @@ object StagePlanner {
         val candToUse = if (nearCand != null && abs(nearCand.walkKm - clampedEnd) <= 3.5) {
             nearCand
         } else {
-            val ptAtKm = plannedRoute.points.find { it.walkKm >= clampedEnd } ?: plannedRoute.points.lastOrNull()
+            val ptAtKm = plannedRoute.points.find { it.walkKm >= clampedEnd } ?: plannedRoute.points.lastOrNull() ?: return currentStages
             OvernightCandidate(
                 id = "dragged_$changedStageIndex",
                 name = "Km ${String.format(Locale.US, "%.1f", clampedEnd)}",
                 type = "NONE",
-                lat = ptAtKm?.lat ?: 55.0,
-                lng = ptAtKm?.lng ?: 10.0,
+                lat = ptAtKm.lat,
+                lng = ptAtKm.lng,
                 walkKm = clampedEnd,
                 detourMeters = 0.0,
                 bookingRequired = false,

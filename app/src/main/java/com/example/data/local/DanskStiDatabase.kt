@@ -41,7 +41,7 @@ import com.example.data.model.UserHazardNoteEntity
         com.example.data.model.WaterFeatureEntity::class,
         com.example.data.model.WaterTileCacheEntity::class
     ],
-    version = 22,
+    version = 23,
     exportSchema = true
 )
 abstract class DanskStiDatabase : RoomDatabase() {
@@ -51,6 +51,9 @@ abstract class DanskStiDatabase : RoomDatabase() {
     companion object {
         @Volatile
         private var INSTANCE: DanskStiDatabase? = null
+
+        @Volatile
+        var appFilesDir: java.io.File? = null
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {}
@@ -474,11 +477,54 @@ abstract class DanskStiDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Delete invented POIs, access polygons, water features, and marked routes
+                db.execSQL("DELETE FROM pois WHERE id LIKE 'dk_shop_%' OR id LIKE 'dk_transit_%'")
+                db.execSQL("DELETE FROM trail_pois WHERE poiId LIKE 'dk_shop_%' OR poiId LIKE 'dk_transit_%'")
+                db.execSQL("DELETE FROM access_polygons WHERE id LIKE 'nst_forest_%' OR id LIKE 'fredning_%' OR id LIKE 'priv_forest_%'")
+                db.execSQL("DELETE FROM water_features")
+                db.execSQL("DELETE FROM marked_routes WHERE osmRelationId >= 900000")
+
+                // Fix trip plans whose trailId starts with "route_trail_" (strip "route_")
+                db.execSQL("UPDATE trip_plans SET trailId = SUBSTR(trailId, 7) WHERE trailId LIKE 'route_trail_%'")
+
+                // Reset isGeometryDownloaded = false and computedWalkingKm = 0 for trails whose geometry file does not exist
+                val filesDir = appFilesDir
+                if (filesDir == null) {
+                    db.execSQL("UPDATE trails SET isGeometryDownloaded = 0, computedWalkingKm = 0.0, bboxNorth = NULL, bboxSouth = NULL, bboxEast = NULL, bboxWest = NULL")
+                } else {
+                    val idsToReset = mutableListOf<String>()
+                    val cursor = db.query("SELECT id FROM trails")
+                    try {
+                        while (cursor.moveToNext()) {
+                            val id = cursor.getString(0) ?: continue
+                            val gzFile = java.io.File(java.io.File(filesDir, "trails"), "$id.json.gz")
+                            val plainFile = java.io.File(filesDir, "trail_geom_$id.json")
+                            val routeFile = java.io.File(java.io.File(filesDir, "routes"), "${id.removePrefix("custom_route_").removePrefix("route_")}.json.gz")
+                            if (!gzFile.exists() && !plainFile.exists() && !routeFile.exists()) {
+                                idsToReset.add(id)
+                            }
+                        }
+                    } finally {
+                        cursor.close()
+                    }
+                    for (tid in idsToReset) {
+                        db.execSQL(
+                            "UPDATE trails SET isGeometryDownloaded = 0, computedWalkingKm = 0.0, bboxNorth = NULL, bboxSouth = NULL, bboxEast = NULL, bboxWest = NULL WHERE id = ?",
+                            arrayOf<Any>(tid)
+                        )
+                    }
+                }
+            }
+        }
+
         fun resetInstance() {
             INSTANCE = null
         }
 
         fun getInstance(context: Context): DanskStiDatabase {
+            appFilesDir = context.applicationContext.filesDir
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
@@ -490,7 +536,7 @@ abstract class DanskStiDatabase : RoomDatabase() {
                     MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13,
                     MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
                     MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21,
-                    MIGRATION_21_22
+                    MIGRATION_21_22, MIGRATION_22_23
                 )
                     .build()
                 INSTANCE = instance

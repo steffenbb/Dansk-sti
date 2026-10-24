@@ -55,7 +55,7 @@ class OsmPoiRepository(private val context: Context) {
                 val request = Request.Builder()
                     .url("https://overpass-api.de/api/interpreter")
                     .post(body)
-                    .header("User-Agent", "DanskSti/1.0 (Android Hiking App)")
+                    .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
                     .build()
 
                 client.newCall(request).execute().use { response ->
@@ -131,7 +131,7 @@ class OsmPoiRepository(private val context: Context) {
                 val requestBody = query.toRequestBody("text/plain".toMediaType())
                 val request = Request.Builder()
                     .url(endpoint)
-                    .header("User-Agent", "DanskSti/1.8 (https://dansksti.app; contact@dansksti.app)")
+                    .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
                     .post(requestBody)
                     .build()
 
