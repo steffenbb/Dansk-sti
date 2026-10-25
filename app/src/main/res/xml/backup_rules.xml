@@ -3,7 +3,8 @@
     <include domain="database" path="." />
     <include domain="sharedpref" path="." />
     <exclude domain="sharedpref" path="osmdroid_prefs.xml" />
-    <include domain="file" path="datastore" />
+    <!-- Include files/ (for datastore) and exclude cached/offline directories -->
+    <include domain="file" path="." />
     <exclude domain="file" path="trails" />
     <exclude domain="file" path="routes" />
     <exclude domain="file" path="plans" />
