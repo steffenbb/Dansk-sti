@@ -34,6 +34,7 @@ class RoutingEngineTest {
 
     @Before
     fun setUp() {
+        BRouterOnlineEngine.resetStateForTesting()
         val app = ApplicationProvider.getApplicationContext<DanskStiApp>()
         database = Room.inMemoryDatabaseBuilder(app, DanskStiDatabase::class.java)
             .allowMainThreadQueries()
@@ -42,6 +43,7 @@ class RoutingEngineTest {
 
     @After
     fun tearDown() {
+        BRouterOnlineEngine.resetStateForTesting()
         database.close()
     }
 

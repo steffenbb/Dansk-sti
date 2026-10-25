@@ -326,7 +326,7 @@ fun ProfileScreen(
                         )
                     }
                     Text(
-                        text = "kl. ${appSettings.startTime}",
+                        text = stringResource(R.string.ui_profilescreen_kl_99, appSettings.startTime),
                         style = TabularBodyStyle,
                         fontWeight = FontWeight.Bold,
                         color = ForestGreenPrimary,
@@ -696,7 +696,7 @@ fun ProfileScreen(
                         Spacer(modifier = Modifier.width(Spacing.s2))
                         Column {
                             Text(
-                                text = "Dansk Sti v${BuildConfig.VERSION_NAME}",
+                                text = stringResource(R.string.ui_profilescreen_dansk_sti_v_100, BuildConfig.VERSION_NAME),
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface

@@ -1,4 +1,7 @@
 package com.example.ui.components
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -40,14 +43,14 @@ fun ApiKeyPromptDialog(
         icon = {
             Icon(
                 imageVector = Icons.Default.VpnKey,
-                contentDescription = "API Nøgle",
+                contentDescription = stringResource(R.string.ui_apikeypromptdialog_api_n_gle_1),
                 tint = ForestGreenPrimary,
                 modifier = Modifier.size(32.dp)
             )
         },
         title = {
             Text(
-                text = "Dataforsyningen API-nøgle påkrævet",
+                text = stringResource(R.string.ui_apikeypromptdialog_dataforsyningen_api_n_gle_p__2),
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp,
                 color = MaterialTheme.colorScheme.onSurface
@@ -56,20 +59,20 @@ fun ApiKeyPromptDialog(
         text = {
             Column {
                 Text(
-                    text = "Dansk Sti benytter Danmarks officielle topografiske kort (Skærmkortet fra Klimadatastyrelsen/SDFI) for optimal visning af vandreruter og naturstier.",
+                    text = stringResource(R.string.ui_apikeypromptdialog_dansk_sti_benytter_danmarks__3),
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "For at vise de officielle kortfliser skal du angive en gratis SDFI API-nøgle i Secrets-panelet (DATAFORSYNINGEN_API_KEY).",
+                    text = stringResource(R.string.ui_apikeypromptdialog_for_at_vise_de_officielle_ko_4),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Du kan fortsætte med standard OpenStreetMap kortfliser, mens du konfigurerer nøglen.",
+                    text = stringResource(R.string.ui_apikeypromptdialog_du_kan_forts_tte_med_standar_5),
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -81,7 +84,7 @@ fun ApiKeyPromptDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
                 modifier = Modifier.testTag("use_osm_button")
             ) {
-                Text("Brug OpenStreetMap")
+                Text(stringResource(R.string.ui_apikeypromptdialog_brug_openstreetmap_6))
             }
         },
         dismissButton = {
@@ -89,7 +92,7 @@ fun ApiKeyPromptDialog(
                 onClick = onDismiss,
                 modifier = Modifier.testTag("dismiss_key_prompt_button")
             ) {
-                Text("Luk")
+                Text(stringResource(R.string.btn_close))
             }
         },
         modifier = modifier.testTag("api_key_prompt_dialog")

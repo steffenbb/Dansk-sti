@@ -118,9 +118,15 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
     val userLocation: StateFlow<Pair<Double, Double>?> = _userLocation.asStateFlow()
 
     fun updateUserLocation(lat: Double, lng: Double) {
-        val safeLat = if (lat in 54.4..58.0 && lng in 7.8..15.5) lat else 56.05
-        val safeLng = if (lat in 54.4..58.0 && lng in 7.8..15.5) lng else 9.65
-        _userLocation.value = Pair(safeLat, safeLng)
+        if (lat.isFinite() && lng.isFinite() && (lat != 0.0 || lng != 0.0)) {
+            _userLocation.value = Pair(lat, lng)
+        } else {
+            _userLocation.value = null
+        }
+    }
+
+    fun clearUserLocation() {
+        _userLocation.value = null
     }
 
     init {
@@ -268,11 +274,19 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
             emptyList()
         } else {
             val (uLat, uLng) = loc
-            trails.sortedBy { t ->
-                val cLat = if (t.bboxSouth != null && t.bboxNorth != null) (t.bboxSouth + t.bboxNorth) / 2.0 else 56.0
-                val cLng = if (t.bboxWest != null && t.bboxEast != null) (t.bboxWest + t.bboxEast) / 2.0 else 10.0
-                GeoUtils.haversineMeters(uLat, uLng, cLat, cLng)
-            }.take(4)
+            trails.mapNotNull { t ->
+                val south = t.bboxSouth
+                val north = t.bboxNorth
+                val west = t.bboxWest
+                val east = t.bboxEast
+                if (south != null && north != null && west != null && east != null) {
+                    val cLat = (south + north) / 2.0
+                    val cLng = (west + east) / 2.0
+                    Pair(t, GeoUtils.haversineMeters(uLat, uLng, cLat, cLng))
+                } else {
+                    null
+                }
+            }.sortedBy { it.second }.map { it.first }.take(4)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

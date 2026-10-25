@@ -1,4 +1,7 @@
 package com.example.ui.components
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
 
 import android.content.Context
 import android.content.Intent
@@ -295,7 +298,7 @@ fun DropPinBottomSheet(
                     )
                     Column {
                         Text(
-                            text = "Valgt punkt på kort",
+                            text = stringResource(R.string.ui_droppinbottomsheet_valgt_punkt_p_kort_7),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -309,7 +312,7 @@ fun DropPinBottomSheet(
                     }
                 }
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Luk")
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.btn_close))
                 }
             }
 
@@ -371,7 +374,7 @@ fun DropPinBottomSheet(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = "Højde: $elevationText",
+                                text = stringResource(R.string.ui_droppinbottomsheet_h_jde_8, elevationText),
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.testTag("drop_pin_elevation")
@@ -389,7 +392,7 @@ fun DropPinBottomSheet(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = "Afstand: $distanceText",
+                                text = stringResource(R.string.ui_droppinbottomsheet_afstand_9, distanceText),
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.testTag("drop_pin_distance")
@@ -439,14 +442,14 @@ fun DropPinBottomSheet(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "Gem i Mine punkter",
+                            text = stringResource(R.string.ui_droppinbottomsheet_gem_i_mine_punkter_10),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         OutlinedTextField(
                             value = saveName,
                             onValueChange = { saveName = it },
-                            label = { Text("Navn") },
+                            label = { Text(stringResource(R.string.ui_droppinbottomsheet_navn_11)) },
                             singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -455,7 +458,7 @@ fun DropPinBottomSheet(
                         OutlinedTextField(
                             value = saveNote,
                             onValueChange = { saveNote = it },
-                            label = { Text("Note (valgfri)") },
+                            label = { Text(stringResource(R.string.ui_droppinbottomsheet_note_valgfri_12)) },
                             singleLine = false,
                             maxLines = 3,
                             modifier = Modifier
@@ -467,7 +470,7 @@ fun DropPinBottomSheet(
                             horizontalArrangement = Arrangement.End
                         ) {
                             TextButton(onClick = { showSaveForm = false }) {
-                                Text("Annuller")
+                                Text(stringResource(R.string.btn_cancel))
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             Button(
@@ -492,14 +495,14 @@ fun DropPinBottomSheet(
                                 colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
                                 modifier = Modifier.testTag("drop_pin_confirm_save_button")
                             ) {
-                                Text("Gem")
+                                Text(stringResource(R.string.btn_save))
                             }
                         }
                     }
                 }
             } else if (savedConfirmation) {
                 Text(
-                    text = "✓ Punktet er gemt under Mine punkter",
+                    text = stringResource(R.string.ui_droppinbottomsheet_punktet_er_gemt_under_mine_p_13),
                     style = MaterialTheme.typography.bodyMedium,
                     color = ForestGreenPrimary,
                     fontWeight = FontWeight.SemiBold
@@ -527,7 +530,7 @@ fun DropPinBottomSheet(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Rute hertil", maxLines = 1)
+                    Text(stringResource(R.string.ui_droppinbottomsheet_rute_hertil_14), maxLines = 1)
                 }
 
                 OutlinedButton(
@@ -542,7 +545,7 @@ fun DropPinBottomSheet(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Gem punkt", maxLines = 1)
+                    Text(stringResource(R.string.save_point_dialog_title), maxLines = 1)
                 }
 
                 OutlinedButton(
@@ -566,7 +569,7 @@ fun DropPinBottomSheet(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Del position", maxLines = 1)
+                    Text(stringResource(R.string.nav_share_position), maxLines = 1)
                 }
             }
         }

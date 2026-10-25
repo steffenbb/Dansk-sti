@@ -1,4 +1,7 @@
 package com.example.ui.screens
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -90,12 +93,12 @@ fun ApiDiagnosticsScreen(
                 title = {
                     Column {
                         Text(
-                            text = "API & Netværksdiagnostik",
+                            text = stringResource(R.string.about_diagnostics),
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Validering af kortfliser & rutedatakilder",
+                            text = stringResource(R.string.ui_apidiagnosticsscreen_validering_af_kortfliser_rut_31),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -108,7 +111,7 @@ fun ApiDiagnosticsScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Tilbage"
+                            contentDescription = stringResource(R.string.btn_back)
                         )
                     }
                 },
@@ -149,7 +152,7 @@ fun ApiDiagnosticsScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Systemtilstand",
+                                    text = stringResource(R.string.ui_apidiagnosticsscreen_systemtilstand_32),
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -180,7 +183,7 @@ fun ApiDiagnosticsScreen(
                                         color = Color.White
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Tester...")
+                                    Text(stringResource(R.string.ui_apidiagnosticsscreen_tester_33))
                                 } else {
                                     Icon(
                                         imageVector = Icons.Default.Refresh,
@@ -188,7 +191,7 @@ fun ApiDiagnosticsScreen(
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Test alle")
+                                    Text(stringResource(R.string.ui_apidiagnosticsscreen_test_alle_34))
                                 }
                             }
                         }
@@ -235,7 +238,7 @@ fun ApiDiagnosticsScreen(
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                text = "Aktiv routing & adgangsstatus",
+                                text = stringResource(R.string.ui_apidiagnosticsscreen_aktiv_routing_adgangsstatus_35),
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -246,7 +249,7 @@ fun ApiDiagnosticsScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Miljøportal WFS:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.ui_apidiagnosticsscreen_milj_portal_wfs_36), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
                                     text = if (wfsAnswered) "Svarede ($wfsCount statspolygoner)" else "Ikke svaret endnu",
                                     fontSize = 13.sp,
@@ -260,7 +263,7 @@ fun ApiDiagnosticsScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Aktiv BRouter-profil:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.ui_apidiagnosticsscreen_aktiv_brouter_profil_37), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
                                     text = activeProfile,
                                     fontSize = 13.sp,
@@ -277,7 +280,7 @@ fun ApiDiagnosticsScreen(
                                     modifier = Modifier.fillMaxWidth().testTag("brouter_profile_syntax_error_box")
                                 ) {
                                     Text(
-                                        text = "Profil-syntaksfejl fra server:\n$syntaxError",
+                                        text = stringResource(R.string.ui_apidiagnosticsscreen_profil_syntaksfejl_fra_s_38, syntaxError),
                                         fontSize = 12.sp,
                                         color = AlertRed,
                                         modifier = Modifier.padding(10.dp)
@@ -405,7 +408,7 @@ private fun DiagnosticResultCard(checkResult: ApiCheckResult) {
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                     ) {
                         Text(
-                            text = "$ms ms",
+                            text = stringResource(R.string.ui_apidiagnosticsscreen_ms_39, ms),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Medium,
@@ -430,7 +433,7 @@ private fun DiagnosticResultCard(checkResult: ApiCheckResult) {
 
             // Endpoint URL readout
             Text(
-                text = "Endpoint: ${checkResult.endpointUrl}",
+                text = stringResource(R.string.ui_apidiagnosticsscreen_endpoint_40, checkResult.endpointUrl),
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
@@ -478,7 +481,7 @@ private fun CacheInfoCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Lokal Rutedatacache (Disk)",
+                        text = stringResource(R.string.ui_apidiagnosticsscreen_lokal_rutedatacache_disk_41),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -496,13 +499,13 @@ private fun CacheInfoCard(
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Ryd cache", fontSize = 12.sp)
+                    Text(stringResource(R.string.storage_clear_cache), fontSize = 12.sp)
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "$cachedTrailsCount ruter gemt som komprimeret JSON.GZ i enhedens interne lager ($sizeText). Gemte ruter indlæses øjeblikkeligt offline uden at belaste OpenStreetMap.",
+                text = stringResource(R.string.ui_apidiagnosticsscreen_ruter_gemt_som_komprimer_42, cachedTrailsCount, sizeText),
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -534,7 +537,7 @@ private fun ApiKeyGuideCard() {
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Konfiguration af Dataforsyningen Token",
+                    text = stringResource(R.string.ui_apidiagnosticsscreen_konfiguration_af_dataforsyni_43),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -544,7 +547,7 @@ private fun ApiKeyGuideCard() {
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Kortfliser fra Klimadatastyrelsen (Skærmkortet WMS) kræver en gratis token fra Dataforsyningen:\n" +
+                text = stringResource(R.string.ui_apidiagnosticsscreen_kortfliser_fra_klimadatastyr_44) +
                         "1. Opret en gratis konto på dataforsyningen.dk\n" +
                         "2. Opret en token under \"Min side\" -> \"Tokens\"\n" +
                         "3. Tilføj nøglen som DATAFORSYNINGEN_API_KEY i AI Studio Secrets panelet\n" +

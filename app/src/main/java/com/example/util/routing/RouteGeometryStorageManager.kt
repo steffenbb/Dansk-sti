@@ -74,6 +74,8 @@ data class LegGeometryData(
                 val tsObj = JSONObject()
                 tsObj.put("type", ts.type.name)
                 tsObj.put("lengthKm", ts.lengthKm)
+                if (ts.highway != null) tsObj.put("highway", ts.highway)
+                if (ts.surface != null) tsObj.put("surface", ts.surface)
                 val tsPts = JSONArray()
                 for (p in ts.points) {
                     val pArr = JSONArray()
@@ -83,6 +85,18 @@ data class LegGeometryData(
                     tsPts.put(pArr)
                 }
                 tsObj.put("points", tsPts)
+                if (ts.wayTagRanges.isNotEmpty()) {
+                    val rangesArr = JSONArray()
+                    for (r in ts.wayTagRanges) {
+                        val rObj = JSONObject()
+                        rObj.put("fromKm", r.fromKm)
+                        rObj.put("toKm", r.toKm)
+                        if (r.highway != null) rObj.put("highway", r.highway)
+                        if (r.surface != null) rObj.put("surface", r.surface)
+                        rangesArr.put(rObj)
+                    }
+                    tsObj.put("wayTagRanges", rangesArr)
+                }
                 tsArr.put(tsObj)
             }
             obj.put("trailSegments", tsArr)
@@ -136,6 +150,8 @@ data class LegGeometryData(
                     val type = runCatching { com.example.data.model.TrailSegmentType.valueOf(typeStr) }
                         .getOrDefault(com.example.data.model.TrailSegmentType.WALK)
                     val lenKm = tsObj.optDouble("lengthKm", 0.0)
+                    val hw = if (tsObj.has("highway") && !tsObj.isNull("highway")) tsObj.optString("highway") else null
+                    val surf = if (tsObj.has("surface") && !tsObj.isNull("surface")) tsObj.optString("surface") else null
                     val tsPtsArr = tsObj.optJSONArray("points")
                     val tsPts = ArrayList<com.example.data.model.GeoPointDto>()
                     if (tsPtsArr != null) {
@@ -147,7 +163,31 @@ data class LegGeometryData(
                             tsPts.add(com.example.data.model.GeoPointDto(lat, lng, ele))
                         }
                     }
-                    tsList.add(com.example.data.model.TrailSegmentDto(type, tsPts, lenKm))
+                    val rangesArr = tsObj.optJSONArray("wayTagRanges")
+                    val rangesList = ArrayList<com.example.data.model.WayTagRangeDto>()
+                    if (rangesArr != null) {
+                        for (k in 0 until rangesArr.length()) {
+                            val rObj = rangesArr.getJSONObject(k)
+                            rangesList.add(
+                                com.example.data.model.WayTagRangeDto(
+                                    fromKm = rObj.optDouble("fromKm", 0.0),
+                                    toKm = rObj.optDouble("toKm", 0.0),
+                                    highway = if (rObj.has("highway") && !rObj.isNull("highway")) rObj.optString("highway") else null,
+                                    surface = if (rObj.has("surface") && !rObj.isNull("surface")) rObj.optString("surface") else null
+                                )
+                            )
+                        }
+                    }
+                    tsList.add(
+                        com.example.data.model.TrailSegmentDto(
+                            type = type,
+                            points = tsPts,
+                            lengthKm = lenKm,
+                            highway = hw,
+                            surface = surf,
+                            wayTagRanges = rangesList
+                        )
+                    )
                 }
             }
 

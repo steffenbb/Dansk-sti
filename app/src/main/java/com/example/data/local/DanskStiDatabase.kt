@@ -41,7 +41,7 @@ import com.example.data.model.UserHazardNoteEntity
         com.example.data.model.WaterFeatureEntity::class,
         com.example.data.model.WaterTileCacheEntity::class
     ],
-    version = 23,
+    version = 24,
     exportSchema = true
 )
 abstract class DanskStiDatabase : RoomDatabase() {
@@ -519,6 +519,69 @@ abstract class DanskStiDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // First ensure trails whose geometry file does not exist on disk have isGeometryDownloaded = 0
+                val filesDir = appFilesDir
+                if (filesDir != null) {
+                    val missingTrailIds = mutableListOf<String>()
+                    val cursor = db.query("SELECT id FROM trails WHERE isGeometryDownloaded = 1")
+                    try {
+                        while (cursor.moveToNext()) {
+                            val id = cursor.getString(0) ?: continue
+                            val gzFile = java.io.File(java.io.File(filesDir, "trails"), "$id.json.gz")
+                            val plainFile = java.io.File(filesDir, "trail_geom_$id.json")
+                            val routeFile = java.io.File(
+                                java.io.File(filesDir, "routes"),
+                                "${id.removePrefix("custom_route_").removePrefix("route_")}.json.gz"
+                            )
+                            if (!gzFile.exists() && !plainFile.exists() && !routeFile.exists()) {
+                                missingTrailIds.add(id)
+                            }
+                        }
+                    } finally {
+                        cursor.close()
+                    }
+                    for (tid in missingTrailIds) {
+                        db.execSQL(
+                            "UPDATE trails SET isGeometryDownloaded = 0, computedWalkingKm = 0.0 WHERE id = ?",
+                            arrayOf<Any>(tid)
+                        )
+                    }
+                }
+
+                // Delete marked routes whose operator is "Naturstyrelsen / Dansk Vandrelaug"
+                // or whose geometry was not downloaded from Overpass.
+                db.execSQL(
+                    """
+                    DELETE FROM marked_routes
+                    WHERE operator = 'Naturstyrelsen / Dansk Vandrelaug'
+                       OR operator LIKE '%Naturstyrelsen / Dansk Vandrelaug%'
+                       OR osmRelationId >= 900000
+                       OR osmRelationId <= 0
+                       OR segmentsJson IS NULL
+                       OR TRIM(segmentsJson) = ''
+                       OR TRIM(segmentsJson) = '[]'
+                       OR segmentsJson NOT LIKE '[[[%'
+                       OR osmRelationId IN (
+                           SELECT osmRelationId FROM trails
+                           WHERE osmRelationId IS NOT NULL AND isGeometryDownloaded = 0
+                       )
+                       OR (
+                           EXISTS (SELECT 1 FROM marked_route_cache_boxes)
+                           AND NOT EXISTS (
+                               SELECT 1 FROM marked_route_cache_boxes b
+                               WHERE marked_routes.minLat <= b.maxLat
+                                 AND marked_routes.maxLat >= b.minLat
+                                 AND marked_routes.minLng <= b.maxLng
+                                 AND marked_routes.maxLng >= b.minLng
+                           )
+                       )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun resetInstance() {
             INSTANCE = null
         }
@@ -536,7 +599,7 @@ abstract class DanskStiDatabase : RoomDatabase() {
                     MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13,
                     MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
                     MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21,
-                    MIGRATION_21_22, MIGRATION_22_23
+                    MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24
                 )
                     .build()
                 INSTANCE = instance

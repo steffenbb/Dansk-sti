@@ -260,6 +260,7 @@ class FixRound5PartBTest {
             1,
             profileUploadCalls.get()
         )
+        BRouterOnlineEngine.resetStateForTesting()
     }
 
     @Test

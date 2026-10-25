@@ -197,10 +197,10 @@ fun SavedPlansScreen(
                     modifier = Modifier.padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Opret ny rute")
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.ui_savedplansscreen_opret_ny_rute_171))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Planlæg rute",
+                        text = stringResource(R.string.map_tool_plan_route),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold
                     )
@@ -564,7 +564,7 @@ fun SavedPlansScreen(
                                         Spacer(modifier = Modifier.width(Spacing.s3))
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                text = "Rutedata for Danmark",
+                                                text = stringResource(R.string.ui_offlinetrailsscreen_rutedata_for_danmark_85),
                                                 style = MaterialTheme.typography.bodyLarge,
                                                 fontWeight = FontWeight.Bold,
                                                 color = MaterialTheme.colorScheme.onSurface
@@ -597,7 +597,7 @@ fun SavedPlansScreen(
                                                     style = MaterialTheme.typography.labelMedium
                                                 )
                                                 Text(
-                                                    text = "${brouterState.progressPercent} %",
+                                                    text = stringResource(R.string.ui_offlinetrailsscreen_fmt_86, brouterState.progressPercent),
                                                     style = TabularLabelStyle,
                                                     fontWeight = FontWeight.Bold,
                                                     color = ForestGreenPrimary
@@ -617,7 +617,7 @@ fun SavedPlansScreen(
                                                     .align(Alignment.End)
                                                     .testTag("btn_brouter_cancel")
                                             ) {
-                                                Text("Annuller")
+                                                Text(stringResource(R.string.btn_cancel))
                                             }
                                         }
                                     } else {
@@ -657,12 +657,12 @@ fun SavedPlansScreen(
                                                         horizontalArrangement = Arrangement.SpaceBetween
                                                     ) {
                                                         Text(
-                                                            text = "${seg.filename} (${seg.name})",
+                                                            text = stringResource(R.string.ui_offlinetrailsscreen_fmt_87, seg.filename, seg.name),
                                                             style = MaterialTheme.typography.labelMedium,
                                                             color = MaterialTheme.colorScheme.onSurface
                                                         )
                                                         Text(
-                                                            text = "${seg.sizeMb} MB",
+                                                            text = stringResource(R.string.ui_offlinetrailsscreen_mb_88, seg.sizeMb),
                                                             style = TabularLabelStyle,
                                                             fontWeight = FontWeight.SemiBold,
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -686,7 +686,7 @@ fun SavedPlansScreen(
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
-                                                    text = "Hent kun via Wi-Fi",
+                                                    text = stringResource(R.string.ui_offlinetrailsscreen_hent_kun_via_wi_fi_89),
                                                     style = MaterialTheme.typography.bodyMedium
                                                 )
                                             }
@@ -712,7 +712,7 @@ fun SavedPlansScreen(
                                             ) {
                                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                                                 Spacer(modifier = Modifier.width(8.dp))
-                                                Text("Opdater rutedata")
+                                                Text(stringResource(R.string.storage_brouter_update))
                                             }
                                         } else {
                                             Button(
@@ -726,7 +726,7 @@ fun SavedPlansScreen(
                                             ) {
                                                 Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                                                 Spacer(modifier = Modifier.width(8.dp))
-                                                Text("Hent rutedata (${BRouterSegments.TOTAL_SIZE_MB} MB)")
+                                                Text(stringResource(R.string.ui_offlinetrailsscreen_hent_rutedata_mb_91, BRouterSegments.TOTAL_SIZE_MB))
                                             }
                                         }
                                     }
@@ -851,7 +851,7 @@ private fun TripPlanLibraryCard(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Oprettet $dateStr",
+                        text = stringResource(R.string.ui_savedplansscreen_oprettet_172, dateStr),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -866,7 +866,7 @@ private fun TripPlanLibraryCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Share,
-                            contentDescription = "Del turplan",
+                            contentDescription = stringResource(R.string.ui_savedplansscreen_del_turplan_173),
                             tint = ForestGreenPrimary
                         )
                     }
@@ -888,7 +888,7 @@ private fun TripPlanLibraryCard(
             Spacer(modifier = Modifier.height(Spacing.s2))
 
             Text(
-                text = "${formatDanishKm(plan.totalDistanceKm, 1)} km · ${plan.targetDays} ${if (plan.targetDays == 1) "dag" else "dage"} · ${formatDanishKm(plan.paceKmh, 1)} km/t",
+                text = stringResource(R.string.ui_savedplansscreen_km_km_t_174, formatDanishKm(plan.totalDistanceKm, 1), plan.targetDays, if (plan.targetDays == 1) "dag" else "dage", formatDanishKm(plan.paceKmh, 1)),
                 style = TabularBodyStyle.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
                 color = ForestGreenPrimary
             )
@@ -909,7 +909,7 @@ private fun TripPlanLibraryCard(
                 ) {
                     Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Åbn i planlægger", style = MaterialTheme.typography.labelMedium)
+                    Text(stringResource(R.string.ui_savedplansscreen_bn_i_planl_gger_175), style = MaterialTheme.typography.labelMedium)
                 }
 
                 Button(
@@ -923,7 +923,7 @@ private fun TripPlanLibraryCard(
                 ) {
                     Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Start", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.ui_savedplansscreen_start_176), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -972,7 +972,7 @@ private fun CustomRouteLibraryCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "${formatDanishKm(route.lengthKm, 1)} km · +${formatDanishElevationMeters(route.ascentM.toInt())} m",
+                    text = stringResource(R.string.ui_savedplansscreen_km_m_177, formatDanishKm(route.lengthKm, 1), formatDanishElevationMeters(route.ascentM.toInt())),
                     style = TabularLabelStyle,
                     color = ForestGreenPrimary,
                     fontWeight = FontWeight.SemiBold
@@ -986,7 +986,7 @@ private fun CustomRouteLibraryCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Edit,
-                    contentDescription = "Rediger rute",
+                    contentDescription = stringResource(R.string.ui_savedplansscreen_rediger_rute_178),
                     tint = ForestGreenPrimary
                 )
             }
@@ -1048,7 +1048,7 @@ private fun SavedTrailLibraryCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "${trail.region} · ${formatDanishKm(trail.lengthKm, 1)} km",
+                    text = stringResource(R.string.ui_kortscreen_km_55, trail.region, formatDanishKm(trail.lengthKm, 1)),
                     style = TabularLabelStyle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1173,12 +1173,12 @@ private fun RecordingLibraryCard(
             Spacer(modifier = Modifier.width(Spacing.s3))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Optagelse · Dag ${recording.dayNumber}",
+                    text = stringResource(R.string.ui_savedplansscreen_optagelse_dag_179, recording.dayNumber),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "${formatDanishKm(recording.distanceKm, 1)} km · +${recording.ascentMeters} m · ${hours}t ${mins}m · $dateStr",
+                    text = stringResource(R.string.ui_savedplansscreen_km_m_t_m_180, formatDanishKm(recording.distanceKm, 1), recording.ascentMeters, hours, mins, dateStr),
                     style = TabularLabelStyle,
                     color = ForestGreenPrimary,
                     fontWeight = FontWeight.SemiBold
@@ -1247,7 +1247,7 @@ private fun OfflineTrailLibraryCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "$itemMb MB · ${item.tileCount} fliser · Hentet $dateStr",
+                    text = stringResource(R.string.ui_savedplansscreen_mb_fliser_hentet_181, itemMb, item.tileCount, dateStr),
                     style = TabularLabelStyle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

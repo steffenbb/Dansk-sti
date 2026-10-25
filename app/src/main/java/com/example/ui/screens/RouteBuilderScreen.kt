@@ -1,4 +1,7 @@
 package com.example.ui.screens
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
 
 import android.content.Context
 import android.graphics.Color as AndroidColor
@@ -80,6 +83,10 @@ import com.example.data.model.SupplyGapType
 import com.example.data.model.SupplyGapWarning
 import com.example.data.model.UserCustomWaypointEntity
 import com.example.data.model.WaypointWeatherEta
+import com.example.ui.screens.planner.AlternativeRouteCard
+import com.example.ui.screens.planner.CustomWaypointRow
+import com.example.ui.screens.planner.PlannerBottomSheet
+import com.example.ui.screens.planner.WaypointWeatherEtaCard
 import java.io.File
 import java.io.FileOutputStream
 import androidx.compose.material3.ButtonDefaults
@@ -385,7 +392,7 @@ fun RouteBuilderScreen(
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Icon(
                                     imageVector = Icons.Default.Edit,
-                                    contentDescription = "Omdøb rute",
+                                    contentDescription = stringResource(R.string.ui_routebuilderscreen_omd_b_rute_101),
                                     modifier = Modifier.size(15.dp)
                                 )
                             }
@@ -429,7 +436,7 @@ fun RouteBuilderScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.testTag("btn_back_route_builder")) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Tilbage")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.btn_back))
                     }
                 },
                 actions = {
@@ -438,7 +445,7 @@ fun RouteBuilderScreen(
                         onClick = { viewModel.openTripSettingsSheet() },
                         modifier = Modifier.testTag("btn_open_trip_settings")
                     ) {
-                        Icon(Icons.Default.Tune, contentDescription = "Indstillinger for turen")
+                        Icon(Icons.Default.Tune, contentDescription = stringResource(R.string.ui_routebuilderscreen_indstillinger_for_turen_102))
                     }
 
                     // Toggle Map Layers Sheet
@@ -448,7 +455,7 @@ fun RouteBuilderScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Layers,
-                            contentDescription = "Kortlag",
+                            contentDescription = stringResource(R.string.ui_danskstimap_kortlag_29),
                             tint = if (uiState.isAccessLayerVisible) ForestGreenPrimary else MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -459,7 +466,7 @@ fun RouteBuilderScreen(
                             onClick = { gpxPickerLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "text/xml", "*/*")) },
                             modifier = Modifier.testTag("btn_import_gpx")
                         ) {
-                            Icon(Icons.Default.UploadFile, contentDescription = "Importer GPX")
+                            Icon(Icons.Default.UploadFile, contentDescription = stringResource(R.string.ui_routebuilderscreen_importer_gpx_103))
                         }
                     }
                 },
@@ -659,7 +666,7 @@ fun RouteBuilderScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Undgå veje og Foretræk natur virker ikke lige nu",
+                                text = stringResource(R.string.ui_routebuilderscreen_undg_veje_og_foretr_k_natur__104),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFFE65100)
@@ -678,7 +685,7 @@ fun RouteBuilderScreen(
                             .testTag("banner_select_start_point")
                     ) {
                         Text(
-                            text = "Vælg startpunkt - tryk på kortet",
+                            text = stringResource(R.string.ui_routebuilderscreen_v_lg_startpunkt_tryk_p_korte_105),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -708,7 +715,7 @@ fun RouteBuilderScreen(
                                 color = ForestGreenPrimary
                             )
                             Text(
-                                text = "Henter rutens spor...",
+                                text = stringResource(R.string.ui_routebuilderscreen_henter_rutens_spor_106),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -735,7 +742,7 @@ fun RouteBuilderScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Ruten kunne ikke hentes",
+                                text = stringResource(R.string.ui_routebuilderscreen_ruten_kunne_ikke_hentes_107),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFC62828),
@@ -750,7 +757,7 @@ fun RouteBuilderScreen(
                                     .height(34.dp)
                                     .testTag("btn_retry_trail_download")
                             ) {
-                                Text("Prøv igen", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.state_Close_or_retry), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -810,7 +817,7 @@ fun RouteBuilderScreen(
                                         .height(32.dp)
                                         .testTag("btn_retry_leg_$legKey")
                                 ) {
-                                    Text("Prøv igen", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(stringResource(R.string.state_Close_or_retry), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                                 OutlinedButton(
                                     onClick = { viewModel.setFailedLegStraight(legKey) },
@@ -821,7 +828,7 @@ fun RouteBuilderScreen(
                                         .height(32.dp)
                                         .testTag("btn_straight_leg_$legKey")
                                 ) {
-                                    Text("Tegn lige linje", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(stringResource(R.string.ui_routebuilderscreen_tegn_lige_linje_108), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                                 OutlinedButton(
                                     onClick = { viewModel.activateMovePointForFailedLeg(legKey) },
@@ -832,7 +839,7 @@ fun RouteBuilderScreen(
                                         .height(32.dp)
                                         .testTag("btn_move_point_$legKey")
                                 ) {
-                                    Text("Flyt punkt", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(stringResource(R.string.ui_routebuilderscreen_flyt_punkt_109), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -860,7 +867,7 @@ fun RouteBuilderScreen(
                             .size(44.dp)
                             .testTag("btn_recenter")
                     ) {
-                        Icon(Icons.Default.ZoomOutMap, contentDescription = "Zoom til rute", modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.ZoomOutMap, contentDescription = stringResource(R.string.ui_routebuilderscreen_zoom_til_rute_110), modifier = Modifier.size(20.dp))
                     }
                 }
 
@@ -880,7 +887,7 @@ fun RouteBuilderScreen(
                         .size(44.dp)
                         .testTag("btn_add_custom_waypoint")
                 ) {
-                    Icon(Icons.Default.Place, contentDescription = "Tilføj mit punkt", modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Place, contentDescription = stringResource(R.string.ui_routebuilderscreen_tilf_j_mit_punkt_111), modifier = Modifier.size(20.dp))
                 }
             }
 
@@ -926,12 +933,12 @@ fun RouteBuilderScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.Undo,
-                                    contentDescription = "Fortryd",
+                                    contentDescription = stringResource(R.string.snackbar_undo),
                                     tint = if (uiState.canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Text(
-                                    text = "Fortryd",
+                                    text = stringResource(R.string.snackbar_undo),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = if (uiState.canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                 )
@@ -955,12 +962,12 @@ fun RouteBuilderScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.Redo,
-                                    contentDescription = "Gendan",
+                                    contentDescription = stringResource(R.string.planner_tool_redo),
                                     tint = if (uiState.canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Text(
-                                    text = "Gendan",
+                                    text = stringResource(R.string.planner_tool_redo),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = if (uiState.canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                 )
@@ -1016,12 +1023,12 @@ fun RouteBuilderScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.SwapVert,
-                                    contentDescription = "Vend",
+                                    contentDescription = stringResource(R.string.planner_tool_reverse),
                                     tint = if (uiState.isReverse) Color(0xFF1F1600) else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Text(
-                                    text = "Vend",
+                                    text = stringResource(R.string.planner_tool_reverse),
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = if (uiState.isReverse) FontWeight.Bold else FontWeight.Medium,
                                     color = if (uiState.isReverse) Color(0xFF1F1600) else MaterialTheme.colorScheme.onSurface
@@ -1046,12 +1053,12 @@ fun RouteBuilderScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.NightShelter,
-                                    contentDescription = "Overnatning",
+                                    contentDescription = stringResource(R.string.nav_next_overnight),
                                     tint = if (uiState.isOvernightToolActive) Color(0xFF1F1600) else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Text(
-                                    text = "Overnatning",
+                                    text = stringResource(R.string.nav_next_overnight),
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = if (uiState.isOvernightToolActive) FontWeight.Bold else FontWeight.Medium,
                                     color = if (uiState.isOvernightToolActive) Color(0xFF1F1600) else MaterialTheme.colorScheme.onSurface
@@ -1084,620 +1091,51 @@ fun RouteBuilderScreen(
                             if (uiState.isSaving) {
                                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                             } else {
-                                Icon(Icons.Default.Save, contentDescription = "Gem rute", modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Save, contentDescription = stringResource(R.string.bookmark_add_cd), modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Gem", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.btn_save), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
 
                 // Requirement F: Planner Bottom Sheet (3 heights: PEEK / HALF / FULL) with 28 dp top corners
-                Card(
-                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("route_bottom_sheet")
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp)
-                    ) {
-                    // Header row: Peek summary "3 dage · 46,2 km · +410 m · ca. 12 t 30 min" + 3-height selector
-                    val totalDays = maxOf(1, uiState.daySummaries.size)
-                    val peekSummaryText = String.format(
-                        Locale.GERMANY,
-                        "%d %s · %.1f km · +%.0f m · %s",
-                        totalDays,
-                        if (totalDays == 1) "dag" else "dage",
-                        uiState.stats.totalKm,
-                        uiState.stats.ascentM,
-                        uiState.timeEstimateFormatted
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                val nextState = when (uiState.sheetHeightState) {
-                                    SheetHeightState.PEEK -> SheetHeightState.HALF
-                                    SheetHeightState.HALF -> SheetHeightState.FULL
-                                    SheetHeightState.FULL -> SheetHeightState.PEEK
-                                }
-                                viewModel.setSheetHeightState(nextState)
-                            },
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = peekSummaryText,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.testTag("route_summary_text")
-                            )
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(top = 3.dp)
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = if (uiState.isOfflineRoute) ForestGreenPrimary.copy(alpha = 0.15f)
-                                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                                    modifier = Modifier.testTag("route_engine_mode_badge")
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (uiState.isOfflineRoute) Icons.Default.CloudOff else Icons.Default.CloudDone,
-                                            contentDescription = null,
-                                            tint = if (uiState.isOfflineRoute) ForestGreenPrimary else MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = uiState.routeEngineModeLabel,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = if (uiState.isOfflineRoute) ForestGreenPrimary else MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.testTag("route_engine_mode_label")
-                                        )
-                                    }
-                                }
-
-                                if (uiState.loadingLegKeys.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    CircularProgressIndicator(
-                                        strokeWidth = 2.dp,
-                                        modifier = Modifier.size(12.dp),
-                                        color = ForestGreenPrimary
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "Beregner rute...",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
+                PlannerBottomSheet(
+                    uiState = uiState,
+                    visibleWaypoints = visibleWaypoints,
+                    onSetSheetHeightState = { viewModel.setSheetHeightState(it) },
+                    onSuggestOvernightStops = { viewModel.suggestOvernightStops() },
+                    onStartNavigation = {
+                        viewModel.saveAndStartNavigation { navId ->
+                            onStartNavigation(navId)
                         }
-
-                        // 3-Height selector buttons (Peek / Half / Full)
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            SheetHeightChip(
-                                label = "Kort",
-                                selected = uiState.sheetHeightState == SheetHeightState.PEEK,
-                                onClick = { viewModel.setSheetHeightState(SheetHeightState.PEEK) },
-                                testTag = "btn_sheet_peek"
-                            )
-                            SheetHeightChip(
-                                label = "Dage",
-                                selected = uiState.sheetHeightState == SheetHeightState.HALF,
-                                onClick = { viewModel.setSheetHeightState(SheetHeightState.HALF) },
-                                testTag = "btn_sheet_half"
-                            )
-                            SheetHeightChip(
-                                label = "Detaljer",
-                                selected = uiState.sheetHeightState == SheetHeightState.FULL,
-                                onClick = { viewModel.setSheetHeightState(SheetHeightState.FULL) },
-                                testTag = "btn_sheet_full"
-                            )
-                            IconButton(
-                                onClick = {
-                                    val nextState = when (uiState.sheetHeightState) {
-                                        SheetHeightState.PEEK -> SheetHeightState.HALF
-                                        SheetHeightState.HALF -> SheetHeightState.FULL
-                                        SheetHeightState.FULL -> SheetHeightState.PEEK
-                                    }
-                                    viewModel.setSheetHeightState(nextState)
-                                },
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .testTag("btn_toggle_sheet")
-                            ) {
-                                Icon(
-                                    imageVector = if (uiState.sheetHeightState == SheetHeightState.FULL) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                                    contentDescription = "Skift ark-højde",
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
+                    },
+                    onOpenTripSettings = { viewModel.openTripSettingsSheet() },
+                    onOpenRundturDialog = { viewModel.openRundturDialog() },
+                    onOpenNearestPoiDialog = { viewModel.openNearestPoiDialog() },
+                    onShareRoute = { viewModel.shareRoute(context) },
+                    onReplaceOvernight = { wpId -> viewModel.openReplaceOvernightDialog(wpId) },
+                    onDeleteWaypoint = { wpId -> viewModel.deleteWaypoint(wpId) },
+                    onZoomToCoordinate = { lat, lng ->
+                        mapViewInstance?.controller?.animateTo(GeoPoint(lat, lng), 15.0, 500L)
+                    },
+                    onRerouteAroundWarning = { warning -> viewModel.rerouteAroundPolygon(warning) },
+                    onScrubbedPointChanged = { pt -> viewModel.setScrubbedPoint(pt) },
+                    onOvernightMarkerDragged = { wpId, targetWalkKm ->
+                        viewModel.moveOvernightPinByChartWalkKm(wpId, targetWalkKm)
+                    },
+                    onUpdateOptions = { newOptions -> viewModel.updateOptions(newOptions) },
+                    onWaypointClicked = { wp ->
+                        selectedWaypointForSheet = wp
+                        renameWaypointText = wp.name ?: ""
+                    },
+                    onOpenSaveDialog = {
+                        renameRouteName = uiState.routeName.ifBlank {
+                            uiState.baseTrail?.name ?: "Min rute"
                         }
+                        showSaveDialog = true
                     }
-
-                    // Quick Action Buttons Row
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Requirement E: "Foreslå overnatninger" runs the unified stage planner on the current route
-                            Button(
-                                onClick = {
-                                    viewModel.suggestOvernightStops()
-                                    if (uiState.sheetHeightState == SheetHeightState.PEEK) {
-                                        viewModel.setSheetHeightState(SheetHeightState.HALF)
-                                    }
-                                },
-                                enabled = visibleWaypoints.size >= 2 && !uiState.isFindingOvernight,
-                                colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier
-                                    .weight(1.2f)
-                                    .testTag("btn_find_overnight")
-                            ) {
-                                if (uiState.isFindingOvernight) {
-                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Foreslår...", fontSize = 12.sp)
-                                } else {
-                                    Icon(Icons.Default.NightShelter, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Foreslå overnatninger", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-
-                            // Requirement G: Start navigation directly from planner
-                            Button(
-                                onClick = {
-                                    viewModel.saveAndStartNavigation { navId ->
-                                        onStartNavigation(navId)
-                                    }
-                                },
-                                enabled = visibleWaypoints.size >= 2 && !uiState.isSaving,
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier
-                                    .weight(0.8f)
-                                    .testTag("btn_start_planned_navigation")
-                            ) {
-                                Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Start", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { viewModel.openTripSettingsSheet() },
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                modifier = Modifier
-                                    .weight(1.1f)
-                                    .testTag("btn_sheet_trip_settings")
-                            ) {
-                                Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Indstillinger", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            if (uiState.mode == PlannerMode.FREE) {
-                                OutlinedButton(
-                                    onClick = { viewModel.openRundturDialog() },
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                    modifier = Modifier
-                                        .weight(0.9f)
-                                        .testTag("btn_open_rundtur")
-                                ) {
-                                    Icon(Icons.Default.Loop, contentDescription = null, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Rundtur", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                OutlinedButton(
-                                    onClick = { viewModel.openNearestPoiDialog() },
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                    modifier = Modifier
-                                        .weight(0.9f)
-                                        .testTag("btn_open_nearest_poi")
-                                ) {
-                                    Icon(Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Nærmeste", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-
-                            OutlinedButton(
-                                onClick = { viewModel.shareRoute(context) },
-                                enabled = visibleWaypoints.size >= 2,
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                modifier = Modifier.testTag("btn_share_route_sheet")
-                            ) {
-                                Icon(Icons.Default.Share, contentDescription = "Del", modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-
-                    // HALF or FULL section: Day list (Requirement F Half)
-                    AnimatedVisibility(
-                        visible = uiState.sheetHeightState == SheetHeightState.HALF || uiState.sheetHeightState == SheetHeightState.FULL
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(
-                                    max = if (uiState.sheetHeightState == SheetHeightState.HALF) 290.dp else 460.dp
-                                )
-                                .verticalScroll(rememberScrollState())
-                                .padding(top = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            // Day list header
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Dagsplan (${uiState.daySummaries.size} ${if (uiState.daySummaries.size == 1) "dag" else "dage"})",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Mål: ${uiState.dailyTargetKm.toInt()} km/dag · ${String.format(Locale.GERMANY, "%.1f", uiState.paceKmh)} km/t",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            if (uiState.daySummaries.isEmpty()) {
-                                Text(
-                                    text = "Tilføj mindst 2 punkter på kortet for at se dagsplanen.",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    uiState.daySummaries.forEach { day ->
-                                        PlannerDaySummaryCard(
-                                            day = day,
-                                            showNightWeather = uiState.sheetHeightState == SheetHeightState.FULL,
-                                            onReplaceOvernight = { wpId ->
-                                                viewModel.openReplaceOvernightDialog(wpId)
-                                            },
-                                            onDeleteOvernight = { wpId ->
-                                                viewModel.deleteWaypoint(wpId)
-                                            },
-                                            onZoomToEnd = { wpId ->
-                                                val wp = uiState.waypoints.find { it.id == wpId }
-                                                if (wp != null) {
-                                                    mapViewInstance?.controller?.animateTo(GeoPoint(wp.lat, wp.lng), 15.0, 500L)
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Supply Gap Warnings Banner
-                            if (uiState.supplyGapWarnings.isNotEmpty()) {
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    uiState.supplyGapWarnings.forEach { warning ->
-                                        SupplyGapWarningCard(
-                                            warning = warning,
-                                            onZoomToDetour = {
-                                                if (warning.detourLat != null && warning.detourLng != null) {
-                                                    mapViewInstance?.controller?.animateTo(
-                                                        GeoPoint(warning.detourLat, warning.detourLng),
-                                                        15.0,
-                                                        500L
-                                                    )
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Access Warnings Banner
-                            if (uiState.accessWarnings.isNotEmpty()) {
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    uiState.accessWarnings.forEach { warning ->
-                                        AccessWarningCard(
-                                            warning = warning,
-                                            onZoomTo = {
-                                                mapViewInstance?.controller?.animateTo(
-                                                    GeoPoint(warning.location.lat, warning.location.lng),
-                                                    15.0,
-                                                    500L
-                                                )
-                                            },
-                                            onRerouteAround = {
-                                                viewModel.rerouteAroundPolygon(warning)
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-
-                            // FULL section: Elevation profile with day boundaries & draggable overnight markers, weather per night, route quality, Gem / Start
-                            if (uiState.sheetHeightState == SheetHeightState.FULL) {
-                                HorizontalDivider()
-
-                                // 1. Elevation Profile Chart with day boundaries & draggable overnight markers
-                                val allPoints = remember(uiState.legs, uiState.waypoints) {
-                                    val ordered = mutableListOf<com.example.util.routing.LegGeometryData>()
-                                    for (i in 0 until uiState.waypoints.size - 1) {
-                                        val key = "${uiState.waypoints[i].id}_to_${uiState.waypoints[i + 1].id}"
-                                        uiState.legs[key]?.let { ordered.add(it) }
-                                    }
-                                    com.example.util.routing.RouteGeometryStorageManager.getCombinedPoints(ordered)
-                                }
-                                val overnightWps = remember(uiState.waypoints) {
-                                    uiState.waypoints.filter { !it.isHelper && it.role == WaypointRole.OVERNIGHT }
-                                }
-                                val dayBoundaryKms = remember(uiState.daySummaries) {
-                                    uiState.daySummaries.dropLast(1).map { it.endKm }
-                                }
-
-                                Text(
-                                    text = "Højdekurve (træk på kurven for at se på kort · træk ⛺ for at flytte overnatning)",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-
-                                RouteElevationProfileChart(
-                                    points = allPoints,
-                                    dayBoundaryWalkKms = dayBoundaryKms,
-                                    overnightWaypointIds = overnightWps.map { it.id },
-                                    onPointScrubbed = { pt, _ ->
-                                        viewModel.setScrubbedPoint(pt)
-                                    },
-                                    onOvernightMarkerDragged = { wpId, targetWalkKm, _ ->
-                                        viewModel.moveOvernightPinByChartWalkKm(wpId, targetWalkKm)
-                                    },
-                                    modifier = Modifier.testTag("planner_elevation_chart")
-                                )
-
-                                // 2. Rutekvalitet & Underlag
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        text = "Rutekvalitet & Underlag",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-
-                                    if (!uiState.stats.hasWayInfo || uiState.stats.pathSharePct == null) {
-                                        Text(
-                                            text = "Stiandel: ukendt • Vej-km: ukendt",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.testTag("way_info_unknown_text")
-                                        )
-                                    } else {
-                                        val q = uiState.routeQuality
-                                        val effTotal = if (q.totalKm > 0.0) q.totalKm else 1.0
-
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(10.dp)
-                                                .clip(RoundedCornerShape(5.dp))
-                                        ) {
-                                            if (q.trailKm > 0.0) Box(modifier = Modifier.weight((q.trailKm / effTotal).toFloat()).fillMaxSize().background(Color(0xFF2E7D32)))
-                                            if (q.trackKm > 0.0) Box(modifier = Modifier.weight((q.trackKm / effTotal).toFloat()).fillMaxSize().background(Color(0xFF689F38)))
-                                            if (q.roadWithSidewalkKm > 0.0) Box(modifier = Modifier.weight((q.roadWithSidewalkKm / effTotal).toFloat()).fillMaxSize().background(Color(0xFF546E7A)))
-                                            if (q.roadNoSidewalkKm > 0.0) Box(modifier = Modifier.weight((q.roadNoSidewalkKm / effTotal).toFloat()).fillMaxSize().background(Color(0xFFE65100)))
-                                            if (q.asphaltKm > 0.0) Box(modifier = Modifier.weight((q.asphaltKm / effTotal).toFloat()).fillMaxSize().background(Color(0xFF757575)))
-                                            if (q.ferryKm > 0.0) Box(modifier = Modifier.weight((q.ferryKm / effTotal).toFloat()).fillMaxSize().background(Color(0xFF0288D1)))
-                                            if (q.totalKm == 0.0) Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color.LightGray))
-                                        }
-
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                                QualityRowItem(color = Color(0xFF2E7D32), label = "Sti", km = q.trailKm, pct = q.trailPct)
-                                                QualityRowItem(color = Color(0xFF689F38), label = "Skov-/markvej", km = q.trackKm, pct = q.trackPct)
-                                            }
-                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                                QualityRowItem(color = Color(0xFF546E7A), label = "Vej m. fortov", km = q.roadWithSidewalkKm, pct = q.roadWithSidewalkPct)
-                                                QualityRowItem(color = Color(0xFFE65100), label = "Vej u. fortov", km = q.roadNoSidewalkKm, pct = q.roadNoSidewalkPct)
-                                            }
-                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                                QualityRowItem(color = Color(0xFF757575), label = "Asfalt (i alt)", km = q.asphaltKm, pct = q.asphaltPct)
-                                                QualityRowItem(color = Color(0xFF0288D1), label = "Færge / vand", km = q.ferryKm, pct = q.ferryPct)
-                                            }
-                                        }
-
-                                        if (q.roadWithoutFootwayWarnings.isNotEmpty()) {
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = "⚠️ Særlig opmærksomhed: Strækning over 1 km på vej uden fortov",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFFE65100)
-                                            )
-                                            q.roadWithoutFootwayWarnings.forEach { rw ->
-                                                RoadSectionWarningCard(
-                                                    warning = rw,
-                                                    onZoomTo = {
-                                                        mapViewInstance?.controller?.animateTo(
-                                                            GeoPoint(rw.startLat, rw.startLng),
-                                                            15.0,
-                                                            500L
-                                                        )
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // 3. Routing Options (FREE mode or detours)
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        text = "Ruteindstillinger (ved ruteberegning)",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-
-                                    Column {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text("Undgå veje", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
-                                            Text("${(uiState.options.avoidRoads * 100).toInt()} %", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ForestGreenPrimary)
-                                        }
-                                        Slider(
-                                            value = uiState.options.avoidRoads.toFloat(),
-                                            onValueChange = { newVal ->
-                                                viewModel.updateOptions(uiState.options.copy(avoidRoads = newVal.toDouble()))
-                                            },
-                                            colors = SliderDefaults.colors(
-                                                thumbColor = ForestGreenPrimary,
-                                                activeTrackColor = ForestGreenPrimary
-                                            ),
-                                            modifier = Modifier.testTag("slider_avoid_roads")
-                                        )
-                                    }
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("Foretræk natur (skove & rolige stier)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
-                                        Switch(
-                                            checked = uiState.options.preferNature,
-                                            onCheckedChange = { checked ->
-                                                viewModel.updateOptions(uiState.options.copy(preferNature = checked))
-                                            },
-                                            colors = SwitchDefaults.colors(checkedThumbColor = ForestGreenPrimary),
-                                            modifier = Modifier.testTag("switch_prefer_nature")
-                                        )
-                                    }
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("Tillad færger & vandoverfarter", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
-                                        Switch(
-                                            checked = uiState.options.allowFerries,
-                                            onCheckedChange = { checked ->
-                                                viewModel.updateOptions(uiState.options.copy(allowFerries = checked))
-                                            },
-                                            colors = SwitchDefaults.colors(checkedThumbColor = ForestGreenPrimary),
-                                            modifier = Modifier.testTag("switch_allow_ferries")
-                                        )
-                                    }
-                                }
-
-                                // 4. Waypoints list (visible waypoints only)
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(
-                                        text = "Rutens punkter (${visibleWaypoints.size})",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-
-                                    visibleWaypoints.forEachIndexed { idx, wp ->
-                                        WaypointRow(
-                                            index = idx,
-                                            waypoint = wp,
-                                            onClick = {
-                                                selectedWaypointForSheet = wp
-                                                renameWaypointText = wp.name ?: ""
-                                            }
-                                        )
-                                    }
-                                }
-
-                                // 5. Gem & Start buttons in Full sheet (Requirement F)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            renameRouteName = uiState.routeName.ifBlank {
-                                                uiState.baseTrail?.name ?: "Min rute"
-                                            }
-                                            showSaveDialog = true
-                                        },
-                                        enabled = visibleWaypoints.size >= 2 && !uiState.isSaving,
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .testTag("btn_full_sheet_save")
-                                    ) {
-                                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Gem", fontWeight = FontWeight.Bold)
-                                    }
-
-                                    Button(
-                                        onClick = {
-                                            viewModel.saveAndStartNavigation { navId ->
-                                                onStartNavigation(navId)
-                                            }
-                                        },
-                                        enabled = visibleWaypoints.size >= 2 && !uiState.isSaving,
-                                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .testTag("btn_full_sheet_start")
-                                    ) {
-                                        Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Start", fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+                )
             }
         }
     }
@@ -1706,8 +1144,8 @@ fun RouteBuilderScreen(
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            title = { Text("Ryd rute") },
-            text = { Text("Er du sikker på, at du vil slette alle punkter på ruten?") },
+            title = { Text(stringResource(R.string.ui_routebuilderscreen_ryd_rute_112)) },
+            text = { Text(stringResource(R.string.ui_routebuilderscreen_er_du_sikker_p_at_du_vil_sle_113)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -1716,12 +1154,12 @@ fun RouteBuilderScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Ryd")
+                    Text(stringResource(R.string.map_measure_clear))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearDialog = false }) {
-                    Text("Annuller")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -1731,15 +1169,15 @@ fun RouteBuilderScreen(
     if (showSaveDialog) {
         AlertDialog(
             onDismissRequest = { showSaveDialog = false },
-            title = { Text("Gem rute") },
+            title = { Text(stringResource(R.string.bookmark_add_cd)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Angiv et navn til din rute:", fontSize = 13.sp)
+                    Text(stringResource(R.string.ui_routebuilderscreen_angiv_et_navn_til_din_rute_114), fontSize = 13.sp)
                     OutlinedTextField(
                         value = renameRouteName,
                         onValueChange = { renameRouteName = it },
                         singleLine = true,
-                        placeholder = { Text("f.eks. Rold Skov Rundtur") },
+                        placeholder = { Text(stringResource(R.string.ui_routebuilderscreen_f_eks_rold_skov_rundtur_115)) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("input_save_route_name")
@@ -1758,12 +1196,12 @@ fun RouteBuilderScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
                     modifier = Modifier.testTag("btn_confirm_save_route")
                 ) {
-                    Text("Gem til Gemte")
+                    Text(stringResource(R.string.ui_routebuilderscreen_gem_til_gemte_116))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showSaveDialog = false }) {
-                    Text("Annuller")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -1774,9 +1212,9 @@ fun RouteBuilderScreen(
     if (uiState.showResetProgressDialog) {
         AlertDialog(
             onDismissRequest = { viewModel.dismissResetProgressDialog() },
-            title = { Text("Ruten er ændret - nulstil fremskridt?") },
+            title = { Text(stringResource(R.string.ui_routebuilderscreen_ruten_er_ndret_nulstil_frems_117)) },
             text = {
-                Text("Denne rute har registreret vandrefremskridt i din turplan. Vil du nulstille fremskridtet og genberegne turplanen?")
+                Text(stringResource(R.string.ui_routebuilderscreen_denne_rute_har_registreret_v_118))
             },
             confirmButton = {
                 Button(
@@ -1784,7 +1222,7 @@ fun RouteBuilderScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
                     modifier = Modifier.testTag("btn_confirm_reset_progress")
                 ) {
-                    Text("Ja, nulstil")
+                    Text(stringResource(R.string.ui_routebuilderscreen_ja_nulstil_119))
                 }
             },
             dismissButton = {
@@ -1792,7 +1230,7 @@ fun RouteBuilderScreen(
                     onClick = { viewModel.dismissResetProgressDialog() },
                     modifier = Modifier.testTag("btn_cancel_reset_progress")
                 ) {
-                    Text("Annuller")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -1802,7 +1240,7 @@ fun RouteBuilderScreen(
     if (showRenameDialog) {
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
-            title = { Text("Rutenavn") },
+            title = { Text(stringResource(R.string.ui_routebuilderscreen_rutenavn_120)) },
             text = {
                 OutlinedTextField(
                     value = renameRouteName,
@@ -1819,12 +1257,12 @@ fun RouteBuilderScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary)
                 ) {
-                    Text("Gem")
+                    Text(stringResource(R.string.btn_save))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRenameDialog = false }) {
-                    Text("Annuller")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -1895,7 +1333,7 @@ fun RouteBuilderScreen(
                     OutlinedTextField(
                         value = renameWaypointText,
                         onValueChange = { renameWaypointText = it },
-                        label = { Text("Navn på punkt") },
+                        label = { Text(stringResource(R.string.save_point_name_label)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("input_waypoint_name")
                     )
@@ -1915,7 +1353,7 @@ fun RouteBuilderScreen(
                         ) {
                             Icon(Icons.Default.NightShelter, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Skift overnatning")
+                            Text(stringResource(R.string.ui_routebuilderscreen_skift_overnatning_121))
                         }
                     }
 
@@ -1969,7 +1407,7 @@ fun RouteBuilderScreen(
                         ) {
                             Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Slet punkt")
+                            Text(stringResource(R.string.ui_routebuilderscreen_slet_punkt_122))
                         }
                     }
                 }
@@ -1983,7 +1421,7 @@ fun RouteBuilderScreen(
                         selectedWaypointForSheet = null
                     }
                 ) {
-                    Text("Luk")
+                    Text(stringResource(R.string.btn_close))
                 }
             }
         )
@@ -2006,7 +1444,7 @@ fun RouteBuilderScreen(
                     modifier = Modifier.testTag("trail_line_tap_sheet")
                 ) {
                     Text(
-                        text = "Vælg handling for dette punkt på vandreruten:",
+                        text = stringResource(R.string.ui_routebuilderscreen_v_lg_handling_for_dette_punk_123),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2019,7 +1457,7 @@ fun RouteBuilderScreen(
                             .fillMaxWidth()
                             .testTag("btn_trail_tap_start_here")
                     ) {
-                        Text("Start her", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.ui_routebuilderscreen_start_her_124), fontWeight = FontWeight.Bold)
                     }
 
                     Button(
@@ -2030,7 +1468,7 @@ fun RouteBuilderScreen(
                             .fillMaxWidth()
                             .testTag("btn_trail_tap_end_here")
                     ) {
-                        Text("Slut her", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.ui_routebuilderscreen_slut_her_125), fontWeight = FontWeight.Bold)
                     }
 
                     Button(
@@ -2043,7 +1481,7 @@ fun RouteBuilderScreen(
                     ) {
                         Icon(Icons.Default.NightShelter, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Overnat her", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.ui_routebuilderscreen_overnat_her_126), fontWeight = FontWeight.Bold)
                     }
 
                     OutlinedButton(
@@ -2055,14 +1493,14 @@ fun RouteBuilderScreen(
                     ) {
                         Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Tilføj punkt", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.ui_routebuilderscreen_tilf_j_punkt_127), fontWeight = FontWeight.Bold)
                     }
                 }
             },
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { viewModel.dismissTrailLineTapSheet() }) {
-                    Text("Annuller")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -2093,7 +1531,7 @@ fun RouteBuilderScreen(
                         else -> poi.type
                     }
                     Text(
-                        text = "$typeLabel · ca. ${poi.distanceToRouteMeters.toInt()} m fra ruten",
+                        text = stringResource(R.string.ui_routebuilderscreen_ca_m_fra_ruten_128, typeLabel, poi.distanceToRouteMeters.toInt()),
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2125,7 +1563,7 @@ fun RouteBuilderScreen(
                     ) {
                         Icon(Icons.Default.NightShelter, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Overnat her", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.ui_routebuilderscreen_overnat_her_126), fontWeight = FontWeight.Bold)
                     }
 
                     OutlinedButton(
@@ -2146,14 +1584,14 @@ fun RouteBuilderScreen(
                     ) {
                         Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Tilføj som stop", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.ui_routebuilderscreen_tilf_j_som_stop_129), fontWeight = FontWeight.Bold)
                     }
                 }
             },
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { viewModel.selectNearbyPoiForSheet(null) }) {
-                    Text("Luk")
+                    Text(stringResource(R.string.btn_close))
                 }
             }
         )
@@ -2169,13 +1607,13 @@ fun RouteBuilderScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(Icons.Default.NightShelter, contentDescription = null, tint = ForestGreenPrimary)
-                    Text("Skift overnatning", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(stringResource(R.string.ui_routebuilderscreen_skift_overnatning_121), fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
             },
             text = {
                 if (uiState.replaceOvernightCandidates.isEmpty()) {
                     Text(
-                        text = "Ingen andre shelters eller fri teltning fundet inden for maks. omvej (${String.format(Locale.GERMANY, "%.1f", uiState.maxDetourKm)} km).",
+                        text = stringResource(R.string.ui_routebuilderscreen_ingen_andre_shelters_ell_130, String.format(Locale.GERMANY, "%.1f", uiState.maxDetourKm)),
                         fontSize = 13.sp
                     )
                 } else {
@@ -2207,7 +1645,7 @@ fun RouteBuilderScreen(
                                         Text(cand.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                         val typeLabel = if (cand.type == "FRI_TELTNING") "Fri teltning" else "Shelter"
                                         Text(
-                                            text = "$typeLabel · km ${String.format(Locale.GERMANY, "%.1f", cand.walkKm)} · +${cand.detourMeters.toInt()} m omvej",
+                                            text = stringResource(R.string.ui_routebuilderscreen_km_m_omvej_131, typeLabel, String.format(Locale.GERMANY, "%.1f", cand.walkKm), cand.detourMeters.toInt()),
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -2218,7 +1656,7 @@ fun RouteBuilderScreen(
                                         colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
                                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                     ) {
-                                        Text("Vælg", fontSize = 12.sp)
+                                        Text(stringResource(R.string.ui_routebuilderscreen_v_lg_132), fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -2229,7 +1667,7 @@ fun RouteBuilderScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { viewModel.dismissReplaceOvernightDialog() }) {
-                    Text("Annuller")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -2281,7 +1719,7 @@ fun RouteBuilderScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Kilde: ${poly.source}",
+                            text = stringResource(R.string.ui_routebuilderscreen_kilde_133, poly.source),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2298,7 +1736,7 @@ fun RouteBuilderScreen(
             },
             confirmButton = {
                 TextButton(onClick = { viewModel.selectAccessPolygon(null) }) {
-                    Text("Luk")
+                    Text(stringResource(R.string.btn_close))
                 }
             }
         )
@@ -2337,12 +1775,12 @@ fun RouteBuilderScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(Icons.Default.NightShelter, contentDescription = null, tint = ForestGreenPrimary)
-                    Text("Vælg overnatningssted", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(stringResource(R.string.ui_routebuilderscreen_v_lg_overnatningssted_134), fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
             },
             text = {
                 if (uiState.overnightCandidatesByDay.isEmpty()) {
-                    Text("Ingen overnatningssteder fundet inden for ruten og tilladt omvej.", fontSize = 14.sp)
+                    Text(stringResource(R.string.ui_routebuilderscreen_ingen_overnatningssteder_fun_135), fontSize = 14.sp)
                 } else {
                     LazyColumn(
                         modifier = Modifier
@@ -2358,7 +1796,7 @@ fun RouteBuilderScreen(
                                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp)
                                 ) {
                                     Text(
-                                        text = "Dag $day (ca. ${day * 15} km mål)",
+                                        text = stringResource(R.string.ui_routebuilderscreen_dag_ca_km_m_l_136, day, day * 15),
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = ForestGreenPrimary,
@@ -2386,7 +1824,7 @@ fun RouteBuilderScreen(
                                             Text(cand.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                             val typeLabel = if (cand.type == "FRI_TELTNING") "Fri teltning" else "Shelter"
                                             Text(
-                                                text = "$typeLabel · ${String.format(java.util.Locale.US, "%.1f", cand.walkKm)} km · ${cand.detourMeters.toInt()} m omvej",
+                                                text = stringResource(R.string.ui_routebuilderscreen_km_m_omvej_137, typeLabel, String.format(java.util.Locale.US, "%.1f", cand.walkKm), cand.detourMeters.toInt()),
                                                 fontSize = 12.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -2395,15 +1833,15 @@ fun RouteBuilderScreen(
                                                 modifier = Modifier.padding(top = 4.dp)
                                             ) {
                                                 if (cand.hasWaterNearby) {
-                                                    Text("💧 Vand", fontSize = 10.sp, color = Color(0xFF1E88E5))
+                                                    Text(stringResource(R.string.ui_routebuilderscreen_vand_138), fontSize = 10.sp, color = Color(0xFF1E88E5))
                                                 }
                                                 if (cand.hasToiletNearby) {
-                                                    Text("🚻 Toilet", fontSize = 10.sp, color = ForestGreenPrimary)
+                                                    Text(stringResource(R.string.ui_routebuilderscreen_toilet_139), fontSize = 10.sp, color = ForestGreenPrimary)
                                                 }
                                                 if (cand.bookingRequired) {
-                                                    Text("📅 Booking", fontSize = 10.sp, color = AmberAccent)
+                                                    Text(stringResource(R.string.ui_routebuilderscreen_booking_140), fontSize = 10.sp, color = AmberAccent)
                                                 } else {
-                                                    Text("✓ Fri afbenyttelse", fontSize = 10.sp, color = ForestGreenPrimary)
+                                                    Text(stringResource(R.string.ui_routebuilderscreen_fri_afbenyttelse_141), fontSize = 10.sp, color = ForestGreenPrimary)
                                                 }
                                             }
                                         }
@@ -2413,7 +1851,7 @@ fun RouteBuilderScreen(
                                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary)
                                         ) {
-                                            Text("Vælg", fontSize = 11.sp)
+                                            Text(stringResource(R.string.ui_routebuilderscreen_v_lg_132), fontSize = 11.sp)
                                         }
                                     }
                                 }
@@ -2425,7 +1863,7 @@ fun RouteBuilderScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { viewModel.dismissOvernightDialog() }) {
-                    Text("Luk")
+                    Text(stringResource(R.string.btn_close))
                 }
             }
         )
@@ -2444,7 +1882,7 @@ fun RouteBuilderScreen(
                 )
             },
             title = {
-                Text("Generér rundtur", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.ui_routebuilderscreen_gener_r_rundtur_142), fontWeight = FontWeight.Bold, fontSize = 18.sp)
             },
             text = {
                 Column(
@@ -2452,7 +1890,7 @@ fun RouteBuilderScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Vælg ønsket rutedistance (5 - 60 km). Appen genererer 3 forslag med forskellige retninger og varieret returvej.",
+                        text = stringResource(R.string.ui_routebuilderscreen_v_lg_nsket_rutedistance_5_60_143),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2463,7 +1901,7 @@ fun RouteBuilderScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Mållængde: ${uiState.rundturTargetKm.toInt()} km",
+                            text = stringResource(R.string.ui_routebuilderscreen_m_ll_ngde_km_144, uiState.rundturTargetKm.toInt()),
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
@@ -2474,7 +1912,7 @@ fun RouteBuilderScreen(
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                                     modifier = Modifier.height(28.dp)
                                 ) {
-                                    Text("${kmVal.toInt()}k", fontSize = 10.sp)
+                                    Text(stringResource(R.string.ui_routebuilderscreen_k_145, kmVal.toInt()), fontSize = 10.sp)
                                 }
                             }
                         }
@@ -2507,18 +1945,18 @@ fun RouteBuilderScreen(
                         if (uiState.isGeneratingRundtur) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Beregner 3 rundture...", fontSize = 12.sp)
+                            Text(stringResource(R.string.ui_routebuilderscreen_beregner_3_rundture_146), fontSize = 12.sp)
                         } else {
                             Icon(Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Beregn 3 rundture", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.ui_routebuilderscreen_beregn_3_rundture_147), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
                     if (uiState.rundturCandidates.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Fundne rundture:",
+                            text = stringResource(R.string.ui_routebuilderscreen_fundne_rundture_148),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )
@@ -2541,7 +1979,7 @@ fun RouteBuilderScreen(
                                             fontSize = 13.sp
                                         )
                                         Text(
-                                            text = "${String.format(Locale.GERMANY, "%.1f", candidate.actualKm)} km",
+                                            text = stringResource(R.string.ui_markedroutedetailsheet_km_19, String.format(Locale.GERMANY, "%.1f", candidate.actualKm)),
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 13.sp,
                                             color = ForestGreenPrimary
@@ -2551,12 +1989,12 @@ fun RouteBuilderScreen(
                                     Spacer(modifier = Modifier.height(4.dp))
 
                                     Text(
-                                        text = "${candidate.pathSharePct.toInt()} % sti · +${candidate.ascentM.toInt()} m / -${candidate.descentM.toInt()} m",
+                                        text = stringResource(R.string.ui_routebuilderscreen_sti_m_m_149, candidate.pathSharePct.toInt(), candidate.ascentM.toInt(), candidate.descentM.toInt()),
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
-                                        text = "${candidate.overnightCount} overnatningsmuligheder (shelter/telt)",
+                                        text = stringResource(R.string.ui_routebuilderscreen_overnatningsmuligheder_s_150, candidate.overnightCount),
                                         fontSize = 11.sp,
                                         color = if (candidate.overnightCount > 0) ForestGreenPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -2570,7 +2008,7 @@ fun RouteBuilderScreen(
                                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                         modifier = Modifier.fillMaxWidth().height(32.dp).testTag("btn_select_rundtur_${candidate.id}")
                                     ) {
-                                        Text("Vælg denne rundtur", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text(stringResource(R.string.ui_routebuilderscreen_v_lg_denne_rundtur_151), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -2581,7 +2019,7 @@ fun RouteBuilderScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { viewModel.dismissRundturDialog() }) {
-                    Text("Luk")
+                    Text(stringResource(R.string.btn_close))
                 }
             }
         )
@@ -2600,12 +2038,12 @@ fun RouteBuilderScreen(
                 )
             },
             title = {
-                Text("Rute til nærmeste", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.ui_routebuilderscreen_rute_til_n_rmeste_152), fontWeight = FontWeight.Bold, fontSize = 18.sp)
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Vælg kategori. Appen beregner stien til det nærmeste punkt via reel rutedistance fra din GPS-position:",
+                        text = stringResource(R.string.ui_routebuilderscreen_v_lg_kategori_appen_beregner_153),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2622,7 +2060,7 @@ fun RouteBuilderScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 CircularProgressIndicator(color = ForestGreenPrimary)
-                                Text("Beregner rute til nærmeste...", fontSize = 12.sp)
+                                Text(stringResource(R.string.ui_routebuilderscreen_beregner_rute_til_n_rmeste_154), fontSize = 12.sp)
                             }
                         }
                     } else {
@@ -2657,7 +2095,7 @@ fun RouteBuilderScreen(
                                             fontSize = 13.sp
                                         )
                                         Text(
-                                            text = "Beregner hurtigste vandrerute",
+                                            text = stringResource(R.string.ui_routebuilderscreen_beregner_hurtigste_vandrerut_155),
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -2672,7 +2110,7 @@ fun RouteBuilderScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { viewModel.dismissNearestPoiDialog() }) {
-                    Text("Annuller")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -2696,7 +2134,7 @@ fun RouteBuilderScreen(
                 )
             },
             title = {
-                Text("Nyt punkt", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.ui_routebuilderscreen_nyt_punkt_156), fontWeight = FontWeight.Bold, fontSize = 18.sp)
             },
             text = {
                 Column(
@@ -2706,7 +2144,7 @@ fun RouteBuilderScreen(
                     val loc = uiState.pendingCustomWaypointLocation
                     if (loc != null) {
                         Text(
-                            text = "Position: ${String.format(Locale.US, "%.5f, %.5f", loc.lat, loc.lng)}",
+                            text = stringResource(R.string.ui_routebuilderscreen_position_157, String.format(Locale.US, "%.5f, %.5f", loc.lat, loc.lng)),
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -2715,8 +2153,8 @@ fun RouteBuilderScreen(
                     OutlinedTextField(
                         value = customWpName,
                         onValueChange = { customWpName = it },
-                        label = { Text("Navn på punkt") },
-                        placeholder = { Text("f.eks. Flot udsigtspunkt") },
+                        label = { Text(stringResource(R.string.save_point_name_label)) },
+                        placeholder = { Text(stringResource(R.string.ui_routebuilderscreen_f_eks_flot_udsigtspunkt_158)) },
                         singleLine = true,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2726,8 +2164,8 @@ fun RouteBuilderScreen(
                     OutlinedTextField(
                         value = customWpNote,
                         onValueChange = { customWpNote = it },
-                        label = { Text("Note / beskrivelse") },
-                        placeholder = { Text("f.eks. Bænk under egetræet") },
+                        label = { Text(stringResource(R.string.ui_routebuilderscreen_note_beskrivelse_159)) },
+                        placeholder = { Text(stringResource(R.string.ui_routebuilderscreen_f_eks_b_nk_under_egetr_et_160)) },
                         maxLines = 3,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2735,7 +2173,7 @@ fun RouteBuilderScreen(
                     )
 
                     Text(
-                        text = "Foto (valgfrit):",
+                        text = stringResource(R.string.ui_routebuilderscreen_foto_valgfrit_161),
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 12.sp
                     )
@@ -2752,7 +2190,7 @@ fun RouteBuilderScreen(
                             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                                 Image(
                                     bitmap = bitmap.asImageBitmap(),
-                                    contentDescription = "Valgt foto",
+                                    contentDescription = stringResource(R.string.ui_routebuilderscreen_valgt_foto_162),
                                     modifier = Modifier
                                         .height(120.dp)
                                         .clip(RoundedCornerShape(8.dp))
@@ -2763,7 +2201,7 @@ fun RouteBuilderScreen(
                             onClick = { customWpPhotoPath = null },
                             colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                         ) {
-                            Text("Fjern foto", fontSize = 11.sp)
+                            Text(stringResource(R.string.ui_routebuilderscreen_fjern_foto_163), fontSize = 11.sp)
                         }
                     } else {
                         Row(
@@ -2776,7 +2214,7 @@ fun RouteBuilderScreen(
                             ) {
                                 Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Kamera", fontSize = 12.sp)
+                                Text(stringResource(R.string.ui_routebuilderscreen_kamera_164), fontSize = 12.sp)
                             }
                             OutlinedButton(
                                 onClick = { galleryPhotoLauncher.launch("image/*") },
@@ -2784,7 +2222,7 @@ fun RouteBuilderScreen(
                             ) {
                                 Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Galleri", fontSize = 12.sp)
+                                Text(stringResource(R.string.ui_routebuilderscreen_galleri_165), fontSize = 12.sp)
                             }
                         }
                     }
@@ -2801,7 +2239,7 @@ fun RouteBuilderScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B1FA2)),
                     modifier = Modifier.testTag("btn_save_custom_wp")
                 ) {
-                    Text("Gem punkt")
+                    Text(stringResource(R.string.save_point_dialog_title))
                 }
             },
             dismissButton = {
@@ -2813,7 +2251,7 @@ fun RouteBuilderScreen(
                         customWpPhotoPath = null
                     }
                 ) {
-                    Text("Annuller")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -2868,7 +2306,7 @@ fun RouteBuilderScreen(
                     }
 
                     Text(
-                        text = "Position: ${String.format(Locale.US, "%.5f, %.5f", wp.lat, wp.lng)}",
+                        text = stringResource(R.string.ui_routebuilderscreen_position_157, String.format(Locale.US, "%.5f, %.5f", wp.lat, wp.lng)),
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2888,7 +2326,7 @@ fun RouteBuilderScreen(
                         ) {
                             Icon(Icons.Default.ZoomIn, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Vis på kort", fontSize = 12.sp)
+                            Text(stringResource(R.string.action_view_on_map), fontSize = 12.sp)
                         }
 
                         Button(
@@ -2898,7 +2336,7 @@ fun RouteBuilderScreen(
                         ) {
                             Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Slet", fontSize = 12.sp)
+                            Text(stringResource(R.string.btn_delete), fontSize = 12.sp)
                         }
                     }
                 }
@@ -2906,273 +2344,13 @@ fun RouteBuilderScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { viewModel.selectCustomWaypointForDetails(null) }) {
-                    Text("Luk")
+                    Text(stringResource(R.string.btn_close))
                 }
             }
         )
     }
 }
 
-@Composable
-private fun SheetHeightChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    testTag: String
-) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = if (selected) ForestGreenPrimary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .testTag(testTag)
-    ) {
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-        )
-    }
-}
-
-@Composable
-private fun PlannerDaySummaryCard(
-    day: PlannerDaySummary,
-    showNightWeather: Boolean,
-    onReplaceOvernight: (String) -> Unit,
-    onDeleteOvernight: (String) -> Unit,
-    onZoomToEnd: (String) -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        ),
-        border = BorderStroke(
-            1.dp,
-            if (day.warnings.isNotEmpty() || day.arrivesAfterSunset) {
-                AmberAccent.copy(alpha = 0.7f)
-            } else {
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-            }
-        ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("planner_day_card_${day.dayNumber}")
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            // Header: "Dag 1 · 15,1 km · +120 m"
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = String.format(
-                        Locale.GERMANY,
-                        "Dag %d · %.1f km · +%.0f m",
-                        day.dayNumber,
-                        day.distanceKm,
-                        day.ascentM
-                    ),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = ForestGreenPrimary,
-                    modifier = Modifier.testTag("day_card_header_${day.dayNumber}")
-                )
-
-                val h = (day.estimatedHours * 60).toInt() / 60
-                val m = (day.estimatedHours * 60).toInt() % 60
-                Text(
-                    text = if (h > 0) "ca. $h t $m min" else "ca. $m min",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            // From -> To
-            Text(
-                text = "${day.fromName} → ${day.toName}",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            // Overnight name, type, detour, booking flag, sunset at camp
-            if (day.overnightWaypointId != null) {
-                val typeLabel = when (day.overnightType) {
-                    "FRI_TELTNING" -> "Fri teltning"
-                    "SHELTER" -> "Shelter / lejrplads"
-                    else -> "Overnatningssted"
-                }
-                val bookingLabel = if (day.bookingRequired) "📅 Booking kræves" else "✓ Fri afbenyttelse"
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "⛺ ${day.overnightName ?: day.toName} ($typeLabel)",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFFE65100),
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        text = bookingLabel,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (day.bookingRequired) AmberAccent else ForestGreenPrimary
-                    )
-                }
-
-                // Detour cost if any: "Omvej til <navn>: +1,4 km, +12 m"
-                val detourKm = day.detourDistanceKm
-                if (detourKm != null && detourKm > 0.01) {
-                    Text(
-                        text = String.format(
-                            Locale.GERMANY,
-                            "Omvej til %s: +%.1f km, +%d m",
-                            day.overnightName ?: day.toName,
-                            detourKm,
-                            (day.detourAscentM ?: 0.0).toInt()
-                        ),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFFE65100),
-                        modifier = Modifier.testTag("day_card_detour_${day.dayNumber}")
-                    )
-                }
-            }
-
-            // Sunset at the camp & Arrival time
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (!day.arrivalTimeFormatted.isNullOrBlank()) {
-                    Text(
-                        text = "Ankomst ca. kl. ${day.arrivalTimeFormatted}",
-                        fontSize = 11.sp,
-                        color = if (day.arrivesAfterSunset) Color(0xFFC62828) else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = if (day.arrivesAfterSunset) FontWeight.Bold else FontWeight.Normal
-                    )
-                }
-                if (!day.sunsetFormatted.isNullOrBlank()) {
-                    Text(
-                        text = "🌅 Solnedgang kl. ${day.sunsetFormatted}",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            // Night weather (Requirement F Full: Open-Meteo within forecast range; otherwise "Vejrudsigt ikke tilgængelig endnu")
-            if (showNightWeather) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "🌙 Nattevejr: ${day.nightWeatherSummary}",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                            .testTag("day_card_weather_${day.dayNumber}")
-                    )
-                }
-            }
-
-            // Warnings (access, water gaps, arrival after sunset)
-            if (day.warnings.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    day.warnings.forEach { w ->
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFFFFF3E0),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Warning,
-                                    contentDescription = null,
-                                    tint = Color(0xFFE65100),
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = w,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color(0xFFBF360C)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Actions for OVERNIGHT pin: "Skift overnatning", "Vis", "Slet" (Requirement E)
-            if (day.overnightWaypointId != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = { onReplaceOvernight(day.overnightWaypointId) },
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier
-                            .height(30.dp)
-                            .testTag("btn_day_replace_overnight_${day.dayNumber}")
-                    ) {
-                        Icon(Icons.Default.NightShelter, contentDescription = null, modifier = Modifier.size(13.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Skift overnatning", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    OutlinedButton(
-                        onClick = { onZoomToEnd(day.overnightWaypointId) },
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        modifier = Modifier.height(30.dp)
-                    ) {
-                        Icon(Icons.Default.ZoomIn, contentDescription = null, modifier = Modifier.size(13.dp))
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text("Vis", fontSize = 11.sp)
-                    }
-
-                    TextButton(
-                        onClick = { onDeleteOvernight(day.overnightWaypointId) },
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                        modifier = Modifier
-                            .height(30.dp)
-                            .testTag("btn_day_delete_overnight_${day.dayNumber}")
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(13.dp))
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text("Fjern", fontSize = 11.sp)
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun TripSettingsDialog(
@@ -3212,7 +2390,7 @@ private fun TripSettingsDialog(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(Icons.Default.Tune, contentDescription = null, tint = ForestGreenPrimary)
-                Text("Indstillinger for turen", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.ui_routebuilderscreen_indstillinger_for_turen_102), fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
         },
         text = {
@@ -3229,7 +2407,7 @@ private fun TripSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Mit tempo", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.setting_my_pace), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(
                             text = String.format(Locale.GERMANY, "%.1f km/t", pace),
                             fontSize = 13.sp,
@@ -3253,9 +2431,9 @@ private fun TripSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Dagsmål (km/dag)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.ui_routebuilderscreen_dagsm_l_km_dag_166), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            text = "${dailyKm.toInt()} km",
+                            text = stringResource(R.string.ui_markedroutedetailsheet_km_19, dailyKm.toInt()),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = ForestGreenPrimary
@@ -3277,7 +2455,7 @@ private fun TripSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Maks. omvej til overnatning", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.ui_routebuilderscreen_maks_omvej_til_overnatning_167), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(
                             text = String.format(Locale.GERMANY, "%.1f km (%d m)", maxDetourKm, (maxDetourKm * 1000).toInt()),
                             fontSize = 13.sp,
@@ -3301,7 +2479,7 @@ private fun TripSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Startdato", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.ui_routebuilderscreen_startdato_168), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(
                             text = if (startDateOffsetDays == 0) "I dag ($formattedStartDate)" else "Om $startDateOffsetDays dage ($formattedStartDate)",
                             fontSize = 12.sp,
@@ -3322,7 +2500,7 @@ private fun TripSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Starttidspunkt", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.setting_start_time), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(
                             text = String.format(Locale.GERMANY, "kl. %02d:00", startHour),
                             fontSize = 13.sp,
@@ -3342,7 +2520,7 @@ private fun TripSettingsDialog(
 
                 // 5. Overnatningspræference
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Overnatningstype", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.ui_routebuilderscreen_overnatningstype_169), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -3389,578 +2567,18 @@ private fun TripSettingsDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
                 modifier = Modifier.testTag("btn_save_trip_settings")
             ) {
-                Text("Gem indstillinger", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.ui_routebuilderscreen_gem_indstillinger_170), fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Annuller")
+                Text(stringResource(R.string.btn_cancel))
             }
         }
     )
 }
 
-@Composable
-private fun WaypointRow(
-    index: Int,
-    waypoint: RouteWaypoint,
-    onClick: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = when (waypoint.role) {
-                    WaypointRole.START -> Color(0xFF2E7D32)
-                    WaypointRole.END -> Color(0xFFC62828)
-                    WaypointRole.OVERNIGHT -> Color(0xFFE65100)
-                    WaypointRole.VIA -> Color(0xFF1E88E5)
-                },
-                modifier = Modifier.size(24.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = when (waypoint.role) {
-                            WaypointRole.START -> "A"
-                            WaypointRole.END -> "B"
-                            WaypointRole.OVERNIGHT -> "⛺"
-                            WaypointRole.VIA -> "${index + 1}"
-                        },
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
 
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = waypoint.name ?: when (waypoint.role) {
-                        WaypointRole.START -> "Start"
-                        WaypointRole.END -> "Slut"
-                        WaypointRole.OVERNIGHT -> "Overnatning"
-                        WaypointRole.VIA -> "Punkt ${index + 1}"
-                    },
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                val detourDist = waypoint.detourDistanceKm
-                val subtitleText = when {
-                    detourDist != null && detourDist > 0.01 -> {
-                        String.format(
-                            Locale.GERMANY,
-                            "Omvej til %s: +%.1f km, +%d m",
-                            waypoint.name ?: "punkt",
-                            detourDist,
-                            (waypoint.detourAscentM ?: 0.0).toInt()
-                        )
-                    }
-                    waypoint.trailKm != null -> {
-                        String.format(Locale.GERMANY, "På vandreruten · km %.1f", waypoint.trailKm)
-                    }
-                    waypoint.legModeToNext == LegMode.STRAIGHT -> "Lige linje til næste"
-                    else -> "Følger stier"
-                }
-                Text(
-                    text = subtitleText,
-                    fontSize = 11.sp,
-                    color = if (detourDist != null && detourDist > 0.01) {
-                        Color(0xFFE65100)
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                )
-            }
-
-            Icon(
-                Icons.Default.Edit,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun AlternativeRouteCard(
-    alt: RouteAlternativeInfo,
-    onSelect: () -> Unit
-) {
-    val altColor = Color(RouteMarkerHelper.ALTERNATIVE_COLORS.getOrElse(alt.index) { RouteMarkerHelper.COLOR_SOLID_ROUTE })
-
-    Card(
-        shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, altColor.copy(alpha = 0.5f)),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier.padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .background(altColor, CircleShape)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text(
-                        text = "Alternativ ${alt.index}",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = String.format(Locale.GERMANY, "%.1f km · +%.0f m · %.0f %% sti", alt.lengthKm, alt.ascentM, alt.pathSharePct),
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Button(
-                onClick = onSelect,
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = altColor),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                modifier = Modifier.height(30.dp)
-            ) {
-                Text("Vælg", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-}
-
-@Composable
-private fun AccessWarningCard(
-    warning: com.example.util.access.RouteAccessWarning,
-    onZoomTo: () -> Unit,
-    onRerouteAround: () -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = AmberAccent.copy(alpha = 0.12f)),
-        border = BorderStroke(1.dp, AmberAccent.copy(alpha = 0.8f)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("access_warning_card_${warning.type.name}")
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Warning,
-                    contentDescription = null,
-                    tint = AmberAccent,
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    text = warning.title,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = warning.message,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(
-                    onClick = onZoomTo,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    modifier = Modifier.testTag("btn_warning_zoom_${warning.id}")
-                ) {
-                    Icon(Icons.Default.ZoomIn, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Vis", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-
-                if (warning.canRerouteAround) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Button(
-                        onClick = onRerouteAround,
-                        colors = ButtonDefaults.buttonColors(containerColor = AmberAccent),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.height(28.dp).testTag("btn_warning_reroute_${warning.id}")
-                    ) {
-                        Icon(Icons.Default.AltRoute, contentDescription = null, modifier = Modifier.size(13.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Rut uden om", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SupplyGapWarningCard(
-    warning: SupplyGapWarning,
-    onZoomToDetour: () -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
-        border = BorderStroke(1.dp, Color(0xFFE65100).copy(alpha = 0.6f)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("supply_gap_warning_${warning.type.name}")
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = if (warning.type == SupplyGapType.WATER) Icons.Default.WaterDrop else Icons.Default.Place,
-                    contentDescription = null,
-                    tint = Color(0xFFE65100),
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    text = warning.displayTitle,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFBF360C)
-                )
-            }
-
-            warning.detourOptionText?.let { detour ->
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = detour,
-                    fontSize = 12.sp,
-                    color = Color(0xFF5D4037)
-                )
-            }
-
-            if (warning.detourLat != null && warning.detourLng != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(
-                        onClick = onZoomToDetour,
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier.testTag("btn_zoom_detour_${warning.type.name}")
-                    ) {
-                        Icon(Icons.Default.ZoomIn, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFE65100))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Vis omvej på kort", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun QualityRowItem(
-    color: Color,
-    label: String,
-    km: Double,
-    pct: Double
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.padding(vertical = 2.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(10.dp)
-                .background(color, CircleShape)
-        )
-        Text(
-            text = "$label: ${String.format(Locale.GERMANY, "%.1f", km)} km (${pct.toInt()} %)",
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun RoadSectionWarningCard(
-    warning: RoadSectionWarning,
-    onZoomTo: () -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE0B2).copy(alpha = 0.5f)),
-        border = BorderStroke(1.dp, Color(0xFFE65100).copy(alpha = 0.5f)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = warning.displayText,
-                    fontSize = 11.sp,
-                    color = Color(0xFFBF360C),
-                    fontWeight = FontWeight.Medium
-                )
-            }
-            TextButton(
-                onClick = onZoomTo,
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Icon(Icons.Default.ZoomIn, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFE65100))
-                Spacer(modifier = Modifier.width(2.dp))
-                Text("Vis", fontSize = 11.sp, color = Color(0xFFE65100), fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-}
-
-@Composable
-private fun WaypointWeatherEtaCard(
-    weather: WaypointWeatherEta
-) {
-    Card(
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (weather.isAfterSunset) Color(0xFFFFF3E0) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-        ),
-        border = BorderStroke(
-            1.dp,
-            if (weather.isAfterSunset) Color(0xFFE65100).copy(alpha = 0.7f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-        ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("weather_eta_${weather.waypointId}")
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = if (weather.isOvernight) "⛺ " else "🏁 ",
-                        fontSize = 14.sp
-                    )
-                    Text(
-                        text = weather.waypointName,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = if (weather.isAfterSunset) Color(0xFFE65100) else ForestGreenPrimary,
-                    contentColor = Color.White
-                ) {
-                    Text(
-                        text = "ETA ${weather.etaFormatted}",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = "km ${String.format(Locale.GERMANY, "%.1f", weather.kmFromStart)} fra start (${weather.etaMinutesFromStart / 60} t ${weather.etaMinutesFromStart % 60} min gang)",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            if (weather.tempC != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "${weather.weatherIcon ?: "🌤️"} ${weather.tempC.toInt()}°C",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    if (weather.precipMm != null) {
-                        Text(
-                            text = "🌧️ ${String.format(Locale.US, "%.1f", weather.precipMm)} mm",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (weather.windMs != null) {
-                        Text(
-                            text = "💨 ${String.format(Locale.US, "%.1f", weather.windMs)} m/s",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            } else {
-                Text(
-                    text = "Vejrudsigt ved ankomst ikke tilgængelig",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            if (!weather.sunsetTime.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "🌅 Solnedgang: ${weather.sunsetTime}",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            if (weather.warningMessage != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFFFFE0B2),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = weather.warningMessage,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFBF360C),
-                        modifier = Modifier.padding(6.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CustomWaypointRow(
-    waypoint: UserCustomWaypointEntity,
-    onClick: () -> Unit,
-    onDelete: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (!waypoint.photoPath.isNullOrBlank() && File(waypoint.photoPath).exists()) {
-                val bitmap = remember(waypoint.photoPath) {
-                    try {
-                        BitmapFactory.decodeFile(waypoint.photoPath)
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = waypoint.name,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.CameraAlt,
-                        contentDescription = null,
-                        tint = Color(0xFF7B1FA2),
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            } else {
-                Surface(
-                    shape = CircleShape,
-                    color = Color(0xFF7B1FA2),
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("★", color = Color.White, fontSize = 12.sp)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = waypoint.name,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (waypoint.note.isNotBlank()) {
-                    Text(
-                        text = waypoint.note,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(32.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Slet",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-        }
-    }
-}
 
 /**
  * Updates the "route" folder overlay in place without ever calling mapView.overlays.clear().

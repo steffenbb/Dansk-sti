@@ -1,4 +1,7 @@
 package com.example.ui.components
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -155,7 +158,7 @@ fun MapLayersBottomSheet(
                         modifier = Modifier.size(24.dp)
                     )
                     Text(
-                        text = "Kortlag & Visning",
+                        text = stringResource(R.string.ui_maplayersbottomsheet_kortlag_visning_15),
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -167,7 +170,7 @@ fun MapLayersBottomSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Luk",
+                        contentDescription = stringResource(R.string.btn_close),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -177,7 +180,7 @@ fun MapLayersBottomSheet(
 
             // 1. BASE MAP SECTION
             Text(
-                text = "GRUNDKORT",
+                text = stringResource(R.string.ui_maplayersbottomsheet_grundkort_16),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
@@ -232,7 +235,7 @@ fun MapLayersBottomSheet(
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = "Kort i mørke",
+                    text = stringResource(R.string.setting_dark_map),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -277,7 +280,7 @@ fun MapLayersBottomSheet(
 
             // 2. OVERLAYS SECTION
             Text(
-                text = "OVERLEJRINGER (KORTLAG)",
+                text = stringResource(R.string.ui_maplayersbottomsheet_overlejringer_kortlag_17),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,

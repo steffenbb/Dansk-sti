@@ -1,4 +1,7 @@
 package com.example.ui.screens
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
 
 import android.content.Intent
 import android.net.Uri
@@ -180,12 +183,12 @@ fun DataCreditsScreen(
                 title = {
                     Column {
                         Text(
-                            text = "Datakreditter & Kilder",
+                            text = stringResource(R.string.about_data_credits),
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Åbne og officielle geodata i Dansk Sti",
+                            text = stringResource(R.string.ui_datacreditsscreen_bne_og_officielle_geodata_i__45),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -198,7 +201,7 @@ fun DataCreditsScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Tilbage"
+                            contentDescription = stringResource(R.string.btn_back)
                         )
                     }
                 },
@@ -217,7 +220,7 @@ fun DataCreditsScreen(
         ) {
             item {
                 Text(
-                    text = "Dansk Sti er drevet af frie og åbne data fra danske og europæiske myndigheder og fællesskaber. Herunder kan du se de anvendte datakilder, licenser og dateringer:",
+                    text = stringResource(R.string.ui_datacreditsscreen_dansk_sti_er_drevet_af_frie__46),
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 18.sp,
@@ -282,7 +285,7 @@ fun DataCreditsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Datering i appen: ",
+                                    text = stringResource(R.string.ui_datacreditsscreen_datering_i_appen_47),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -297,7 +300,7 @@ fun DataCreditsScreen(
 
                         // License
                         Text(
-                            text = "Licens: ${credit.license}",
+                            text = stringResource(R.string.ui_datacreditsscreen_licens_48, credit.license),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
                             color = ForestGreenPrimary
@@ -327,7 +330,7 @@ fun DataCreditsScreen(
                             modifier = Modifier.align(Alignment.End).testTag("credit_link_${credit.title.take(10).replace(" ", "_")}"),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {
-                            Text(text = "Læs mere & licens", fontSize = 12.sp)
+                            Text(text = stringResource(R.string.ui_datacreditsscreen_l_s_mere_licens_49), fontSize = 12.sp)
                             Spacer(modifier = Modifier.width(6.dp))
                             Icon(imageVector = Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
                         }
@@ -338,7 +341,7 @@ fun DataCreditsScreen(
             item {
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Dansk Sti overholder alle krav til kreditering og licensvilkår fastsat af OpenStreetMap Foundation, Miljøministeriet og Copernicus/ESA.",
+                    text = stringResource(R.string.ui_datacreditsscreen_dansk_sti_overholder_alle_kr_50),
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 15.sp,

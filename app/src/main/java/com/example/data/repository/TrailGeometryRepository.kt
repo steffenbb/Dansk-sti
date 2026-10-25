@@ -529,12 +529,26 @@ class TrailGeometryRepository(private val context: Context) {
         val (mainSegments, gaps) = stitchWays(walkWays)
         val (sideSegments, _) = stitchWays(sideBranchWays)
 
-        // Simplify with Douglas-Peucker at 4m
+        // Simplify with Douglas-Peucker at 4m and scale wayTagRanges proportionally if total segment length changes
         val simplifiedMain = mainSegments.map { seg ->
-            InternalSegment(seg.type, douglasPeucker(seg.points, 4.0).toMutableList(), seg.highway, seg.surface)
+            val simpPts = douglasPeucker(seg.points, 4.0).toMutableList()
+            val oldKm = seg.wayTagRanges.lastOrNull()?.toKm ?: 0.0
+            val newKm = calculateSegmentKm(simpPts)
+            val scale = if (oldKm > 1e-6 && newKm > 0.0) newKm / oldKm else 1.0
+            val scaledRanges = seg.wayTagRanges.map { r ->
+                r.copy(fromKm = r.fromKm * scale, toKm = r.toKm * scale)
+            }
+            InternalSegment(seg.type, simpPts, seg.highway, seg.surface, scaledRanges)
         }
         val simplifiedSide = sideSegments.map { seg ->
-            InternalSegment(seg.type, douglasPeucker(seg.points, 4.0).toMutableList(), seg.highway, seg.surface)
+            val simpPts = douglasPeucker(seg.points, 4.0).toMutableList()
+            val oldKm = seg.wayTagRanges.lastOrNull()?.toKm ?: 0.0
+            val newKm = calculateSegmentKm(simpPts)
+            val scale = if (oldKm > 1e-6 && newKm > 0.0) newKm / oldKm else 1.0
+            val scaledRanges = seg.wayTagRanges.map { r ->
+                r.copy(fromKm = r.fromKm * scale, toKm = r.toKm * scale)
+            }
+            InternalSegment(seg.type, simpPts, seg.highway, seg.surface, scaledRanges)
         }
 
         // Keep Douglas-Peucker (4m) points as route geometry; resample 100m ONLY for elevation lookup
@@ -609,7 +623,8 @@ class TrailGeometryRepository(private val context: Context) {
         val type: TrailSegmentType,
         val points: MutableList<GeoPointDto>,
         val highway: String? = null,
-        val surface: String? = null
+        val surface: String? = null,
+        val wayTagRanges: List<com.example.data.model.WayTagRangeDto> = emptyList()
     )
 
     private fun stitchWays(ways: List<WayData>): Pair<List<InternalSegment>, List<TrailGapDto>> {
@@ -619,22 +634,44 @@ class TrailGeometryRepository(private val context: Context) {
         var curType = TrailSegmentType.WALK
         var curHighway: String? = null
         var curSurface: String? = null
+        var curRanges = mutableListOf<com.example.data.model.WayTagRangeDto>()
+        var curKm = 0.0
 
         for (w in ways) {
             if (curPts.isEmpty()) {
+                val wKm = calculateSegmentKm(w.points)
                 curPts.addAll(w.points)
                 curType = w.type
                 curHighway = w.highway
                 curSurface = w.surface
+                curRanges = mutableListOf(
+                    com.example.data.model.WayTagRangeDto(
+                        fromKm = 0.0,
+                        toKm = wKm,
+                        highway = w.highway,
+                        surface = w.surface
+                    )
+                )
+                curKm = wKm
                 continue
             }
 
             if (w.type != curType) {
-                segments.add(InternalSegment(curType, curPts, curHighway, curSurface))
+                segments.add(InternalSegment(curType, curPts, curHighway, curSurface, curRanges))
+                val wKm = calculateSegmentKm(w.points)
                 curPts = w.points.toMutableList()
                 curType = w.type
                 curHighway = w.highway
                 curSurface = w.surface
+                curRanges = mutableListOf(
+                    com.example.data.model.WayTagRangeDto(
+                        fromKm = 0.0,
+                        toKm = wKm,
+                        highway = w.highway,
+                        surface = w.surface
+                    )
+                )
+                curKm = wKm
                 continue
             }
 
@@ -649,24 +686,48 @@ class TrailGeometryRepository(private val context: Context) {
             val gap = min(dNorm, dFlip)
 
             if (gap > 30.0) {
-                segments.add(InternalSegment(curType, curPts, curHighway, curSurface))
+                segments.add(InternalSegment(curType, curPts, curHighway, curSurface, curRanges))
                 gaps.add(TrailGapDto(fromPoint = last, toPoint = oriented.first(), gapMeters = gap))
+                val wKm = calculateSegmentKm(oriented)
                 curPts = oriented.toMutableList()
                 curHighway = w.highway
                 curSurface = w.surface
+                curRanges = mutableListOf(
+                    com.example.data.model.WayTagRangeDto(
+                        fromKm = 0.0,
+                        toKm = wKm,
+                        highway = w.highway,
+                        surface = w.surface
+                    )
+                )
+                curKm = wKm
             } else {
                 if (curHighway == null && w.highway != null) curHighway = w.highway
                 if (curSurface == null && w.surface != null) curSurface = w.surface
-                if (gap < 1.0) {
-                    curPts.addAll(oriented.drop(1))
-                } else {
-                    curPts.addAll(oriented)
+                val addedPts = if (gap < 1.0) oriented.drop(1) else oriented
+                var addedMeters = 0.0
+                var prev = last
+                for (p in addedPts) {
+                    addedMeters += distanceMeters(prev, p)
+                    prev = p
                 }
+                curPts.addAll(addedPts)
+                val startKm = curKm
+                val endKm = startKm + (addedMeters / 1000.0)
+                curRanges.add(
+                    com.example.data.model.WayTagRangeDto(
+                        fromKm = startKm,
+                        toKm = endKm,
+                        highway = w.highway,
+                        surface = w.surface
+                    )
+                )
+                curKm = endKm
             }
         }
 
         if (curPts.isNotEmpty()) {
-            segments.add(InternalSegment(curType, curPts, curHighway, curSurface))
+            segments.add(InternalSegment(curType, curPts, curHighway, curSurface, curRanges))
         }
 
         return Pair(segments, gaps)
@@ -694,7 +755,8 @@ class TrailGeometryRepository(private val context: Context) {
                         points = realPts.map { GeoPointDto(it.lat, it.lng, null) },
                         lengthKm = km,
                         highway = seg.highway,
-                        surface = seg.surface
+                        surface = seg.surface,
+                        wayTagRanges = seg.wayTagRanges
                     )
                 )
                 continue
@@ -784,7 +846,8 @@ class TrailGeometryRepository(private val context: Context) {
                         points = realPts.map { GeoPointDto(it.lat, it.lng, null) },
                         lengthKm = km,
                         highway = seg.highway,
-                        surface = seg.surface
+                        surface = seg.surface,
+                        wayTagRanges = seg.wayTagRanges
                     )
                 )
                 continue
@@ -833,7 +896,8 @@ class TrailGeometryRepository(private val context: Context) {
                     points = finalRealPoints,
                     lengthKm = km,
                     highway = seg.highway,
-                    surface = seg.surface
+                    surface = seg.surface,
+                    wayTagRanges = seg.wayTagRanges
                 )
             )
         }

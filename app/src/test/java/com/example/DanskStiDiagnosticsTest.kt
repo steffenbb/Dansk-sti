@@ -65,14 +65,14 @@ class DanskStiDiagnosticsTest {
         val gendarmstien = database.dao().getTrailById("trail_gendarmstien")
         assertNotNull("Gendarmstien should be seeded", gendarmstien)
 
-        // 2. Verify GeoFA shelters, fri teltning and POIs are seeded from assets
+        // 2. Verify no fake shelters, fri teltning or POIs are seeded from assets on startup
         val shelterCount = database.dao().getShelterCount()
         val friTeltningCount = database.dao().getFriTeltningCount()
         val poiCount = database.dao().getPoiCount()
 
-        assertTrue("Expected shelters to be loaded, got $shelterCount", shelterCount > 0)
-        assertTrue("Expected fri teltning to be loaded, got $friTeltningCount", friTeltningCount > 0)
-        assertTrue("Expected POIs to be loaded, got $poiCount", poiCount > 0)
+        assertEquals("Expected 0 fake preseeded shelters on startup", 0, shelterCount)
+        assertEquals("Expected 0 fake preseeded fri teltning on startup", 0, friTeltningCount)
+        assertTrue("Expected bundled OSM POIs to be seeded on startup, but found $poiCount", poiCount > 0)
     }
 
     @Test

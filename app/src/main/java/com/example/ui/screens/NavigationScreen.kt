@@ -1,4 +1,7 @@
 package com.example.ui.screens
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
 
 import android.Manifest
 import android.content.Intent
@@ -220,7 +223,7 @@ fun NavigationScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "STRØMSPARER",
+                            text = stringResource(R.string.nav_battery_saver_label),
                             color = ForestGreenLight,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
@@ -242,7 +245,7 @@ fun NavigationScreen(
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                         ) {
                             Text(
-                                text = "Afslut",
+                                text = stringResource(R.string.nav_battery_saver_exit),
                                 color = Color.White,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -269,7 +272,7 @@ fun NavigationScreen(
 
                     // Large remaining distance
                     Text(
-                        text = "${com.example.ui.components.formatDanishKm(distanceRemainingToday, 1)} km",
+                        text = stringResource(R.string.ui_markedroutedetailsheet_km_19, com.example.ui.components.formatDanishKm(distanceRemainingToday, 1)),
                         style = com.example.ui.theme.TabularBodyStyle.copy(
                             color = Color.White,
                             fontSize = 54.sp,
@@ -278,7 +281,7 @@ fun NavigationScreen(
                         )
                     )
                     Text(
-                        text = "tilbage i dag",
+                        text = stringResource(R.string.nav_remaining_today_label),
                         color = Color.Gray,
                         fontSize = 15.sp
                     )
@@ -292,7 +295,7 @@ fun NavigationScreen(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "${com.example.ui.components.formatDanishKm(liveState.speedKmh, 1)} km/t",
+                                text = stringResource(R.string.ui_navigationscreen_km_t_57, com.example.ui.components.formatDanishKm(liveState.speedKmh, 1)),
                                 style = com.example.ui.theme.TabularBodyStyle.copy(
                                     color = Color.White,
                                     fontSize = 24.sp,
@@ -300,7 +303,7 @@ fun NavigationScreen(
                                 )
                             )
                             Text(
-                                text = "Gangtempo",
+                                text = stringResource(R.string.nav_walking_pace_label),
                                 color = Color.Gray,
                                 fontSize = 12.sp
                             )
@@ -309,7 +312,7 @@ fun NavigationScreen(
                         nextOvernight?.let { next ->
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "${com.example.ui.components.formatDanishKm(next.distanceRemainingKm, 1)} km",
+                                    text = stringResource(R.string.ui_markedroutedetailsheet_km_19, com.example.ui.components.formatDanishKm(next.distanceRemainingKm, 1)),
                                     style = com.example.ui.theme.TabularBodyStyle.copy(
                                         color = AmberAccent,
                                         fontSize = 24.sp,
@@ -342,7 +345,7 @@ fun NavigationScreen(
                                 )
                             )
                             Text(
-                                text = "Aktiv tid",
+                                text = stringResource(R.string.nav_active_time_label),
                                 color = Color.Gray,
                                 fontSize = 12.sp
                             )
@@ -351,7 +354,7 @@ fun NavigationScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             val ascent = currentDayStat?.ascentMeters ?: 0
                             Text(
-                                text = "+$ascent m",
+                                text = stringResource(R.string.ui_navigationscreen_m_58, ascent),
                                 style = com.example.ui.theme.TabularBodyStyle.copy(
                                     color = ForestGreenLight,
                                     fontSize = 20.sp,
@@ -359,7 +362,7 @@ fun NavigationScreen(
                                 )
                             )
                             Text(
-                                text = "Stigning",
+                                text = stringResource(R.string.stat_elevation),
                                 color = Color.Gray,
                                 fontSize = 12.sp
                             )
@@ -392,13 +395,13 @@ fun NavigationScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Call,
-                                    contentDescription = "SOS Nødkald",
+                                    contentDescription = stringResource(R.string.ui_navigationscreen_sos_n_dkald_59),
                                     tint = Color.White,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "SOS 112",
+                                    text = stringResource(R.string.nav_sos_112),
                                     color = Color.White,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
@@ -585,7 +588,7 @@ fun NavigationScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Tilbage",
+                            contentDescription = stringResource(R.string.btn_back),
                             tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp)
                         )
@@ -612,7 +615,7 @@ fun NavigationScreen(
                             )
                             Spacer(modifier = Modifier.width(5.dp))
                             Text(
-                                text = "GPS aktiv • ${com.example.ui.components.formatDanishKm(liveState.speedKmh, 1)} km/t",
+                                text = stringResource(R.string.ui_navigationscreen_gps_aktiv_km_t_60, com.example.ui.components.formatDanishKm(liveState.speedKmh, 1)),
                                 style = com.example.ui.theme.TabularLabelStyle,
                                 color = ForestGreenPrimary,
                                 fontWeight = FontWeight.Medium
@@ -629,7 +632,7 @@ fun NavigationScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.BatterySaver,
-                            contentDescription = "Strømsparer-tilstand",
+                            contentDescription = stringResource(R.string.ui_navigationscreen_str_msparer_tilstand_61),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp)
                         )
@@ -749,7 +752,7 @@ fun NavigationScreen(
                                 color = Color.Black
                             )
                             Text(
-                                text = "I privat skov må du kun færdes på stier fra kl. 06:00 til solnedgang.",
+                                text = stringResource(R.string.nav_private_forest_hours_note),
                                 fontSize = 11.sp,
                                 color = Color.Black.copy(alpha = 0.85f)
                             )
@@ -797,7 +800,7 @@ fun NavigationScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Foran dig på ruten",
+                                text = stringResource(R.string.nav_ahead_on_route),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -833,7 +836,7 @@ fun NavigationScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Cabin,
-                                    contentDescription = "Næste overnatning",
+                                    contentDescription = stringResource(R.string.ui_navigationscreen_n_ste_overnatning_62),
                                     tint = ForestGreenPrimary,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -869,7 +872,7 @@ fun NavigationScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.LocalDrink,
-                                    contentDescription = "Næste vandpost",
+                                    contentDescription = stringResource(R.string.ui_navigationscreen_n_ste_vandpost_63),
                                     tint = NordicBlue,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -905,7 +908,7 @@ fun NavigationScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ShoppingCart,
-                                    contentDescription = "Næste indkøb",
+                                    contentDescription = stringResource(R.string.ui_navigationscreen_n_ste_indk_b_64),
                                     tint = AmberAccent,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -941,7 +944,7 @@ fun NavigationScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(
-                                text = "Foran dig på ruten",
+                                text = stringResource(R.string.nav_ahead_on_route),
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -960,7 +963,7 @@ fun NavigationScreen(
                             // Upcoming amenities list
                             if (aheadItems.isEmpty()) {
                                 Text(
-                                    text = "Ingen yderligere interessepunkter foran dig på dagens etape.",
+                                    text = stringResource(R.string.ui_navigationscreen_ingen_yderligere_interessepu_65),
                                     fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(vertical = 8.dp)
@@ -987,7 +990,7 @@ fun NavigationScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "Optaget GPS-spor (Dag $currentDay)",
+                                            text = stringResource(R.string.ui_navigationscreen_optaget_gps_spor_dag_66, currentDay),
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onSurface
@@ -997,7 +1000,7 @@ fun NavigationScreen(
                                             color = ForestGreenPrimary.copy(alpha = 0.15f)
                                         ) {
                                             Text(
-                                                text = "${currentDayStat?.pointCount ?: 0} punkter",
+                                                text = stringResource(R.string.ui_navigationscreen_punkter_67, currentDayStat?.pointCount ?: 0),
                                                 fontSize = 11.sp,
                                                 color = ForestGreenPrimary,
                                                 fontWeight = FontWeight.SemiBold,
@@ -1014,13 +1017,13 @@ fun NavigationScreen(
                                         // Distance
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                text = "Distance",
+                                                text = stringResource(R.string.ui_markedroutedetailsheet_distance_18),
                                                 fontSize = 11.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                             val dist = currentDayStat?.distanceKm ?: liveState.distanceWalkedTodayKm
                                             Text(
-                                                text = "${String.format(Locale.US, "%.1f", dist)} km",
+                                                text = stringResource(R.string.ui_markedroutedetailsheet_km_19, String.format(Locale.US, "%.1f", dist)),
                                                 fontSize = 16.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = MaterialTheme.colorScheme.onSurface
@@ -1030,7 +1033,7 @@ fun NavigationScreen(
                                         // Moving time
                                         Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text(
-                                                text = "Bevægelsestid",
+                                                text = stringResource(R.string.ui_navigationscreen_bev_gelsestid_68),
                                                 fontSize = 11.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -1046,13 +1049,13 @@ fun NavigationScreen(
                                         // Ascent
                                         Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                                             Text(
-                                                text = "Stigning",
+                                                text = stringResource(R.string.stat_elevation),
                                                 fontSize = 11.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                             val ascent = currentDayStat?.ascentMeters ?: 0
                                             Text(
-                                                text = "+$ascent m",
+                                                text = stringResource(R.string.ui_navigationscreen_m_58, ascent),
                                                 fontSize = 16.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = ForestGreenPrimary
@@ -1073,7 +1076,7 @@ fun NavigationScreen(
                                         ) {
                                             Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(15.dp))
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Dags-spor GPX", fontSize = 11.sp, maxLines = 1)
+                                            Text(stringResource(R.string.ui_navigationscreen_dags_spor_gpx_69), fontSize = 11.sp, maxLines = 1)
                                         }
 
                                         Button(
@@ -1085,7 +1088,7 @@ fun NavigationScreen(
                                         ) {
                                             Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(15.dp))
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Hele turen GPX", fontSize = 11.sp, maxLines = 1)
+                                            Text(stringResource(R.string.ui_navigationscreen_hele_turen_gpx_70), fontSize = 11.sp, maxLines = 1)
                                         }
                                     }
 
@@ -1110,7 +1113,7 @@ fun NavigationScreen(
                                     if (allRecordedDayStats.size > 1) {
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(
-                                            text = "Tidligere dages optagede spor:",
+                                            text = stringResource(R.string.ui_navigationscreen_tidligere_dages_optagede_spo_71),
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1122,7 +1125,7 @@ fun NavigationScreen(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text(
-                                                    text = "Dag ${dayStat.dayNumber}: ${String.format(Locale.US, "%.1f", dayStat.distanceKm)} km · ${formatMovingTime(dayStat.movingTimeSeconds)} · +${dayStat.ascentMeters}m",
+                                                    text = stringResource(R.string.ui_navigationscreen_dag_km_m_72, dayStat.dayNumber, String.format(Locale.US, "%.1f", dayStat.distanceKm), formatMovingTime(dayStat.movingTimeSeconds), dayStat.ascentMeters),
                                                     fontSize = 11.sp,
                                                     color = MaterialTheme.colorScheme.onSurface
                                                 )
@@ -1130,7 +1133,7 @@ fun NavigationScreen(
                                                     onClick = { viewModel.exportDayGpx(context, dayStat.dayNumber) },
                                                     modifier = Modifier.size(28.dp).testTag("export_day_${dayStat.dayNumber}_button")
                                                 ) {
-                                                    Icon(Icons.Default.Share, contentDescription = "Eksporter dag ${dayStat.dayNumber}", modifier = Modifier.size(14.dp), tint = ForestGreenPrimary)
+                                                    Icon(Icons.Default.Share, contentDescription = stringResource(R.string.ui_navigationscreen_eksporter_dag_73, dayStat.dayNumber), modifier = Modifier.size(14.dp), tint = ForestGreenPrimary)
                                                 }
                                             }
                                         }
@@ -1161,7 +1164,7 @@ fun NavigationScreen(
                                 .testTag("stop_for_today_button")
                         ) {
                             Text(
-                                text = "Stop for i dag",
+                                text = stringResource(R.string.nav_stop_for_today),
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -1183,7 +1186,7 @@ fun NavigationScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "SOS",
+                                    text = stringResource(R.string.nav_sos),
                                     style = MaterialTheme.typography.bodyLarge,
                                     fontWeight = FontWeight.Black,
                                     color = Color.White
@@ -1226,7 +1229,7 @@ fun NavigationScreen(
                 }
 
                 Text(
-                    text = "🚨 Dansk Nødkald (112)",
+                    text = stringResource(R.string.ui_navigationscreen_dansk_n_dkald_112_74),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = AlertRed
@@ -1240,7 +1243,7 @@ fun NavigationScreen(
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text(
-                            text = "Din nøjagtige GPS-position:",
+                            text = stringResource(R.string.ui_navigationscreen_din_n_jagtige_gps_position_75),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1259,7 +1262,7 @@ fun NavigationScreen(
                         emergencyInfo?.spokenWgs84?.let { spoken ->
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Læses højt til alarmcentralen: $spoken",
+                                text = stringResource(R.string.ui_navigationscreen_l_ses_h_jt_til_alarmcent_76, spoken),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Normal,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1290,7 +1293,7 @@ fun NavigationScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Ring 112 nu",
+                        text = stringResource(R.string.ui_navigationscreen_ring_112_nu_77),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -1302,7 +1305,7 @@ fun NavigationScreen(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Luk nødsystem")
+                    Text(stringResource(R.string.ui_navigationscreen_luk_n_dsystem_78))
                 }
             }
         }
@@ -1341,7 +1344,7 @@ fun AheadItemRow(item: AheadOnRouteItem) {
                 )
                 if (item.detourMeters > 30) {
                     Text(
-                        text = "${item.detourMeters.toInt()}m afstikker",
+                        text = stringResource(R.string.ui_navigationscreen_m_afstikker_79, item.detourMeters.toInt()),
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1350,7 +1353,7 @@ fun AheadItemRow(item: AheadOnRouteItem) {
         }
 
         Text(
-            text = "${String.format(Locale.US, "%.1f", item.kmRemaining)} km",
+            text = stringResource(R.string.ui_markedroutedetailsheet_km_19, String.format(Locale.US, "%.1f", item.kmRemaining)),
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant

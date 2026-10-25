@@ -1,4 +1,7 @@
 package com.example.ui.map
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
 
 import android.Manifest
 import android.content.Context
@@ -383,12 +386,13 @@ fun DanskStiMap(
         }
     }
 
+    val mapContentDesc = stringResource(R.string.nav_map)
     Box(modifier = modifier) {
         AndroidView(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag(mapTestTag)
-                .semantics { contentDescription = "Kort" },
+                .semantics { contentDescription = mapContentDesc },
             factory = { ctx ->
                 MapView(ctx).apply {
                     tag = mapTestTag
@@ -547,7 +551,7 @@ fun DanskStiMap(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Layers,
-                        contentDescription = "Kortlag"
+                        contentDescription = stringResource(R.string.ui_danskstimap_kortlag_29)
                     )
                 }
 
@@ -571,7 +575,7 @@ fun DanskStiMap(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Explore,
-                        contentDescription = "Kompas - nord op",
+                        contentDescription = stringResource(R.string.ui_danskstimap_kompas_nord_op_30),
                         modifier = Modifier.rotate(-currentBearing)
                     )
                 }
@@ -612,7 +616,7 @@ fun DanskStiMap(
                 ) {
                     Icon(
                         imageVector = Icons.Default.MyLocation,
-                        contentDescription = "Min position"
+                        contentDescription = stringResource(R.string.map_btn_my_location)
                     )
                 }
             }

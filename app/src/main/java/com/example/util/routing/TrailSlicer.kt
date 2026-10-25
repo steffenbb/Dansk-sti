@@ -3,6 +3,7 @@ package com.example.util.routing
 import com.example.data.model.GeoPointDto
 import com.example.data.model.TrailSegmentDto
 import com.example.data.model.TrailSegmentType
+import com.example.data.model.WayTagRangeDto
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
@@ -13,6 +14,7 @@ import kotlin.math.sqrt
 typealias TrailProjection = TrailSlicer.TrailProjection
 typealias TrailKmMarker = TrailSlicer.TrailKmMarker
 typealias TrailLegSlicer = TrailSlicer
+typealias WayTagRange = WayTagRangeDto
 
 data class SlicedTrailResult(
     val trailSegments: List<TrailSegmentDto>,
@@ -57,6 +59,140 @@ object TrailSlicer {
 
     fun totalTrailKm(segments: List<TrailSegmentDto>): Double = totalTrailWalkKm(segments)
 
+    private fun segmentWalkKm(seg: TrailSegmentDto): Double {
+        val pts = seg.points
+        if (pts.size < 2) return 0.0
+        var meters = 0.0
+        for (i in 0 until pts.size - 1) {
+            meters += haversineMeters(pts[i].lat, pts[i].lng, pts[i + 1].lat, pts[i + 1].lng)
+        }
+        return meters / 1000.0
+    }
+
+    private fun normalizeSegmentWayRanges(
+        seg: TrailSegmentDto,
+        segStartWalkKm: Double,
+        segTotalLocalKm: Double
+    ): List<WayTagRangeDto> {
+        if (seg.wayTagRanges.isNotEmpty()) {
+            val firstFrom = seg.wayTagRanges.first().fromKm
+            val usesGlobalKm = segStartWalkKm > 1e-3 && firstFrom >= segStartWalkKm - 1e-3
+            return seg.wayTagRanges.map { r ->
+                if (usesGlobalKm) {
+                    r.copy(
+                        fromKm = (r.fromKm - segStartWalkKm).coerceAtLeast(0.0),
+                        toKm = (r.toKm - segStartWalkKm).coerceAtLeast(0.0)
+                    )
+                } else {
+                    r
+                }
+            }
+        }
+        if (seg.highway != null || seg.surface != null) {
+            return listOf(
+                WayTagRangeDto(
+                    fromKm = 0.0,
+                    toKm = segTotalLocalKm,
+                    highway = seg.highway,
+                    surface = seg.surface
+                )
+            )
+        }
+        return emptyList()
+    }
+
+    private fun lookupRangeTagsAtLocalKm(
+        ranges: List<WayTagRangeDto>,
+        localKm: Double,
+        fallbackHighway: String?,
+        fallbackSurface: String?,
+        preferUpcomingAtBoundary: Boolean
+    ): Pair<String?, String?> {
+        if (ranges.isEmpty()) return fallbackHighway to fallbackSurface
+        val eps = 1e-6
+        val matching = ranges.filter { localKm >= it.fromKm - eps && localKm <= it.toKm + eps }
+        if (matching.isNotEmpty()) {
+            val chosen = if (preferUpcomingAtBoundary) {
+                matching.firstOrNull { it.toKm > localKm + 1e-5 } ?: matching.last()
+            } else {
+                matching.last()
+            }
+            return chosen.highway to chosen.surface
+        }
+        val nearest = ranges.minByOrNull { r ->
+            when {
+                localKm < r.fromKm -> r.fromKm - localKm
+                localKm > r.toKm -> localKm - r.toKm
+                else -> 0.0
+            }
+        }
+        return if (nearest != null) nearest.highway to nearest.surface else fallbackHighway to fallbackSurface
+    }
+
+    /**
+     * Computes pathSharePct and roadKm directly from the wayTagRanges along WALK segments.
+     */
+    fun computeTrailRangeMetrics(
+        trailSegments: List<TrailSegmentDto>,
+        fallbackPoints: List<RoutePoint3D> = emptyList(),
+        fallbackWayInfo: List<WayInfo> = emptyList()
+    ): Pair<Double?, Double> {
+        val walkSegments = trailSegments.filter { it.type == TrailSegmentType.WALK }
+        val allRanges = walkSegments.flatMap { seg ->
+            if (seg.wayTagRanges.isNotEmpty()) {
+                seg.wayTagRanges
+            } else if (seg.highway != null || seg.surface != null) {
+                listOf(WayTagRangeDto(0.0, seg.lengthKm, seg.highway, seg.surface))
+            } else {
+                emptyList()
+            }
+        }
+        val hasAnyWayTags = allRanges.any { !it.highway.isNullOrBlank() || !it.surface.isNullOrBlank() }
+        if (!hasAnyWayTags) {
+            return RouteGeometryStorageManager.computeWaySectionMetrics(fallbackPoints, fallbackWayInfo)
+        }
+
+        var pathDistKm = 0.0
+        var roadDistKm = 0.0
+        var totalWalkKm = 0.0
+
+        for (seg in walkSegments) {
+            val segRanges = if (seg.wayTagRanges.isNotEmpty()) {
+                seg.wayTagRanges
+            } else if (seg.highway != null || seg.surface != null) {
+                listOf(WayTagRangeDto(0.0, seg.lengthKm, seg.highway, seg.surface))
+            } else {
+                emptyList()
+            }
+            var segRangeSumKm = 0.0
+            for (r in segRanges) {
+                val rKm = (r.toKm - r.fromKm).coerceAtLeast(0.0)
+                if (rKm <= 0.0) continue
+                segRangeSumKm += rKm
+                val hw = r.highway?.lowercase() ?: ""
+                val surf = r.surface?.lowercase() ?: ""
+
+                val isPath = hw in listOf("path", "footway", "bridleway", "track", "pedestrian", "steps", "cycleway") ||
+                    surf in listOf("unpaved", "compacted", "gravel", "fine_gravel", "dirt", "ground", "earth", "grass")
+                val isRoad = hw in listOf("residential", "living_street", "service", "unclassified", "tertiary", "secondary", "primary", "trunk") ||
+                    surf in listOf("asphalt", "paved", "concrete", "paving_stones")
+
+                if (isPath) {
+                    pathDistKm += rKm
+                } else if (isRoad) {
+                    roadDistKm += rKm
+                }
+            }
+            totalWalkKm += max(seg.lengthKm, segRangeSumKm)
+        }
+
+        val pathShare = if (totalWalkKm > 0.0) {
+            (pathDistKm / totalWalkKm * 100.0).coerceIn(0.0, 100.0)
+        } else null
+
+        return Pair(pathShare, roadDistKm)
+    }
+
     /**
      * Slices a trail between [fromKm] and [toKm] (canonical walking km from trail start).
      * If [fromKm] > [toKm], slices between [toKm] and [fromKm] and reverses the geometry.
@@ -96,10 +232,41 @@ object TrailSlicer {
             } else {
                 emptyList()
             }
+            var singleWayInfo = emptyList<WayInfo>()
+            var singleRanges = emptyList<WayTagRangeDto>()
+            if (singlePoint.isNotEmpty()) {
+                var walkAcc = 0.0
+                for (seg in segments) {
+                    if (seg.type == TrailSegmentType.FERRY) continue
+                    val sKm = segmentWalkKm(seg)
+                    if (minKm <= walkAcc + sKm + 1e-6) {
+                        val localKm = (minKm - walkAcc).coerceIn(0.0, sKm)
+                        val normRanges = normalizeSegmentWayRanges(seg, walkAcc, sKm)
+                        val (hw, surf) = lookupRangeTagsAtLocalKm(normRanges, localKm, seg.highway, seg.surface, true)
+                        singleWayInfo = listOf(WayInfo(highway = hw, surface = surf))
+                        if (hw != null || surf != null) {
+                            singleRanges = listOf(WayTagRangeDto(0.0, 0.0, hw, surf))
+                        }
+                        break
+                    }
+                    walkAcc += sKm
+                }
+            }
             return SlicedTrailResult(
-                trailSegments = if (singleGeo.isNotEmpty()) listOf(TrailSegmentDto(TrailSegmentType.WALK, singleGeo, 0.0)) else emptyList(),
+                trailSegments = if (singleGeo.isNotEmpty()) {
+                    listOf(
+                        TrailSegmentDto(
+                            type = TrailSegmentType.WALK,
+                            points = singleGeo,
+                            lengthKm = 0.0,
+                            highway = singleWayInfo.firstOrNull()?.highway,
+                            surface = singleWayInfo.firstOrNull()?.surface,
+                            wayTagRanges = singleRanges
+                        )
+                    )
+                } else emptyList(),
                 points = singlePoint,
-                wayInfo = emptyList(),
+                wayInfo = singleWayInfo,
                 lengthKm = 0.0,
                 ascentM = 0.0,
                 descentM = 0.0
@@ -130,6 +297,14 @@ object TrailSlicer {
                     )
                 }
             } else {
+                val segStartWalkKm = cumWalkKm
+                val segTotalLocalKm = segmentWalkKm(seg)
+                val normRanges = normalizeSegmentWayRanges(seg, segStartWalkKm, segTotalLocalKm)
+                val rangeBoundaryGlobalKms = normRanges
+                    .flatMap { listOf(segStartWalkKm + it.fromKm, segStartWalkKm + it.toKm) }
+                    .distinct()
+                    .sorted()
+
                 val slicedPts = mutableListOf<GeoPointDto>()
                 var segWalkMeters = 0.0
                 for (i in 0 until pts.size - 1) {
@@ -147,41 +322,72 @@ object TrailSlicer {
                     val clipStartKm = max(minKm, edgeStartKm)
                     val clipEndKm = min(maxKm, edgeEndKm)
 
-                    val startPt = if (edgeKm > 1e-9 && clipStartKm > edgeStartKm + 1e-9) {
-                        val t = ((clipStartKm - edgeStartKm) / edgeKm).coerceIn(0.0, 1.0)
-                        interpolate(p0, p1, t)
-                    } else {
-                        p0
+                    // Include any internal wayTagRange boundaries strictly inside [clipStartKm, clipEndKm]
+                    val internalSplits = rangeBoundaryGlobalKms.filter {
+                        it > clipStartKm + 1e-6 && it < clipEndKm - 1e-6
+                    }
+                    val stepKms = buildList {
+                        add(clipStartKm)
+                        addAll(internalSplits)
+                        add(clipEndKm)
                     }
 
-                    val endPt = if (edgeKm > 1e-9 && clipEndKm < edgeEndKm - 1e-9) {
-                        val t = ((clipEndKm - edgeStartKm) / edgeKm).coerceIn(0.0, 1.0)
-                        interpolate(p0, p1, t)
-                    } else {
-                        p1
-                    }
+                    for (sIdx in 0 until stepKms.size - 1) {
+                        val subStartKm = stepKms[sIdx]
+                        val subEndKm = stepKms[sIdx + 1]
 
-                    if (slicedPts.isEmpty()) {
-                        slicedPts.add(startPt)
-                    } else {
-                        val last = slicedPts.last()
-                        if (haversineMeters(last.lat, last.lng, startPt.lat, startPt.lng) > 0.5) {
-                            slicedPts.add(startPt)
+                        val startPt = if (edgeKm > 1e-9 && subStartKm > edgeStartKm + 1e-9) {
+                            val t = ((subStartKm - edgeStartKm) / edgeKm).coerceIn(0.0, 1.0)
+                            interpolate(p0, p1, t)
+                        } else {
+                            p0
                         }
+
+                        val endPt = if (edgeKm > 1e-9 && subEndKm < edgeEndKm - 1e-9) {
+                            val t = ((subEndKm - edgeStartKm) / edgeKm).coerceIn(0.0, 1.0)
+                            interpolate(p0, p1, t)
+                        } else {
+                            p1
+                        }
+
+                        if (slicedPts.isEmpty()) {
+                            slicedPts.add(startPt)
+                        } else {
+                            val last = slicedPts.last()
+                            if (haversineMeters(last.lat, last.lng, startPt.lat, startPt.lng) > 0.5) {
+                                slicedPts.add(startPt)
+                            }
+                        }
+                        val prev = slicedPts.last()
+                        segWalkMeters += haversineMeters(prev.lat, prev.lng, endPt.lat, endPt.lng)
+                        slicedPts.add(endPt)
                     }
-                    val prev = slicedPts.last()
-                    segWalkMeters += haversineMeters(prev.lat, prev.lng, endPt.lat, endPt.lng)
-                    slicedPts.add(endPt)
                 }
 
                 if (slicedPts.size >= 2) {
+                    val slicedLenKm = segWalkMeters / 1000.0
+                    val localSliceMinKm = (minKm - segStartWalkKm).coerceIn(0.0, segTotalLocalKm)
+                    val localSliceMaxKm = (maxKm - segStartWalkKm).coerceIn(0.0, segTotalLocalKm)
+                    val clippedRanges = normRanges.mapNotNull { r ->
+                        val cFrom = max(r.fromKm, localSliceMinKm)
+                        val cTo = min(r.toKm, localSliceMaxKm)
+                        if (cTo > cFrom + 1e-9) {
+                            WayTagRangeDto(
+                                fromKm = (cFrom - localSliceMinKm).coerceAtLeast(0.0),
+                                toKm = (cTo - localSliceMinKm).coerceAtMost(max(slicedLenKm, localSliceMaxKm - localSliceMinKm)),
+                                highway = r.highway,
+                                surface = r.surface
+                            )
+                        } else null
+                    }
                     slicedForward.add(
                         TrailSegmentDto(
                             type = TrailSegmentType.WALK,
                             points = slicedPts,
-                            lengthKm = segWalkMeters / 1000.0,
-                            highway = seg.highway,
-                            surface = seg.surface
+                            lengthKm = slicedLenKm,
+                            highway = clippedRanges.firstOrNull()?.highway ?: seg.highway,
+                            surface = clippedRanges.firstOrNull()?.surface ?: seg.surface,
+                            wayTagRanges = clippedRanges
                         )
                     )
                 }
@@ -190,7 +396,21 @@ object TrailSlicer {
 
         val orderedSegments = if (isReversed) {
             slicedForward.reversed().map { seg ->
-                seg.copy(points = seg.points.reversed())
+                val maxRangeKm = max(seg.lengthKm, seg.wayTagRanges.maxOfOrNull { it.toKm } ?: 0.0)
+                val revRanges = seg.wayTagRanges.reversed().map { r ->
+                    WayTagRangeDto(
+                        fromKm = (maxRangeKm - r.toKm).coerceAtLeast(0.0),
+                        toKm = (maxRangeKm - r.fromKm).coerceAtLeast(0.0),
+                        highway = r.highway,
+                        surface = r.surface
+                    )
+                }
+                seg.copy(
+                    points = seg.points.reversed(),
+                    highway = revRanges.firstOrNull()?.highway ?: seg.highway,
+                    surface = revRanges.firstOrNull()?.surface ?: seg.surface,
+                    wayTagRanges = revRanges
+                )
             }
         } else {
             slicedForward
@@ -204,17 +424,39 @@ object TrailSlicer {
 
         for (seg in orderedSegments) {
             val isFerry = seg.type == TrailSegmentType.FERRY
-            for (i in seg.points.indices) {
-                val p = seg.points[i]
+            val pts = seg.points
+            val ptLocalKms = DoubleArray(pts.size)
+            var accLocalMeters = 0.0
+            for (i in 1 until pts.size) {
+                accLocalMeters += haversineMeters(pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng)
+                ptLocalKms[i] = accLocalMeters / 1000.0
+            }
+
+            for (i in pts.indices) {
+                val p = pts[i]
                 allPoints.add(RoutePoint3D(p.lat, p.lng, p.ele))
-                wayInfos.add(
-                    WayInfo(
-                        highway = if (isFerry) "ferry" else seg.highway,
-                        surface = if (isFerry) "ferry" else seg.surface
+                if (isFerry) {
+                    wayInfos.add(WayInfo(highway = "ferry", surface = "ferry"))
+                } else {
+                    val localKm = ptLocalKms[i]
+                    val queryKm = if (i < pts.lastIndex) {
+                        val nextKm = ptLocalKms[i + 1]
+                        if (nextKm > localKm + 1e-7) (localKm + min(nextKm, localKm + 0.002)) / 2.0 else localKm
+                    } else {
+                        localKm
+                    }
+                    val (hw, surf) = lookupRangeTagsAtLocalKm(
+                        ranges = seg.wayTagRanges,
+                        localKm = queryKm,
+                        fallbackHighway = seg.highway,
+                        fallbackSurface = seg.surface,
+                        preferUpcomingAtBoundary = i < pts.lastIndex
                     )
-                )
+                    wayInfos.add(WayInfo(highway = hw, surface = surf))
+                }
+
                 if (i > 0) {
-                    val prev = seg.points[i - 1]
+                    val prev = pts[i - 1]
                     val d = haversineMeters(prev.lat, prev.lng, p.lat, p.lng)
                     if (!isFerry) {
                         walkMeters += d
@@ -641,7 +883,7 @@ object TrailSlicer {
         )
 
         val sliceToExit = sliceTrail(segments, canonicalPrevKm, exitProj.trailKm)
-        val (toExitPathShare, toExitRoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(sliceToExit.points, sliceToExit.wayInfo)
+        val (toExitPathShare, toExitRoadKm) = computeTrailRangeMetrics(sliceToExit.trailSegments, sliceToExit.points, sliceToExit.wayInfo)
         val legToExit = LegGeometryData(
             fromWaypointId = prevWp.id,
             toWaypointId = exitHelper.id,
@@ -701,7 +943,7 @@ object TrailSlicer {
         }
 
         val sliceFromRejoin = sliceTrail(segments, rejoinProj.trailKm, canonicalNextKm)
-        val (fromRejoinPathShare, fromRejoinRoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(sliceFromRejoin.points, sliceFromRejoin.wayInfo)
+        val (fromRejoinPathShare, fromRejoinRoadKm) = computeTrailRangeMetrics(sliceFromRejoin.trailSegments, sliceFromRejoin.points, sliceFromRejoin.wayInfo)
         val legRejoinToNext = LegGeometryData(
             fromWaypointId = rejoinHelper.id,
             toWaypointId = nextWp.id,
@@ -781,7 +1023,7 @@ object TrailSlicer {
         val canonicalFrom = if (isReverse) (total - fromKm).coerceIn(0.0, total) else fromKm
         val canonicalTo = if (isReverse) (total - toKm).coerceIn(0.0, total) else toKm
         val sliced = sliceTrail(segments, canonicalFrom, canonicalTo)
-        val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(sliced.points, sliced.wayInfo)
+        val (pathShare, roadKm) = computeTrailRangeMetrics(sliced.trailSegments, sliced.points, sliced.wayInfo)
         return LegGeometryData(
             fromWaypointId = fromWaypointId,
             toWaypointId = toWaypointId,

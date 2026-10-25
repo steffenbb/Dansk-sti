@@ -1,4 +1,7 @@
 package com.example.ui.screens
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
 
 import android.content.Intent
 import android.net.Uri
@@ -181,7 +184,7 @@ fun TrailDetailScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = ForestGreenPrimary)
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("Henter ruteoplysninger...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.ui_traildetailscreen_henter_ruteoplysninger_187), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 Column(
@@ -198,7 +201,7 @@ fun TrailDetailScreen(
                         onClick = onBack,
                         colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary)
                     ) {
-                        Text("Gå tilbage")
+                        Text(stringResource(R.string.ui_traildetailscreen_g_tilbage_188))
                     }
                 }
             }
@@ -360,7 +363,7 @@ fun TrailDetailScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Henter live rutedata fra OpenStreetMap...",
+                            text = stringResource(R.string.ui_traildetailscreen_henter_live_rutedata_fra_ope_189),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface
@@ -386,20 +389,20 @@ fun TrailDetailScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.CloudOff,
-                            contentDescription = "Netværksfejl",
+                            contentDescription = stringResource(R.string.ui_fullscreenmapscreen_netv_rksfejl_52),
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(28.dp)
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Kunne ikke hente live rutedata",
+                            text = stringResource(R.string.ui_traildetailscreen_kunne_ikke_hente_live_ruteda_190),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Tjek internetforbindelsen for at hente ruten fra OpenStreetMap.",
+                            text = stringResource(R.string.ui_traildetailscreen_tjek_internetforbindelsen_fo_191),
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -418,7 +421,7 @@ fun TrailDetailScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Prøv igen", fontSize = 12.sp)
+                            Text(stringResource(R.string.state_Close_or_retry), fontSize = 12.sp)
                         }
                     }
                 }
@@ -445,7 +448,7 @@ fun TrailDetailScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Tilbage",
+                            contentDescription = stringResource(R.string.btn_back),
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -467,13 +470,13 @@ fun TrailDetailScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Explore,
-                                contentDescription = "API Status",
+                                contentDescription = stringResource(R.string.ui_traildetailscreen_api_status_192),
                                 tint = ForestGreenPrimary,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Netværk",
+                                text = stringResource(R.string.ui_traildetailscreen_netv_rk_193),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -493,13 +496,13 @@ fun TrailDetailScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Fullscreen,
-                                contentDescription = "Fuldskærmskort",
+                                contentDescription = stringResource(R.string.ui_traildetailscreen_fuldsk_rmskort_194),
                                 tint = ForestGreenPrimary,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Fuldskærm",
+                                text = stringResource(R.string.ui_traildetailscreen_fuldsk_rm_195),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -531,7 +534,7 @@ fun TrailDetailScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Henter rutedata live fra OpenStreetMap...",
+                            text = stringResource(R.string.ui_fullscreenmapscreen_henter_rutedata_live_fra_ope_51),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -557,7 +560,7 @@ fun TrailDetailScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Live OSM • $segmentsCount ${if (segmentsCount == 1) "del" else "dele"}",
+                            text = stringResource(R.string.ui_traildetailscreen_live_osm_196, segmentsCount, if (segmentsCount == 1) "del" else "dele"),
                             fontSize = 11.sp,
                             color = androidx.compose.ui.graphics.Color.White
                         )
@@ -597,13 +600,13 @@ fun TrailDetailScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "${t.region} • ${t.parentRegion}",
+                                text = stringResource(R.string.ui_traildetailscreen_fmt_197, t.region, t.parentRegion),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "• Data: Okt 2026",
+                                text = stringResource(R.string.ui_traildetailscreen_data_okt_2026_198),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                                 modifier = Modifier.testTag("trail_detail_data_date")
@@ -757,7 +760,7 @@ fun TrailDetailScreen(
                                 // Elevation Profile
                                 if (points.any { it.ele != null }) {
                                     Text(
-                                        text = "Højdeprofil",
+                                        text = stringResource(R.string.ui_traildetailscreen_h_jdeprofil_199),
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
@@ -774,7 +777,7 @@ fun TrailDetailScreen(
 
                                 // Surface Mix
                                 Text(
-                                    text = "Underlag",
+                                    text = stringResource(R.string.ui_traildetailscreen_underlag_200),
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -783,21 +786,21 @@ fun TrailDetailScreen(
 
                                 // Supply gaps (Requirement 16)
                                 Text(
-                                    text = "Forsyning på ruten",
+                                    text = stringResource(R.string.ui_traildetailscreen_forsyning_p_ruten_201),
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 if (isSyncingPois) {
                                     Text(
-                                        text = "Henter data...",
+                                        text = stringResource(R.string.ui_traildetailscreen_henter_data_202),
                                         fontSize = 14.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.testTag("supply_gaps_loading_text")
                                     )
                                 } else {
                                     Text(
-                                        text = "Længste stræk uden vand: ${String.format(Locale.GERMANY, "%.1f", longestGapWithoutWaterKm)} km · uden overnatning: ${String.format(Locale.GERMANY, "%.1f", longestGapWithoutOvernightKm)} km",
+                                        text = stringResource(R.string.ui_traildetailscreen_l_ngste_str_k_uden_vand__203, String.format(Locale.GERMANY, "%.1f", longestGapWithoutWaterKm), String.format(Locale.GERMANY, "%.1f", longestGapWithoutOvernightKm)),
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.testTag("supply_gaps_summary_text")
@@ -811,7 +814,7 @@ fun TrailDetailScreen(
                         if (isSyncingPois && overnightSpots.isEmpty()) {
                             item {
                                 Text(
-                                    text = "Henter data...",
+                                    text = stringResource(R.string.ui_traildetailscreen_henter_data_202),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(16.dp)
                                 )
@@ -819,7 +822,7 @@ fun TrailDetailScreen(
                         } else if (overnightSpots.isEmpty()) {
                             item {
                                 Text(
-                                    text = "Ingen overnatningssteder registreret på denne rute.",
+                                    text = stringResource(R.string.ui_traildetailscreen_ingen_overnatningssteder_reg_204),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(16.dp)
                                 )
@@ -836,7 +839,7 @@ fun TrailDetailScreen(
                         if (isSyncingPois && combinedPois.isEmpty()) {
                             item {
                                 Text(
-                                    text = "Henter data...",
+                                    text = stringResource(R.string.ui_traildetailscreen_henter_data_202),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(16.dp)
                                 )
@@ -844,7 +847,7 @@ fun TrailDetailScreen(
                         } else if (combinedPois.isEmpty()) {
                             item {
                                 Text(
-                                    text = "Ingen vandposter eller butikker registreret.",
+                                    text = stringResource(R.string.ui_traildetailscreen_ingen_vandposter_eller_butik_205),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(16.dp)
                                 )
@@ -865,7 +868,7 @@ fun TrailDetailScreen(
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 Text(
-                                    text = "Vejrudsigt (Open-Meteo)",
+                                    text = stringResource(R.string.ui_traildetailscreen_vejrudsigt_open_meteo_206),
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -888,7 +891,7 @@ fun TrailDetailScreen(
                         if (transports.isEmpty()) {
                             item {
                                 Text(
-                                    text = "Ingen togstationer eller færgehavne registreret direkte langs ruten.",
+                                    text = stringResource(R.string.ui_traildetailscreen_ingen_togstationer_eller_f_r_207),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(16.dp)
                                 )
@@ -932,7 +935,7 @@ fun TrailDetailScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Planlæg tur",
+                            text = stringResource(R.string.btn_plan_trip),
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -1040,8 +1043,8 @@ fun ElevationProfileCanvas(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(text = "▲ +$gainM m stigning", fontSize = 12.sp, color = ForestGreenPrimary, fontWeight = FontWeight.SemiBold)
-                Text(text = "▼ -$lossM m fald", fontSize = 12.sp, color = AmberAccent, fontWeight = FontWeight.SemiBold)
+                Text(text = stringResource(R.string.ui_traildetailscreen_m_stigning_208, gainM), fontSize = 12.sp, color = ForestGreenPrimary, fontWeight = FontWeight.SemiBold)
+                Text(text = stringResource(R.string.ui_traildetailscreen_m_fald_209, lossM), fontSize = 12.sp, color = AmberAccent, fontWeight = FontWeight.SemiBold)
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -1115,17 +1118,17 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.size(8.dp).background(ForestGreenPrimary, CircleShape))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Sti $stiPct%", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.ui_traildetailscreen_sti_210, stiPct), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.size(8.dp).background(AmberAccent, CircleShape))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Grus $grusPct%", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.ui_traildetailscreen_grus_211, grusPct), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.size(8.dp).background(Color.Gray, CircleShape))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Asfalt $asfaltPct%", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.ui_traildetailscreen_asfalt_212, asfaltPct), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -1178,7 +1181,7 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                     )
                     if (spot.bookingRequired) {
                         Text(
-                            text = "Kræver booking",
+                            text = stringResource(R.string.ui_traildetailscreen_kr_ver_booking_213),
                             fontSize = 12.sp,
                             color = AmberAccent,
                             fontWeight = FontWeight.Bold
@@ -1191,7 +1194,7 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     Text(
-                        text = "km ${String.format(Locale.US, "%.1f", spot.kmOnRoute)}",
+                        text = stringResource(R.string.ui_traildetailscreen_km_214, String.format(Locale.US, "%.1f", spot.kmOnRoute)),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = ForestGreenPrimary,
@@ -1209,7 +1212,7 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Tjek ledighed hos udbyder",
+                        text = stringResource(R.string.ui_traildetailscreen_tjek_ledighed_hos_udbyder_215),
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f)
@@ -1287,14 +1290,14 @@ fun PoiItemCard(
                 )
                 if (poi.detourMeters > 50) {
                     Text(
-                        text = "${poi.detourMeters.toInt()} m afstikker",
+                        text = stringResource(R.string.ui_traildetailscreen_m_afstikker_216, poi.detourMeters.toInt()),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
             Text(
-                text = "km ${String.format(Locale.US, "%.1f", poi.kmOnRoute)}",
+                text = stringResource(R.string.ui_traildetailscreen_km_214, String.format(Locale.US, "%.1f", poi.kmOnRoute)),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = ForestGreenPrimary
@@ -1307,7 +1310,7 @@ fun PoiItemCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Route,
-                        contentDescription = "Rute hertil",
+                        contentDescription = stringResource(R.string.ui_droppinbottomsheet_rute_hertil_14),
                         tint = ForestGreenPrimary,
                         modifier = Modifier.size(18.dp)
                     )
@@ -1337,7 +1340,7 @@ fun WeatherForecastCard(
             )
             Spacer(modifier = Modifier.height(8.dp))
             if (weather == null) {
-                Text("Venter på vejrdata...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.ui_traildetailscreen_venter_p_vejrdata_217), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1353,7 +1356,7 @@ fun WeatherForecastCard(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "${weather.tempC?.toInt() ?: "--"}°C",
+                            text = stringResource(R.string.ui_traildetailscreen_c_218, weather.tempC?.toInt() ?: "--"),
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
@@ -1369,7 +1372,7 @@ fun WeatherForecastCard(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "${weather.precipitationMm ?: 0.0} mm",
+                            text = stringResource(R.string.ui_traildetailscreen_mm_219, weather.precipitationMm ?: 0.0),
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

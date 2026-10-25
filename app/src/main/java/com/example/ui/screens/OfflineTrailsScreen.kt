@@ -1,4 +1,7 @@
 package com.example.ui.screens
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
 
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
@@ -109,13 +112,13 @@ fun OfflineTrailsScreen(
                 title = {
                     Column {
                         Text(
-                            text = "Offline kort & ruter",
+                            text = stringResource(R.string.ui_offlinetrailsscreen_offline_kort_ruter_80),
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "${downloadedTrails.size} ruter • $totalMbStr MB samlet",
+                            text = stringResource(R.string.ui_offlinetrailsscreen_ruter_mb_samlet_81, downloadedTrails.size, totalMbStr),
                             fontSize = 12.sp,
                             color = ForestGreenPrimary
                         )
@@ -128,7 +131,7 @@ fun OfflineTrailsScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Tilbage",
+                            contentDescription = stringResource(R.string.btn_back),
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -140,7 +143,7 @@ fun OfflineTrailsScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Info,
-                            contentDescription = "Datakreditter & Kilder",
+                            contentDescription = stringResource(R.string.about_data_credits),
                             tint = ForestGreenPrimary
                         )
                     }
@@ -189,18 +192,18 @@ fun OfflineTrailsScreen(
 
                         Column {
                             Text(
-                                text = "Enhedslager",
+                                text = stringResource(R.string.ui_offlinetrailsscreen_enhedslager_82),
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "$totalMbStr MB optaget",
+                                text = stringResource(R.string.ui_offlinetrailsscreen_mb_optaget_83, totalMbStr),
                                 fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Kortfliser & rutedata gemt lokalt til brug uden signal",
+                                text = stringResource(R.string.ui_offlinetrailsscreen_kortfliser_rutedata_gemt_lok_84),
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -228,7 +231,7 @@ fun OfflineTrailsScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "Kort i mørke",
+                            text = stringResource(R.string.setting_dark_map),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
@@ -343,7 +346,7 @@ fun OfflineTrailsScreen(
 
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Rutedata for Danmark",
+                                    text = stringResource(R.string.ui_offlinetrailsscreen_rutedata_for_danmark_85),
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -382,7 +385,7 @@ fun OfflineTrailsScreen(
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "${brouterState.progressPercent} %",
+                                        text = stringResource(R.string.ui_offlinetrailsscreen_fmt_86, brouterState.progressPercent),
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = ForestGreenPrimary
@@ -409,7 +412,7 @@ fun OfflineTrailsScreen(
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                         modifier = Modifier.testTag("btn_brouter_cancel")
                                     ) {
-                                        Text("Annuller", fontSize = 12.sp)
+                                        Text(stringResource(R.string.btn_cancel), fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -462,13 +465,13 @@ fun OfflineTrailsScreen(
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
                                                 Text(
-                                                    text = "${seg.filename} (${seg.name})",
+                                                    text = stringResource(R.string.ui_offlinetrailsscreen_fmt_87, seg.filename, seg.name),
                                                     fontSize = 11.sp,
                                                     color = MaterialTheme.colorScheme.onSurface
                                                 )
                                             }
                                             Text(
-                                                text = "${seg.sizeMb} MB",
+                                                text = stringResource(R.string.ui_offlinetrailsscreen_mb_88, seg.sizeMb),
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.SemiBold,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -495,7 +498,7 @@ fun OfflineTrailsScreen(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "Hent kun via Wi-Fi",
+                                        text = stringResource(R.string.ui_offlinetrailsscreen_hent_kun_via_wi_fi_89),
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
@@ -535,7 +538,7 @@ fun OfflineTrailsScreen(
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Opdater")
+                                        Text(stringResource(R.string.ui_offlinetrailsscreen_opdater_90))
                                     }
                                 }
                             } else {
@@ -553,7 +556,7 @@ fun OfflineTrailsScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Hent rutedata (${BRouterSegments.TOTAL_SIZE_MB} MB)")
+                                    Text(stringResource(R.string.ui_offlinetrailsscreen_hent_rutedata_mb_91, BRouterSegments.TOTAL_SIZE_MB))
                                 }
                             }
                         }
@@ -564,7 +567,7 @@ fun OfflineTrailsScreen(
             // Section Header: Saved trails and maps
             item(key = "section_header_trails") {
                 Text(
-                    text = "Gemte ruter og kortfliser",
+                    text = stringResource(R.string.ui_offlinetrailsscreen_gemte_ruter_og_kortfliser_92),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -595,13 +598,13 @@ fun OfflineTrailsScreen(
                                 modifier = Modifier.size(48.dp)
                             )
                             Text(
-                                text = "Ingen offline ruter hentet endnu",
+                                text = stringResource(R.string.ui_offlinetrailsscreen_ingen_offline_ruter_hentet_e_93),
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Åbn en vandrerute og tryk på 'Hent offline' for at gemme kortfliser og shelters lokalt.",
+                                text = stringResource(R.string.ui_offlinetrailsscreen_bn_en_vandrerute_og_tryk_p_h_94),
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -653,7 +656,7 @@ fun OfflineTrailsScreen(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = "$itemMb MB • ${item.tileCount} fliser • Hentet $dateStr",
+                                    text = stringResource(R.string.ui_offlinetrailsscreen_mb_fliser_hentet_95, itemMb, item.tileCount, dateStr),
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -665,7 +668,7 @@ fun OfflineTrailsScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Delete,
-                                    contentDescription = "Slet offline kort for ${item.trailName}",
+                                    contentDescription = stringResource(R.string.ui_offlinetrailsscreen_slet_offline_kort_for_96, item.trailName),
                                     tint = AlertRed.copy(alpha = 0.8f),
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -682,10 +685,10 @@ fun OfflineTrailsScreen(
         AlertDialog(
             onDismissRequest = { trailToDelete = null },
             title = {
-                Text("Slet offline kort?")
+                Text(stringResource(R.string.ui_offlinetrailsscreen_slet_offline_kort_97))
             },
             text = {
-                Text("Er du sikker på, at du vil slette det downloadede kort for \"${trail.trailName}\"? Du kan hente det igen senere.")
+                Text(stringResource(R.string.ui_offlinetrailsscreen_er_du_sikker_p_at_du_vil_98, trail.trailName))
             },
             confirmButton = {
                 TextButton(
@@ -694,12 +697,12 @@ fun OfflineTrailsScreen(
                         trailToDelete = null
                     }
                 ) {
-                    Text("Slet", color = AlertRed, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.btn_delete), color = AlertRed, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { trailToDelete = null }) {
-                    Text("Annuller")
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )

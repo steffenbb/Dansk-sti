@@ -1,4 +1,7 @@
 package com.example.ui.components
+import com.example.R
+
+import androidx.compose.ui.res.stringResource
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -159,7 +162,7 @@ fun MarkedRouteDetailSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Luk",
+                        contentDescription = stringResource(R.string.btn_close),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -201,12 +204,12 @@ fun MarkedRouteDetailSheet(
                         Spacer(modifier = Modifier.width(6.dp))
                         Column {
                             Text(
-                                text = "Distance",
+                                text = stringResource(R.string.ui_markedroutedetailsheet_distance_18),
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "${String.format(Locale.US, "%.1f", route.lengthKm)} km",
+                                text = stringResource(R.string.ui_markedroutedetailsheet_km_19, String.format(Locale.US, "%.1f", route.lengthKm)),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -234,7 +237,7 @@ fun MarkedRouteDetailSheet(
                         Spacer(modifier = Modifier.width(6.dp))
                         Column {
                             Text(
-                                text = "Gåtid (4 km/t)",
+                                text = stringResource(R.string.ui_markedroutedetailsheet_g_tid_4_km_t_20),
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -266,7 +269,7 @@ fun MarkedRouteDetailSheet(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "Operatør: ",
+                            text = stringResource(R.string.ui_markedroutedetailsheet_operat_r_21),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -280,13 +283,13 @@ fun MarkedRouteDetailSheet(
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "OSM Relation: ",
+                            text = stringResource(R.string.ui_markedroutedetailsheet_osm_relation_22),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "#${route.osmRelationId}",
+                            text = stringResource(R.string.ui_markedroutedetailsheet_fmt_23, route.osmRelationId),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -294,7 +297,7 @@ fun MarkedRouteDetailSheet(
                     if (!route.symbol.isNullOrBlank()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "Afmærkning: ",
+                                text = stringResource(R.string.ui_markedroutedetailsheet_afm_rkning_24),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -331,7 +334,7 @@ fun MarkedRouteDetailSheet(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Ruten er gemt som vandrerute!",
+                            text = stringResource(R.string.ui_markedroutedetailsheet_ruten_er_gemt_som_vandrerute_25),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = ForestGreenPrimary
@@ -350,7 +353,7 @@ fun MarkedRouteDetailSheet(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Luk")
+                        Text(stringResource(R.string.btn_close))
                     }
 
                     Button(
@@ -364,7 +367,7 @@ fun MarkedRouteDetailSheet(
                             .weight(1f)
                             .testTag("open_saved_trail_button")
                     ) {
-                        Text("Åbn rute")
+                        Text(stringResource(R.string.ui_markedroutedetailsheet_bn_rute_26))
                     }
                 }
             } else {
@@ -406,7 +409,7 @@ fun MarkedRouteDetailSheet(
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("Downloader rutegeometri...")
+                        Text(stringResource(R.string.ui_markedroutedetailsheet_downloader_rutegeometri_27))
                     } else {
                         Icon(
                             imageVector = Icons.Default.DirectionsWalk,
@@ -415,7 +418,7 @@ fun MarkedRouteDetailSheet(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Gem som vandrerute",
+                            text = stringResource(R.string.ui_markedroutedetailsheet_gem_som_vandrerute_28),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )

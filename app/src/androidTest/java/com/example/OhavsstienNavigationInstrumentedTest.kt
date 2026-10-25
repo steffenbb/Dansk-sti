@@ -121,6 +121,90 @@ class OhavsstienNavigationInstrumentedTest {
         )
     }
 
+    @Test
+    fun openKortPlanRouteSwitchSheetWith0And1And3PointsAndOhavsstienTrailModeWithoutCrash() {
+        // 1. Open Kort -> "Planlæg rute"
+        composeTestRule.waitUntil(15_000) {
+            composeTestRule.onAllNodesWithTag("nav_map_tab").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("nav_map_tab").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.waitUntil(10_000) {
+            composeTestRule.onAllNodesWithTag("kort_tool_plan_route").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("kort_tool_plan_route").performClick()
+        composeTestRule.waitForIdle()
+
+        // 2. 0 points (empty route in FREE mode): switch sheet to "Dage" and "Detaljer"
+        composeTestRule.waitUntil(10_000) {
+            composeTestRule.onAllNodesWithTag("route_bottom_sheet").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("btn_sheet_half").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("btn_sheet_full").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("btn_sheet_peek").performClick()
+        composeTestRule.waitForIdle()
+
+        // 3. 1 point in FREE mode: tap map once, then switch sheet to "Dage" and "Detaljer"
+        composeTestRule.onNodeWithTag("route_builder_map").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("btn_sheet_half").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("btn_sheet_full").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("btn_sheet_peek").performClick()
+        composeTestRule.waitForIdle()
+
+        // 4. 3 points in FREE mode: tap map twice more, then switch sheet to "Dage" and "Detaljer"
+        composeTestRule.onNodeWithTag("route_builder_map").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("route_builder_map").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("btn_sheet_half").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("btn_sheet_full").performClick()
+        composeTestRule.waitForIdle()
+
+        // 5. Same on Øhavsstien in TRAIL mode
+        composeTestRule.onNodeWithTag("btn_back_route_builder").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.waitUntil(10_000) {
+            composeTestRule.onAllNodesWithTag("nav_explore_tab").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("nav_explore_tab").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.waitUntil(15_000) {
+            composeTestRule.onAllNodesWithTag("trail_list").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("trail_list")
+            .performScrollToNode(hasTestTag("trail_card_trail_ohavsstien"))
+        composeTestRule.onNodeWithTag("trail_card_trail_ohavsstien").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.waitUntil(15_000) {
+            composeTestRule.onAllNodesWithTag("plan_trip_button").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("plan_trip_button").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.waitUntil(15_000) {
+            composeTestRule.onAllNodesWithTag("route_bottom_sheet").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("btn_sheet_half").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("btn_sheet_full").performClick()
+        composeTestRule.waitForIdle()
+
+        assertTrue(
+            "Planner bottom sheet should remain displayed without crashing",
+            composeTestRule.onAllNodesWithTag("route_bottom_sheet").fetchSemanticsNodes().isNotEmpty()
+        )
+    }
+
     private fun findMapViewByTag(root: View?, tag: String): MapView? {
         if (root == null) return null
         if (root is MapView && (root.tag == tag || tag.isEmpty())) {

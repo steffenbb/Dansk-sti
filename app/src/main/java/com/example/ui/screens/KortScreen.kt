@@ -134,22 +134,12 @@ fun KortScreen(
     // "Gem punkt" quick dialog state
     var showSavePointDialog by remember { mutableStateOf(false) }
     var savePointName by remember { mutableStateOf("") }
-    var savePointLat by remember { mutableStateOf(56.0) }
-    var savePointLng by remember { mutableStateOf(10.2) }
+    var savePointLat by remember { mutableStateOf<Double?>(null) }
+    var savePointLng by remember { mutableStateOf<Double?>(null) }
 
     // Compute total straight-line distance across measured points
     val totalMeasuredMeters = remember(measurePoints.size, measurePoints.toList()) {
-        if (measurePoints.size < 2) {
-            0.0
-        } else {
-            var sum = 0.0
-            for (i in 0 until measurePoints.size - 1) {
-                val p1 = measurePoints[i]
-                val p2 = measurePoints[i + 1]
-                sum += GeoUtils.haversineMeters(p1.latitude, p1.longitude, p2.latitude, p2.longitude)
-            }
-            sum
-        }
+        computeMeasuredDistanceMeters(measurePoints)
     }
 
     val matchingTrails = remember(searchQuery, allTrails) {
@@ -348,7 +338,7 @@ fun KortScreen(
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Text(
-                                            text = "${trail.region} · ${formatDanishKm(trail.lengthKm, 1)} km",
+                                            text = stringResource(R.string.ui_kortscreen_km_55, trail.region, formatDanishKm(trail.lengthKm, 1)),
                                             style = TabularLabelStyle,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -454,10 +444,9 @@ fun KortScreen(
                                         onClick = {
                                             HapticFeedbackHelper.performPinHapticTick(view, "measure_add_center")
                                             val center = mapViewRef?.mapCenter
-                                            val baseLat = center?.latitude ?: 56.0
-                                            val baseLng = center?.longitude ?: 10.2
-                                            val offset = measurePoints.size * 0.01
-                                            measurePoints.add(GeoPoint(baseLat + offset, baseLng + offset))
+                                            if (center != null && (center.latitude != 0.0 || center.longitude != 0.0)) {
+                                                measurePoints.add(GeoPoint(center.latitude, center.longitude))
+                                            }
                                         },
                                         shape = RoundedCornerShape(12.dp),
                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -465,7 +454,7 @@ fun KortScreen(
                                             .sizeIn(minHeight = 48.dp)
                                             .testTag("kort_measure_add_point_button")
                                     ) {
-                                        Text("+ Punkt", style = MaterialTheme.typography.labelMedium)
+                                        Text(stringResource(R.string.ui_kortscreen_punkt_56), style = MaterialTheme.typography.labelMedium)
                                     }
 
                                     Button(
@@ -530,10 +519,12 @@ fun KortScreen(
                             onClick = {
                                 HapticFeedbackHelper.performPinHapticTick(view, "save_point_tool")
                                 val center = mapViewRef?.mapCenter
-                                savePointLat = center?.latitude ?: 56.0
-                                savePointLng = center?.longitude ?: 10.2
-                                savePointName = ""
-                                showSavePointDialog = true
+                                if (center != null && (center.latitude != 0.0 || center.longitude != 0.0)) {
+                                    savePointLat = center.latitude
+                                    savePointLng = center.longitude
+                                    savePointName = ""
+                                    showSavePointDialog = true
+                                }
                             },
                             testTag = "kort_tool_save_point"
                         )
@@ -569,7 +560,9 @@ fun KortScreen(
     }
 
     // "Gem punkt" quick dialog
-    if (showSavePointDialog) {
+    val currentSaveLat = savePointLat
+    val currentSaveLng = savePointLng
+    if (showSavePointDialog && currentSaveLat != null && currentSaveLng != null) {
         AlertDialog(
             onDismissRequest = { showSavePointDialog = false },
             title = {
@@ -584,8 +577,8 @@ fun KortScreen(
                         text = String.format(
                             java.util.Locale.US,
                             "Koordinater: %.5f, %.5f",
-                            savePointLat,
-                            savePointLng
+                            currentSaveLat,
+                            currentSaveLng
                         ),
                         style = TabularLabelStyle,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -593,7 +586,7 @@ fun KortScreen(
                     OutlinedTextField(
                         value = savePointName,
                         onValueChange = { savePointName = it },
-                        label = { Text("Navn på punkt") },
+                        label = { Text(stringResource(R.string.save_point_name_label)) },
                         singleLine = true,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -614,8 +607,8 @@ fun KortScreen(
                                     id = "wp_${UUID.randomUUID()}",
                                     name = finalName,
                                     note = "Gemt fra Kort",
-                                    lat = savePointLat,
-                                    lng = savePointLng,
+                                    lat = currentSaveLat,
+                                    lng = currentSaveLng,
                                     createdAt = System.currentTimeMillis()
                                 )
                             )
@@ -627,7 +620,7 @@ fun KortScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
                     modifier = Modifier.testTag("kort_save_point_confirm_button")
                 ) {
-                    Text("Gem")
+                    Text(stringResource(R.string.btn_save))
                 }
             },
             dismissButton = {
@@ -637,6 +630,17 @@ fun KortScreen(
             }
         )
     }
+}
+
+fun computeMeasuredDistanceMeters(points: List<GeoPoint>): Double {
+    if (points.size < 2) return 0.0
+    var sum = 0.0
+    for (i in 0 until points.size - 1) {
+        val p1 = points[i]
+        val p2 = points[i + 1]
+        sum += GeoUtils.haversineMeters(p1.latitude, p1.longitude, p2.latitude, p2.longitude)
+    }
+    return sum
 }
 
 @Composable

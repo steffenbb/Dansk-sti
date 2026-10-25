@@ -8,12 +8,24 @@ enum class TrailSegmentType {
 }
 
 @JsonClass(generateAdapter = true)
+data class WayTagRangeDto(
+    val fromKm: Double,
+    val toKm: Double,
+    val highway: String? = null,
+    val surface: String? = null
+)
+
+typealias WayTagRange = WayTagRangeDto
+typealias TrailWayTagRange = WayTagRangeDto
+
+@JsonClass(generateAdapter = true)
 data class TrailSegmentDto(
     val type: TrailSegmentType,
     val points: List<GeoPointDto> = emptyList(),
     val lengthKm: Double = 0.0,
     val highway: String? = null,
-    val surface: String? = null
+    val surface: String? = null,
+    val wayTagRanges: List<WayTagRangeDto> = emptyList()
 )
 
 @JsonClass(generateAdapter = true)

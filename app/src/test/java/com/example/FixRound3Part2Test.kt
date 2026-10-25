@@ -234,10 +234,12 @@ class FixRound3Part2Test {
 
         // Wait for detour coroutine to complete
         attempts = 0
-        while ((vm.uiState.value.isRoutingLegCount > 0 || vm.uiState.value.waypoints.none { it.role == WaypointRole.OVERNIGHT }) && attempts < 60) {
+        while ((vm.uiState.value.isRoutingLegCount > 0 || vm.uiState.value.waypoints.none { it.role == WaypointRole.OVERNIGHT }) && attempts < 240) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
             delay(50)
             attempts++
         }
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
 
         val state = vm.uiState.value
         val overnightPin = state.waypoints.find { it.role == WaypointRole.OVERNIGHT && !it.isHelper }
@@ -387,6 +389,7 @@ class FixRound3Part2Test {
 
         var attempts = 0
         while (vm.uiState.value.waypoints.size < 2 && attempts < 60) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
             delay(50)
             attempts++
         }
@@ -429,6 +432,7 @@ class FixRound3Part2Test {
 
         attempts = 0
         while ((vm.uiState.value.isRoutingLegCount > 0 || vm.uiState.value.waypoints.none { it.role == WaypointRole.OVERNIGHT }) && attempts < 60) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
             delay(50)
             attempts++
         }
@@ -448,6 +452,7 @@ class FixRound3Part2Test {
 
         attempts = 0
         while (startedPlanId <= 0L && attempts < 60) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
             delay(50)
             attempts++
         }

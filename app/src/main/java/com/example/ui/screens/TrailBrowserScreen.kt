@@ -214,13 +214,20 @@ fun TrailBrowserScreen(
                     viewModel.findNearbyOvernights(loc.latitude, loc.longitude, isMapCenter = false)
                 }
             } else {
-                // Default fallback center in Denmark if emulator GPS has no fix yet
-                viewModel.updateUserLocation(56.05, 9.65)
+                viewModel.clearUserLocation()
                 if (openNearbySpotsSheet) {
                     val center = mapViewRef?.mapCenter
-                    val lat = center?.latitude ?: 56.05
-                    val lng = center?.longitude ?: 9.65
-                    viewModel.findNearbyOvernights(lat, lng, isMapCenter = true)
+                    if (center != null && (center.latitude != 0.0 || center.longitude != 0.0)) {
+                        viewModel.findNearbyOvernights(center.latitude, center.longitude, isMapCenter = true)
+                    }
+                }
+            }
+        } else {
+            viewModel.clearUserLocation()
+            if (openNearbySpotsSheet) {
+                val center = mapViewRef?.mapCenter
+                if (center != null && (center.latitude != 0.0 || center.longitude != 0.0)) {
+                    viewModel.findNearbyOvernights(center.latitude, center.longitude, isMapCenter = true)
                 }
             }
         }
@@ -239,11 +246,14 @@ fun TrailBrowserScreen(
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (granted) {
             refreshDeviceLocation(openNearbySpotsSheet = pendingNearbySheetRequest)
-        } else if (pendingNearbySheetRequest) {
-            val center = mapViewRef?.mapCenter
-            val lat = center?.latitude ?: 56.0
-            val lng = center?.longitude ?: 10.2
-            viewModel.findNearbyOvernights(lat, lng, isMapCenter = true)
+        } else {
+            viewModel.clearUserLocation()
+            if (pendingNearbySheetRequest) {
+                val center = mapViewRef?.mapCenter
+                if (center != null && (center.latitude != 0.0 || center.longitude != 0.0)) {
+                    viewModel.findNearbyOvernights(center.latitude, center.longitude, isMapCenter = true)
+                }
+            }
         }
         pendingNearbySheetRequest = false
     }
@@ -849,7 +859,7 @@ fun TrailBrowserScreen(
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Text(
-                                            text = "Gem dine favoritruter med bogmærke-ikonet.",
+                                            text = stringResource(R.string.ui_trailbrowserscreen_gem_dine_favoritruter_med_bo_182),
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -1051,7 +1061,7 @@ fun TrailBrowserScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Shelters & fri teltning inden for 10 km",
+                            text = stringResource(R.string.ui_trailbrowserscreen_shelters_fri_teltning_inden__183),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1091,6 +1101,7 @@ fun TrailBrowserScreen(
                         items(nearbySpots, key = { it.id }) { spot ->
                             NearbyOvernightSpotCard(
                                 spot = spot,
+                                showDistance = !isNearbyUsingMapCenter && userLocation != null,
                                 onOpenDirections = {
                                     val uri = Uri.parse("geo:0,0?q=${spot.lat},${spot.lng}(${Uri.encode(spot.name)})")
                                     val intent = Intent(Intent.ACTION_VIEW, uri)
@@ -1272,7 +1283,7 @@ fun TrailCard(
 
                 // Real computed stats line: "215 km · +1.850 m · ca. 14 dage"
                 Text(
-                    text = "$kmFormatted km · +$ascentFormatted m · ca. $estimatedDays ${if (estimatedDays == 1) "dag" else "dage"}",
+                    text = stringResource(R.string.ui_trailbrowserscreen_km_m_ca_184, kmFormatted, ascentFormatted, estimatedDays, if (estimatedDays == 1) "dag" else "dage"),
                     style = TabularBodyStyle.copy(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold
@@ -1292,7 +1303,7 @@ fun TrailCard(
                         modifier = Modifier.size(15.dp)
                     )
                     Text(
-                        text = "$sheltersCount shelters · $friTeltningCount fri teltning",
+                        text = stringResource(R.string.ui_trailbrowserscreen_shelters_fri_teltning_185, sheltersCount, friTeltningCount),
                         style = TabularLabelStyle,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1318,9 +1329,9 @@ fun NearbyOvernightSpotCard(
     spot: com.example.data.model.NearbyOvernightSpot,
     onOpenDirections: () -> Unit,
     onRouteHerTil: () -> Unit = {},
+    showDistance: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val isShelter = spot.type == "SHELTER"
     val icon = if (isShelter) Icons.Default.Cabin else Icons.Default.Forest
     val iconTint = if (isShelter) ForestGreenPrimary else AccentAmber
@@ -1382,17 +1393,19 @@ fun NearbyOvernightSpotCard(
                     }
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = ForestGreenPrimary.copy(alpha = 0.15f)
-                ) {
-                    Text(
-                        text = distanceText,
-                        style = TabularLabelStyle,
-                        fontWeight = FontWeight.Bold,
-                        color = ForestGreenPrimary,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
+                if (showDistance) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = ForestGreenPrimary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = distanceText,
+                            style = TabularLabelStyle,
+                            fontWeight = FontWeight.Bold,
+                            color = ForestGreenPrimary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
 
@@ -1427,7 +1440,7 @@ fun NearbyOvernightSpotCard(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "Rute hertil", style = MaterialTheme.typography.labelMedium)
+                    Text(text = stringResource(R.string.ui_droppinbottomsheet_rute_hertil_14), style = MaterialTheme.typography.labelMedium)
                 }
 
                 Button(
@@ -1444,7 +1457,7 @@ fun NearbyOvernightSpotCard(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "Rutevejledning", style = MaterialTheme.typography.labelMedium)
+                    Text(text = stringResource(R.string.ui_trailbrowserscreen_rutevejledning_186), style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
