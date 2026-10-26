@@ -1079,9 +1079,18 @@ fun ElevationProfileCanvas(
 
 @Composable
 fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
-    val stiPct = (surfaceMix["Sti"] ?: 70).coerceAtLeast(0)
-    val grusPct = (surfaceMix["Grus"] ?: 20).coerceAtLeast(0)
-    val asfaltPct = (surfaceMix["Asfalt"] ?: 10).coerceAtLeast(0)
+    if (surfaceMix.isEmpty()) {
+        Text(
+            text = "Stiandel: ukendt · Vej: ukendt",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.testTag("trail_surface_unknown_text")
+        )
+        return
+    }
+    val stiPct = (surfaceMix["Sti"] ?: 0).coerceAtLeast(0)
+    val grusPct = (surfaceMix["Grus"] ?: 0).coerceAtLeast(0)
+    val asfaltPct = (surfaceMix["Asfalt"] ?: 0).coerceAtLeast(0)
 
     val validSti = if (stiPct > 0) stiPct.toFloat() else 0.001f
     val validGrus = if (grusPct > 0) grusPct.toFloat() else 0.001f

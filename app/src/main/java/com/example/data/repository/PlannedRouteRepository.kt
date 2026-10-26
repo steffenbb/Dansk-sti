@@ -346,7 +346,7 @@ class PlannedRouteRepository(private val context: Context) {
         val finalRouteId = if (savedRouteId > 0L) savedRouteId else (existingRouteId ?: 1L)
         val effectiveTrailId = baseTrailId ?: "route_$finalRouteId"
 
-        val (stages, _) = buildStagesAndPlannedRoute(
+        val (stages, builtPlannedRoute) = buildStagesAndPlannedRoute(
             planId = existingPlanId ?: 0L,
             trailId = effectiveTrailId,
             trailName = name,
@@ -395,23 +395,7 @@ class PlannedRouteRepository(private val context: Context) {
         dao.deleteTripStages(finalPlanId)
         dao.insertTripStages(stages.map { it.toEntity(finalPlanId) })
 
-        val (_, finalPlannedRoute) = buildStagesAndPlannedRoute(
-            planId = finalPlanId,
-            trailId = effectiveTrailId,
-            trailName = name,
-            isReverse = isReverse,
-            waypoints = waypoints,
-            orderedLegs = orderedLegs,
-            paceKmh = paceKmh,
-            dailyTargetKm = dailyTargetKm,
-            overnightType = overnightType,
-            maxDetourKm = maxDetourKm,
-            startTime = startTime,
-            shelters = shelters,
-            friTeltnings = friTeltnings,
-            pois = pois,
-            sunsetTime = sunsetTime
-        )
+        val finalPlannedRoute = builtPlannedRoute.copy(planId = finalPlanId, stages = stages)
         savePlannedRoute(finalPlannedRoute)
 
         Triple(finalPlanId, stages, finalPlannedRoute)

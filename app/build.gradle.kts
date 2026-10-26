@@ -13,8 +13,8 @@ android {
     applicationId = "com.aistudio.dansksti.hktvwp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 11
-    versionName = "11.0"
+    versionCode = 12
+    versionName = "12.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -52,6 +52,10 @@ android {
   buildFeatures {
     compose = true
     buildConfig = true
+  }
+  lint {
+    error += setOf("StringFormatMatches", "StringFormatInvalid", "StringFormatCount")
+    abortOnError = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
   sourceSets {

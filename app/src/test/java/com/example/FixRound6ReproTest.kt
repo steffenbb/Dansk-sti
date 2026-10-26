@@ -277,7 +277,7 @@ class FixRound6ReproTest {
         for (xml in listOf(backupXml, extractionXml)) {
             assertTrue(xml.contains("domain=\"database\""))
             assertTrue(xml.contains("domain=\"sharedpref\""))
-            for (folder in listOf("trails", "routes", "plans", "geofa", "osm_pois", "offline", "brouter", "osmdroid", "wp_photo_*")) {
+            for (folder in listOf("trails", "routes", "plans", "geofa", "osm_pois", "offline", "brouter", "osmdroid", "photos")) {
                 assertTrue("Expected $folder in backup rules", xml.contains("path=\"$folder\""))
             }
             for (nonExistent in listOf("trail_geometries", "geofa_cache", "osm_pois_cache")) {

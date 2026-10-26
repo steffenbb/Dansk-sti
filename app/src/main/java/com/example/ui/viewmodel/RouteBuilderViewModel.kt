@@ -58,6 +58,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -208,6 +209,7 @@ data class RouteBuilderState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val isSaving: Boolean = false,
+    val isStarting: Boolean = false,
     val errorMessage: String? = null,
     val gpxOriginalPoints: List<RoutePoint3D> = emptyList(),
     val alternatives: List<RouteAlternativeInfo> = emptyList(),
@@ -288,7 +290,7 @@ class RouteBuilderViewModel(
     private val _uiState = MutableStateFlow(RouteBuilderState())
     val uiState: StateFlow<RouteBuilderState> = _uiState.asStateFlow()
 
-    private val _userMessage = MutableSharedFlow<String>()
+    private val _userMessage = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val userMessage: SharedFlow<String> = _userMessage.asSharedFlow()
 
     // Undo / Redo stacks (max 50)
@@ -308,22 +310,67 @@ class RouteBuilderViewModel(
     private var stagesAndPoisJob: Job? = null
     private var nightWeatherCache: MutableMap<String, String> = mutableMapOf()
     private var pendingSaveCallback: ((Long) -> Unit)? = null
+    private var pendingSaveIsStarting: Boolean = false
+    private var lastComputedStagesSignature: String? = null
 
     private var geometryFileName: String = "route_${UUID.randomUUID()}.json"
     private var pacingSpeedKmh: Double = 4.5
     private var startTimeStr: String = "09:00"
     private var sunsetTimeStr: String = "20:30"
 
+    private fun computeStagesSignature(state: RouteBuilderState): String {
+        val wpSig = state.waypoints.joinToString("|") {
+            "${it.id}:${String.format(Locale.US, "%.5f,%.5f", it.lat, it.lng)}:${it.role}:${it.trailKm ?: "null"}:${it.isHelper}"
+        }
+        val legSig = state.waypoints.zipWithNext { a, b ->
+            val key = "${a.id}_to_${b.id}"
+            val leg = state.legs[key]
+            "$key:${leg?.points?.size ?: 0}:${String.format(Locale.US, "%.3f", leg?.lengthKm ?: 0.0)}"
+        }.joinToString("|")
+        return "$wpSig#$legSig#${state.paceKmh}#${state.dailyTargetKm}#${state.maxDetourKm}#${state.overnightPreference}#${state.startTimeStr}#${state.isReverse}"
+    }
+
+    private fun TripStageEntity.toModel(): com.example.data.model.TripStage = com.example.data.model.TripStage(
+        dayNumber = dayNumber,
+        startKm = startKm,
+        endKm = endKm,
+        stageKm = stageKm,
+        stopName = stopName,
+        stopType = stopType,
+        stopLat = stopLat,
+        stopLng = stopLng,
+        bookingRequired = bookingRequired,
+        hasWaterNearby = hasWaterNearby,
+        hasToiletNearby = hasToiletNearby,
+        startTrailKm = startTrailKm,
+        endTrailKm = endTrailKm,
+        fromName = fromName,
+        toName = toName,
+        detourMeters = detourMeters,
+        ascentMeters = ascentMeters,
+        descentMeters = descentMeters,
+        estimatedWalkMinutes = estimatedWalkMinutes,
+        waterCount = waterCount,
+        shopCount = shopCount,
+        sunsetTime = sunsetTime,
+        isAfterSunset = isAfterSunset,
+        spotId = spotId,
+        isWarningNoOvernight = isWarningNoOvernight,
+        warningMessage = warningMessage
+    )
+
     init {
         viewModelScope.launch {
             val settings = settingsRepository.settingsFlow.first()
             pacingSpeedKmh = settings.mitTempoKmh
             startTimeStr = settings.startTime
-            _uiState.value = _uiState.value.copy(
-                paceKmh = settings.mitTempoKmh,
-                startTimeStr = settings.startTime,
-                maxDetourKm = settings.maxDetourKm
-            )
+            _uiState.update {
+                it.copy(
+                    paceKmh = settings.mitTempoKmh,
+                    startTimeStr = settings.startTime,
+                    maxDetourKm = settings.maxDetourKm
+                )
+            }
         }
     }
 
@@ -409,22 +456,26 @@ class RouteBuilderViewModel(
                         legModeToNext = LegMode.SNAP,
                         name = "Min position"
                     )
-                    _uiState.value = _uiState.value.copy(
-                        mode = PlannerMode.FREE,
-                        routeName = effDestName?.let { "Rute til $it" } ?: "Ny rute",
-                        waypoints = listOf(startWp, destWp),
-                        waitingForStartPointTap = false,
-                        errorMessage = null
-                    )
+                    _uiState.update {
+                        it.copy(
+                            mode = PlannerMode.FREE,
+                            routeName = effDestName?.let { n -> "Rute til $n" } ?: "Ny rute",
+                            waypoints = listOf(startWp, destWp),
+                            waitingForStartPointTap = false,
+                            errorMessage = null
+                        )
+                    }
                     computeSingleLeg(startWp, destWp)
                 } else {
-                    _uiState.value = _uiState.value.copy(
-                        mode = PlannerMode.FREE,
-                        routeName = effDestName?.let { "Rute til $it" } ?: "Ny rute",
-                        waypoints = listOf(destWp),
-                        waitingForStartPointTap = true,
-                        errorMessage = "Vælg startpunkt - tryk på kortet"
-                    )
+                    _uiState.update {
+                        it.copy(
+                            mode = PlannerMode.FREE,
+                            routeName = effDestName?.let { n -> "Rute til $n" } ?: "Ny rute",
+                            waypoints = listOf(destWp),
+                            waitingForStartPointTap = true,
+                            errorMessage = "Vælg startpunkt - tryk på kortet"
+                        )
+                    }
                     viewModelScope.launch {
                         _userMessage.emit("Vælg startpunkt - tryk på kortet")
                     }
@@ -445,19 +496,21 @@ class RouteBuilderViewModel(
         specificPlanId: Long? = null
     ) {
         val preseededTrail = com.example.data.local.PreseededData.getInitialTrails().find { it.id == trailId }
-        _uiState.value = _uiState.value.copy(
-            mode = PlannerMode.TRAIL,
-            baseTrailId = trailId,
-            baseTrail = preseededTrail ?: _uiState.value.baseTrail,
-            routeName = preseededTrail?.name ?: _uiState.value.routeName,
-            waitingForStartPointTap = false,
-            trailGeometryDownloadFailed = false,
-            errorMessage = null
-        )
+        _uiState.update {
+            it.copy(
+                mode = PlannerMode.TRAIL,
+                baseTrailId = trailId,
+                baseTrail = preseededTrail ?: it.baseTrail,
+                routeName = preseededTrail?.name ?: it.routeName,
+                waitingForStartPointTap = false,
+                trailGeometryDownloadFailed = false,
+                errorMessage = null
+            )
+        }
         viewModelScope.launch(Dispatchers.Default) {
             val isCached = repository.geometryRepository.isGeometryCached(trailId)
             if (!isCached) {
-                _uiState.value = _uiState.value.copy(isDownloadingTrailGeometry = true)
+                _uiState.update { it.copy(isDownloadingTrailGeometry = true) }
             }
             val existingPlan = if (specificPlanId != null && specificPlanId > 0L) {
                 repository.getTripPlanById(specificPlanId)
@@ -475,11 +528,13 @@ class RouteBuilderViewModel(
 
             val trail = repository.getTrailById(trailId)
             if (trail == null) {
-                _uiState.value = _uiState.value.copy(
-                    isDownloadingTrailGeometry = false,
-                    trailGeometryDownloadFailed = true,
-                    errorMessage = "Ruten kunne ikke hentes"
-                )
+                _uiState.update {
+                    it.copy(
+                        isDownloadingTrailGeometry = false,
+                        trailGeometryDownloadFailed = true,
+                        errorMessage = "Ruten kunne ikke hentes"
+                    )
+                }
                 return@launch
             }
 
@@ -508,19 +563,21 @@ class RouteBuilderViewModel(
             val endProj = TrailSlicer.pointAtTrailKm(segments, endKm, isReverse)
 
             if (segments.isEmpty() || startProj == null || endProj == null) {
-                _uiState.value = _uiState.value.copy(
-                    mode = PlannerMode.TRAIL,
-                    existingPlanId = existingPlan?.id,
-                    baseTrailId = trail.id,
-                    baseTrail = trail,
-                    baseTrailSegments = emptyList(),
-                    baseTrailKmMarkers = emptyList(),
-                    waypoints = emptyList(),
-                    legs = emptyMap(),
-                    isDownloadingTrailGeometry = false,
-                    trailGeometryDownloadFailed = true,
-                    errorMessage = "Ruten kunne ikke hentes"
-                )
+                _uiState.update {
+                    it.copy(
+                        mode = PlannerMode.TRAIL,
+                        existingPlanId = existingPlan?.id,
+                        baseTrailId = trail.id,
+                        baseTrail = trail,
+                        baseTrailSegments = emptyList(),
+                        baseTrailKmMarkers = emptyList(),
+                        waypoints = emptyList(),
+                        legs = emptyMap(),
+                        isDownloadingTrailGeometry = false,
+                        trailGeometryDownloadFailed = true,
+                        errorMessage = "Ruten kunne ikke hentes"
+                    )
+                }
                 return@launch
             }
 
@@ -673,25 +730,27 @@ class RouteBuilderViewModel(
                 try { OvernightType.valueOf(it) } catch (_: Exception) { null }
             }
 
-            _uiState.value = _uiState.value.copy(
-                mode = mode,
-                existingPlanId = existingPlan?.id,
-                baseTrailId = baseTrailId,
-                baseTrail = baseTrail,
-                baseTrailSegments = segments,
-                baseTrailKmMarkers = kmMarkers,
-                isReverse = isReverse,
-                routeId = route.id,
-                routeName = route.name,
-                waypoints = waypoints,
-                legs = legs,
-                failedLegs = emptyMap(),
-                waitingForStartPointTap = false,
-                options = options,
-                dailyTargetKm = existingPlan?.preferredDailyKm ?: _uiState.value.dailyTargetKm,
-                overnightPreference = parsedPref ?: _uiState.value.overnightPreference,
-                startDateMillis = existingPlan?.createdAt ?: _uiState.value.startDateMillis
-            )
+            _uiState.update {
+                it.copy(
+                    mode = mode,
+                    existingPlanId = existingPlan?.id,
+                    baseTrailId = baseTrailId,
+                    baseTrail = baseTrail,
+                    baseTrailSegments = segments,
+                    baseTrailKmMarkers = kmMarkers,
+                    isReverse = isReverse,
+                    routeId = route.id,
+                    routeName = route.name,
+                    waypoints = waypoints,
+                    legs = legs,
+                    failedLegs = emptyMap(),
+                    waitingForStartPointTap = false,
+                    options = options,
+                    dailyTargetKm = existingPlan?.preferredDailyKm ?: it.dailyTargetKm,
+                    overnightPreference = parsedPref ?: it.overnightPreference,
+                    startDateMillis = existingPlan?.createdAt ?: it.startDateMillis
+                )
+            }
 
             updateRouteStats()
         }
@@ -713,10 +772,12 @@ class RouteBuilderViewModel(
     }
 
     private fun updateUndoRedoAvailability() {
-        _uiState.value = _uiState.value.copy(
-            canUndo = undoStack.isNotEmpty(),
-            canRedo = redoStack.isNotEmpty()
-        )
+        _uiState.update {
+            it.copy(
+                canUndo = undoStack.isNotEmpty(),
+                canRedo = redoStack.isNotEmpty()
+            )
+        }
     }
 
     fun undo() {
@@ -733,13 +794,15 @@ class RouteBuilderViewModel(
             redoStack.removeAt(0)
         }
 
-        _uiState.value = _uiState.value.copy(
-            waypoints = previous.waypoints,
-            legs = previous.legs,
-            failedLegs = emptyMap(),
-            options = previous.options,
-            isReverse = previous.isReverse
-        )
+        _uiState.update {
+            it.copy(
+                waypoints = previous.waypoints,
+                legs = previous.legs,
+                failedLegs = emptyMap(),
+                options = previous.options,
+                isReverse = previous.isReverse
+            )
+        }
         updateUndoRedoAvailability()
         updateRouteStats()
     }
@@ -755,13 +818,15 @@ class RouteBuilderViewModel(
         )
         undoStack.add(current)
 
-        _uiState.value = _uiState.value.copy(
-            waypoints = next.waypoints,
-            legs = next.legs,
-            failedLegs = emptyMap(),
-            options = next.options,
-            isReverse = next.isReverse
-        )
+        _uiState.update {
+            it.copy(
+                waypoints = next.waypoints,
+                legs = next.legs,
+                failedLegs = emptyMap(),
+                options = next.options,
+                isReverse = next.isReverse
+            )
+        }
         updateUndoRedoAvailability()
         updateRouteStats()
     }
@@ -772,11 +837,11 @@ class RouteBuilderViewModel(
         val state = _uiState.value
         if (state.mode != PlannerMode.TRAIL || state.baseTrailSegments.isEmpty()) return
         val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, lat, lng, state.isReverse) ?: return
-        _uiState.value = state.copy(tappedTrailPoint = proj)
+        _uiState.update { it.copy(tappedTrailPoint = proj) }
     }
 
     fun dismissTrailTapSheet() {
-        _uiState.value = _uiState.value.copy(tappedTrailPoint = null)
+        _uiState.update { it.copy(tappedTrailPoint = null) }
     }
 
     fun dismissTrailLineTapSheet() = dismissTrailTapSheet()
@@ -892,10 +957,12 @@ class RouteBuilderViewModel(
         updatedLegs[leg1.legKey] = leg1
         updatedLegs[leg2.legKey] = leg2
 
-        _uiState.value = state.copy(
-            waypoints = wps,
-            legs = updatedLegs
-        )
+        _uiState.update {
+            it.copy(
+                waypoints = wps,
+                legs = updatedLegs
+            )
+        }
 
         viewModelScope.launch(Dispatchers.IO) {
             RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg1)
@@ -919,7 +986,7 @@ class RouteBuilderViewModel(
         poiId: String? = null,
         poiType: String? = null
     ) {
-        _uiState.value = _uiState.value.copy(selectedNearbyPoiForSheet = null, selectedMapPoiForSheet = null)
+        _uiState.update { it.copy(selectedNearbyPoiForSheet = null, selectedMapPoiForSheet = null) }
         addStopOrDetour(
             lat = lat,
             lng = lng,
@@ -954,7 +1021,7 @@ class RouteBuilderViewModel(
     }
 
     fun selectNearbyPoiForSheet(poi: PlannerMapPoi?) {
-        _uiState.value = _uiState.value.copy(selectedNearbyPoiForSheet = poi)
+        _uiState.update { it.copy(selectedNearbyPoiForSheet = poi) }
     }
 
     fun addStopOrDetour(
@@ -1099,12 +1166,12 @@ class RouteBuilderViewModel(
     }
 
     fun selectMapPoi(poi: PlannerMapPoiSelection?) {
-        _uiState.value = _uiState.value.copy(selectedMapPoiForSheet = poi)
+        _uiState.update { it.copy(selectedMapPoiForSheet = poi) }
     }
 
     fun addSelectedPoiAsOvernight() {
         val poi = _uiState.value.selectedMapPoiForSheet ?: return
-        _uiState.value = _uiState.value.copy(selectedMapPoiForSheet = null)
+        _uiState.update { it.copy(selectedMapPoiForSheet = null) }
         addStopOrDetour(
             lat = poi.lat,
             lng = poi.lng,
@@ -1116,7 +1183,7 @@ class RouteBuilderViewModel(
 
     fun addSelectedPoiAsStop() {
         val poi = _uiState.value.selectedMapPoiForSheet ?: return
-        _uiState.value = _uiState.value.copy(selectedMapPoiForSheet = null)
+        _uiState.update { it.copy(selectedMapPoiForSheet = null) }
         addStopOrDetour(
             lat = poi.lat,
             lng = poi.lng,
@@ -1138,7 +1205,7 @@ class RouteBuilderViewModel(
         if (wp.trailKm == null) return null
 
         val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, fingerLat, fingerLng, state.isReverse) ?: return null
-        _uiState.value = _uiState.value.copy(draggingWaypointId = waypointId)
+        _uiState.update { it.copy(draggingWaypointId = waypointId) }
         moveWaypointOnTrailToKm(waypointId, proj.trailKm, finishDrag = false)
         return proj
     }
@@ -1222,13 +1289,15 @@ class RouteBuilderViewModel(
         }
 
         val kmLabel = if (finishDrag) null else String.format(Locale.GERMAN, "km %.1f", clampedKm)
-        _uiState.value = state.copy(
-            waypoints = wps,
-            legs = updatedLegs,
-            draggingWaypointId = if (finishDrag) null else waypointId,
-            draggingPinKmLabel = kmLabel,
-            movingWaypointId = if (finishDrag) null else state.movingWaypointId
-        )
+        _uiState.update {
+            it.copy(
+                waypoints = wps,
+                legs = updatedLegs,
+                draggingWaypointId = if (finishDrag) null else waypointId,
+                draggingPinKmLabel = kmLabel,
+                movingWaypointId = if (finishDrag) null else it.movingWaypointId
+            )
+        }
 
         if (finishDrag && legsToPersist.isNotEmpty()) {
             viewModelScope.launch(Dispatchers.IO) {
@@ -1258,21 +1327,23 @@ class RouteBuilderViewModel(
             val lastIdx = wps.lastIndex
             wps[lastIdx] = wps[lastIdx].copy(legModeToNext = next)
         }
-        _uiState.value = _uiState.value.copy(
-            nextLegMode = next,
-            waypoints = wps
-        )
+        _uiState.update {
+            it.copy(
+                nextLegMode = next,
+                waypoints = wps
+            )
+        }
     }
 
     fun toggleOvernightTool() {
         val nextActive = !_uiState.value.isOvernightToolActive
-        _uiState.value = _uiState.value.copy(isOvernightToolActive = nextActive)
+        _uiState.update { it.copy(isOvernightToolActive = nextActive) }
     }
 
     fun addPointAtEnd(lat: Double, lng: Double, name: String? = null) {
         val movingId = _uiState.value.movingWaypointId
         if (movingId != null) {
-            _uiState.value = _uiState.value.copy(movingWaypointId = null)
+            _uiState.update { it.copy(movingWaypointId = null) }
             moveWaypoint(movingId, lat, lng)
             return
         }
@@ -1290,7 +1361,7 @@ class RouteBuilderViewModel(
                 return
             }
             if (proj != null && proj.distanceMeters <= 60.0) {
-                _uiState.value = state.copy(tappedTrailPoint = proj)
+                _uiState.update { it.copy(tappedTrailPoint = proj) }
             } else {
                 addStopOrDetour(
                     lat = lat,
@@ -1316,11 +1387,13 @@ class RouteBuilderViewModel(
             )
             currentWps.add(0, startWp)
             normalizeRoles(currentWps)
-            _uiState.value = _uiState.value.copy(
-                waypoints = currentWps,
-                waitingForStartPointTap = false,
-                errorMessage = null
-            )
+            _uiState.update {
+                it.copy(
+                    waypoints = currentWps,
+                    waitingForStartPointTap = false,
+                    errorMessage = null
+                )
+            }
             if (currentWps.size >= 2) {
                 computeSingleLeg(currentWps[0], currentWps[1])
             }
@@ -1352,7 +1425,7 @@ class RouteBuilderViewModel(
         )
         currentWps.add(newWp)
 
-        _uiState.value = _uiState.value.copy(waypoints = currentWps)
+        _uiState.update { it.copy(waypoints = currentWps) }
 
         if (currentWps.size >= 2) {
             val prevWp = currentWps[currentWps.size - 2]
@@ -1419,7 +1492,7 @@ class RouteBuilderViewModel(
 
         currentWps.add(index, newWp)
         normalizeRoles(currentWps)
-        _uiState.value = _uiState.value.copy(waypoints = currentWps)
+        _uiState.update { it.copy(waypoints = currentWps) }
 
         val prevWp = currentWps[index - 1]
         val nextWp = currentWps[index + 1]
@@ -1429,7 +1502,7 @@ class RouteBuilderViewModel(
         updatedLegs.remove(oldKey)
         val updatedFailed = _uiState.value.failedLegs.toMutableMap()
         updatedFailed.remove(oldKey)
-        _uiState.value = _uiState.value.copy(legs = updatedLegs, failedLegs = updatedFailed)
+        _uiState.update { it.copy(legs = updatedLegs, failedLegs = updatedFailed) }
 
         computeSingleLeg(prevWp, newWp)
         computeSingleLeg(newWp, nextWp)
@@ -1469,11 +1542,13 @@ class RouteBuilderViewModel(
         pushHistory()
         val updatedWp = oldWp.copy(lat = newLat, lng = newLng)
         wps[index] = updatedWp
-        _uiState.value = _uiState.value.copy(
-            waypoints = wps,
-            movingWaypointId = null,
-            draggingPinKmLabel = null
-        )
+        _uiState.update {
+            it.copy(
+                waypoints = wps,
+                movingWaypointId = null,
+                draggingPinKmLabel = null
+            )
+        }
 
         if (index > 0) {
             val prevWp = wps[index - 1]
@@ -1507,11 +1582,13 @@ class RouteBuilderViewModel(
             )
             val mutableWps = newWps.toMutableList()
             normalizeRoles(mutableWps)
-            _uiState.value = state.copy(
-                waypoints = mutableWps,
-                legs = newLegs,
-                selectedWaypointId = null
-            )
+            _uiState.update {
+                it.copy(
+                    waypoints = mutableWps,
+                    legs = newLegs,
+                    selectedWaypointId = null
+                )
+            }
             updateRouteStats()
             return
         }
@@ -1527,12 +1604,14 @@ class RouteBuilderViewModel(
         val failedKeysToRemove = currentFailed.keys.filter { it.contains(removed.id) }
         for (k in failedKeysToRemove) currentFailed.remove(k)
 
-        _uiState.value = _uiState.value.copy(
-            waypoints = wps,
-            legs = currentLegs,
-            failedLegs = currentFailed,
-            selectedWaypointId = null
-        )
+        _uiState.update {
+            it.copy(
+                waypoints = wps,
+                legs = currentLegs,
+                failedLegs = currentFailed,
+                selectedWaypointId = null
+            )
+        }
 
         if (index > 0 && index < wps.size) {
             computeSingleLeg(wps[index - 1], wps[index])
@@ -1553,7 +1632,7 @@ class RouteBuilderViewModel(
         val current = wps[index]
         val newRole = if (current.role == WaypointRole.OVERNIGHT) WaypointRole.VIA else WaypointRole.OVERNIGHT
         wps[index] = current.copy(role = newRole)
-        _uiState.value = _uiState.value.copy(waypoints = wps)
+        _uiState.update { it.copy(waypoints = wps) }
         updateRouteStats()
     }
 
@@ -1569,7 +1648,7 @@ class RouteBuilderViewModel(
         val current = wps[index]
         val newMode = if (current.legModeToNext == LegMode.SNAP) LegMode.STRAIGHT else LegMode.SNAP
         wps[index] = current.copy(legModeToNext = newMode)
-        _uiState.value = _uiState.value.copy(waypoints = wps)
+        _uiState.update { it.copy(waypoints = wps) }
 
         computeSingleLeg(wps[index], wps[index + 1])
     }
@@ -1601,11 +1680,13 @@ class RouteBuilderViewModel(
         wps[fromIdx] = wps[fromIdx].copy(legModeToNext = LegMode.STRAIGHT)
         val updatedFailed = _uiState.value.failedLegs.toMutableMap()
         updatedFailed.remove(legKey)
-        _uiState.value = _uiState.value.copy(
-            waypoints = wps,
-            failedLegs = updatedFailed,
-            errorMessage = null
-        )
+        _uiState.update {
+            it.copy(
+                waypoints = wps,
+                failedLegs = updatedFailed,
+                errorMessage = null
+            )
+        }
         computeSingleLeg(wps[fromIdx], wps[toIdx])
     }
 
@@ -1616,11 +1697,13 @@ class RouteBuilderViewModel(
         val parts = legKey.split("_to_")
         if (parts.size != 2) return
         val targetId = parts[1]
-        _uiState.value = _uiState.value.copy(
-            selectedWaypointId = targetId,
-            movingWaypointId = targetId,
-            errorMessage = "Tryk på kortet eller træk markøren for at flytte punktet"
-        )
+        _uiState.update {
+            it.copy(
+                selectedWaypointId = targetId,
+                movingWaypointId = targetId,
+                errorMessage = "Tryk på kortet eller træk markøren for at flytte punktet"
+            )
+        }
         viewModelScope.launch {
             _userMessage.emit("Tryk på kortet eller træk markøren for at flytte punktet")
         }
@@ -1636,7 +1719,7 @@ class RouteBuilderViewModel(
 
         pushHistory()
         wps[index] = wps[index].copy(name = newName.ifBlank { null })
-        _uiState.value = _uiState.value.copy(waypoints = wps)
+        _uiState.update { it.copy(waypoints = wps) }
         updateRouteStats()
     }
 
@@ -1652,7 +1735,7 @@ class RouteBuilderViewModel(
         if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
             val newReverse = !state.isReverse
             val totalTrailKm = TrailSlicer.totalTrailKm(state.baseTrailSegments)
-            val reversed = wps.asReversed().mapIndexed { idx, wp ->
+            val reversed = wps.asReversed().mapIndexed { _, wp ->
                 val newTrailKm = wp.trailKm?.let { (totalTrailKm - it).coerceIn(0.0, totalTrailKm) }
                 wp.copy(trailKm = newTrailKm)
             }.toMutableList()
@@ -1666,13 +1749,15 @@ class RouteBuilderViewModel(
             }
 
             val newMarkers = TrailSlicer.generateKmMarkers(state.baseTrailSegments, stepKm = 5.0, isReverse = newReverse)
-            _uiState.value = state.copy(
-                isReverse = newReverse,
-                baseTrailKmMarkers = newMarkers,
-                waypoints = reversed,
-                legs = emptyMap(),
-                failedLegs = emptyMap()
-            )
+            _uiState.update {
+                it.copy(
+                    isReverse = newReverse,
+                    baseTrailKmMarkers = newMarkers,
+                    waypoints = reversed,
+                    legs = emptyMap(),
+                    failedLegs = emptyMap()
+                )
+            }
             recomputeAllLegs()
             return
         }
@@ -1680,11 +1765,13 @@ class RouteBuilderViewModel(
         val reversed = wps.asReversed().map { it.copy() }.toMutableList()
         normalizeRoles(reversed)
 
-        _uiState.value = _uiState.value.copy(
-            waypoints = reversed,
-            legs = emptyMap(),
-            failedLegs = emptyMap()
-        )
+        _uiState.update {
+            it.copy(
+                waypoints = reversed,
+                legs = emptyMap(),
+                failedLegs = emptyMap()
+            )
+        }
 
         recomputeAllLegs()
     }
@@ -1701,23 +1788,26 @@ class RouteBuilderViewModel(
         }
 
         pushHistory()
-        _uiState.value = _uiState.value.copy(
-            waypoints = emptyList(),
-            legs = emptyMap(),
-            loadingLegKeys = emptySet(),
-            failedLegs = emptyMap(),
-            waitingForStartPointTap = false,
-            movingWaypointId = null,
-            stats = RouteStats(0.0, 0.0, 0.0, null, 0.0, hasWayInfo = false),
-            timeEstimateFormatted = "0 min",
-            gpxOriginalPoints = emptyList(),
-            alternatives = emptyList(),
-            selectedWaypointId = null,
-            errorMessage = null,
-            plannedStages = emptyList(),
-            daySummaries = emptyList(),
-            dayBoundaryWalkKms = emptyList()
-        )
+        lastComputedStagesSignature = null
+        _uiState.update {
+            it.copy(
+                waypoints = emptyList(),
+                legs = emptyMap(),
+                loadingLegKeys = emptySet(),
+                failedLegs = emptyMap(),
+                waitingForStartPointTap = false,
+                movingWaypointId = null,
+                stats = RouteStats(0.0, 0.0, 0.0, null, 0.0, hasWayInfo = false),
+                timeEstimateFormatted = "0 min",
+                gpxOriginalPoints = emptyList(),
+                alternatives = emptyList(),
+                selectedWaypointId = null,
+                errorMessage = null,
+                plannedStages = emptyList(),
+                daySummaries = emptyList(),
+                dayBoundaryWalkKms = emptyList()
+            )
+        }
     }
 
     /**
@@ -1755,11 +1845,13 @@ class RouteBuilderViewModel(
             }
         }
         normalizeRoles(wps)
-        _uiState.value = _uiState.value.copy(
-            waypoints = wps,
-            waitingForStartPointTap = false,
-            errorMessage = null
-        )
+        _uiState.update {
+            it.copy(
+                waypoints = wps,
+                waitingForStartPointTap = false,
+                errorMessage = null
+            )
+        }
 
         if (wps.size >= 2) {
             computeSingleLeg(wps[0], wps[1])
@@ -1769,36 +1861,36 @@ class RouteBuilderViewModel(
     }
 
     fun selectWaypoint(waypointId: String?) {
-        _uiState.value = _uiState.value.copy(selectedWaypointId = waypointId)
+        _uiState.update { it.copy(selectedWaypointId = waypointId) }
     }
 
     fun setScrubbedPoint(point: RoutePoint3D?) {
-        _uiState.value = _uiState.value.copy(scrubbedPointOnMap = point)
+        _uiState.update { it.copy(scrubbedPointOnMap = point) }
     }
 
     fun updateRouteName(name: String) {
-        _uiState.value = _uiState.value.copy(routeName = name)
+        _uiState.update { it.copy(routeName = name) }
     }
 
     fun updateOptions(newOptions: RouteOptions) {
         if (_uiState.value.options == newOptions) return
         pushHistory()
-        _uiState.value = _uiState.value.copy(options = newOptions)
+        _uiState.update { it.copy(options = newOptions) }
         recomputeAllLegs()
     }
 
     // --- Trip Settings Sheet ("Indstillinger for turen") (Requirement A) ---
 
     fun setSheetHeightState(state: SheetHeightState) {
-        _uiState.value = _uiState.value.copy(sheetHeightState = state)
+        _uiState.update { it.copy(sheetHeightState = state) }
     }
 
     fun openTripSettingsSheet() {
-        _uiState.value = _uiState.value.copy(showTripSettingsSheet = true)
+        _uiState.update { it.copy(showTripSettingsSheet = true) }
     }
 
     fun dismissTripSettingsSheet() {
-        _uiState.value = _uiState.value.copy(showTripSettingsSheet = false)
+        _uiState.update { it.copy(showTripSettingsSheet = false) }
     }
 
     fun updateTripSettings(
@@ -1835,15 +1927,17 @@ class RouteBuilderViewModel(
     ) {
         pacingSpeedKmh = paceKmh.coerceIn(2.0, 8.0)
         this.startTimeStr = startTimeStr
-        _uiState.value = _uiState.value.copy(
-            paceKmh = pacingSpeedKmh,
-            dailyTargetKm = dailyTargetKm.coerceIn(5.0, 50.0),
-            startDateMillis = startDateMillis,
-            startTimeStr = startTimeStr,
-            maxDetourKm = maxDetourKm.coerceIn(0.2, 10.0),
-            overnightPreference = overnightPreference,
-            showTripSettingsSheet = false
-        )
+        _uiState.update {
+            it.copy(
+                paceKmh = pacingSpeedKmh,
+                dailyTargetKm = dailyTargetKm.coerceIn(5.0, 50.0),
+                startDateMillis = startDateMillis,
+                startTimeStr = startTimeStr,
+                maxDetourKm = maxDetourKm.coerceIn(0.2, 10.0),
+                overnightPreference = overnightPreference,
+                showTripSettingsSheet = false
+            )
+        }
         viewModelScope.launch {
             settingsRepository.setMitTempoKmh(pacingSpeedKmh)
             settingsRepository.setStartTime(startTimeStr)
@@ -1874,18 +1968,16 @@ class RouteBuilderViewModel(
                 toKm = to.trailKm,
                 isReverse = state.isReverse
             )
-            val updatedLegs = _uiState.value.legs.toMutableMap()
-            updatedLegs[legKey] = trailLeg
-            val updatedFailed = _uiState.value.failedLegs.toMutableMap()
-            updatedFailed.remove(legKey)
-            val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet()
-            updatedLoading.remove(legKey)
-
-            _uiState.value = _uiState.value.copy(
-                legs = updatedLegs,
-                failedLegs = updatedFailed,
-                loadingLegKeys = updatedLoading
-            )
+            _uiState.update { current ->
+                val updatedLegs = current.legs.toMutableMap().apply { put(legKey, trailLeg) }
+                val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
+                val updatedLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+                current.copy(
+                    legs = updatedLegs,
+                    failedLegs = updatedFailed,
+                    loadingLegKeys = updatedLoading
+                )
+            }
             viewModelScope.launch(Dispatchers.IO) {
                 RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, trailLeg)
             }
@@ -1896,14 +1988,14 @@ class RouteBuilderViewModel(
         val legMode = from.legModeToNext
 
         if (legMode == LegMode.STRAIGHT) {
-            val currentLoading = _uiState.value.loadingLegKeys.toMutableSet()
-            currentLoading.add(legKey)
-            val updatedFailed = _uiState.value.failedLegs.toMutableMap()
-            updatedFailed.remove(legKey)
-            _uiState.value = _uiState.value.copy(
-                loadingLegKeys = currentLoading,
-                failedLegs = updatedFailed
-            )
+            _uiState.update { current ->
+                val currentLoading = current.loadingLegKeys.toMutableSet().apply { add(legKey) }
+                val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
+                current.copy(
+                    loadingLegKeys = currentLoading,
+                    failedLegs = updatedFailed
+                )
+            }
 
             viewModelScope.launch {
                 val (fromEle, toEle) = withContext(Dispatchers.IO) {
@@ -1947,15 +2039,15 @@ class RouteBuilderViewModel(
                     wayInfo = emptyList()
                 )
 
-                val doneLoading = _uiState.value.loadingLegKeys.toMutableSet()
-                doneLoading.remove(legKey)
-                val updatedLegs = _uiState.value.legs.toMutableMap()
-                updatedLegs[legKey] = straightLeg
-                _uiState.value = _uiState.value.copy(
-                    legs = updatedLegs,
-                    loadingLegKeys = doneLoading,
-                    isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse()
-                )
+                _uiState.update { current ->
+                    val doneLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+                    val updatedLegs = current.legs.toMutableMap().apply { put(legKey, straightLeg) }
+                    current.copy(
+                        legs = updatedLegs,
+                        loadingLegKeys = doneLoading,
+                        isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse()
+                    )
+                }
                 withContext(Dispatchers.IO) {
                     RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, straightLeg)
                 }
@@ -1965,9 +2057,10 @@ class RouteBuilderViewModel(
         }
 
         // Snap mode: Route with RoutingEngine
-        val currentLoading = _uiState.value.loadingLegKeys.toMutableSet()
-        currentLoading.add(legKey)
-        _uiState.value = _uiState.value.copy(loadingLegKeys = currentLoading)
+        _uiState.update { current ->
+            val currentLoading = current.loadingLegKeys.toMutableSet().apply { add(legKey) }
+            current.copy(loadingLegKeys = currentLoading)
+        }
 
         viewModelScope.launch {
             try {
@@ -2003,18 +2096,18 @@ class RouteBuilderViewModel(
                             wayInfo = result.perPointWayInfo
                         )
 
-                        val updatedLegs = _uiState.value.legs.toMutableMap()
-                        updatedLegs[legKey] = legData
-                        val updatedFailed = _uiState.value.failedLegs.toMutableMap()
-                        updatedFailed.remove(legKey)
-
-                        _uiState.value = _uiState.value.copy(
-                            legs = updatedLegs,
-                            failedLegs = updatedFailed,
-                            loadingLegKeys = updatedLoading,
-                            isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse(),
-                            errorMessage = if (updatedFailed.isEmpty()) null else _uiState.value.errorMessage
-                        )
+                        _uiState.update { current ->
+                            val updatedLegs = current.legs.toMutableMap().apply { put(legKey, legData) }
+                            val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
+                            val doneLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+                            current.copy(
+                                legs = updatedLegs,
+                                failedLegs = updatedFailed,
+                                loadingLegKeys = doneLoading,
+                                isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse(),
+                                errorMessage = if (updatedFailed.isEmpty()) null else current.errorMessage
+                            )
+                        }
 
                         withContext(Dispatchers.IO) {
                             RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, legData)
@@ -2049,18 +2142,18 @@ class RouteBuilderViewModel(
         danishMessage: String,
         updatedLoading: Set<String>
     ) {
-        val updatedLegs = _uiState.value.legs.toMutableMap()
-        updatedLegs.remove(legKey)
-        val updatedFailed = _uiState.value.failedLegs.toMutableMap()
-        updatedFailed[legKey] = danishMessage
-
-        _uiState.value = _uiState.value.copy(
-            legs = updatedLegs,
-            failedLegs = updatedFailed,
-            loadingLegKeys = updatedLoading,
-            isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse(),
-            errorMessage = danishMessage
-        )
+        _uiState.update { current ->
+            val updatedLegs = current.legs.toMutableMap().apply { remove(legKey) }
+            val updatedFailed = current.failedLegs.toMutableMap().apply { put(legKey, danishMessage) }
+            val doneLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+            current.copy(
+                legs = updatedLegs,
+                failedLegs = updatedFailed,
+                loadingLegKeys = doneLoading,
+                isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse(),
+                errorMessage = danishMessage
+            )
+        }
         _userMessage.emit(danishMessage)
         updateRouteStats()
     }
@@ -2157,17 +2250,28 @@ class RouteBuilderViewModel(
             emptyList<TripStageEntity>() to emptyList<PlannerDaySummary>()
         }
 
-        _uiState.value = currentState.copy(
-            stats = stats,
-            timeEstimateFormatted = timeStr,
-            routeQuality = quality,
-            dayBoundaryWalkKms = dayBoundaries,
-            plannedStages = syncStages,
-            daySummaries = syncDaySummaries,
-            isOfflineRoute = isOffline,
-            routeEngineModeLabel = engineLabel,
-            isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse()
-        )
+        var updatedForSig: RouteBuilderState? = null
+        _uiState.update { latest ->
+            val base = transform?.invoke(latest) ?: latest
+            val next = base.copy(
+                stats = stats,
+                timeEstimateFormatted = timeStr,
+                routeQuality = quality,
+                dayBoundaryWalkKms = dayBoundaries,
+                plannedStages = syncStages,
+                daySummaries = syncDaySummaries,
+                isOfflineRoute = isOffline,
+                routeEngineModeLabel = engineLabel,
+                isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse()
+            )
+            updatedForSig = next
+            next
+        }
+        if (syncStages.isNotEmpty()) {
+            updatedForSig?.let { lastComputedStagesSignature = computeStagesSignature(it) }
+        } else {
+            lastComputedStagesSignature = null
+        }
         loadAccessPolygonsForRouteCorridor()
         evaluateAccessRules()
         analyzeSupplyGaps()
@@ -2200,8 +2304,10 @@ class RouteBuilderViewModel(
         corridorAccessJob = viewModelScope.launch {
             try {
                 val corridorPolys = repository.getAccessPolygons(minLat, maxLat, minLng, maxLng)
-                val merged = (_uiState.value.accessPolygons + corridorPolys).distinctBy { it.id }
-                _uiState.value = _uiState.value.copy(accessPolygons = merged)
+                _uiState.update { current ->
+                    val merged = (current.accessPolygons + corridorPolys).distinctBy { it.id }
+                    current.copy(accessPolygons = merged)
+                }
                 evaluateAccessRules()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed loading corridor access polygons: ${e.message}")
@@ -2228,8 +2334,10 @@ class RouteBuilderViewModel(
             delay(600L)
             try {
                 val visiblePolys = repository.getAccessPolygons(minLat, maxLat, minLng, maxLng)
-                val merged = (_uiState.value.accessPolygons + visiblePolys).distinctBy { it.id }
-                _uiState.value = _uiState.value.copy(accessPolygons = merged)
+                _uiState.update { current ->
+                    val merged = (current.accessPolygons + visiblePolys).distinctBy { it.id }
+                    current.copy(accessPolygons = merged)
+                }
                 evaluateAccessRules()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed loading visible map access polygons: ${e.message}")
@@ -2244,7 +2352,7 @@ class RouteBuilderViewModel(
         val wps = _uiState.value.waypoints
         if (wps.size < 2) return
 
-        _uiState.value = _uiState.value.copy(isComparingAlternatives = true)
+        _uiState.update { it.copy(isComparingAlternatives = true) }
 
         viewModelScope.launch {
             val altList = mutableListOf<RouteAlternativeInfo>()
@@ -2277,10 +2385,12 @@ class RouteBuilderViewModel(
                 }
             }
 
-            _uiState.value = _uiState.value.copy(
-                alternatives = altList,
-                isComparingAlternatives = false
-            )
+            _uiState.update {
+                it.copy(
+                    alternatives = altList,
+                    isComparingAlternatives = false
+                )
+            }
         }
     }
 
@@ -2312,12 +2422,14 @@ class RouteBuilderViewModel(
         val updatedWps = listOf(startWp, endWp)
         val updatedLegs = mapOf(newLeg.legKey to newLeg)
 
-        _uiState.value = _uiState.value.copy(
-            waypoints = updatedWps,
-            legs = updatedLegs,
-            failedLegs = emptyMap(),
-            alternatives = emptyList()
-        )
+        _uiState.update {
+            it.copy(
+                waypoints = updatedWps,
+                legs = updatedLegs,
+                failedLegs = emptyMap(),
+                alternatives = emptyList()
+            )
+        }
 
         viewModelScope.launch(Dispatchers.IO) {
             RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, newLeg)
@@ -2344,13 +2456,15 @@ class RouteBuilderViewModel(
                 pushHistory()
                 val suggestedName = result.name ?: "Importeret rute (${String.format(Locale.US, "%.1f", result.totalOriginalKm)} km)"
 
-                _uiState.value = _uiState.value.copy(
-                    routeName = suggestedName,
-                    waypoints = result.waypoints,
-                    legs = emptyMap(),
-                    failedLegs = emptyMap(),
-                    gpxOriginalPoints = result.originalPoints
-                )
+                _uiState.update {
+                    it.copy(
+                        routeName = suggestedName,
+                        waypoints = result.waypoints,
+                        legs = emptyMap(),
+                        failedLegs = emptyMap(),
+                        gpxOriginalPoints = result.originalPoints
+                    )
+                }
 
                 _userMessage.emit("GPX indlæst: ${result.waypoints.size} ruteelementer. Beregner stier...")
                 recomputeAllLegs()
@@ -2369,20 +2483,23 @@ class RouteBuilderViewModel(
     fun saveRoute(onSuccess: (Long) -> Unit, forceResetProgress: Boolean = false) {
         saveRouteInternal(
             onSuccess = { savedRouteId, _ -> onSuccess(savedRouteId) },
-            forceResetProgress = forceResetProgress
+            forceResetProgress = forceResetProgress,
+            isStartingNavigation = false
         )
     }
 
     fun saveAndStartNavigation(onNavigateToNavigation: (String) -> Unit) {
         saveRouteInternal(
             onSuccess = { _, navId -> onNavigateToNavigation(navId) },
-            forceResetProgress = true
+            forceResetProgress = true,
+            isStartingNavigation = true
         )
     }
 
     private fun saveRouteInternal(
         onSuccess: (Long, String) -> Unit,
-        forceResetProgress: Boolean = false
+        forceResetProgress: Boolean = false,
+        isStartingNavigation: Boolean = false
     ) {
         val currentState = _uiState.value
         val wps = currentState.waypoints
@@ -2391,11 +2508,20 @@ class RouteBuilderViewModel(
             return
         }
 
+        pendingSaveIsStarting = isStartingNavigation
         pendingSaveCallback = { savedId ->
-            val navId = _uiState.value.baseTrailId ?: "route_$savedId"
+            val navId = _uiState.value.existingPlanId?.toString()
+                ?: _uiState.value.baseTrailId
+                ?: "route_$savedId"
             onSuccess(savedId, navId)
         }
-        _uiState.value = _uiState.value.copy(isSaving = true)
+        _uiState.update {
+            it.copy(
+                isSaving = !isStartingNavigation,
+                isStarting = isStartingNavigation,
+                errorMessage = null
+            )
+        }
 
         viewModelScope.launch(Dispatchers.Default) {
             try {
@@ -2403,10 +2529,13 @@ class RouteBuilderViewModel(
                 if (existingId != null && existingId > 0L && !forceResetProgress) {
                     val hasProgress = repository.hasWalkingProgressForCustomRoute(existingId)
                     if (hasProgress) {
-                        _uiState.value = _uiState.value.copy(
-                            isSaving = false,
-                            showResetProgressDialog = true
-                        )
+                        _uiState.update {
+                            it.copy(
+                                isSaving = false,
+                                isStarting = false,
+                                showResetProgressDialog = true
+                            )
+                        }
                         return@launch
                     }
                 }
@@ -2454,40 +2583,56 @@ class RouteBuilderViewModel(
                     currentState.legs[key]?.let { orderedLegs.add(it) }
                 }
                 withContext(Dispatchers.IO) {
-                    for (leg in orderedLegs) {
-                        RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg)
-                    }
+                    RouteGeometryStorageManager.saveAllLegs(
+                        getApplication(),
+                        geometryFileName,
+                        orderedLegs.associateBy { it.legKey }
+                    )
                 }
 
                 val savedId = repository.saveCustomRoute(entity)
-                val savedEntity = entity.copy(id = savedId)
-
-                // Build stages and PlannedRoute in ONE place (PlannedRouteRepository) and save TripPlan
-                val shelters = repository.getAllSheltersList()
-                val friTeltning = repository.getAllFriTeltningList()
-                val pois = repository.getAllPoisList()
-                val numDays = max(1, wps.count { it.role == WaypointRole.OVERNIGHT && !it.isHelper } + 1)
-
-                val (stages, builtPlannedRoute) = PlannedRouteRepository.buildStagesAndPlannedRoute(
-                    planId = 0L,
-                    trailId = currentState.baseTrailId ?: "route_$savedId",
-                    trailName = finalName,
-                    isReverse = currentState.isReverse,
-                    waypoints = wps,
-                    orderedLegs = orderedLegs,
-                    paceKmh = currentState.paceKmh,
-                    dailyTargetKm = currentState.dailyTargetKm,
-                    numDays = numDays,
-                    overnightType = currentState.overnightPreference,
-                    maxDetourKm = currentState.maxDetourKm,
-                    startTime = currentState.startTimeStr,
-                    shelters = shelters,
-                    friTeltnings = friTeltning,
-                    pois = pois,
-                    sunsetTime = sunsetTimeStr
-                )
-
                 val planTrailKey = currentState.baseTrailId ?: "route_$savedId"
+
+                // Item 6a: If the route has not changed since the planner last computed stages, reuse uiState.plannedStages.
+                // Otherwise run the stage planner only with the corridor lists already in state (nearbyShelters, nearbyFriTeltning, nearbyPois).
+                val currentSignature = computeStagesSignature(currentState)
+                val canReuseStages = currentState.plannedStages.isNotEmpty() &&
+                    lastComputedStagesSignature == currentSignature
+
+                val (stages, builtPlannedRoute) = if (canReuseStages) {
+                    val reusedStages = currentState.plannedStages.map { it.toModel() }
+                    val route = PlannedRouteRepository.buildFromComposedLegs(
+                        planId = 0L,
+                        trailId = planTrailKey,
+                        trailName = finalName,
+                        isReverse = currentState.isReverse,
+                        waypoints = wps,
+                        orderedLegs = orderedLegs,
+                        stages = reusedStages
+                    )
+                    reusedStages to route
+                } else {
+                    val numDays = max(1, wps.count { it.role == WaypointRole.OVERNIGHT && !it.isHelper } + 1)
+                    PlannedRouteRepository.buildStagesAndPlannedRoute(
+                        planId = 0L,
+                        trailId = planTrailKey,
+                        trailName = finalName,
+                        isReverse = currentState.isReverse,
+                        waypoints = wps,
+                        orderedLegs = orderedLegs,
+                        paceKmh = currentState.paceKmh,
+                        dailyTargetKm = currentState.dailyTargetKm,
+                        numDays = numDays,
+                        overnightType = currentState.overnightPreference,
+                        maxDetourKm = currentState.maxDetourKm,
+                        startTime = currentState.startTimeStr,
+                        shelters = currentState.nearbyShelters,
+                        friTeltnings = currentState.nearbyFriTeltning,
+                        pois = currentState.nearbyPois,
+                        sunsetTime = sunsetTimeStr
+                    )
+                }
+
                 val startKm = wps.firstOrNull()?.trailKm ?: 0.0
                 val endKm = wps.lastOrNull()?.trailKm ?: currentState.stats.totalKm
                 val savedPlanId = repository.saveTripPlanForRoute(
@@ -2508,34 +2653,55 @@ class RouteBuilderViewModel(
                     builtPlannedRoute.copy(planId = savedPlanId, stages = stages)
                 )
 
-                _uiState.value = _uiState.value.copy(
-                    isSaving = false,
-                    showResetProgressDialog = false,
-                    routeId = savedId,
-                    existingPlanId = savedPlanId
-                )
+                val stageEntities = stages.map { it.toEntity(planId = savedPlanId) }
+                var updatedStateForSig: RouteBuilderState? = null
+                _uiState.update {
+                    val next = it.copy(
+                        isSaving = false,
+                        isStarting = false,
+                        showResetProgressDialog = false,
+                        routeId = savedId,
+                        existingPlanId = savedPlanId,
+                        plannedStages = stageEntities
+                    )
+                    updatedStateForSig = next
+                    next
+                }
+                updatedStateForSig?.let { lastComputedStagesSignature = computeStagesSignature(it) }
+
                 withContext(Dispatchers.Main) {
-                    _userMessage.emit("Turen er gemt under Gemte")
                     onSuccess(savedId, savedPlanId.toString())
+                    _userMessage.emit("Turen er gemt")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save route/plan: ${e.message}")
-                _uiState.value = _uiState.value.copy(isSaving = false)
+                val errMsg = "Fejl ved gemning af tur: ${e.message}"
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        isStarting = false,
+                        errorMessage = errMsg
+                    )
+                }
                 withContext(Dispatchers.Main) {
-                    _userMessage.emit("Fejl ved gemning af tur: ${e.message}")
+                    _userMessage.emit(errMsg)
                 }
             }
         }
     }
 
     fun confirmResetProgressAndSave() {
-        _uiState.value = _uiState.value.copy(showResetProgressDialog = false)
+        _uiState.update { it.copy(showResetProgressDialog = false) }
         val callback = pendingSaveCallback ?: {}
-        saveRoute(onSuccess = callback, forceResetProgress = true)
+        saveRouteInternal(
+            onSuccess = { savedId, _ -> callback(savedId) },
+            forceResetProgress = true,
+            isStartingNavigation = pendingSaveIsStarting
+        )
     }
 
     fun dismissResetProgressDialog() {
-        _uiState.value = _uiState.value.copy(showResetProgressDialog = false, isSaving = false)
+        _uiState.update { it.copy(showResetProgressDialog = false, isSaving = false, isStarting = false) }
     }
 
     /**
@@ -2551,7 +2717,7 @@ class RouteBuilderViewModel(
             return
         }
 
-        _uiState.value = _uiState.value.copy(isFindingOvernight = true)
+        _uiState.update { it.copy(isFindingOvernight = true) }
 
         viewModelScope.launch {
             try {
@@ -2608,9 +2774,9 @@ class RouteBuilderViewModel(
                     stages = emptyList()
                 )
 
-                val shelters = repository.getAllSheltersList()
-                val friTeltning = repository.getAllFriTeltningList()
-                val pois = repository.getAllPoisList()
+                val shelters = currentState.nearbyShelters.ifEmpty { repository.getAllSheltersList() }
+                val friTeltning = currentState.nearbyFriTeltning.ifEmpty { repository.getAllFriTeltningList() }
+                val pois = currentState.nearbyPois.ifEmpty { repository.getAllPoisList() }
 
                 val targetKm = currentState.dailyTargetKm.coerceAtLeast(5.0)
                 val autoNumDays = max(2, kotlin.math.ceil(basePlannedRoute.totalWalkKm / targetKm).toInt())
@@ -2633,10 +2799,12 @@ class RouteBuilderViewModel(
                 )
 
                 // Reset state to cleanWps/cleanLegs before inserting the suggested OVERNIGHT stops
-                _uiState.value = _uiState.value.copy(
-                    waypoints = cleanWps,
-                    legs = cleanLegs
-                )
+                _uiState.update {
+                    it.copy(
+                        waypoints = cleanWps,
+                        legs = cleanLegs
+                    )
+                }
 
                 // Insert OVERNIGHT pins for stages 1..(n-1)
                 val intermediateStages = suggestedStages.dropLast(1)
@@ -2680,12 +2848,12 @@ class RouteBuilderViewModel(
                     }
                 }
 
-                _uiState.value = _uiState.value.copy(isFindingOvernight = false)
+                _uiState.update { it.copy(isFindingOvernight = false) }
                 _userMessage.emit("${intermediateStages.size} overnatninger foreslået (${intermediateStages.size + 1} dage)")
                 updateRouteStats()
             } catch (e: Exception) {
                 Log.e(TAG, "Failed suggesting overnights: ${e.message}", e)
-                _uiState.value = _uiState.value.copy(isFindingOvernight = false)
+                _uiState.update { it.copy(isFindingOvernight = false) }
                 _userMessage.emit("Kunne ikke foreslå overnatninger: ${e.message}")
             }
         }
@@ -2767,15 +2935,17 @@ class RouteBuilderViewModel(
                 updatedLegs[leg.legKey] = leg
             }
 
-            val mergedFailed = _uiState.value.failedLegs.toMutableMap().apply {
-                putAll(detourPlan.failedLegs)
+            _uiState.update { current ->
+                val mergedFailed = current.failedLegs.toMutableMap().apply {
+                    putAll(detourPlan.failedLegs)
+                }
+                current.copy(
+                    waypoints = wps,
+                    legs = updatedLegs,
+                    failedLegs = mergedFailed,
+                    errorMessage = detourPlan.failedLegs.values.firstOrNull() ?: current.errorMessage
+                )
             }
-            _uiState.value = _uiState.value.copy(
-                waypoints = wps,
-                legs = updatedLegs,
-                failedLegs = mergedFailed,
-                errorMessage = detourPlan.failedLegs.values.firstOrNull() ?: _uiState.value.errorMessage
-            )
             withContext(Dispatchers.IO) {
                 for (leg in detourPlan.legs) {
                     RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg)
@@ -2812,7 +2982,7 @@ class RouteBuilderViewModel(
     }
 
     fun replaceOvernightWaypoint(waypointId: String, candidate: OvernightCandidate) {
-        _uiState.value = _uiState.value.copy(replaceOvernightWaypointId = waypointId)
+        _uiState.update { it.copy(replaceOvernightWaypointId = waypointId) }
         replaceOvernightWithCandidate(candidate)
     }
 
@@ -2869,18 +3039,22 @@ class RouteBuilderViewModel(
                 }
             }
 
-            _uiState.value = _uiState.value.copy(
-                replaceOvernightWaypointId = waypointId,
-                replaceOvernightCandidates = candidates.sortedBy { it.detourMeters }.take(10)
-            )
+            _uiState.update {
+                it.copy(
+                    replaceOvernightWaypointId = waypointId,
+                    replaceOvernightCandidates = candidates.sortedBy { c -> c.detourMeters }.take(10)
+                )
+            }
         }
     }
 
     fun dismissReplaceOvernightSheet() {
-        _uiState.value = _uiState.value.copy(
-            replaceOvernightWaypointId = null,
-            replaceOvernightCandidates = emptyList()
-        )
+        _uiState.update {
+            it.copy(
+                replaceOvernightWaypointId = null,
+                replaceOvernightCandidates = emptyList()
+            )
+        }
     }
 
     fun replaceOvernightWithCandidate(candidate: OvernightCandidate) {
@@ -2924,7 +3098,7 @@ class RouteBuilderViewModel(
         if (finishDrag) {
             moveWaypoint(waypointId, pt.lat, pt.lng)
         } else {
-            _uiState.value = state.copy(scrubbedPointOnMap = pt)
+            _uiState.update { it.copy(scrubbedPointOnMap = pt) }
         }
     }
 
@@ -2933,7 +3107,7 @@ class RouteBuilderViewModel(
     }
 
     fun dismissOvernightDialog() {
-        _uiState.value = _uiState.value.copy(showOvernightDialog = false)
+        _uiState.update { it.copy(showOvernightDialog = false) }
     }
 
     fun insertOvernightCandidate(cand: com.example.util.OvernightCandidate) {
@@ -2985,7 +3159,7 @@ class RouteBuilderViewModel(
 
         wps.add(bestIndex, newWp)
         normalizeRoles(wps)
-        _uiState.value = _uiState.value.copy(waypoints = wps)
+        _uiState.update { it.copy(waypoints = wps) }
 
         val prevWp = wps[bestIndex - 1]
         val nextWp = wps[bestIndex + 1]
@@ -2993,7 +3167,7 @@ class RouteBuilderViewModel(
         val oldKey = "${prevWp.id}_to_${nextWp.id}"
         val updatedLegs = _uiState.value.legs.toMutableMap()
         updatedLegs.remove(oldKey)
-        _uiState.value = _uiState.value.copy(legs = updatedLegs)
+        _uiState.update { it.copy(legs = updatedLegs) }
 
         computeSingleLeg(prevWp, newWp)
         computeSingleLeg(newWp, nextWp)
@@ -3015,13 +3189,16 @@ class RouteBuilderViewModel(
         val state = _uiState.value
         val wps = state.waypoints
         if (wps.size < 2) {
-            _uiState.value = state.copy(
-                plannedStages = emptyList(),
-                daySummaries = emptyList(),
-                nearbyShelters = emptyList(),
-                nearbyFriTeltning = emptyList(),
-                nearbyPois = emptyList()
-            )
+            lastComputedStagesSignature = null
+            _uiState.update {
+                it.copy(
+                    plannedStages = emptyList(),
+                    daySummaries = emptyList(),
+                    nearbyShelters = emptyList(),
+                    nearbyFriTeltning = emptyList(),
+                    nearbyPois = emptyList()
+                )
+            }
             return
         }
 
@@ -3098,13 +3275,21 @@ class RouteBuilderViewModel(
                 )
                 val stageEntities = stages.map { it.toEntity(planId = 0L) }
 
-                _uiState.value = _uiState.value.copy(
-                    plannedStages = stageEntities,
-                    daySummaries = initialDaySummaries,
-                    nearbyShelters = corridorShelters,
-                    nearbyFriTeltning = corridorFriTeltning,
-                    nearbyPois = corridorPois
-                )
+                var updatedForSig: RouteBuilderState? = null
+                _uiState.update {
+                    val next = it.copy(
+                        plannedStages = stageEntities,
+                        daySummaries = initialDaySummaries,
+                        nearbyShelters = corridorShelters,
+                        nearbyFriTeltning = corridorFriTeltning,
+                        nearbyPois = corridorPois
+                    )
+                    updatedForSig = next
+                    next
+                }
+                if (stageEntities.isNotEmpty()) {
+                    updatedForSig?.let { lastComputedStagesSignature = computeStagesSignature(it) }
+                }
 
                 // Enrich with night weather asynchronously without delaying daySummaries availability
                 val weatherEnrichedSummaries = initialDaySummaries.mapIndexed { idx, summary ->
@@ -3116,7 +3301,7 @@ class RouteBuilderViewModel(
                     )
                     summary.copy(nightWeatherSummary = nightWeather)
                 }
-                _uiState.value = _uiState.value.copy(daySummaries = weatherEnrichedSummaries)
+                _uiState.update { it.copy(daySummaries = weatherEnrichedSummaries) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -3342,19 +3527,21 @@ class RouteBuilderViewModel(
     // Phase 10: Access rules & layer methods (Naturbeskyttelsesloven kapitel 4)
 
     fun toggleAccessLayer() {
-        _uiState.value = _uiState.value.copy(isAccessLayerVisible = !_uiState.value.isAccessLayerVisible)
+        _uiState.update { it.copy(isAccessLayerVisible = !it.isAccessLayerVisible) }
     }
 
     fun selectAccessPolygon(poly: com.example.data.model.access.AccessPolygon?) {
-        _uiState.value = _uiState.value.copy(selectedAccessPolygonForDetails = poly)
+        _uiState.update { it.copy(selectedAccessPolygonForDetails = poly) }
     }
 
     fun loadAccessPolygonsForBounds(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double) {
         viewModelScope.launch {
             try {
                 val polys = repository.getAccessPolygons(minLat, maxLat, minLng, maxLng)
-                val merged = (_uiState.value.accessPolygons + polys).distinctBy { it.id }
-                _uiState.value = _uiState.value.copy(accessPolygons = merged)
+                _uiState.update { current ->
+                    val merged = (current.accessPolygons + polys).distinctBy { it.id }
+                    current.copy(accessPolygons = merged)
+                }
                 evaluateAccessRules()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed loading access polygons: ${e.message}")
@@ -3401,10 +3588,12 @@ class RouteBuilderViewModel(
             }
         }
 
-        _uiState.value = _uiState.value.copy(
-            accessWarnings = warnings,
-            legs = updatedLegs
-        )
+        _uiState.update {
+            it.copy(
+                accessWarnings = warnings,
+                legs = updatedLegs
+            )
+        }
     }
 
     /**
@@ -3451,12 +3640,13 @@ class RouteBuilderViewModel(
                         wayInfo = result.perPointWayInfo
                     )
 
-                    val updatedLegs = _uiState.value.legs.toMutableMap()
-                    updatedLegs[legKey] = newLeg
-                    _uiState.value = _uiState.value.copy(
-                        legs = updatedLegs,
-                        options = detourOptions
-                    )
+                    _uiState.update { current ->
+                        val updatedLegs = current.legs.toMutableMap().apply { put(legKey, newLeg) }
+                        current.copy(
+                            legs = updatedLegs,
+                            options = detourOptions
+                        )
+                    }
                     withContext(Dispatchers.IO) {
                         RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, newLeg)
                     }
@@ -3490,10 +3680,12 @@ class RouteBuilderViewModel(
         val points = orderedLegs.flatMap { it.points }
         if (points.size < 2) {
             supplyGapsJob?.cancel()
-            _uiState.value = _uiState.value.copy(
-                supplyGapWarnings = emptyList(),
-                isLoadingCorridorPois = false
-            )
+            _uiState.update {
+                it.copy(
+                    supplyGapWarnings = emptyList(),
+                    isLoadingCorridorPois = false
+                )
+            }
             return
         }
 
@@ -3505,10 +3697,12 @@ class RouteBuilderViewModel(
             } else {
                 null
             }
-            _uiState.value = _uiState.value.copy(
-                isLoadingCorridorPois = true,
-                corridorPoisOfflineNotice = offlineNotice
-            )
+            _uiState.update {
+                it.copy(
+                    isLoadingCorridorPois = true,
+                    corridorPoisOfflineNotice = offlineNotice
+                )
+            }
             try {
                 val rId = _uiState.value.routeId?.toString()
                 val corridorPois: List<PoiEntity> = withContext(Dispatchers.IO) {
@@ -3541,44 +3735,48 @@ class RouteBuilderViewModel(
                     maxWaterGapKm = _uiState.value.maxWaterGapKm,
                     maxShopGapKm = _uiState.value.maxShopGapKm
                 )
-                _uiState.value = _uiState.value.copy(
-                    supplyGapWarnings = warnings,
-                    isLoadingCorridorPois = false,
-                    corridorPoisOfflineNotice = offlineNotice
-                )
+                _uiState.update {
+                    it.copy(
+                        supplyGapWarnings = warnings,
+                        isLoadingCorridorPois = false,
+                        corridorPoisOfflineNotice = offlineNotice
+                    )
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Failed analyzing supply gaps: ${e.message}")
-                _uiState.value = _uiState.value.copy(
-                    isLoadingCorridorPois = false,
-                    corridorPoisOfflineNotice = offlineNotice
-                )
+                _uiState.update {
+                    it.copy(
+                        isLoadingCorridorPois = false,
+                        corridorPoisOfflineNotice = offlineNotice
+                    )
+                }
             }
         }
     }
 
     fun setMaxWaterGapKm(km: Double) {
-        _uiState.value = _uiState.value.copy(maxWaterGapKm = km)
+        _uiState.update { it.copy(maxWaterGapKm = km) }
         analyzeSupplyGaps()
     }
 
     fun setMaxShopGapKm(km: Double) {
-        _uiState.value = _uiState.value.copy(maxShopGapKm = km)
+        _uiState.update { it.copy(maxShopGapKm = km) }
         analyzeSupplyGaps()
     }
 
     // --- Phase 12 Feature 2 & Requirement 12: Rundtur ---
     fun openRundturDialog() {
-        _uiState.value = _uiState.value.copy(showRundturDialog = true)
+        _uiState.update { it.copy(showRundturDialog = true) }
     }
 
     fun dismissRundturDialog() {
-        _uiState.value = _uiState.value.copy(showRundturDialog = false)
+        _uiState.update { it.copy(showRundturDialog = false) }
     }
 
     fun setRundturTargetKm(km: Double) {
-        _uiState.value = _uiState.value.copy(rundturTargetKm = km.coerceIn(5.0, 60.0))
+        _uiState.update { it.copy(rundturTargetKm = km.coerceIn(5.0, 60.0)) }
     }
 
     /**
@@ -3594,17 +3792,19 @@ class RouteBuilderViewModel(
         }
 
         if (startPt == null) {
-            _uiState.value = _uiState.value.copy(
-                showRundturDialog = false,
-                errorMessage = "Vælg et startpunkt på kortet først"
-            )
+            _uiState.update {
+                it.copy(
+                    showRundturDialog = false,
+                    errorMessage = "Vælg et startpunkt på kortet først"
+                )
+            }
             viewModelScope.launch {
                 _userMessage.emit("Vælg et startpunkt på kortet først")
             }
             return
         }
 
-        _uiState.value = _uiState.value.copy(isGeneratingRundtur = true, showRundturDialog = true)
+        _uiState.update { it.copy(isGeneratingRundtur = true, showRundturDialog = true) }
         viewModelScope.launch {
             try {
                 val shelters = repository.getAllSheltersList()
@@ -3616,16 +3816,18 @@ class RouteBuilderViewModel(
                     shelters = shelters,
                     friTeltning = friTeltning
                 )
-                _uiState.value = _uiState.value.copy(
-                    isGeneratingRundtur = false,
-                    rundturCandidates = candidates
-                )
+                _uiState.update {
+                    it.copy(
+                        isGeneratingRundtur = false,
+                        rundturCandidates = candidates
+                    )
+                }
                 if (candidates.isEmpty()) {
                     _userMessage.emit("Ingen rundture kunne dannes inden for 20% af målet (${_uiState.value.rundturTargetKm.toInt()} km)")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error generating rundtur: ${e.message}", e)
-                _uiState.value = _uiState.value.copy(isGeneratingRundtur = false)
+                _uiState.update { it.copy(isGeneratingRundtur = false) }
                 _userMessage.emit("Kunne ikke danne rundtur: ${e.message}")
             }
         }
@@ -3633,13 +3835,15 @@ class RouteBuilderViewModel(
 
     fun applyRundtur(candidate: RundturCandidate) {
         pushHistory()
-        _uiState.value = _uiState.value.copy(
-            waypoints = candidate.waypoints,
-            legs = candidate.legs,
-            failedLegs = emptyMap(),
-            showRundturDialog = false,
-            routeName = candidate.title
-        )
+        _uiState.update {
+            it.copy(
+                waypoints = candidate.waypoints,
+                legs = candidate.legs,
+                failedLegs = emptyMap(),
+                showRundturDialog = false,
+                routeName = candidate.title
+            )
+        }
         updateRouteStats()
         viewModelScope.launch {
             _userMessage.emit("Rundtur valgt: ${String.format(Locale.US, "%.1f", candidate.actualKm)} km")
@@ -3656,7 +3860,7 @@ class RouteBuilderViewModel(
         }
         if (wps.size < 2) return
 
-        _uiState.value = _uiState.value.copy(isLoadingWeather = true)
+        _uiState.update { it.copy(isLoadingWeather = true) }
         viewModelScope.launch {
             try {
                 val etas = RouteSmartTools.calculateWaypointWeatherEtas(
@@ -3666,24 +3870,26 @@ class RouteBuilderViewModel(
                     pacingSpeedKmh = pacingSpeedKmh,
                     weatherService = weatherService
                 )
-                _uiState.value = _uiState.value.copy(
-                    isLoadingWeather = false,
-                    waypointWeatherEtas = etas
-                )
+                _uiState.update {
+                    it.copy(
+                        isLoadingWeather = false,
+                        waypointWeatherEtas = etas
+                    )
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Error fetching weather ETA: ${e.message}")
-                _uiState.value = _uiState.value.copy(isLoadingWeather = false)
+                _uiState.update { it.copy(isLoadingWeather = false) }
             }
         }
     }
 
     // --- Phase 12 Feature 4 & Requirement 12: Rute til nærmeste ---
     fun openNearestPoiDialog() {
-        _uiState.value = _uiState.value.copy(showNearestPoiDialog = true)
+        _uiState.update { it.copy(showNearestPoiDialog = true) }
     }
 
     fun dismissNearestPoiDialog() {
-        _uiState.value = _uiState.value.copy(showNearestPoiDialog = false)
+        _uiState.update { it.copy(showNearestPoiDialog = false) }
     }
 
     /**
@@ -3700,16 +3906,18 @@ class RouteBuilderViewModel(
 
         if (startPt == null) {
             dismissNearestPoiDialog()
-            _uiState.value = _uiState.value.copy(
-                errorMessage = "Vælg et startpunkt på kortet først"
-            )
+            _uiState.update {
+                it.copy(
+                    errorMessage = "Vælg et startpunkt på kortet først"
+                )
+            }
             viewModelScope.launch {
                 _userMessage.emit("Vælg et startpunkt på kortet først")
             }
             return
         }
 
-        _uiState.value = _uiState.value.copy(isRoutingToNearest = true)
+        _uiState.update { it.copy(isRoutingToNearest = true) }
         dismissNearestPoiDialog()
         viewModelScope.launch {
             try {
@@ -3751,22 +3959,24 @@ class RouteBuilderViewModel(
                     )
 
                     val legsMap = mapOf("${wpStart.id}_to_${wpDest.id}" to leg)
-                    _uiState.value = _uiState.value.copy(
-                        isRoutingToNearest = false,
-                        waypoints = listOf(wpStart, wpDest),
-                        legs = legsMap,
-                        failedLegs = emptyMap(),
-                        routeName = "Rute til ${poi.name}"
-                    )
+                    _uiState.update {
+                        it.copy(
+                            isRoutingToNearest = false,
+                            waypoints = listOf(wpStart, wpDest),
+                            legs = legsMap,
+                            failedLegs = emptyMap(),
+                            routeName = "Rute til ${poi.name}"
+                        )
+                    }
                     updateRouteStats()
                     _userMessage.emit("Rute fundet til ${poi.name}: ${String.format(Locale.US, "%.1f", legResult.lengthKm)} km via rute")
                 } else {
-                    _uiState.value = _uiState.value.copy(isRoutingToNearest = false)
+                    _uiState.update { it.copy(isRoutingToNearest = false) }
                     _userMessage.emit("Ingen ${category.label.lowercase()} fundet i nærheden.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error routing to nearest: ${e.message}", e)
-                _uiState.value = _uiState.value.copy(isRoutingToNearest = false)
+                _uiState.update { it.copy(isRoutingToNearest = false) }
                 _userMessage.emit("Fejl ved rutesøgning: ${e.message}")
             }
         }
@@ -3774,17 +3984,21 @@ class RouteBuilderViewModel(
 
     // --- Phase 12 Feature 6: Mine punkter ---
     fun openAddCustomWaypointDialog(lat: Double, lng: Double) {
-        _uiState.value = _uiState.value.copy(
-            showAddCustomWaypointDialog = true,
-            pendingCustomWaypointLocation = LatLng(lat, lng)
-        )
+        _uiState.update {
+            it.copy(
+                showAddCustomWaypointDialog = true,
+                pendingCustomWaypointLocation = LatLng(lat, lng)
+            )
+        }
     }
 
     fun dismissAddCustomWaypointDialog() {
-        _uiState.value = _uiState.value.copy(
-            showAddCustomWaypointDialog = false,
-            pendingCustomWaypointLocation = null
-        )
+        _uiState.update {
+            it.copy(
+                showAddCustomWaypointDialog = false,
+                pendingCustomWaypointLocation = null
+            )
+        }
     }
 
     fun saveCustomWaypoint(name: String, note: String, photoPath: String?) {
@@ -3801,7 +4015,7 @@ class RouteBuilderViewModel(
         viewModelScope.launch {
             repository.saveCustomWaypoint(entity)
             val updated = repository.getCustomWaypointsForRoute(_uiState.value.routeId ?: 0L)
-            _uiState.value = _uiState.value.copy(customUserWaypoints = updated)
+            _uiState.update { it.copy(customUserWaypoints = updated) }
             _userMessage.emit("Punkt tilføjet: ${entity.name}")
         }
     }
@@ -3810,16 +4024,18 @@ class RouteBuilderViewModel(
         viewModelScope.launch {
             repository.deleteCustomWaypoint(id)
             val updated = repository.getCustomWaypointsForRoute(_uiState.value.routeId ?: 0L)
-            _uiState.value = _uiState.value.copy(
-                customUserWaypoints = updated,
-                selectedCustomWaypointForDetails = null
-            )
+            _uiState.update {
+                it.copy(
+                    customUserWaypoints = updated,
+                    selectedCustomWaypointForDetails = null
+                )
+            }
             _userMessage.emit("Punkt slettet")
         }
     }
 
     fun selectCustomWaypointForDetails(wp: UserCustomWaypointEntity?) {
-        _uiState.value = _uiState.value.copy(selectedCustomWaypointForDetails = wp)
+        _uiState.update { it.copy(selectedCustomWaypointForDetails = wp) }
     }
 
     // --- Phase 12 Feature 7: Del rute ---

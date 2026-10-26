@@ -157,6 +157,21 @@ class GeoFaRepository(private val context: Context) {
         emptyList()
     }
 
+    internal fun loadBundledSheltersFromDiskOrAssets(): List<ShelterEntity> {
+        val json = readAssetOrDiskGeoJsonGz("shelters.geojson.gz") ?: return emptyList()
+        return parseSheltersGeoJson(json)
+    }
+
+    internal fun loadBundledFriTeltningFromDiskOrAssets(): List<FriTeltningEntity> {
+        val json = readAssetOrDiskGeoJsonGz("fri_teltning.geojson.gz") ?: return emptyList()
+        return parseFriTeltningGeoJson(json)
+    }
+
+    internal fun loadBundledPoisFromDiskOrAssets(): List<PoiEntity> {
+        val json = readAssetOrDiskGeoJsonGz("toilets_water.geojson.gz") ?: return emptyList()
+        return parsePoisGeoJson(json)
+    }
+
     private fun readAssetGeoJsonGz(assetName: String): String? {
         return try {
             context.assets.open("geofa/$assetName").use { input ->
@@ -166,6 +181,25 @@ class GeoFaRepository(private val context: Context) {
             Log.e("GeoFaRepo", "Failed to read asset geofa/$assetName: ${e.message}")
             null
         }
+    }
+
+    private fun readAssetOrDiskGeoJsonGz(assetName: String): String? {
+        readAssetGeoJsonGz(assetName)?.let { return it }
+        val fileCandidates = listOf(
+            File("src/main/assets/geofa/$assetName"),
+            File("app/src/main/assets/geofa/$assetName")
+        )
+        for (file in fileCandidates) {
+            if (file.exists()) {
+                try {
+                    return file.inputStream().use { input ->
+                        GZIPInputStream(input).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
+        return null
     }
 
     private suspend fun queryWithRetry(sql: String): String? = withContext(Dispatchers.IO) {

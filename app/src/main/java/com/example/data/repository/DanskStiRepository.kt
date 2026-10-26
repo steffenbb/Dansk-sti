@@ -27,6 +27,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import com.example.data.model.PlannedRoute
@@ -188,29 +189,14 @@ class DanskStiRepository(
     }
 
     suspend fun getTrailGeometry(trailId: String): com.example.data.model.TrailGeometryDto? = withContext(Dispatchers.IO) {
-        geometryRepository.loadGeometry(trailId)
-    }
-
-    suspend fun getTrailPoints(trail: TrailEntity): List<TrailSegmentDto> = withContext(Dispatchers.IO) {
-        val geom = try {
-            geometryRepository.loadGeometry(trail.id)
-                ?: if (trail.id.startsWith("route_")) {
-                    val crId = trail.id.removePrefix("route_").toLongOrNull()
-                    val cr = if (crId != null) dao.getCustomRouteById(crId) else null
-                    if (cr != null) {
-                        val legs = com.example.util.routing.RouteGeometryStorageManager.loadLegs(context, cr.geometryFile)
-                        val wps = com.example.util.routing.RouteWaypoint.listFromJson(cr.waypointsJson)
-                        val orderedLegs = mutableListOf<com.example.util.routing.LegGeometryData>()
-                        for (i in 0 until wps.size - 1) {
-                            val key = "${wps[i].id}_to_${wps[i + 1].id}"
-                            legs[key]?.let { orderedLegs.add(it) }
-                        }
-                        val customGeom = com.example.util.routing.RouteGeometryStorageManager.convertCustomRouteToTrailGeometry(trail.id, orderedLegs, cr.name)
-                        geometryRepository.saveRouteGeometry(trail.id, customGeom)
-                        customGeom
-                    } else null
-                } else {
-                    geometryRepository.fetchAndProcessTrail(trail.id, trail.name, trail.osmRelationId)?.also {
+        val cached = geometryRepository.loadGeometry(trailId)
+        if (cached != null && !trailId.startsWith("route_") && !geometryRepository.hasWayTagRanges(cached) && isDeviceOnline()) {
+            val trail = dao.getTrailById(trailId)
+            if (trail != null) {
+                val fresh = try {
+                    geometryRepository.fetchAndProcessTrail(trail.id, trail.name, trail.osmRelationId)?.takeIf {
+                        it.segments.any { seg -> seg.points.isNotEmpty() }
+                    }?.also {
                         geometryRepository.saveGeometry(it)
                         dao.insertTrail(trail.copy(
                             computedWalkingKm = it.totalWalkingKm,
@@ -223,7 +209,86 @@ class DanskStiRepository(
                             isGeometryDownloaded = true
                         ))
                     }
+                } catch (t: Throwable) {
+                    Log.w("DanskStiRepo", "Failed to refresh trail geometry without wayTagRanges for $trailId: ${t.message}")
+                    null
                 }
+                if (fresh != null) return@withContext fresh
+            }
+        }
+        cached
+    }
+
+    suspend fun getTrailPoints(trail: TrailEntity): List<TrailSegmentDto> = withContext(Dispatchers.IO) {
+        val cached = try {
+            geometryRepository.loadGeometry(trail.id)
+        } catch (t: Throwable) {
+            Log.e("DanskStiRepo", "Error loading cached trail geometry for ${trail.name}: ${t.message}", t)
+            null
+        }
+
+        if (cached != null) {
+            if (!trail.id.startsWith("route_") && !geometryRepository.hasWayTagRanges(cached) && isDeviceOnline()) {
+                val fresh = try {
+                    geometryRepository.fetchAndProcessTrail(trail.id, trail.name, trail.osmRelationId)?.takeIf {
+                        it.segments.any { seg -> seg.points.isNotEmpty() }
+                    }?.also {
+                        geometryRepository.saveGeometry(it)
+                        dao.insertTrail(trail.copy(
+                            computedWalkingKm = it.totalWalkingKm,
+                            gapsOver200m = it.gapsOver200mCount,
+                            osmTimestamp = it.osmTimestamp,
+                            bboxNorth = it.bboxNorth,
+                            bboxSouth = it.bboxSouth,
+                            bboxEast = it.bboxEast,
+                            bboxWest = it.bboxWest,
+                            isGeometryDownloaded = true
+                        ))
+                    }
+                } catch (t: Throwable) {
+                    Log.w("DanskStiRepo", "Failed to re-download trail ${trail.name} without wayTagRanges: ${t.message}")
+                    null
+                }
+                return@withContext (fresh ?: cached).segments
+            }
+            return@withContext cached.segments
+        }
+
+        val geom = try {
+            if (trail.id.startsWith("route_")) {
+                val crId = trail.id.removePrefix("route_").toLongOrNull()
+                val cr = if (crId != null) dao.getCustomRouteById(crId) else null
+                if (cr != null) {
+                    val legs = com.example.util.routing.RouteGeometryStorageManager.loadLegs(context, cr.geometryFile)
+                    val wps = com.example.util.routing.RouteWaypoint.listFromJson(cr.waypointsJson)
+                    val orderedLegs = mutableListOf<com.example.util.routing.LegGeometryData>()
+                    for (i in 0 until wps.size - 1) {
+                        val key = "${wps[i].id}_to_${wps[i + 1].id}"
+                        legs[key]?.let { orderedLegs.add(it) }
+                    }
+                    val customGeom = com.example.util.routing.RouteGeometryStorageManager.convertCustomRouteToTrailGeometry(trail.id, orderedLegs, cr.name)
+                    if (customGeom != null) {
+                        geometryRepository.saveRouteGeometry(trail.id, customGeom)
+                    }
+                    customGeom
+                } else null
+            } else {
+                geometryRepository.fetchAndProcessTrail(trail.id, trail.name, trail.osmRelationId)?.takeIf {
+                    it.segments.any { seg -> seg.points.isNotEmpty() }
+                }?.also {
+                    geometryRepository.saveGeometry(it)
+                    dao.insertTrail(trail.copy(
+                        computedWalkingKm = it.totalWalkingKm,
+                        gapsOver200m = it.gapsOver200mCount,
+                        osmTimestamp = it.osmTimestamp,
+                        bboxNorth = it.bboxNorth,
+                        bboxSouth = it.bboxSouth,
+                        bboxEast = it.bboxEast,
+                        bboxWest = it.bboxWest,
+                        isGeometryDownloaded = true
+                    ))
+                }
+            }
         } catch (t: Throwable) {
             Log.e("DanskStiRepo", "Error getting trail points for ${trail.name}: ${t.message}", t)
             null
@@ -812,11 +877,18 @@ class DanskStiRepository(
 
         // Save geometry to routes/<id>.json.gz (Requirement A)
         val geom = com.example.util.routing.RouteGeometryStorageManager.convertCustomRouteToTrailGeometry(route.id.toString(), orderedLegs, route.name)
-        geometryRepository.saveRouteGeometry(route.id.toString(), geom)
-
-        val points = geom.segments.flatMap { it.points }
-        if (points.isNotEmpty()) {
-            syncCorridorPoisForRoute(route.id.toString(), points)
+        if (geom != null) {
+            geometryRepository.saveRouteGeometry(route.id.toString(), geom)
+            val points = geom.segments.flatMap { it.points }
+            if (points.isNotEmpty()) {
+                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        syncCorridorPoisForRoute(route.id.toString(), points)
+                    } catch (e: Exception) {
+                        Log.w("DanskStiRepo", "Background corridor POI sync failed for route ${route.id}: ${e.message}")
+                    }
+                }
+            }
         }
 
         val rawTrailId = route.baseTrailId?.takeIf { it.isNotBlank() } ?: "route_${route.id}"
@@ -1300,12 +1372,19 @@ class DanskStiRepository(
                 legs[key]?.let { orderedLegs.add(it) }
             }
             val geom = com.example.util.routing.RouteGeometryStorageManager.convertCustomRouteToTrailGeometry(savedId.toString(), orderedLegs, entity.name)
-            geometryRepository.saveRouteGeometry(savedId.toString(), geom)
-
-            val points = geom.segments.flatMap { it.points }
-            if (points.isNotEmpty()) {
-                // Sync corridor POIs with routeId (Requirement B)
-                syncCorridorPoisForRoute(savedId.toString(), points)
+            if (geom != null) {
+                geometryRepository.saveRouteGeometry(savedId.toString(), geom)
+                val points = geom.segments.flatMap { it.points }
+                if (points.isNotEmpty()) {
+                    // Sync corridor POIs in background so saveCustomRoute never blocks
+                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            syncCorridorPoisForRoute(savedId.toString(), points)
+                        } catch (e: Exception) {
+                            Log.w("DanskStiRepo", "Background corridor POI sync failed for route $savedId: ${e.message}")
+                        }
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e("DanskStiRepo", "Error generating route geometry or POIs for route $savedId: ${e.message}", e)
@@ -1325,11 +1404,18 @@ class DanskStiRepository(
                 legs[key]?.let { orderedLegs.add(it) }
             }
             val geom = com.example.util.routing.RouteGeometryStorageManager.convertCustomRouteToTrailGeometry(route.id.toString(), orderedLegs, route.name)
-            geometryRepository.saveRouteGeometry(route.id.toString(), geom)
-
-            val points = geom.segments.flatMap { it.points }
-            if (points.isNotEmpty()) {
-                syncCorridorPoisForRoute(route.id.toString(), points)
+            if (geom != null) {
+                geometryRepository.saveRouteGeometry(route.id.toString(), geom)
+                val points = geom.segments.flatMap { it.points }
+                if (points.isNotEmpty()) {
+                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            syncCorridorPoisForRoute(route.id.toString(), points)
+                        } catch (e: Exception) {
+                            Log.w("DanskStiRepo", "Background corridor POI sync failed for route ${route.id}: ${e.message}")
+                        }
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e("DanskStiRepo", "Error updating route geometry or POIs for route ${route.id}: ${e.message}", e)

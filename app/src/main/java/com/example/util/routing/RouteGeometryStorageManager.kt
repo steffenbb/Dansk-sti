@@ -218,7 +218,12 @@ data class RouteStats(
     val pathSharePct: Double?,
     val roadKm: Double,
     val hasWayInfo: Boolean = pathSharePct != null
-)
+) {
+    val pathShareFormatted: String
+        get() = if (hasWayInfo && pathSharePct != null) String.format(java.util.Locale.GERMANY, "%.0f %%", pathSharePct) else "ukendt"
+    val roadKmFormatted: String
+        get() = if (hasWayInfo && pathSharePct != null) String.format(java.util.Locale.GERMANY, "%.1f km", roadKm) else "ukendt"
+}
 
 /**
  * Manages atomic and isolated persistence of route leg geometries in files.
@@ -435,7 +440,7 @@ object RouteGeometryStorageManager {
         routeId: String,
         orderedLegs: List<LegGeometryData>,
         customRouteName: String = ""
-    ): com.example.data.model.TrailGeometryDto {
+    ): com.example.data.model.TrailGeometryDto? {
         val segments = mutableListOf<com.example.data.model.TrailSegmentDto>()
         var totalWalkingKm = 0.0
         val allPoints = mutableListOf<com.example.data.model.GeoPointDto>()
@@ -467,12 +472,14 @@ object RouteGeometryStorageManager {
             }
         }
 
-        val lats = allPoints.map { it.lat }
-        val lngs = allPoints.map { it.lng }
-        val bboxNorth = lats.maxOrNull() ?: 57.0
-        val bboxSouth = lats.minOrNull() ?: 55.0
-        val bboxEast = lngs.maxOrNull() ?: 12.0
-        val bboxWest = lngs.minOrNull() ?: 8.0
+        if (allPoints.isEmpty()) {
+            return null
+        }
+
+        val bboxNorth = allPoints.maxOf { it.lat }
+        val bboxSouth = allPoints.minOf { it.lat }
+        val bboxEast = allPoints.maxOf { it.lng }
+        val bboxWest = allPoints.minOf { it.lng }
 
         val stats = calculateStats(orderedLegs)
 

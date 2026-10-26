@@ -163,6 +163,31 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 _elevationGain.value = geom?.totalAscentM ?: 0
                 _elevationLoss.value = geom?.totalDescentM ?: 0
 
+                val allRanges = segments.filter { it.type == TrailSegmentType.WALK }.flatMap { it.wayTagRanges }
+                if (allRanges.any { !it.highway.isNullOrBlank() || !it.surface.isNullOrBlank() }) {
+                    var stiKm = 0.0
+                    var grusKm = 0.0
+                    var asfaltKm = 0.0
+                    for (r in allRanges) {
+                        val rKm = (r.toKm - r.fromKm).coerceAtLeast(0.0)
+                        val hw = r.highway?.lowercase() ?: ""
+                        val surf = r.surface?.lowercase() ?: ""
+                        when {
+                            surf in listOf("asphalt", "paved", "concrete", "paving_stones") ||
+                                hw in listOf("residential", "living_street", "service", "unclassified", "tertiary", "secondary", "primary", "trunk") -> asfaltKm += rKm
+                            surf in listOf("gravel", "fine_gravel", "compacted") || hw == "track" -> grusKm += rKm
+                            else -> stiKm += rKm
+                        }
+                    }
+                    val sumKm = (stiKm + grusKm + asfaltKm).takeIf { it > 0.0 } ?: 1.0
+                    val stiPct = Math.round(stiKm / sumKm * 100.0).toInt().coerceIn(0, 100)
+                    val grusPct = Math.round(grusKm / sumKm * 100.0).toInt().coerceIn(0, 100 - stiPct)
+                    val asfaltPct = (100 - stiPct - grusPct).coerceAtLeast(0)
+                    _surfaceMix.value = mapOf("Sti" to stiPct, "Grus" to grusPct, "Asfalt" to asfaltPct)
+                } else {
+                    _surfaceMix.value = emptyMap()
+                }
+
                 // Corridor Overnights & POIs (only route's own corridor POIs, never whole DB)
                 var shelters = repository.getSheltersForTrail(trailId)
                 val friTeltning = repository.getFriTeltningForTrail(trailId)

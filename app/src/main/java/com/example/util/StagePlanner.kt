@@ -37,10 +37,43 @@ object StagePlanner {
     private val geoPointListType = Types.newParameterizedType(List::class.java, GeoPointDto::class.java)
     private val geoPointListAdapter = moshi.adapter<List<GeoPointDto>>(geoPointListType)
 
+    private data class ParsedPolygon(
+        val points: List<GeoPointDto>,
+        val minLat: Double,
+        val maxLat: Double,
+        val minLng: Double,
+        val maxLng: Double
+    )
+
+    private val polygonCache = java.util.concurrent.ConcurrentHashMap<String, ParsedPolygon>()
+
+    private fun getParsedPolygon(id: String, polygonJson: String): ParsedPolygon {
+        val key = "${id}_${polygonJson.hashCode()}"
+        polygonCache[key]?.let { return it }
+        val pts = parsePolygonPoints(polygonJson)
+        val parsed = if (pts.isEmpty()) {
+            ParsedPolygon(emptyList(), 0.0, 0.0, 0.0, 0.0)
+        } else {
+            var minLat = Double.MAX_VALUE
+            var maxLat = -Double.MAX_VALUE
+            var minLng = Double.MAX_VALUE
+            var maxLng = -Double.MAX_VALUE
+            for (p in pts) {
+                if (p.lat < minLat) minLat = p.lat
+                if (p.lat > maxLat) maxLat = p.lat
+                if (p.lng < minLng) minLng = p.lng
+                if (p.lng > maxLng) maxLng = p.lng
+            }
+            ParsedPolygon(pts, minLat, maxLat, minLng, maxLng)
+        }
+        polygonCache[key] = parsed
+        return parsed
+    }
+
     /**
      * Requirement B: Extract candidates along the route within maxDetour.
-     * - Every overnight item with detourMeters <= max detour, with its walkKm.
-     * - Fri teltning areas use the nearest point of the polygon, not the centre.
+     * - Skip every candidate outside the route's bounding box expanded by maxDetourKm before projecting.
+     * - For fri teltning areas, check the polygon's bounding box first and project only corners inside the expanded box.
      */
     fun extractCandidates(
         plannedRoute: PlannedRoute,
@@ -51,50 +84,78 @@ object StagePlanner {
         overnightType: OvernightType,
         maxDetourKm: Double = 1.5
     ): List<OvernightCandidate> {
+        if (plannedRoute.points.isEmpty()) return emptyList()
         val maxDetourMeters = maxDetourKm * 1000.0
+        val bbox = plannedRoute.boundingBox()
+        val routeMinLat = bbox[0]
+        val routeMaxLat = bbox[1]
+        val routeMinLng = bbox[2]
+        val routeMaxLng = bbox[3]
+
+        val midLatRad = Math.toRadians((routeMinLat + routeMaxLat) / 2.0)
+        val cosMidLat = kotlin.math.cos(midLatRad).coerceAtLeast(0.1)
+        val latMargin = (maxDetourKm / 110.54) + 0.002
+        val lngMargin = (maxDetourKm / (111.32 * cosMidLat)) + 0.002
+
+        val expMinLat = routeMinLat - latMargin
+        val expMaxLat = routeMaxLat + latMargin
+        val expMinLng = routeMinLng - lngMargin
+        val expMaxLng = routeMaxLng + lngMargin
+
+        val localWaterPois = waterPois.filter {
+            it.lat in (expMinLat - 0.006)..(expMaxLat + 0.006) &&
+                it.lng in (expMinLng - 0.01)..(expMaxLng + 0.01)
+        }
+        val localToiletPois = toiletPois.filter {
+            it.lat in (expMinLat - 0.006)..(expMaxLat + 0.006) &&
+                it.lng in (expMinLng - 0.01)..(expMaxLng + 0.01)
+        }
+
         val candidates = mutableListOf<OvernightCandidate>()
 
         // 1. Shelters and Campsites
         if (overnightType != OvernightType.FRI_TELTNING) {
             for (sh in shelters) {
+                if (sh.lat < expMinLat || sh.lat > expMaxLat || sh.lng < expMinLng || sh.lng > expMaxLng) {
+                    continue
+                }
+                val isCampsite = sh.shelterType.contains("telt", ignoreCase = true) ||
+                        sh.shelterType.contains("camp", ignoreCase = true) ||
+                        sh.shelterType.contains("lejr", ignoreCase = true)
+                val candType = if (isCampsite) "CAMPSITE" else "SHELTER"
+
+                val matchesPreference = when (overnightType) {
+                    OvernightType.SHELTER -> candType == "SHELTER"
+                    OvernightType.CAMPSITE -> candType == "CAMPSITE"
+                    OvernightType.BOTH -> candType == "SHELTER" || candType == "CAMPSITE"
+                    OvernightType.FRI_TELTNING -> false
+                }
+                if (!matchesPreference) continue
+
                 val (walkKm, detourMeters) = plannedRoute.projectPoint(sh.lat, sh.lng)
                 if (detourMeters <= maxDetourMeters) {
-                    val isCampsite = sh.shelterType.contains("telt", ignoreCase = true) ||
-                            sh.shelterType.contains("camp", ignoreCase = true) ||
-                            sh.shelterType.contains("lejr", ignoreCase = true)
-                    val candType = if (isCampsite) "CAMPSITE" else "SHELTER"
-
-                    val matchesPreference = when (overnightType) {
-                        OvernightType.SHELTER -> candType == "SHELTER"
-                        OvernightType.CAMPSITE -> candType == "CAMPSITE"
-                        OvernightType.BOTH -> candType == "SHELTER" || candType == "CAMPSITE"
-                        OvernightType.FRI_TELTNING -> false
+                    val hasWater = sh.hasWaterNearby || localWaterPois.any {
+                        GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0
+                    }
+                    val hasToilet = sh.hasToiletNearby || localToiletPois.any {
+                        GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0
                     }
 
-                    if (matchesPreference) {
-                        val hasWater = sh.hasWaterNearby || waterPois.any {
-                            GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0
-                        }
-                        val hasToilet = sh.hasToiletNearby || toiletPois.any {
-                            GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0
-                        }
-
-                        candidates.add(
-                            OvernightCandidate(
-                                id = sh.id,
-                                name = sh.name,
-                                type = candType,
-                                lat = sh.lat,
-                                lng = sh.lng,
-                                walkKm = walkKm,
-                                detourMeters = detourMeters,
-                                bookingRequired = sh.bookingRequired,
-                                hasWaterNearby = hasWater,
-                                hasToiletNearby = hasToilet,
-                                sourceEntity = sh
-                            )
+                    candidates.add(
+                        OvernightCandidate(
+                            id = sh.id,
+                            name = sh.name,
+                            type = candType,
+                            lat = sh.lat,
+                            lng = sh.lng,
+                            walkKm = walkKm,
+                            detourMeters = detourMeters,
+                            bookingRequired = sh.bookingRequired,
+                            hasWaterNearby = hasWater,
+                            hasToiletNearby = hasToilet,
+                            sourceEntity = sh
                         )
-                    }
+                    )
                 }
             }
         }
@@ -102,34 +163,54 @@ object StagePlanner {
         // 2. Fri Teltning areas (nearest point of polygon, not the centre - Requirement B)
         if (overnightType == OvernightType.FRI_TELTNING || overnightType == OvernightType.BOTH) {
             for (ft in friTeltnings) {
-                val polyPoints = parsePolygonPoints(ft.polygonJson)
-                val bestProjection: Triple<Double, Double, GeoPointDto> = if (polyPoints.isNotEmpty()) {
-                    var minDetour = Double.MAX_VALUE
-                    var bestWalk = 0.0
-                    var nearestPt = polyPoints[0]
-                    for (pt in polyPoints) {
-                        val (wKm, dM) = plannedRoute.projectPoint(pt.lat, pt.lng)
-                        if (dM < minDetour) {
-                            minDetour = dM
-                            bestWalk = wKm
-                            nearestPt = pt
+                val parsedPoly = getParsedPolygon(ft.id, ft.polygonJson)
+                val polyPoints = parsedPoly.points
+                val bestProjection: Triple<Double, Double, GeoPointDto>? = if (polyPoints.isNotEmpty()) {
+                    // Check the polygon's bounding box against the expanded route bounding box first
+                    if (parsedPoly.maxLat < expMinLat || parsedPoly.minLat > expMaxLat ||
+                        parsedPoly.maxLng < expMinLng || parsedPoly.minLng > expMaxLng
+                    ) {
+                        null
+                    } else {
+                        var minDetour = Double.MAX_VALUE
+                        var bestWalk = 0.0
+                        var nearestPt: GeoPointDto? = null
+                        // Project only corners inside the expanded box
+                        for (pt in polyPoints) {
+                            if (pt.lat < expMinLat || pt.lat > expMaxLat || pt.lng < expMinLng || pt.lng > expMaxLng) {
+                                continue
+                            }
+                            val (wKm, dM) = plannedRoute.projectPoint(pt.lat, pt.lng)
+                            if (dM < minDetour) {
+                                minDetour = dM
+                                bestWalk = wKm
+                                nearestPt = pt
+                            }
                         }
+                        if (nearestPt != null) Triple(bestWalk, minDetour, nearestPt) else null
                     }
-                    Triple(bestWalk, minDetour, nearestPt)
                 } else {
-                    val (wKm, dM) = plannedRoute.projectPoint(ft.centerLat, ft.centerLng)
-                    Triple(wKm, dM, GeoPointDto(ft.centerLat, ft.centerLng))
+                    if (ft.centerLat < expMinLat || ft.centerLat > expMaxLat ||
+                        ft.centerLng < expMinLng || ft.centerLng > expMaxLng
+                    ) {
+                        null
+                    } else {
+                        val (wKm, dM) = plannedRoute.projectPoint(ft.centerLat, ft.centerLng)
+                        Triple(wKm, dM, GeoPointDto(ft.centerLat, ft.centerLng))
+                    }
                 }
+
+                if (bestProjection == null) continue
 
                 val walkKm = bestProjection.first
                 val detourMeters = bestProjection.second
                 val chosenPt = bestProjection.third
 
                 if (detourMeters <= maxDetourMeters) {
-                    val hasWater = ft.waterDistanceMeters <= 500 || waterPois.any {
+                    val hasWater = ft.waterDistanceMeters <= 500 || localWaterPois.any {
                         GeoUtils.distanceMeters(chosenPt.lat, chosenPt.lng, it.lat, it.lng) <= 500.0
                     }
-                    val hasToilet = ft.toiletDistanceMeters <= 500 || toiletPois.any {
+                    val hasToilet = ft.toiletDistanceMeters <= 500 || localToiletPois.any {
                         GeoUtils.distanceMeters(chosenPt.lat, chosenPt.lng, it.lat, it.lng) <= 500.0
                     }
 
@@ -840,16 +921,28 @@ object StagePlanner {
         // Water and shops passed that day
         var waterPassed = 0
         var shopsPassed = 0
-        for (w in waterPois) {
-            val (wKm, dM) = plannedRoute.projectPoint(w.lat, w.lng)
-            if (dM <= 1500.0 && wKm >= startKm && wKm <= endKm) {
-                waterPassed++
+        if (plannedRoute.points.isNotEmpty()) {
+            val bbox = plannedRoute.boundingBox()
+            val poiLatMargin = (1.5 / 110.54) + 0.002
+            val poiLngMargin = (1.5 / (111.32 * kotlin.math.cos(Math.toRadians((bbox[0] + bbox[1]) / 2.0)).coerceAtLeast(0.1))) + 0.002
+            val pMinLat = bbox[0] - poiLatMargin
+            val pMaxLat = bbox[1] + poiLatMargin
+            val pMinLng = bbox[2] - poiLngMargin
+            val pMaxLng = bbox[3] + poiLngMargin
+
+            for (w in waterPois) {
+                if (w.lat < pMinLat || w.lat > pMaxLat || w.lng < pMinLng || w.lng > pMaxLng) continue
+                val (wKm, dM) = plannedRoute.projectPoint(w.lat, w.lng)
+                if (dM <= 1500.0 && wKm >= startKm && wKm <= endKm) {
+                    waterPassed++
+                }
             }
-        }
-        for (s in shopPois) {
-            val (wKm, dM) = plannedRoute.projectPoint(s.lat, s.lng)
-            if (dM <= 1500.0 && wKm >= startKm && wKm <= endKm) {
-                shopsPassed++
+            for (s in shopPois) {
+                if (s.lat < pMinLat || s.lat > pMaxLat || s.lng < pMinLng || s.lng > pMaxLng) continue
+                val (wKm, dM) = plannedRoute.projectPoint(s.lat, s.lng)
+                if (dM <= 1500.0 && wKm >= startKm && wKm <= endKm) {
+                    shopsPassed++
+                }
             }
         }
 

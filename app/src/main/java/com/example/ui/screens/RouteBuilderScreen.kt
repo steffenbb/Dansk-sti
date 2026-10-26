@@ -239,7 +239,8 @@ fun RouteBuilderScreen(
     ) { bmp ->
         if (bmp != null) {
             try {
-                val photoFile = File(context.filesDir, "wp_photo_${System.currentTimeMillis()}.jpg")
+                val photosDir = File(context.filesDir, "photos").apply { if (!exists()) mkdirs() }
+                val photoFile = File(photosDir, "wp_photo_${System.currentTimeMillis()}.jpg")
                 FileOutputStream(photoFile).use { out ->
                     bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
                 }
@@ -256,7 +257,8 @@ fun RouteBuilderScreen(
         uri?.let {
             try {
                 context.contentResolver.openInputStream(it)?.use { input ->
-                    val photoFile = File(context.filesDir, "wp_photo_${System.currentTimeMillis()}.jpg")
+                    val photosDir = File(context.filesDir, "photos").apply { if (!exists()) mkdirs() }
+                    val photoFile = File(photosDir, "wp_photo_${System.currentTimeMillis()}.jpg")
                     FileOutputStream(photoFile).use { out ->
                         input.copyTo(out)
                     }
@@ -1080,7 +1082,7 @@ fun RouteBuilderScreen(
                                 }
                                 showSaveDialog = true
                             },
-                            enabled = visibleWaypoints.size >= 2 && !uiState.isSaving,
+                            enabled = visibleWaypoints.size >= 2 && !uiState.isSaving && !uiState.isStarting,
                             colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
                             shape = RoundedCornerShape(16.dp),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),

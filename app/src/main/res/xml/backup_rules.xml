@@ -3,15 +3,15 @@
     <include domain="database" path="." />
     <include domain="sharedpref" path="." />
     <exclude domain="sharedpref" path="osmdroid_prefs.xml" />
-    <!-- Include files/ (for datastore) and exclude cached/offline directories -->
+    <!-- Include files/ (for datastore, routes, plans) and exclude cached/offline directories -->
     <include domain="file" path="." />
+    <include domain="file" path="routes" />
+    <include domain="file" path="plans" />
     <exclude domain="file" path="trails" />
-    <exclude domain="file" path="routes" />
-    <exclude domain="file" path="plans" />
     <exclude domain="file" path="geofa" />
     <exclude domain="file" path="osm_pois" />
     <exclude domain="file" path="offline" />
     <exclude domain="file" path="brouter" />
     <exclude domain="file" path="osmdroid" />
-    <exclude domain="file" path="wp_photo_*" />
+    <exclude domain="file" path="photos" />
 </full-backup-content>

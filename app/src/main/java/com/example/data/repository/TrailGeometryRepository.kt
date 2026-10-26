@@ -112,32 +112,59 @@ class TrailGeometryRepository(private val context: Context) {
         null
     }
 
+    fun hasWayTagRanges(geometry: TrailGeometryDto): Boolean {
+        val walkSegments = geometry.segments.filter { it.type == TrailSegmentType.WALK && it.points.size >= 2 }
+        return walkSegments.isNotEmpty() && walkSegments.any { it.wayTagRanges.isNotEmpty() }
+    }
+
     suspend fun saveGeometry(geometry: TrailGeometryDto) = withContext(Dispatchers.IO) {
+        if (geometry.segments.all { it.points.isEmpty() }) {
+            return@withContext
+        }
         val file = getGeometryFile(geometry.trailId)
+        val tmpFile = File(file.parentFile, "${file.name}.tmp")
         try {
-            file.outputStream().use { fos ->
+            tmpFile.outputStream().use { fos ->
                 GZIPOutputStream(fos).use { gos ->
                     gos.sink().buffer().use { bufferedSink ->
                         geometryAdapter.toJson(bufferedSink, geometry)
                     }
                 }
             }
+            if (tmpFile.exists() && tmpFile.length() > 0L) {
+                if (!tmpFile.renameTo(file)) {
+                    tmpFile.copyTo(file, overwrite = true)
+                    tmpFile.delete()
+                }
+            }
         } catch (e: Exception) {
+            tmpFile.delete()
             Log.e("TrailGeometry", "Failed to save geometry for ${geometry.trailId}", e)
         }
     }
 
-    suspend fun saveRouteGeometry(routeId: String, geometry: TrailGeometryDto) = withContext(Dispatchers.IO) {
+    suspend fun saveRouteGeometry(routeId: String, geometry: TrailGeometryDto?) = withContext(Dispatchers.IO) {
+        if (geometry == null || geometry.segments.all { it.points.isEmpty() }) {
+            return@withContext
+        }
         val file = getRouteGeometryFile(routeId)
+        val tmpFile = File(file.parentFile, "${file.name}.tmp")
         try {
-            file.outputStream().use { fos ->
+            tmpFile.outputStream().use { fos ->
                 GZIPOutputStream(fos).use { gos ->
                     gos.sink().buffer().use { bufferedSink ->
                         geometryAdapter.toJson(bufferedSink, geometry)
                     }
                 }
             }
+            if (tmpFile.exists() && tmpFile.length() > 0L) {
+                if (!tmpFile.renameTo(file)) {
+                    tmpFile.copyTo(file, overwrite = true)
+                    tmpFile.delete()
+                }
+            }
         } catch (e: Exception) {
+            tmpFile.delete()
             Log.e("TrailGeometry", "Failed to save route geometry for $routeId", e)
         }
     }

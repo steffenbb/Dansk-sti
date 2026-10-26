@@ -53,6 +53,8 @@ class DanskStiApp : Application() {
         super.onCreate()
         instance = this
 
+        migrateLegacyWaypointPhotosFiles()
+
         if (BuildConfig.DEBUG) {
             StrictMode.setThreadPolicy(
                 StrictMode.ThreadPolicy.Builder()
@@ -86,6 +88,45 @@ class DanskStiApp : Application() {
     }
 
     /**
+     * Move existing wp_photo_* files from filesDir root into files/photos/ on first start.
+     */
+    fun migrateLegacyWaypointPhotosFiles(): Map<String, String> {
+        val movedMap = mutableMapOf<String, String>()
+        try {
+            val photosDir = java.io.File(filesDir, "photos")
+            val legacyFiles = filesDir.listFiles { file ->
+                file.isFile && file.name.startsWith("wp_photo_")
+            } ?: emptyArray()
+            if (legacyFiles.isNotEmpty() && !photosDir.exists()) {
+                photosDir.mkdirs()
+            } else if (!photosDir.exists()) {
+                photosDir.mkdirs()
+            }
+            for (legacyFile in legacyFiles) {
+                val destFile = java.io.File(photosDir, legacyFile.name)
+                val oldPath = legacyFile.absolutePath
+                val moved = if (legacyFile.renameTo(destFile)) {
+                    true
+                } else {
+                    try {
+                        legacyFile.copyTo(destFile, overwrite = true)
+                        legacyFile.delete()
+                        true
+                    } catch (_: Exception) {
+                        false
+                    }
+                }
+                if (moved) {
+                    movedMap[oldPath] = destFile.absolutePath
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("DanskStiApp", "Failed to migrate legacy waypoint photos: ${e.message}", e)
+        }
+        return movedMap
+    }
+
+    /**
      * Requirement 17: Never delete the database.
      * If it fails to open, record the error text for the UI error screen + "Prøv igen" button and log the exception.
      */
@@ -98,6 +139,7 @@ class DanskStiApp : Application() {
             _databaseError.value = null
             CoroutineScope(Dispatchers.IO).launch {
                 try {
+                    migrateLegacyWaypointPhotosInDb(db.dao())
                     repository.initializePreseededDataIfEmpty()
                 } catch (t: Throwable) {
                     Log.e("DanskStiApp", "Failed to preseed database: ${t.message}", t)
@@ -106,6 +148,30 @@ class DanskStiApp : Application() {
         } catch (e: Throwable) {
             Log.e("DanskStiApp", "Database init failed (never deleting database): ${e.message}", e)
             _databaseError.value = e.message ?: e.javaClass.simpleName
+        }
+    }
+
+    internal suspend fun migrateLegacyWaypointPhotosInDb(dao: com.example.data.local.DanskStiDao) {
+        try {
+            migrateLegacyWaypointPhotosFiles()
+            val photosDir = java.io.File(filesDir, "photos").apply { if (!exists()) mkdirs() }
+            val waypoints = dao.getAllCustomWaypointsList()
+            for (wp in waypoints) {
+                val path = wp.photoPath ?: continue
+                val file = java.io.File(path)
+                if (file.name.startsWith("wp_photo_") && file.parentFile?.name != "photos") {
+                    val newFile = java.io.File(photosDir, file.name)
+                    if (file.exists() && !newFile.exists()) {
+                        if (!file.renameTo(newFile)) {
+                            file.copyTo(newFile, overwrite = true)
+                            file.delete()
+                        }
+                    }
+                    dao.insertCustomWaypoint(wp.copy(photoPath = newFile.absolutePath))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("DanskStiApp", "Failed to update legacy waypoint photo paths in DB: ${e.message}", e)
         }
     }
 

@@ -171,13 +171,13 @@ class NavigationTrackingService : Service() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun startForegroundLocationTracking() {
+    internal fun startForegroundLocationTracking() {
         val route = currentPlannedRoute
         val notification = buildNotification(
             trailName = route?.trailName ?: "Dansk Sti",
             stageName = route?.stages?.firstOrNull()?.stopName ?: "Overnatning",
             speedKmh = 0.0,
-            remainingTodayKm = route?.stages?.firstOrNull()?.stageKm ?: 15.0,
+            remainingTodayKm = route?.stages?.firstOrNull()?.stageKm,
             remainingTripKm = route?.totalWalkKm ?: 0.0,
             isOffRoute = false,
             offRouteMeters = 0.0
@@ -375,7 +375,7 @@ class NavigationTrackingService : Service() {
         trailName: String,
         stageName: String,
         speedKmh: Double,
-        remainingTodayKm: Double,
+        remainingTodayKm: Double?,
         remainingTripKm: Double,
         isOffRoute: Boolean,
         offRouteMeters: Double
@@ -401,19 +401,22 @@ class NavigationTrackingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val pace = if (speedKmh > 1.0) speedKmh else 4.2
-        val etaMinutes = (remainingTodayKm / pace * 60.0).toInt()
-        val etaTimestamp = System.currentTimeMillis() + (etaMinutes * 60000L)
-        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-        val etaString = "kl. ${timeFormat.format(Date(etaTimestamp))}"
-
         val title = if (isOffRoute) {
             "⚠️ Kursafvigelse (${offRouteMeters.toInt()} m fra ruten)"
         } else {
             "Vandring: $trailName"
         }
 
-        val content = "Næste lejr: $stageName • ${String.format(Locale.getDefault(), "%.1f", remainingTodayKm)} km ($etaString)"
+        val content = if (remainingTodayKm != null) {
+            val pace = if (speedKmh > 1.0) speedKmh else 4.2
+            val etaMinutes = (remainingTodayKm / pace * 60.0).toInt()
+            val etaTimestamp = System.currentTimeMillis() + (etaMinutes * 60000L)
+            val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+            val etaString = "kl. ${timeFormat.format(Date(etaTimestamp))}"
+            "Næste lejr: $stageName • ${String.format(Locale.getDefault(), "%.1f", remainingTodayKm)} km ($etaString)"
+        } else {
+            "Næste lejr: $stageName"
+        }
 
         val channelId = if (isOffRoute) DanskStiApp.CHANNEL_ALERTS_ID else DanskStiApp.CHANNEL_NAVIGATION_ID
 

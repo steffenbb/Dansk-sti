@@ -88,16 +88,6 @@ object TrailSlicer {
                 }
             }
         }
-        if (seg.highway != null || seg.surface != null) {
-            return listOf(
-                WayTagRangeDto(
-                    fromKm = 0.0,
-                    toKm = segTotalLocalKm,
-                    highway = seg.highway,
-                    surface = seg.surface
-                )
-            )
-        }
         return emptyList()
     }
 
@@ -139,17 +129,11 @@ object TrailSlicer {
     ): Pair<Double?, Double> {
         val walkSegments = trailSegments.filter { it.type == TrailSegmentType.WALK }
         val allRanges = walkSegments.flatMap { seg ->
-            if (seg.wayTagRanges.isNotEmpty()) {
-                seg.wayTagRanges
-            } else if (seg.highway != null || seg.surface != null) {
-                listOf(WayTagRangeDto(0.0, seg.lengthKm, seg.highway, seg.surface))
-            } else {
-                emptyList()
-            }
+            seg.wayTagRanges
         }
         val hasAnyWayTags = allRanges.any { !it.highway.isNullOrBlank() || !it.surface.isNullOrBlank() }
         if (!hasAnyWayTags) {
-            return RouteGeometryStorageManager.computeWaySectionMetrics(fallbackPoints, fallbackWayInfo)
+            return Pair(null, 0.0)
         }
 
         var pathDistKm = 0.0
@@ -157,13 +141,7 @@ object TrailSlicer {
         var totalWalkKm = 0.0
 
         for (seg in walkSegments) {
-            val segRanges = if (seg.wayTagRanges.isNotEmpty()) {
-                seg.wayTagRanges
-            } else if (seg.highway != null || seg.surface != null) {
-                listOf(WayTagRangeDto(0.0, seg.lengthKm, seg.highway, seg.surface))
-            } else {
-                emptyList()
-            }
+            val segRanges = seg.wayTagRanges
             var segRangeSumKm = 0.0
             for (r in segRanges) {
                 val rKm = (r.toKm - r.fromKm).coerceAtLeast(0.0)

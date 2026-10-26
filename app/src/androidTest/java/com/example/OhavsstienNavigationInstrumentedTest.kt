@@ -122,6 +122,52 @@ class OhavsstienNavigationInstrumentedTest {
     }
 
     @Test
+    fun planlaegTurOnOhavsstienStartOpensNavigationWithRouteDrawnWithin5Seconds() {
+        val app = composeTestRule.activity.application as DanskStiApp
+
+        // 1. Open Øhavsstien from Udforsk
+        composeTestRule.waitUntil(15_000) {
+            composeTestRule.onAllNodesWithTag("trail_list").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("trail_list")
+            .performScrollToNode(hasTestTag("trail_card_trail_ohavsstien"))
+        composeTestRule.onNodeWithTag("trail_card_trail_ohavsstien").performClick()
+        composeTestRule.waitForIdle()
+
+        // 2. Tap "Planlæg tur" on Øhavsstien detail screen
+        composeTestRule.waitUntil(30_000) {
+            composeTestRule.onAllNodesWithTag("plan_trip_button").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("plan_trip_button").performClick()
+        composeTestRule.waitForIdle()
+
+        // 3. Wait for Øhavsstien geometry to load in RouteBuilderScreen
+        composeTestRule.waitUntil(60_000) {
+            val nodes = composeTestRule.onAllNodesWithTag("btn_start_planned_navigation").fetchSemanticsNodes()
+            nodes.isNotEmpty() &&
+                !nodes.first().config.contains(SemanticsProperties.Disabled) &&
+                runBlocking { app.repository.getTrailGeometry("trail_ohavsstien") != null }
+        }
+
+        // 4. Tap "Start" and assert navigation screen opens with route drawn within 5 seconds
+        val startMs = android.os.SystemClock.elapsedRealtime()
+        composeTestRule.onNodeWithTag("btn_start_planned_navigation").performClick()
+
+        composeTestRule.waitUntil(5_000) {
+            val mapView = findMapViewByTag(composeTestRule.activity.window.decorView, "navigation_map_view")
+            mapView != null && countRouteOverlayPoints(mapView.overlays) > 100
+        }
+        val elapsedMs = android.os.SystemClock.elapsedRealtime() - startMs
+
+        val navMapView = findMapViewByTag(composeTestRule.activity.window.decorView, "navigation_map_view")
+        val routePointCount = navMapView?.let { countRouteOverlayPoints(it.overlays) } ?: 0
+        assertTrue(
+            "Expected Start to open navigation screen with route drawn (>100 pts) within 5000 ms, took ${elapsedMs}ms with $routePointCount pts",
+            elapsedMs <= 5_000 && routePointCount > 100
+        )
+    }
+
+    @Test
     fun openKortPlanRouteSwitchSheetWith0And1And3PointsAndOhavsstienTrailModeWithoutCrash() {
         // 1. Open Kort -> "Planlæg rute"
         composeTestRule.waitUntil(15_000) {

@@ -320,7 +320,7 @@ fun PlannerBottomSheet(
 
                     Button(
                         onClick = onStartNavigation,
-                        enabled = visibleWaypoints.size >= 2 && !uiState.isSaving,
+                        enabled = visibleWaypoints.size >= 2 && !uiState.isSaving && !uiState.isStarting,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -328,13 +328,27 @@ fun PlannerBottomSheet(
                             .weight(0.8f)
                             .testTag("btn_start_planned_navigation")
                     ) {
-                        Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            stringResource(R.string.planner_btn_start),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        if (uiState.isStarting) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                "Starter...",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                stringResource(R.string.planner_btn_start),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
 
@@ -561,12 +575,18 @@ fun PlannerBottomSheet(
 
                             if (!uiState.stats.hasWayInfo || uiState.stats.pathSharePct == null) {
                                 Text(
-                                    text = stringResource(R.string.planner_way_info_unknown),
+                                    text = "${stringResource(R.string.planner_way_info_unknown)} · Stiandel: ukendt · Vej: ukendt",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.testTag("way_info_unknown_text")
                                 )
                             } else {
+                                Text(
+                                    text = "Stiandel: ${uiState.stats.pathShareFormatted} · Vej: ${uiState.stats.roadKmFormatted}",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.testTag("way_info_summary_text")
+                                )
                                 val q = uiState.routeQuality
                                 val effTotal = if (q.totalKm.isFinite() && q.totalKm > 0.0) q.totalKm else 1.0
                                 val segments = listOf(
@@ -784,29 +804,48 @@ fun PlannerBottomSheet(
                         ) {
                             OutlinedButton(
                                 onClick = onOpenSaveDialog,
-                                enabled = visibleWaypoints.size >= 2 && !uiState.isSaving,
+                                enabled = visibleWaypoints.size >= 2 && !uiState.isSaving && !uiState.isStarting,
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("btn_full_sheet_save")
                             ) {
-                                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
+                                if (uiState.isSaving) {
+                                    CircularProgressIndicator(
+                                        color = ForestGreenPrimary,
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                } else {
+                                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                }
                                 Text(stringResource(R.string.btn_save), fontWeight = FontWeight.Bold)
                             }
 
                             Button(
                                 onClick = onStartNavigation,
-                                enabled = visibleWaypoints.size >= 2 && !uiState.isSaving,
+                                enabled = visibleWaypoints.size >= 2 && !uiState.isSaving && !uiState.isStarting,
                                 colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("btn_full_sheet_start")
                             ) {
-                                Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(stringResource(R.string.planner_btn_start), fontWeight = FontWeight.Bold)
+                                if (uiState.isStarting) {
+                                    CircularProgressIndicator(
+                                        color = Color.White,
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Starter...", fontWeight = FontWeight.Bold)
+                                } else {
+                                    Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(stringResource(R.string.planner_btn_start), fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }

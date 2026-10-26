@@ -118,7 +118,8 @@ class RoutePhase11Test {
         )
 
         // Verification of TrailGeometryDto structure
-        assertEquals("custom_test_99", geom.trailId)
+        assertNotNull(geom)
+        assertEquals("custom_test_99", geom!!.trailId)
         assertEquals(2, geom.segments.size)
         assertEquals(TrailSegmentType.WALK, geom.segments[0].type)
         assertEquals(TrailSegmentType.FERRY, geom.segments[1].type)
