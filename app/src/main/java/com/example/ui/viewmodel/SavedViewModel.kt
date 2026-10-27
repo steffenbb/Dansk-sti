@@ -34,6 +34,7 @@ sealed class DeletedLibraryItem {
     data class CustomRoute(val route: CustomRouteEntity) : DeletedLibraryItem()
     data class SavedTrail(val trailId: String) : DeletedLibraryItem()
     data class Waypoint(val waypoint: UserCustomWaypointEntity) : DeletedLibraryItem()
+    data class WaypointPhoto(val waypoint: UserCustomWaypointEntity) : DeletedLibraryItem()
     data class Recording(val stat: RecordedDayStatEntity) : DeletedLibraryItem()
     data class OfflineTrail(val item: DownloadedTrailEntity) : DeletedLibraryItem()
 }
@@ -199,6 +200,14 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteWaypointPhotoWithUndo(waypoint: UserCustomWaypointEntity) {
+        if (waypoint.photoPath.isNullOrBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _lastDeletedItem.value = DeletedLibraryItem.WaypointPhoto(waypoint)
+            dao.insertCustomWaypoint(waypoint.copy(photoPath = null))
+        }
+    }
+
     fun deleteRecordingWithUndo(stat: RecordedDayStatEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             _lastDeletedItem.value = DeletedLibraryItem.Recording(stat)
@@ -237,6 +246,9 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
                     repository.saveTrail(item.trailId)
                 }
                 is DeletedLibraryItem.Waypoint -> {
+                    dao.insertCustomWaypoint(item.waypoint)
+                }
+                is DeletedLibraryItem.WaypointPhoto -> {
                     dao.insertCustomWaypoint(item.waypoint)
                 }
                 is DeletedLibraryItem.Recording -> {

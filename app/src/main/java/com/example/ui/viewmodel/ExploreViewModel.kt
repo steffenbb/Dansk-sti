@@ -111,6 +111,9 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
     private val _placeSuggestions = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
     val placeSuggestions: StateFlow<List<PlaceSearchResult>> = _placeSuggestions.asStateFlow()
 
+    private val _groupedSearchResults = MutableStateFlow(com.example.data.remote.GroupedSearchResults())
+    val groupedSearchResults: StateFlow<com.example.data.remote.GroupedSearchResults> = _groupedSearchResults.asStateFlow()
+
     private val _selectedTrailForPeek = MutableStateFlow<TrailEntity?>(null)
     val selectedTrailForPeek: StateFlow<TrailEntity?> = _selectedTrailForPeek.asStateFlow()
 
@@ -133,15 +136,16 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
         loadMetadataAndCounts()
 
         viewModelScope.launch {
-            _searchQuery
-                .debounce(300)
-                .collect { query ->
-                    if (query.trim().length >= 2) {
-                        _placeSuggestions.value = repository.searchPlacesInDenmark(query)
-                    } else {
-                        _placeSuggestions.value = emptyList()
-                    }
+            _searchQuery.collect { query ->
+                if (query.trim().length >= 2) {
+                    val grouped = repository.searchGroupedInDenmark(query)
+                    _groupedSearchResults.value = grouped
+                    _placeSuggestions.value = repository.searchPlacesInDenmark(query)
+                } else {
+                    _groupedSearchResults.value = com.example.data.remote.GroupedSearchResults()
+                    _placeSuggestions.value = emptyList()
                 }
+            }
         }
     }
 

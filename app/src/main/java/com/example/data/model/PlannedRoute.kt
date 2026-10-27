@@ -14,6 +14,17 @@ data class RoutePoint(
 )
 
 @JsonClass(generateAdapter = true)
+data class TurnCue(
+    val lat: Double,
+    val lng: Double,
+    val walkKm: Double,
+    val direction: String, // "LEFT", "SLIGHT_LEFT", "SHARP_LEFT", "RIGHT", "SLIGHT_RIGHT", "SHARP_RIGHT", "STRAIGHT", "UTURN"
+    val angleDegrees: Double,
+    val instructionText: String, // e.g. "Hold til venstre", "Drej til venstre", "Drej til højre", "Hold til højre"
+    val pointIndex: Int = 0
+)
+
+@JsonClass(generateAdapter = true)
 data class PlannedRoute(
     val planId: Long,
     val trailId: String,
@@ -24,7 +35,8 @@ data class PlannedRoute(
     val totalWalkKm: Double,
     val points: List<RoutePoint>,
     val stages: List<TripStage>,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val turnCues: List<TurnCue> = emptyList()
 ) {
     @Transient
     private var cachedCoarseIndex: CoarseRouteIndex? = null

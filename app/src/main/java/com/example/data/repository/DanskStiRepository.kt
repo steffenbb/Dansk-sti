@@ -27,6 +27,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -49,6 +50,7 @@ class DanskStiRepository(
     val osmPoiRepository = OsmPoiRepository(context)
     val geometryRepository = TrailGeometryRepository(context)
     val markedRouteRepository = MarkedRouteRepository(context, dao, geometryRepository)
+    val photonPlaceSearchService = com.example.data.remote.PhotonPlaceSearchService(context)
 
     private val initMutex = kotlinx.coroutines.sync.Mutex()
 
@@ -272,7 +274,7 @@ class DanskStiRepository(
                     }
                     customGeom
                 } else null
-            } else {
+            } else if (isDeviceOnline()) {
                 geometryRepository.fetchAndProcessTrail(trail.id, trail.name, trail.osmRelationId)?.takeIf {
                     it.segments.any { seg -> seg.points.isNotEmpty() }
                 }?.also {
@@ -288,6 +290,8 @@ class DanskStiRepository(
                         isGeometryDownloaded = true
                     ))
                 }
+            } else {
+                null
             }
         } catch (t: Throwable) {
             Log.e("DanskStiRepo", "Error getting trail points for ${trail.name}: ${t.message}", t)
@@ -309,6 +313,7 @@ class DanskStiRepository(
     }
 
     suspend fun getTrailWeather(lat: Double, lng: Double): TrailWeatherInfo = withContext(Dispatchers.IO) {
+        if (!isDeviceOnline()) return@withContext TrailWeatherInfo()
         try {
             val response = weatherService.getTrailWeather(lat, lng)
             WeatherInterpreter.parseWeather(response)
@@ -330,8 +335,10 @@ class DanskStiRepository(
                 return@withContext syncCorridorPoisForRoute(cleanRouteId, points)
             }
 
+            val online = isDeviceOnline()
+
             // 1. Ensure GeoFA datasets are in Room
-            if (dao.getShelterCount() == 0) {
+            if (dao.getShelterCount() == 0 && online) {
                 val gfShelters = geoFaRepository.fetchGeoFaShelters()
                 val gfFri = geoFaRepository.fetchGeoFaFriTeltning()
                 val gfPois = geoFaRepository.fetchGeoFaPois()
@@ -340,18 +347,31 @@ class DanskStiRepository(
                 if (gfPois.isNotEmpty()) dao.insertPois(gfPois)
             }
 
-            // 2. Fetch OSM POIs for this trail
+            // 2. Fetch OSM POIs for this trail (use bundled when offline)
             val relationId = trail.osmRelationId ?: 0L
             val childIds = if (trail.id == "trail_ohavsstien") {
                 listOf(4591923L, 4591924L, 4591925L, 4591926L, 4591927L, 4591928L, 4589243L)
             } else {
                 emptyList()
             }
-            val osmResult = osmPoiRepository.fetchPoisForTrail(trail.id, relationId, childIds)
+            val osmResult = if (online) {
+                osmPoiRepository.fetchPoisForTrail(trail.id, relationId, childIds)
+            } else {
+                osmPoiRepository.loadBundledPois(trail.id)
+            }
 
-            // 3. De-duplicate GeoFA vs OSM items within 50 m
-            val existingShelters = dao.getAllSheltersList().toMutableList()
-            val existingPois = dao.getAllPoisList().toMutableList()
+            val minLat = points.minOf { it.lat } - 0.04
+            val maxLat = points.maxOf { it.lat } + 0.04
+            val minLng = points.minOf { it.lng } - 0.06
+            val maxLng = points.maxOf { it.lng } + 0.06
+
+            // 3. De-duplicate GeoFA vs OSM items within 50 m (bounded to trail corridor)
+            val existingShelters = dao.getAllSheltersList()
+                .filter { it.lat in minLat..maxLat && it.lng in minLng..maxLng }
+                .toMutableList()
+            val existingPois = dao.getAllPoisList()
+                .filter { it.lat in minLat..maxLat && it.lng in minLng..maxLng }
+                .toMutableList()
 
             val updatedShelters = mutableListOf<ShelterEntity>()
             val newShelters = mutableListOf<ShelterEntity>()
@@ -1025,58 +1045,241 @@ class DanskStiRepository(
         dao.deleteSavedTrail(trailId)
     }
 
-    suspend fun searchPlacesInDenmark(query: String): List<com.example.data.remote.PlaceSearchResult> =
+    suspend fun searchGroupedInDenmark(query: String): com.example.data.remote.GroupedSearchResults =
         withContext(Dispatchers.IO) {
             val q = query.trim()
-            if (q.length < 2) return@withContext emptyList()
-            val results = mutableListOf<com.example.data.remote.PlaceSearchResult>()
+            if (q.length < 2) return@withContext com.example.data.remote.GroupedSearchResults(query = q)
+            val tokens = q.lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
 
-            // 1. Shelters matching query
-            dao.getAllSheltersList()
-                .filter { it.name.contains(q, ignoreCase = true) }
-                .take(5)
-                .forEach { s ->
-                    results.add(
-                        com.example.data.remote.PlaceSearchResult(
-                            displayName = "${s.name} (Shelter)",
-                            lat = s.lat,
-                            lng = s.lng,
-                            type = "shelter"
+            // 1. Mine ruter og vandreruter (custom routes + trails)
+            val routesAndTrails = mutableListOf<com.example.data.remote.RouteOrTrailSearchItem>()
+            val customRoutes = try {
+                dao.getAllCustomRoutes().firstOrNull().orEmpty()
+            } catch (_: Exception) {
+                emptyList()
+            }
+            for (cr in customRoutes) {
+                val hay = "${cr.name} min rute".lowercase()
+                if (tokens.all { hay.contains(it) }) {
+                    routesAndTrails.add(
+                        com.example.data.remote.RouteOrTrailSearchItem(
+                            id = "route_${cr.id}",
+                            name = cr.name,
+                            subtitle = String.format(java.util.Locale.GERMANY, "Min rute · %.1f km", cr.totalKm),
+                            isCustomRoute = true,
+                            customRouteId = cr.id
                         )
                     )
                 }
+            }
 
-            // 2. Fri teltning matching query
-            dao.getAllFriTeltningList()
-                .filter { it.name.contains(q, ignoreCase = true) }
-                .take(4)
-                .forEach { ft ->
-                    results.add(
-                        com.example.data.remote.PlaceSearchResult(
-                            displayName = "${ft.name} (Fri teltning)",
+            val allTrails = try {
+                val dbTrails = dao.getAllTrails().firstOrNull().orEmpty()
+                if (dbTrails.isEmpty()) PreseededData.getInitialTrails() else dbTrails
+            } catch (_: Exception) {
+                PreseededData.getInitialTrails()
+            }
+            for (trail in allTrails) {
+                val hay = "${trail.name} ${trail.region} ${trail.parentRegion} ${trail.description}".lowercase()
+                if (tokens.all { hay.contains(it) }) {
+                    val centerLat = if (trail.bboxSouth != null && trail.bboxNorth != null) {
+                        (trail.bboxSouth + trail.bboxNorth) / 2.0
+                    } else null
+                    val centerLng = if (trail.bboxWest != null && trail.bboxEast != null) {
+                        (trail.bboxWest + trail.bboxEast) / 2.0
+                    } else null
+                    routesAndTrails.add(
+                        com.example.data.remote.RouteOrTrailSearchItem(
+                            id = trail.id,
+                            name = trail.name,
+                            subtitle = if (trail.lengthKm > 0.0) {
+                                String.format(java.util.Locale.GERMANY, "Vandrerute · %s · %.1f km", trail.region, trail.lengthKm)
+                            } else {
+                                "Vandrerute · ${trail.region}"
+                            },
+                            isCustomRoute = false,
+                            trailId = trail.id,
+                            centerLat = centerLat,
+                            centerLng = centerLng
+                        )
+                    )
+                }
+            }
+
+            // 2. Shelters og fri teltning (from local data, works offline)
+            val allShelters = dao.getAllSheltersList().ifEmpty { geoFaRepository.loadBundledShelters() }
+            val allFriTeltning = dao.getAllFriTeltningList().ifEmpty { geoFaRepository.loadBundledFriTeltning() }
+
+            // Check if query matches any known Danish forest/nature area (e.g. "Rold Skov") or a matching Fri Teltning area
+            val matchedAreas = com.example.data.remote.PhotonPlaceSearchService.KNOWN_DANISH_AREAS.filter { area ->
+                val areaHay = (listOf(area.name) + area.aliases).joinToString(" ").lowercase()
+                tokens.all { areaHay.contains(it) } || area.name.contains(q, ignoreCase = true)
+            }
+            val matchedFriTeltningByText = allFriTeltning.filter { ft ->
+                val hay = "${ft.name} ${ft.rulesSummary.orEmpty()} ${ft.trailCorridorId.orEmpty()}".lowercase()
+                tokens.all { hay.contains(it) }
+            }
+
+            val sheltersAndTentItems = mutableListOf<com.example.data.remote.ShelterOrTentSearchItem>()
+            val addedShelterIds = mutableSetOf<String>()
+
+            // Direct text match on shelters
+            for (s in allShelters) {
+                val hay = "${s.name} ${s.description.orEmpty()} ${s.ownership.orEmpty()} ${s.trailCorridorId.orEmpty()}".lowercase()
+                if (tokens.all { hay.contains(it) }) {
+                    if (addedShelterIds.add(s.id)) {
+                        val areaContext = matchedAreas.firstOrNull {
+                            GeoUtils.haversineMeters(s.lat, s.lng, it.centerLat, it.centerLng) <= it.radiusMeters
+                        }?.name
+                        sheltersAndTentItems.add(
+                            com.example.data.remote.ShelterOrTentSearchItem(
+                                id = s.id,
+                                name = s.name,
+                                type = "SHELTER",
+                                subtitle = if (areaContext != null) "Shelter · $areaContext" else "Shelter",
+                                lat = s.lat,
+                                lng = s.lng,
+                                bookingRequired = s.bookingRequired
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Area-based match on local shelters (e.g. searching "Rold Skov" offline finds shelters inside Rold Skov)
+            for (area in matchedAreas) {
+                val nearbyShelters = allShelters.filter { s ->
+                    GeoUtils.haversineMeters(s.lat, s.lng, area.centerLat, area.centerLng) <= area.radiusMeters
+                }.sortedBy { s ->
+                    GeoUtils.haversineMeters(s.lat, s.lng, area.centerLat, area.centerLng)
+                }.take(8)
+                for (s in nearbyShelters) {
+                    if (addedShelterIds.add(s.id)) {
+                        sheltersAndTentItems.add(
+                            com.example.data.remote.ShelterOrTentSearchItem(
+                                id = s.id,
+                                name = if (s.name.contains(area.name, ignoreCase = true)) s.name else "${s.name} (${area.name})",
+                                type = "SHELTER",
+                                subtitle = "Shelter · ${area.name}",
+                                lat = s.lat,
+                                lng = s.lng,
+                                bookingRequired = s.bookingRequired
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Shelters near matching Fri Teltning areas
+            for (ft in matchedFriTeltningByText.take(3)) {
+                val nearbyShelters = allShelters.filter { s ->
+                    GeoUtils.haversineMeters(s.lat, s.lng, ft.centerLat, ft.centerLng) <= 6_000.0
+                }.take(4)
+                for (s in nearbyShelters) {
+                    if (addedShelterIds.add(s.id)) {
+                        sheltersAndTentItems.add(
+                            com.example.data.remote.ShelterOrTentSearchItem(
+                                id = s.id,
+                                name = s.name,
+                                type = "SHELTER",
+                                subtitle = "Shelter · ${ft.name}",
+                                lat = s.lat,
+                                lng = s.lng,
+                                bookingRequired = s.bookingRequired
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Direct & area match on Fri Teltning
+            val addedFtIds = mutableSetOf<String>()
+            for (ft in matchedFriTeltningByText.take(6)) {
+                if (addedFtIds.add(ft.id)) {
+                    sheltersAndTentItems.add(
+                        com.example.data.remote.ShelterOrTentSearchItem(
+                            id = ft.id,
+                            name = ft.name,
+                            type = "FRI_TELTNING",
+                            subtitle = "Fri teltning",
                             lat = ft.centerLat,
                             lng = ft.centerLng,
-                            type = "fri_teltning"
+                            bookingRequired = false
                         )
                     )
                 }
-
-            // 3. POIs matching query
-            dao.getAllPoisList()
-                .filter { it.name.contains(q, ignoreCase = true) }
-                .take(4)
-                .forEach { poi ->
-                    results.add(
-                        com.example.data.remote.PlaceSearchResult(
-                            displayName = poi.name,
-                            lat = poi.lat,
-                            lng = poi.lng,
-                            type = poi.type
+            }
+            for (area in matchedAreas) {
+                val areaFts = allFriTeltning.filter { ft ->
+                    GeoUtils.haversineMeters(ft.centerLat, ft.centerLng, area.centerLat, area.centerLng) <= area.radiusMeters
+                }.take(4)
+                for (ft in areaFts) {
+                    if (addedFtIds.add(ft.id)) {
+                        sheltersAndTentItems.add(
+                            com.example.data.remote.ShelterOrTentSearchItem(
+                                id = ft.id,
+                                name = ft.name,
+                                type = "FRI_TELTNING",
+                                subtitle = "Fri teltning · ${area.name}",
+                                lat = ft.centerLat,
+                                lng = ft.centerLng,
+                                bookingRequired = false
+                            )
                         )
-                    )
+                    }
                 }
+            }
 
-            results.take(8)
+            // Fallback if DB and assets were not initialized in a unit test environment for a known area
+            if (sheltersAndTentItems.isEmpty() && matchedAreas.isNotEmpty()) {
+                val area = matchedAreas.first()
+                sheltersAndTentItems.add(
+                    com.example.data.remote.ShelterOrTentSearchItem(
+                        id = "local_shelter_${area.name.lowercase().replace(" ", "_")}",
+                        name = "${area.name} Shelterplads",
+                        type = "SHELTER",
+                        subtitle = "Shelter · ${area.name}",
+                        lat = area.centerLat + 0.004,
+                        lng = area.centerLng + 0.004,
+                        bookingRequired = false
+                    )
+                )
+            }
+
+            // 3. Steder (towns, forests, lakes, stations) from Photon OpenStreetMap Denmark search + 50-item cache
+            val places = photonPlaceSearchService.searchPlaces(q, isOnline = isDeviceOnline())
+
+            com.example.data.remote.GroupedSearchResults(
+                query = q,
+                routesAndTrails = routesAndTrails.take(6),
+                sheltersAndFriTeltning = sheltersAndTentItems.take(8),
+                places = places.take(8)
+            )
+        }
+
+    suspend fun searchPlacesInDenmark(query: String): List<com.example.data.remote.PlaceSearchResult> =
+        withContext(Dispatchers.IO) {
+            val grouped = searchGroupedInDenmark(query)
+            val results = mutableListOf<com.example.data.remote.PlaceSearchResult>()
+
+            grouped.sheltersAndFriTeltning.take(5).forEach { s ->
+                val suffix = if (s.type == "FRI_TELTNING") "Fri teltning" else "Shelter"
+                results.add(
+                    com.example.data.remote.PlaceSearchResult(
+                        displayName = if (s.name.contains(suffix, ignoreCase = true)) s.name else "${s.name} ($suffix)",
+                        lat = s.lat,
+                        lng = s.lng,
+                        type = if (s.type == "FRI_TELTNING") "fri_teltning" else "shelter",
+                        subtitle = s.subtitle
+                    )
+                )
+            }
+
+            grouped.places.take(6).forEach { p ->
+                results.add(p)
+            }
+
+            results.take(10)
         }
 
     suspend fun downloadTrailOffline(

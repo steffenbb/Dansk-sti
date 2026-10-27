@@ -82,11 +82,38 @@ enum class PlannerMode {
     FREE   // Free route builder
 }
 
+enum class PlannerInteractionMode {
+    KIG,
+    TEGN
+}
+
 enum class SheetHeightState {
     PEEK,
     HALF,
     FULL
 }
+
+enum class PlannerSheetTab {
+    RUTE,
+    DAGE,
+    DETALJER
+}
+
+data class SnapCandidateResult(
+    val lat: Double,
+    val lng: Double,
+    val snapped: Boolean,
+    val snapLabel: String? = null
+)
+
+data class LegMidpointHandle(
+    val legKey: String,
+    val legIndex: Int,
+    val fromWaypointId: String,
+    val toWaypointId: String,
+    val lat: Double,
+    val lng: Double
+)
 
 data class PlannerDaySummary(
     val dayNumber: Int,
@@ -161,6 +188,7 @@ typealias RouteBuilderUiState = RouteBuilderState
 
 data class RouteBuilderState(
     val mode: PlannerMode = PlannerMode.FREE,
+    val interactionMode: PlannerInteractionMode = PlannerInteractionMode.TEGN,
     val sheetHeightState: SheetHeightState = SheetHeightState.PEEK,
     val existingPlanId: Long? = null,
     val baseTrailId: String? = null,
@@ -242,7 +270,21 @@ data class RouteBuilderState(
     val isOfflineRoute: Boolean = false,
     val routeEngineModeLabel: String = "Online rute",
     val nextLegMode: LegMode = LegMode.SNAP,
-    val isOvernightToolActive: Boolean = false
+    val isOvernightToolActive: Boolean = false,
+    val isCrosshairMode: Boolean = false,
+    val selectedLegKey: String? = null,
+    val legAlternatives: Map<String, List<RouteAlternativeInfo>> = emptyMap(),
+    val isFetchingLegAlternatives: Boolean = false,
+    val deletedPinSnackbarMessage: String? = null,
+    val selectedSheetTab: PlannerSheetTab = PlannerSheetTab.RUTE,
+    val sheetHeightFraction: Float = 0.22f,
+    val selectedDayNumber: Int? = null,
+    val mapViewportTarget: LatLng? = null,
+    val plannerSearchQuery: String = "",
+    val plannerSearchResults: com.example.data.remote.GroupedSearchResults = com.example.data.remote.GroupedSearchResults(),
+    val currentGpsPosition: LatLng? = null,
+    val showCoachMarks: Boolean = false,
+    val coachMarkStep: Int = 0
 ) {
     val visibleWaypoints: List<RouteWaypoint>
         get() = waypoints.filter { !it.isHelper }
@@ -313,6 +355,15 @@ class RouteBuilderViewModel(
     private var pendingSaveIsStarting: Boolean = false
     private var lastComputedStagesSignature: String? = null
 
+    private enum class LastDeleteType {
+        ROUTE_WAYPOINT,
+        CUSTOM_WAYPOINT,
+        WAYPOINT_PHOTO
+    }
+    private var lastDeleteType: LastDeleteType = LastDeleteType.ROUTE_WAYPOINT
+    private var lastDeletedCustomWaypoint: UserCustomWaypointEntity? = null
+    private var lastDeletedWaypointPhotoEntity: UserCustomWaypointEntity? = null
+
     private var geometryFileName: String = "route_${UUID.randomUUID()}.json"
     private var pacingSpeedKmh: Double = 4.5
     private var startTimeStr: String = "09:00"
@@ -368,9 +419,33 @@ class RouteBuilderViewModel(
                 it.copy(
                     paceKmh = settings.mitTempoKmh,
                     startTimeStr = settings.startTime,
-                    maxDetourKm = settings.maxDetourKm
+                    maxDetourKm = settings.maxDetourKm,
+                    showCoachMarks = !settings.plannerCoachMarksSeen
                 )
             }
+        }
+    }
+
+    fun nextCoachMarkStep() {
+        val current = _uiState.value.coachMarkStep
+        if (current < 2) {
+            _uiState.update { it.copy(coachMarkStep = current + 1) }
+        } else {
+            dismissCoachMarks()
+        }
+    }
+
+    fun dismissCoachMarks() {
+        _uiState.update { it.copy(showCoachMarks = false) }
+        viewModelScope.launch(Dispatchers.IO) {
+            settingsRepository.setPlannerCoachMarksSeen(true)
+        }
+    }
+
+    fun showCoachMarksAgain() {
+        _uiState.update { it.copy(showCoachMarks = true, coachMarkStep = 0) }
+        viewModelScope.launch(Dispatchers.IO) {
+            settingsRepository.setPlannerCoachMarksSeen(false)
         }
     }
 
@@ -440,45 +515,51 @@ class RouteBuilderViewModel(
             return
         }
 
+        if (effGpsLat != null && effGpsLng != null) {
+            _uiState.update { it.copy(currentGpsPosition = LatLng(effGpsLat, effGpsLng)) }
+        }
+
         if (effDestLat != null && effDestLng != null) {
-            if (_uiState.value.waypoints.isEmpty()) {
-                val destWp = RouteWaypoint(
-                    lat = effDestLat,
-                    lng = effDestLng,
-                    role = WaypointRole.END,
-                    name = effDestName ?: "Destination"
+            val destWp = RouteWaypoint(
+                lat = effDestLat,
+                lng = effDestLng,
+                role = WaypointRole.END,
+                name = effDestName ?: "Destination"
+            )
+            if (effGpsLat != null && effGpsLng != null) {
+                val startWp = RouteWaypoint(
+                    lat = effGpsLat,
+                    lng = effGpsLng,
+                    role = WaypointRole.START,
+                    legModeToNext = LegMode.SNAP,
+                    name = "Min position"
                 )
-                if (effGpsLat != null && effGpsLng != null) {
-                    val startWp = RouteWaypoint(
-                        lat = effGpsLat,
-                        lng = effGpsLng,
-                        role = WaypointRole.START,
-                        legModeToNext = LegMode.SNAP,
-                        name = "Min position"
+                _uiState.update {
+                    it.copy(
+                        mode = PlannerMode.FREE,
+                        routeName = effDestName?.let { n -> "Rute til $n" } ?: "Ny rute",
+                        waypoints = listOf(startWp, destWp),
+                        legs = emptyMap(),
+                        failedLegs = emptyMap(),
+                        waitingForStartPointTap = false,
+                        errorMessage = null
                     )
-                    _uiState.update {
-                        it.copy(
-                            mode = PlannerMode.FREE,
-                            routeName = effDestName?.let { n -> "Rute til $n" } ?: "Ny rute",
-                            waypoints = listOf(startWp, destWp),
-                            waitingForStartPointTap = false,
-                            errorMessage = null
-                        )
-                    }
-                    computeSingleLeg(startWp, destWp)
-                } else {
-                    _uiState.update {
-                        it.copy(
-                            mode = PlannerMode.FREE,
-                            routeName = effDestName?.let { n -> "Rute til $n" } ?: "Ny rute",
-                            waypoints = listOf(destWp),
-                            waitingForStartPointTap = true,
-                            errorMessage = "Vælg startpunkt - tryk på kortet"
-                        )
-                    }
-                    viewModelScope.launch {
-                        _userMessage.emit("Vælg startpunkt - tryk på kortet")
-                    }
+                }
+                computeSingleLeg(startWp, destWp)
+            } else {
+                _uiState.update {
+                    it.copy(
+                        mode = PlannerMode.FREE,
+                        routeName = effDestName?.let { n -> "Rute til $n" } ?: "Ny rute",
+                        waypoints = listOf(destWp),
+                        legs = emptyMap(),
+                        failedLegs = emptyMap(),
+                        waitingForStartPointTap = true,
+                        errorMessage = "Vælg startpunkt - tryk på kortet"
+                    )
+                }
+                viewModelScope.launch {
+                    _userMessage.emit("Vælg startpunkt - tryk på kortet")
                 }
             }
         }
@@ -499,6 +580,7 @@ class RouteBuilderViewModel(
         _uiState.update {
             it.copy(
                 mode = PlannerMode.TRAIL,
+                interactionMode = PlannerInteractionMode.KIG,
                 baseTrailId = trailId,
                 baseTrail = preseededTrail ?: it.baseTrail,
                 routeName = preseededTrail?.name ?: it.routeName,
@@ -648,6 +730,7 @@ class RouteBuilderViewModel(
             updateRouteStats { current ->
                 current.copy(
                     mode = PlannerMode.TRAIL,
+                    interactionMode = PlannerInteractionMode.KIG,
                     existingPlanId = existingPlan?.id,
                     baseTrailId = trail.id,
                     baseTrail = trail,
@@ -733,6 +816,7 @@ class RouteBuilderViewModel(
             _uiState.update {
                 it.copy(
                     mode = mode,
+                    interactionMode = PlannerInteractionMode.KIG,
                     existingPlanId = existingPlan?.id,
                     baseTrailId = baseTrailId,
                     baseTrail = baseTrail,
@@ -1022,6 +1106,105 @@ class RouteBuilderViewModel(
 
     fun selectNearbyPoiForSheet(poi: PlannerMapPoi?) {
         _uiState.update { it.copy(selectedNearbyPoiForSheet = poi) }
+    }
+
+    /**
+     * UI Round 1 Item 3:
+     * Shelters, fri teltning, water, shops: tapping one opens an info card
+     * (name, type, distance from route, booking flag) with "Overnat her" / "Tilføj som stop".
+     * Nothing is added until a button is pressed.
+     */
+    fun onPoiTapped(poi: PlannerMapPoi) {
+        val distMeters = if (poi.distanceToRouteMeters > 0.0) {
+            poi.distanceToRouteMeters
+        } else {
+            computeDistanceToRouteMeters(poi.lat, poi.lng)
+        }
+        val booking = poi.bookingRequired || _uiState.value.nearbyShelters.any {
+            it.id == poi.id && it.bookingRequired == true
+        }
+        val enriched = poi.copy(
+            distanceToRouteMeters = distMeters,
+            bookingRequired = booking
+        )
+        _uiState.update {
+            it.copy(
+                selectedNearbyPoiForSheet = enriched,
+                selectedWaypointId = null,
+                selectedLegKey = null
+            )
+        }
+    }
+
+    fun onPoiTapped(
+        id: String,
+        name: String,
+        type: String,
+        lat: Double,
+        lng: Double,
+        bookingRequired: Boolean = false,
+        hasWater: Boolean = false,
+        hasToilet: Boolean = false
+    ) {
+        onPoiTapped(
+            PlannerMapPoi(
+                id = id,
+                name = name,
+                type = type,
+                lat = lat,
+                lng = lng,
+                distanceToRouteMeters = computeDistanceToRouteMeters(lat, lng),
+                bookingRequired = bookingRequired,
+                hasWater = hasWater,
+                hasToilet = hasToilet
+            )
+        )
+    }
+
+    fun confirmPoiAsOvernight() {
+        val poi = _uiState.value.selectedNearbyPoiForSheet ?: return
+        addDetourPoiToRoute(
+            lat = poi.lat,
+            lng = poi.lng,
+            name = poi.name,
+            role = WaypointRole.OVERNIGHT,
+            poiId = poi.id,
+            poiType = poi.type
+        )
+    }
+
+    fun confirmPoiAsStop() {
+        val poi = _uiState.value.selectedNearbyPoiForSheet ?: return
+        addDetourPoiToRoute(
+            lat = poi.lat,
+            lng = poi.lng,
+            name = poi.name,
+            role = WaypointRole.VIA,
+            poiId = poi.id,
+            poiType = poi.type
+        )
+    }
+
+    private fun computeDistanceToRouteMeters(lat: Double, lng: Double): Double {
+        val state = _uiState.value
+        var minDist = Double.MAX_VALUE
+        for (leg in state.legs.values) {
+            for (pt in leg.points) {
+                val d = haversineM(lat, lng, pt.lat, pt.lng)
+                if (d < minDist) minDist = d
+            }
+        }
+        if (minDist == Double.MAX_VALUE && state.baseTrailSegments.isNotEmpty()) {
+            val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, lat, lng, state.isReverse)
+            if (proj != null) minDist = proj.distanceMeters
+        }
+        if (minDist == Double.MAX_VALUE) {
+            for (wp in state.waypoints) {
+                val d = haversineM(lat, lng, wp.lat, wp.lng)
+                if (d < minDist) minDist = d
+            }
+        }
+        return if (minDist == Double.MAX_VALUE) 0.0 else minDist
     }
 
     fun addStopOrDetour(
@@ -1340,7 +1523,47 @@ class RouteBuilderViewModel(
         _uiState.update { it.copy(isOvernightToolActive = nextActive) }
     }
 
+    fun setInteractionMode(mode: PlannerInteractionMode) {
+        _uiState.update {
+            it.copy(
+                interactionMode = mode,
+                isCrosshairMode = if (mode == PlannerInteractionMode.KIG) false else it.isCrosshairMode
+            )
+        }
+    }
+
+    /**
+     * UI Round 1 Item 1, 2 & 7:
+     * - Tapping empty map closes selected pin or leg bar.
+     * - In Kig mode a map tap never changes the route.
+     * - In Tegn mode adds the next point (in FREE mode) or opens chooser on trail line (in TRAIL mode).
+     */
+    fun onMapTapped(lat: Double, lng: Double) {
+        val state = _uiState.value
+        if (state.selectedWaypointId != null || state.selectedLegKey != null || state.selectedNearbyPoiForSheet != null) {
+            _uiState.update {
+                it.copy(
+                    selectedWaypointId = null,
+                    selectedLegKey = null,
+                    selectedNearbyPoiForSheet = null
+                )
+            }
+            if (state.interactionMode == PlannerInteractionMode.KIG) return
+        }
+        if (state.interactionMode == PlannerInteractionMode.KIG) {
+            return
+        }
+        addPointAtEnd(lat, lng)
+    }
+
     fun addPointAtEnd(lat: Double, lng: Double, name: String? = null) {
+        if (_uiState.value.interactionMode == PlannerInteractionMode.KIG && _uiState.value.movingWaypointId == null) {
+            return
+        }
+        addPointAtEndInternal(lat, lng, name)
+    }
+
+    private fun addPointAtEndInternal(lat: Double, lng: Double, name: String? = null) {
         val movingId = _uiState.value.movingWaypointId
         if (movingId != null) {
             _uiState.update { it.copy(movingWaypointId = null) }
@@ -1448,7 +1671,7 @@ class RouteBuilderViewModel(
 
         val wps = state.waypoints
         if (wps.size < 2) {
-            addPointAtEnd(lat, lng)
+            addPointAtEndInternal(lat, lng)
             return
         }
 
@@ -1472,7 +1695,7 @@ class RouteBuilderViewModel(
         if (bestIndex != -1) {
             insertPointAtIndex(bestIndex, lat, lng)
         } else {
-            addPointAtEnd(lat, lng)
+            addPointAtEndInternal(lat, lng)
         }
     }
 
@@ -1533,7 +1756,7 @@ class RouteBuilderViewModel(
                 val role = oldWp.role
                 val name = oldWp.name
                 val poiId = oldWp.linkedPoiId
-                deleteWaypoint(waypointId)
+                deleteWaypoint(waypointId, showUndoSnackbar = false)
                 addStopOrDetour(newLat, newLng, role, name, poiId)
                 return
             }
@@ -1564,13 +1787,16 @@ class RouteBuilderViewModel(
      * Delete waypoint at index.
      * Requirement D: In TRAIL mode, removing a detour pin removes its hidden helpers and restores the plain TRAIL leg.
      */
-    fun deleteWaypoint(waypointId: String) {
+    fun deleteWaypoint(waypointId: String, showUndoSnackbar: Boolean = true) {
         val state = _uiState.value
         val wps = state.waypoints.toMutableList()
         val index = wps.indexOfFirst { it.id == waypointId }
         if (index == -1) return
 
         pushHistory()
+        if (showUndoSnackbar) {
+            lastDeleteType = LastDeleteType.ROUTE_WAYPOINT
+        }
 
         if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
             val (newWps, newLegs) = TrailSlicer.removeDetourAndRestoreTrailLeg(
@@ -1586,7 +1812,8 @@ class RouteBuilderViewModel(
                 it.copy(
                     waypoints = mutableWps,
                     legs = newLegs,
-                    selectedWaypointId = null
+                    selectedWaypointId = null,
+                    deletedPinSnackbarMessage = if (showUndoSnackbar) "Punkt slettet · Fortryd" else it.deletedPinSnackbarMessage
                 )
             }
             updateRouteStats()
@@ -1609,7 +1836,8 @@ class RouteBuilderViewModel(
                 waypoints = wps,
                 legs = currentLegs,
                 failedLegs = currentFailed,
-                selectedWaypointId = null
+                selectedWaypointId = null,
+                deletedPinSnackbarMessage = if (showUndoSnackbar) "Punkt slettet · Fortryd" else it.deletedPinSnackbarMessage
             )
         }
 
@@ -1861,7 +2089,474 @@ class RouteBuilderViewModel(
     }
 
     fun selectWaypoint(waypointId: String?) {
-        _uiState.update { it.copy(selectedWaypointId = waypointId) }
+        _uiState.update { state ->
+            val wp = if (waypointId != null) state.waypoints.find { it.id == waypointId } else null
+            val target = if (wp != null) {
+                computeSheetAdjustedCenter(wp.lat, wp.lng, zoomLevel = 14.5, sheetHeightFraction = state.sheetHeightFraction)
+            } else {
+                state.mapViewportTarget
+            }
+            state.copy(
+                selectedWaypointId = waypointId,
+                selectedLegKey = if (waypointId != null) null else state.selectedLegKey,
+                mapViewportTarget = target
+            )
+        }
+    }
+
+    fun selectLeg(legKey: String?) {
+        _uiState.update { state ->
+            val legPts = if (legKey != null) state.legs[legKey]?.points else null
+            val target = if (!legPts.isNullOrEmpty()) {
+                val mid = legPts[legPts.size / 2]
+                computeSheetAdjustedCenter(mid.lat, mid.lng, zoomLevel = 13.5, sheetHeightFraction = state.sheetHeightFraction)
+            } else {
+                state.mapViewportTarget
+            }
+            state.copy(
+                selectedLegKey = legKey,
+                selectedWaypointId = if (legKey != null) null else state.selectedWaypointId,
+                mapViewportTarget = target
+            )
+        }
+    }
+
+    /**
+     * UI Round 1 Item 4:
+     * Snap to the trail line, a shelter or a fri teltning area within 25 m.
+     */
+    fun snapCoordinateWithin25m(lat: Double, lng: Double): SnapCandidateResult {
+        val state = _uiState.value
+        val thresholdM = 25.0
+
+        // 1. Check base trail line
+        if (state.baseTrailSegments.isNotEmpty()) {
+            val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, lat, lng, state.isReverse)
+            if (proj != null && proj.distanceMeters <= thresholdM) {
+                return SnapCandidateResult(
+                    lat = proj.lat,
+                    lng = proj.lng,
+                    snapped = true,
+                    snapLabel = state.baseTrail?.name ?: "Sti"
+                )
+            }
+        }
+
+        // 2. Check nearby shelters
+        var bestDist = thresholdM
+        var bestResult: SnapCandidateResult? = null
+
+        for (shelter in state.nearbyShelters) {
+            val d = haversineM(lat, lng, shelter.lat, shelter.lng)
+            if (d <= bestDist) {
+                bestDist = d
+                bestResult = SnapCandidateResult(
+                    lat = shelter.lat,
+                    lng = shelter.lng,
+                    snapped = true,
+                    snapLabel = shelter.name
+                )
+            }
+        }
+
+        // 3. Check nearby fri teltning
+        for (fri in state.nearbyFriTeltning) {
+            val d = haversineM(lat, lng, fri.centerLat, fri.centerLng)
+            if (d <= bestDist) {
+                bestDist = d
+                bestResult = SnapCandidateResult(
+                    lat = fri.centerLat,
+                    lng = fri.centerLng,
+                    snapped = true,
+                    snapLabel = fri.name
+                )
+            }
+        }
+
+        // 4. Check nearbyPoisForPlan (shelters / fri teltning)
+        for (poi in state.nearbyPoisForPlan) {
+            if (poi.type == "SHELTER" || poi.type == "FRI_TELTNING") {
+                val d = haversineM(lat, lng, poi.lat, poi.lng)
+                if (d <= bestDist) {
+                    bestDist = d
+                    bestResult = SnapCandidateResult(
+                        lat = poi.lat,
+                        lng = poi.lng,
+                        snapped = true,
+                        snapLabel = poi.name
+                    )
+                }
+            }
+        }
+
+        return bestResult ?: SnapCandidateResult(lat = lat, lng = lng, snapped = false)
+    }
+
+    /**
+     * UI Round 1 Item 4:
+     * While dragging, compute the length change ("+0,8 km") for the two neighbouring legs.
+     */
+    fun computeDragLengthDeltaKm(waypointId: String, candidateLat: Double, candidateLng: Double): Double {
+        val state = _uiState.value
+        val wps = state.waypoints
+        val idx = wps.indexOfFirst { it.id == waypointId }
+        if (idx == -1) return 0.0
+
+        val prevWp = if (idx > 0) wps[idx - 1] else null
+        val nextWp = if (idx < wps.lastIndex) wps[idx + 1] else null
+
+        var oldAdjacentKm = 0.0
+        var newAdjacentKm = 0.0
+
+        if (prevWp != null) {
+            val prevKey = "${prevWp.id}_to_${wps[idx].id}"
+            oldAdjacentKm += state.legs[prevKey]?.lengthKm
+                ?: (haversineM(prevWp.lat, prevWp.lng, wps[idx].lat, wps[idx].lng) / 1000.0)
+            newAdjacentKm += haversineM(prevWp.lat, prevWp.lng, candidateLat, candidateLng) / 1000.0
+        }
+        if (nextWp != null) {
+            val nextKey = "${wps[idx].id}_to_${nextWp.id}"
+            oldAdjacentKm += state.legs[nextKey]?.lengthKm
+                ?: (haversineM(wps[idx].lat, wps[idx].lng, nextWp.lat, nextWp.lng) / 1000.0)
+            newAdjacentKm += haversineM(candidateLat, candidateLng, nextWp.lat, nextWp.lng) / 1000.0
+        }
+        return newAdjacentKm - oldAdjacentKm
+    }
+
+    /**
+     * UI Round 1 Item 4 & 7:
+     * Dropping a pin in the trash zone or deleting from the bar deletes the pin with a "Punkt slettet · Fortryd" snackbar.
+     */
+    fun deleteWaypointWithUndoSnackbar(waypointId: String) {
+        deleteWaypoint(waypointId, showUndoSnackbar = true)
+    }
+
+    fun clearDeletedPinSnackbar() {
+        _uiState.update { it.copy(deletedPinSnackbarMessage = null) }
+    }
+
+    fun undoLastDelete() {
+        when (lastDeleteType) {
+            LastDeleteType.ROUTE_WAYPOINT -> {
+                undo()
+                clearDeletedPinSnackbar()
+            }
+            LastDeleteType.CUSTOM_WAYPOINT -> {
+                val deleted = lastDeletedCustomWaypoint
+                lastDeletedCustomWaypoint = null
+                clearDeletedPinSnackbar()
+                if (deleted != null) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        repository.saveCustomWaypoint(deleted)
+                        val updated = repository.getCustomWaypointsForRoute(_uiState.value.routeId ?: 0L)
+                        _uiState.update { it.copy(customUserWaypoints = updated) }
+                        _userMessage.emit("Punkt gendannet: ${deleted.name}")
+                    }
+                }
+            }
+            LastDeleteType.WAYPOINT_PHOTO -> {
+                val originalEntity = lastDeletedWaypointPhotoEntity
+                lastDeletedWaypointPhotoEntity = null
+                clearDeletedPinSnackbar()
+                if (originalEntity != null) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        repository.saveCustomWaypoint(originalEntity)
+                        val updated = repository.getCustomWaypointsForRoute(_uiState.value.routeId ?: 0L)
+                        _uiState.update { state ->
+                            state.copy(
+                                customUserWaypoints = updated,
+                                selectedCustomWaypointForDetails = if (state.selectedCustomWaypointForDetails?.id == originalEntity.id) {
+                                    originalEntity
+                                } else {
+                                    state.selectedCustomWaypointForDetails
+                                }
+                            )
+                        }
+                        _userMessage.emit("Foto gendannet")
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * UI Round 1 Item 5:
+     * Ghost handles: at zoom >= 13 draw a small grey hollow circle at the middle of each leg.
+     * Dragging it inserts a via point there (insertViaPointOnLine) and continues as a pin drag.
+     */
+    fun getLegMidpointHandles(): List<LegMidpointHandle> {
+        val state = _uiState.value
+        val wps = state.waypoints
+        if (wps.size < 2) return emptyList()
+        val handles = mutableListOf<LegMidpointHandle>()
+        for (i in 0 until wps.size - 1) {
+            val fromWp = wps[i]
+            val toWp = wps[i + 1]
+            if (fromWp.isHelper || toWp.isHelper) continue
+            val legKey = "${fromWp.id}_to_${toWp.id}"
+            val leg = state.legs[legKey]
+            val pts = leg?.points
+            val (midLat, midLng) = if (!pts.isNullOrEmpty()) {
+                val midIdx = pts.size / 2
+                pts[midIdx].lat to pts[midIdx].lng
+            } else {
+                ((fromWp.lat + toWp.lat) / 2.0) to ((fromWp.lng + toWp.lng) / 2.0)
+            }
+            handles.add(
+                LegMidpointHandle(
+                    legKey = legKey,
+                    legIndex = i,
+                    fromWaypointId = fromWp.id,
+                    toWaypointId = toWp.id,
+                    lat = midLat,
+                    lng = midLng
+                )
+            )
+        }
+        return handles
+    }
+
+    /**
+     * Begins dragging a ghost handle: calls insertViaPointOnLine(lat, lng) once and returns the new waypoint ID
+     * so the touch overlay continues dragging that newly inserted pin and calls moveWaypoint once on release.
+     */
+    fun startGhostHandleDrag(midLat: Double, midLng: Double): String? {
+        val existingIds = _uiState.value.waypoints.map { it.id }.toSet()
+        insertViaPointOnLine(midLat, midLng)
+        val newWp = _uiState.value.waypoints.firstOrNull { it.id !in existingIds && !it.isHelper }
+            ?: _uiState.value.waypoints.minByOrNull { haversineM(midLat, midLng, it.lat, it.lng) }
+        return newWp?.id
+    }
+
+    /**
+     * UI Round 1 Item 6:
+     * Crosshair placement: a "+" button shows a fixed crosshair in the map centre and a "Tilføj her" button;
+     * it adds a point exactly at the centre (snapping as in 4). "Annuller" closes it.
+     */
+    fun openCrosshairMode() {
+        _uiState.update {
+            it.copy(
+                isCrosshairMode = true,
+                selectedWaypointId = null,
+                selectedLegKey = null
+            )
+        }
+    }
+
+    fun cancelCrosshairMode() {
+        _uiState.update { it.copy(isCrosshairMode = false) }
+    }
+
+    fun confirmCrosshairPlacement(centerLat: Double, centerLng: Double): SnapCandidateResult {
+        val snap = snapCoordinateWithin25m(centerLat, centerLng)
+        _uiState.update { it.copy(isCrosshairMode = false) }
+        addPointAtEndInternal(snap.lat, snap.lng)
+        return snap
+    }
+
+    /**
+     * UI Round 1 Item 7:
+     * "Flyt til nærmeste sti" moves the selected pin onto the closest trail/path.
+     */
+    fun snapWaypointToNearestTrail(waypointId: String) {
+        val state = _uiState.value
+        val wp = state.waypoints.find { it.id == waypointId } ?: return
+        if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
+            val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, wp.lat, wp.lng, state.isReverse)
+            if (proj != null) {
+                moveWaypoint(waypointId, proj.lat, proj.lng)
+                return
+            }
+        }
+        viewModelScope.launch {
+            val offset = LatLng(wp.lat + 0.0004, wp.lng + 0.0004)
+            when (val res = routingEngine.routeLeg(LatLng(wp.lat, wp.lng), offset, state.options)) {
+                is RouteLegResult.Success -> {
+                    val snappedPt = res.points.firstOrNull()
+                    if (snappedPt != null) {
+                        moveWaypoint(waypointId, snappedPt.lat, snappedPt.lng)
+                    }
+                }
+                else -> {}
+            }
+        }
+    }
+
+    /**
+     * UI Round 1 Item 9:
+     * "Vis alternativer" (alternatives 1-3 for that leg only).
+     */
+    fun fetchAlternativesForLeg(legKey: String) {
+        val parts = legKey.split("_to_")
+        if (parts.size != 2) return
+        val wps = _uiState.value.waypoints
+        val fromWp = wps.find { it.id == parts[0] } ?: return
+        val toWp = wps.find { it.id == parts[1] } ?: return
+
+        _uiState.update { it.copy(isFetchingLegAlternatives = true) }
+
+        viewModelScope.launch {
+            val altList = mutableListOf<RouteAlternativeInfo>()
+            val fromCoord = LatLng(fromWp.lat, fromWp.lng)
+            val toCoord = LatLng(toWp.lat, toWp.lng)
+
+            for (altIdx in 1..3) {
+                when (val res = routingEngine.routeLeg(fromCoord, toCoord, _uiState.value.options, alternative = altIdx)) {
+                    is RouteLegResult.Success -> {
+                        val (share, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(
+                            res.points,
+                            res.perPointWayInfo
+                        )
+                        altList.add(
+                            RouteAlternativeInfo(
+                                index = altIdx,
+                                lengthKm = res.lengthKm,
+                                ascentM = res.ascentM,
+                                pathSharePct = share,
+                                roadKm = roadKm,
+                                points = res.points,
+                                wayInfo = res.perPointWayInfo
+                            )
+                        )
+                    }
+                    else -> {}
+                }
+            }
+
+            _uiState.update { current ->
+                val updatedMap = current.legAlternatives.toMutableMap()
+                updatedMap[legKey] = altList
+                current.copy(
+                    legAlternatives = updatedMap,
+                    isFetchingLegAlternatives = false
+                )
+            }
+        }
+    }
+
+    fun selectAlternativeForLeg(legKey: String, alt: RouteAlternativeInfo) {
+        val parts = legKey.split("_to_")
+        if (parts.size != 2) return
+        val wps = _uiState.value.waypoints
+        val fromWp = wps.find { it.id == parts[0] } ?: return
+        val toWp = wps.find { it.id == parts[1] } ?: return
+
+        pushHistory()
+        val newLeg = LegGeometryData(
+            fromWaypointId = fromWp.id,
+            toWaypointId = toWp.id,
+            legMode = LegMode.SNAP,
+            points = alt.points,
+            lengthKm = alt.lengthKm,
+            ascentM = alt.ascentM,
+            descentM = 0.0,
+            pathSharePct = alt.pathSharePct,
+            roadKm = alt.roadKm ?: 0.0,
+            sourceName = "BRouter Alt ${alt.index}",
+            wayInfo = alt.wayInfo
+        )
+
+        _uiState.update { current ->
+            val updatedLegs = current.legs.toMutableMap()
+            updatedLegs[legKey] = newLeg
+            val updatedFailed = current.failedLegs.toMutableMap()
+            updatedFailed.remove(legKey)
+            current.copy(
+                legs = updatedLegs,
+                failedLegs = updatedFailed
+            )
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, newLeg)
+        }
+        updateRouteStats()
+    }
+
+    /**
+     * UI Round 1 Item 10:
+     * Planner menu: "Luk ruten" (adds a leg back to the start)
+     */
+    fun closeRouteLoop() {
+        val wps = _uiState.value.waypoints
+        if (wps.size < 2) return
+        val startWp = wps.first()
+        val endWp = wps.last()
+        if (haversineM(startWp.lat, startWp.lng, endWp.lat, endWp.lng) < 5.0 && wps.size >= 3) {
+            return
+        }
+        addPointAtEndInternal(startWp.lat, startWp.lng, startWp.name ?: "Start")
+    }
+
+    /**
+     * UI Round 1 Item 10:
+     * Planner menu: "Ud og hjem" (appends the reverse of the route)
+     */
+    fun appendOutAndBack() {
+        val state = _uiState.value
+        val wps = state.waypoints
+        if (wps.size < 2) return
+
+        pushHistory()
+        val updatedWps = wps.toMutableList()
+        val updatedLegs = state.legs.toMutableMap()
+        val newLegsToPersist = mutableListOf<LegGeometryData>()
+        val legsToCompute = mutableListOf<Pair<RouteWaypoint, RouteWaypoint>>()
+
+        // Demote current END to VIA before appending return points
+        val lastIdx = updatedWps.lastIndex
+        updatedWps[lastIdx] = updatedWps[lastIdx].copy(
+            role = if (updatedWps[lastIdx].role == WaypointRole.END) WaypointRole.VIA else updatedWps[lastIdx].role
+        )
+
+        var prevAdded = updatedWps.last()
+        for (i in wps.size - 2 downTo 0) {
+            val origWp = wps[i]
+            val origNextWp = wps[i + 1]
+            val isFinalReturn = (i == 0)
+            val clonedWp = origWp.copy(
+                id = UUID.randomUUID().toString(),
+                role = if (isFinalReturn) WaypointRole.END else if (origWp.role == WaypointRole.OVERNIGHT) WaypointRole.OVERNIGHT else WaypointRole.VIA,
+                legModeToNext = origWp.legModeToNext
+            )
+            updatedWps.add(clonedWp)
+
+            val forwardKey = "${origWp.id}_to_${origNextWp.id}"
+            val forwardLeg = state.legs[forwardKey]
+            if (forwardLeg != null && forwardLeg.points.isNotEmpty()) {
+                val revLeg = forwardLeg.copy(
+                    fromWaypointId = prevAdded.id,
+                    toWaypointId = clonedWp.id,
+                    points = forwardLeg.points.asReversed(),
+                    ascentM = forwardLeg.descentM,
+                    descentM = forwardLeg.ascentM
+                )
+                updatedLegs[revLeg.legKey] = revLeg
+                newLegsToPersist.add(revLeg)
+            } else {
+                legsToCompute.add(prevAdded to clonedWp)
+            }
+            prevAdded = clonedWp
+        }
+
+        normalizeRoles(updatedWps)
+        _uiState.update {
+            it.copy(
+                waypoints = updatedWps,
+                legs = updatedLegs
+            )
+        }
+        if (newLegsToPersist.isNotEmpty()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                for (leg in newLegsToPersist) {
+                    RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg)
+                }
+            }
+        }
+        for ((fromWp, toWp) in legsToCompute) {
+            computeSingleLeg(fromWp, toWp)
+        }
+        updateRouteStats()
     }
 
     fun setScrubbedPoint(point: RoutePoint3D?) {
@@ -1882,7 +2577,355 @@ class RouteBuilderViewModel(
     // --- Trip Settings Sheet ("Indstillinger for turen") (Requirement A) ---
 
     fun setSheetHeightState(state: SheetHeightState) {
-        _uiState.update { it.copy(sheetHeightState = state) }
+        val defaultFraction = when (state) {
+            SheetHeightState.PEEK -> 0.22f
+            SheetHeightState.HALF -> 0.42f
+            SheetHeightState.FULL -> 0.60f
+        }
+        _uiState.update { current ->
+            val wp = current.selectedWaypointId?.let { id -> current.waypoints.find { it.id == id } }
+            val updatedTarget = if (wp != null) {
+                computeSheetAdjustedCenter(wp.lat, wp.lng, zoomLevel = 14.5, sheetHeightFraction = defaultFraction)
+            } else {
+                current.mapViewportTarget
+            }
+            val updatedTab = when {
+                state == SheetHeightState.FULL && current.sheetHeightState != SheetHeightState.FULL -> PlannerSheetTab.DETALJER
+                state == SheetHeightState.HALF && current.sheetHeightState == SheetHeightState.PEEK -> PlannerSheetTab.DAGE
+                else -> current.selectedSheetTab
+            }
+            current.copy(
+                sheetHeightState = state,
+                sheetHeightFraction = defaultFraction,
+                selectedSheetTab = updatedTab,
+                mapViewportTarget = updatedTarget
+            )
+        }
+    }
+
+    fun setSelectedSheetTab(tab: PlannerSheetTab) {
+        _uiState.update { current ->
+            val nextHeight = if (current.sheetHeightState == SheetHeightState.PEEK) {
+                if (tab == PlannerSheetTab.DETALJER) SheetHeightState.FULL else SheetHeightState.HALF
+            } else {
+                current.sheetHeightState
+            }
+            val nextFraction = when (nextHeight) {
+                SheetHeightState.PEEK -> 0.22f
+                SheetHeightState.HALF -> 0.42f
+                SheetHeightState.FULL -> 0.60f
+            }
+            current.copy(
+                selectedSheetTab = tab,
+                sheetHeightState = nextHeight,
+                sheetHeightFraction = nextFraction
+            )
+        }
+    }
+
+    fun setSheetHeightFraction(fraction: Float) {
+        val clamped = fraction.coerceIn(0.12f, 0.60f)
+        _uiState.update { current ->
+            val wp = current.selectedWaypointId?.let { id -> current.waypoints.find { it.id == id } }
+            val updatedTarget = if (wp != null) {
+                computeSheetAdjustedCenter(wp.lat, wp.lng, zoomLevel = 14.5, sheetHeightFraction = clamped)
+            } else {
+                current.mapViewportTarget
+            }
+            current.copy(
+                sheetHeightFraction = clamped,
+                mapViewportTarget = updatedTarget
+            )
+        }
+    }
+
+    fun setCurrentPosition(lat: Double, lng: Double) {
+        if (lat.isFinite() && lng.isFinite()) {
+            _uiState.update { it.copy(currentGpsPosition = LatLng(lat, lng)) }
+        }
+    }
+
+    fun setPlannerSearchQuery(query: String) {
+        _uiState.update { it.copy(plannerSearchQuery = query) }
+        val trimmed = query.trim()
+        if (trimmed.length < 2) {
+            _uiState.update { it.copy(plannerSearchResults = com.example.data.remote.GroupedSearchResults()) }
+            return
+        }
+        viewModelScope.launch {
+            val grouped = repository.searchGroupedInDenmark(trimmed)
+            if (_uiState.value.plannerSearchQuery.trim() == trimmed) {
+                _uiState.update { it.copy(plannerSearchResults = grouped) }
+            }
+        }
+    }
+
+    fun clearPlannerSearch() {
+        _uiState.update {
+            it.copy(
+                plannerSearchQuery = "",
+                plannerSearchResults = com.example.data.remote.GroupedSearchResults()
+            )
+        }
+    }
+
+    /**
+     * UI Round 2 Item 5 & 7:
+     * "Rute hertil" from a place result creates a route from the current position to the place.
+     */
+    fun routeToPlace(
+        destLat: Double,
+        destLng: Double,
+        destName: String,
+        currentLat: Double? = null,
+        currentLng: Double? = null
+    ) {
+        val state = _uiState.value
+        val startLat = currentLat
+            ?: state.currentGpsPosition?.lat
+            ?: state.waypoints.firstOrNull()?.lat
+            ?: 56.0
+        val startLng = currentLng
+            ?: state.currentGpsPosition?.lng
+            ?: state.waypoints.firstOrNull()?.lng
+            ?: 10.2
+
+        pushHistory()
+        val startWp = RouteWaypoint(
+            lat = startLat,
+            lng = startLng,
+            role = WaypointRole.START,
+            legModeToNext = LegMode.SNAP,
+            name = "Min position"
+        )
+        val endWp = RouteWaypoint(
+            lat = destLat,
+            lng = destLng,
+            role = WaypointRole.END,
+            legModeToNext = LegMode.SNAP,
+            name = destName.ifBlank { "Destination" }
+        )
+
+        val legKey = "${startWp.id}_to_${endWp.id}"
+        val distKm = haversineM(startLat, startLng, destLat, destLng) / 1000.0
+        val initialLeg = LegGeometryData(
+            fromWaypointId = startWp.id,
+            toWaypointId = endWp.id,
+            legMode = LegMode.SNAP,
+            points = listOf(RoutePoint3D(startLat, startLng, null), RoutePoint3D(destLat, destLng, null)),
+            lengthKm = distKm,
+            ascentM = 0.0,
+            descentM = 0.0,
+            pathSharePct = null,
+            roadKm = 0.0,
+            sourceName = "Pending"
+        )
+
+        _uiState.update {
+            it.copy(
+                mode = PlannerMode.FREE,
+                interactionMode = PlannerInteractionMode.KIG,
+                routeName = if (destName.isNotBlank()) "Rute til $destName" else "Ny rute",
+                waypoints = listOf(startWp, endWp),
+                legs = mapOf(legKey to initialLeg),
+                failedLegs = emptyMap(),
+                waitingForStartPointTap = false,
+                selectedWaypointId = null,
+                selectedLegKey = null,
+                plannerSearchQuery = "",
+                plannerSearchResults = com.example.data.remote.GroupedSearchResults(),
+                currentGpsPosition = LatLng(startLat, startLng),
+                errorMessage = null
+            )
+        }
+        computeSingleLeg(startWp, endWp)
+    }
+
+    fun routeToPlace(
+        place: com.example.data.remote.PlaceSearchResult,
+        currentLat: Double? = null,
+        currentLng: Double? = null
+    ) {
+        routeToPlace(
+            destLat = place.lat,
+            destLng = place.lng,
+            destName = place.displayName,
+            currentLat = currentLat,
+            currentLng = currentLng
+        )
+    }
+
+    /**
+     * UI Round 2 Item 3 & 7:
+     * Reordering points in the Rute tab changes ONLY the affected legs; unaffected legs in state.legs remain untouched.
+     */
+    fun reorderWaypoints(fromVisibleIndex: Int, toVisibleIndex: Int) {
+        val state = _uiState.value
+        val visible = state.visibleWaypoints
+        if (fromVisibleIndex !in visible.indices || toVisibleIndex !in visible.indices) return
+        if (fromVisibleIndex == toVisibleIndex) return
+
+        pushHistory()
+
+        val reordered = visible.toMutableList()
+        val moved = reordered.removeAt(fromVisibleIndex)
+        reordered.add(toVisibleIndex, moved)
+        normalizeRoles(reordered)
+
+        // Identify all valid adjacent leg keys in the new waypoint order
+        val validKeys = (0 until reordered.size - 1)
+            .map { i -> "${reordered[i].id}_to_${reordered[i + 1].id}" }
+            .toSet()
+
+        // Retain all unaffected legs whose (fromWaypointId, toWaypointId) pair did not change
+        val retainedLegs = state.legs.filterKeys { it in validKeys }.toMutableMap()
+        val retainedFailed = state.failedLegs.filterKeys { it in validKeys }
+
+        _uiState.update {
+            it.copy(
+                waypoints = reordered,
+                legs = retainedLegs,
+                failedLegs = retainedFailed
+            )
+        }
+
+        var launchedAny = false
+        for (i in 0 until reordered.size - 1) {
+            val fromWp = reordered[i]
+            val toWp = reordered[i + 1]
+            val key = "${fromWp.id}_to_${toWp.id}"
+            if (!retainedLegs.containsKey(key)) {
+                launchedAny = true
+                if (state.mode == PlannerMode.TRAIL &&
+                    state.baseTrailSegments.isNotEmpty() &&
+                    fromWp.trailKm != null &&
+                    toWp.trailKm != null
+                ) {
+                    val sliced = TrailSlicer.sliceTrail(
+                        state.baseTrailSegments,
+                        min(fromWp.trailKm, toWp.trailKm),
+                        max(fromWp.trailKm, toWp.trailKm)
+                    )
+                    val orderedPts = if (fromWp.trailKm > toWp.trailKm) sliced.points.reversed() else sliced.points
+                    retainedLegs[key] = LegGeometryData(
+                        fromWaypointId = fromWp.id,
+                        toWaypointId = toWp.id,
+                        legMode = LegMode.TRAIL,
+                        points = orderedPts,
+                        lengthKm = sliced.lengthKm,
+                        ascentM = sliced.ascentM,
+                        descentM = sliced.descentM,
+                        pathSharePct = 100.0,
+                        roadKm = 0.0,
+                        sourceName = "Vandrerute"
+                    )
+                    _uiState.update { it.copy(legs = retainedLegs.toMap()) }
+                } else {
+                    computeSingleLeg(fromWp, toWp)
+                }
+            }
+        }
+
+        if (!launchedAny || state.mode == PlannerMode.TRAIL) {
+            updateRouteStats()
+        }
+    }
+
+    /**
+     * UI Round 2 Item 4:
+     * Returns the route points for a given day's section [day.startKm .. day.endKm].
+     */
+    fun getPointsForDaySection(dayNumber: Int): List<RoutePoint3D> {
+        val state = _uiState.value
+        val orderedLegs = mutableListOf<LegGeometryData>()
+        for (i in 0 until state.waypoints.size - 1) {
+            val key = "${state.waypoints[i].id}_to_${state.waypoints[i + 1].id}"
+            state.legs[key]?.let { orderedLegs.add(it) }
+        }
+        val allPoints = RouteGeometryStorageManager.getCombinedPoints(orderedLegs)
+        if (allPoints.isEmpty()) {
+            return state.visibleWaypoints.map { RoutePoint3D(it.lat, it.lng, 0.0) }
+        }
+
+        val day = state.daySummaries.find { it.dayNumber == dayNumber } ?: return allPoints
+        val startM = day.startKm * 1000.0
+        val endM = day.endKm * 1000.0
+        if (endM <= startM) return allPoints
+
+        val section = mutableListOf<RoutePoint3D>()
+        var cumM = 0.0
+        if (startM <= 0.0) {
+            section.add(allPoints.first())
+        }
+        for (i in 1 until allPoints.size) {
+            val prev = allPoints[i - 1]
+            val curr = allPoints[i]
+            val segM = haversineM(prev.lat, prev.lng, curr.lat, curr.lng)
+            val nextCumM = cumM + segM
+            if (nextCumM >= startM && cumM <= endM) {
+                if (section.isEmpty()) section.add(prev)
+                section.add(curr)
+            }
+            cumM = nextCumM
+        }
+        return section.ifEmpty { allPoints }
+    }
+
+    /**
+     * UI Round 2 Item 4:
+     * Tapping a day card selects that day and computes the map target panned above the bottom sheet.
+     */
+    fun selectDaySection(dayNumber: Int): List<RoutePoint3D> {
+        val sectionPts = getPointsForDaySection(dayNumber)
+        if (sectionPts.isNotEmpty()) {
+            val minLat = sectionPts.minOf { it.lat }
+            val maxLat = sectionPts.maxOf { it.lat }
+            val minLng = sectionPts.minOf { it.lng }
+            val maxLng = sectionPts.maxOf { it.lng }
+            val centerLat = (minLat + maxLat) / 2.0
+            val centerLng = (minLng + maxLng) / 2.0
+            val adjusted = computeSheetAdjustedCenter(
+                targetLat = centerLat,
+                targetLng = centerLng,
+                zoomLevel = 12.5,
+                sheetHeightFraction = _uiState.value.sheetHeightFraction
+            )
+            _uiState.update {
+                it.copy(
+                    selectedDayNumber = dayNumber,
+                    mapViewportTarget = adjusted
+                )
+            }
+        }
+        return sectionPts
+    }
+
+    fun panMapAboveSheetTo(lat: Double, lng: Double, zoomLevel: Double = 14.5) {
+        val adjusted = computeSheetAdjustedCenter(
+            targetLat = lat,
+            targetLng = lng,
+            zoomLevel = zoomLevel,
+            sheetHeightFraction = _uiState.value.sheetHeightFraction
+        )
+        _uiState.update {
+            it.copy(mapViewportTarget = adjusted)
+        }
+    }
+
+    /**
+     * Shifts the map center southward so that [targetLat], [targetLng] appears in the visible top
+     * (1 - sheetHeightFraction) area of the map rather than hidden behind the bottom sheet.
+     */
+    fun computeSheetAdjustedCenter(
+        targetLat: Double,
+        targetLng: Double,
+        zoomLevel: Double = 14.0,
+        sheetHeightFraction: Float = _uiState.value.sheetHeightFraction
+    ): LatLng {
+        val clampedFraction = sheetHeightFraction.coerceIn(0f, 0.60f)
+        val fullScreenLatSpan = (180.0 / Math.pow(2.0, zoomLevel.coerceIn(5.0, 19.0))) * 1.2
+        val southShiftDeg = fullScreenLatSpan * (clampedFraction / 2.0)
+        return LatLng(targetLat - southShiftDeg, targetLng)
     }
 
     fun openTripSettingsSheet() {
@@ -1988,14 +3031,32 @@ class RouteBuilderViewModel(
         val legMode = from.legModeToNext
 
         if (legMode == LegMode.STRAIGHT) {
+            val distKm = haversineM(from.lat, from.lng, to.lat, to.lng) / 1000.0
+            val initialStraightLeg = LegGeometryData(
+                fromWaypointId = from.id,
+                toWaypointId = to.id,
+                legMode = LegMode.STRAIGHT,
+                points = listOf(RoutePoint3D(from.lat, from.lng, null), RoutePoint3D(to.lat, to.lng, null)),
+                lengthKm = distKm,
+                ascentM = 0.0,
+                descentM = 0.0,
+                pathSharePct = null,
+                roadKm = 0.0,
+                hasAccessWarning = false,
+                sourceName = "Straight",
+                wayInfo = emptyList()
+            )
             _uiState.update { current ->
-                val currentLoading = current.loadingLegKeys.toMutableSet().apply { add(legKey) }
+                val updatedLegs = current.legs.toMutableMap().apply { put(legKey, initialStraightLeg) }
                 val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
+                val doneLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
                 current.copy(
-                    loadingLegKeys = currentLoading,
+                    legs = updatedLegs,
+                    loadingLegKeys = doneLoading,
                     failedLegs = updatedFailed
                 )
             }
+            updateRouteStats()
 
             viewModelScope.launch {
                 val (fromEle, toEle) = withContext(Dispatchers.IO) {
@@ -2016,42 +3077,36 @@ class RouteBuilderViewModel(
                     }
                 }
 
-                val pts = listOf(
-                    RoutePoint3D(from.lat, from.lng, fromEle),
-                    RoutePoint3D(to.lat, to.lng, toEle)
-                )
-                val distKm = haversineM(from.lat, from.lng, to.lat, to.lng) / 1000.0
-                val ascent = if (fromEle != null && toEle != null && toEle > fromEle) toEle - fromEle else 0.0
-                val descent = if (fromEle != null && toEle != null && fromEle > toEle) fromEle - toEle else 0.0
-
-                val straightLeg = LegGeometryData(
-                    fromWaypointId = from.id,
-                    toWaypointId = to.id,
-                    legMode = LegMode.STRAIGHT,
-                    points = pts,
-                    lengthKm = distKm,
-                    ascentM = ascent,
-                    descentM = descent,
-                    pathSharePct = null,
-                    roadKm = 0.0,
-                    hasAccessWarning = false,
-                    sourceName = "Straight",
-                    wayInfo = emptyList()
-                )
-
-                _uiState.update { current ->
-                    val doneLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
-                    val updatedLegs = current.legs.toMutableMap().apply { put(legKey, straightLeg) }
-                    current.copy(
-                        legs = updatedLegs,
-                        loadingLegKeys = doneLoading,
-                        isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse()
+                if (fromEle != null || toEle != null) {
+                    val pts = listOf(
+                        RoutePoint3D(from.lat, from.lng, fromEle),
+                        RoutePoint3D(to.lat, to.lng, toEle)
                     )
+                    val ascent = if (fromEle != null && toEle != null && toEle > fromEle) toEle - fromEle else 0.0
+                    val descent = if (fromEle != null && toEle != null && fromEle > toEle) fromEle - toEle else 0.0
+
+                    val straightLeg = initialStraightLeg.copy(
+                        points = pts,
+                        ascentM = ascent,
+                        descentM = descent
+                    )
+
+                    _uiState.update { current ->
+                        val updatedLegs = current.legs.toMutableMap().apply { put(legKey, straightLeg) }
+                        current.copy(
+                            legs = updatedLegs,
+                            isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse()
+                        )
+                    }
+                    withContext(Dispatchers.IO) {
+                        RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, straightLeg)
+                    }
+                    updateRouteStats()
+                } else {
+                    withContext(Dispatchers.IO) {
+                        RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, initialStraightLeg)
+                    }
                 }
-                withContext(Dispatchers.IO) {
-                    RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, straightLeg)
-                }
-                updateRouteStats()
             }
             return
         }
@@ -2093,7 +3148,8 @@ class RouteBuilderViewModel(
                             hasAccessWarning = false,
                             sourceName = result.sourceName,
                             fetchedAt = result.fetchedAt,
-                            wayInfo = result.perPointWayInfo
+                            wayInfo = result.perPointWayInfo,
+                            turnCues = result.turnCues
                         )
 
                         _uiState.update { current ->
@@ -3060,7 +4116,7 @@ class RouteBuilderViewModel(
     fun replaceOvernightWithCandidate(candidate: OvernightCandidate) {
         val oldId = _uiState.value.replaceOvernightWaypointId ?: return
         dismissReplaceOvernightSheet()
-        deleteWaypoint(oldId)
+        deleteWaypoint(oldId, showUndoSnackbar = false)
         addStopOrDetour(
             lat = candidate.lat,
             lng = candidate.lng,
@@ -3637,7 +4693,8 @@ class RouteBuilderViewModel(
                         roadKm = roadKm,
                         hasAccessWarning = false,
                         sourceName = result.sourceName,
-                        wayInfo = result.perPointWayInfo
+                        wayInfo = result.perPointWayInfo,
+                        turnCues = result.turnCues
                     )
 
                     _uiState.update { current ->
@@ -3955,7 +5012,8 @@ class RouteBuilderViewModel(
                         descentM = legResult.descentM,
                         pathSharePct = pathShare,
                         roadKm = roadKm,
-                        wayInfo = legResult.perPointWayInfo
+                        wayInfo = legResult.perPointWayInfo,
+                        turnCues = legResult.turnCues
                     )
 
                     val legsMap = mapOf("${wpStart.id}_to_${wpDest.id}" to leg)
@@ -4021,16 +5079,50 @@ class RouteBuilderViewModel(
     }
 
     fun deleteCustomWaypoint(id: String) {
-        viewModelScope.launch {
+        val target = _uiState.value.customUserWaypoints.find { it.id == id }
+            ?: _uiState.value.selectedCustomWaypointForDetails?.takeIf { it.id == id }
+        lastDeletedCustomWaypoint = target
+        lastDeleteType = LastDeleteType.CUSTOM_WAYPOINT
+        viewModelScope.launch(Dispatchers.IO) {
+            if (lastDeletedCustomWaypoint == null) {
+                lastDeletedCustomWaypoint = repository.getAllCustomWaypoints().find { it.id == id }
+            }
             repository.deleteCustomWaypoint(id)
             val updated = repository.getCustomWaypointsForRoute(_uiState.value.routeId ?: 0L)
             _uiState.update {
                 it.copy(
                     customUserWaypoints = updated,
-                    selectedCustomWaypointForDetails = null
+                    selectedCustomWaypointForDetails = null,
+                    deletedPinSnackbarMessage = "Punkt slettet · Fortryd"
                 )
             }
             _userMessage.emit("Punkt slettet")
+        }
+    }
+
+    fun deleteCustomWaypointPhoto(id: String) {
+        val target = _uiState.value.customUserWaypoints.find { it.id == id }
+            ?: _uiState.value.selectedCustomWaypointForDetails?.takeIf { it.id == id }
+        viewModelScope.launch(Dispatchers.IO) {
+            val resolved = target ?: repository.getAllCustomWaypoints().find { it.id == id } ?: return@launch
+            if (resolved.photoPath.isNullOrBlank()) return@launch
+            lastDeletedWaypointPhotoEntity = resolved
+            lastDeleteType = LastDeleteType.WAYPOINT_PHOTO
+            val withoutPhoto = resolved.copy(photoPath = null)
+            repository.saveCustomWaypoint(withoutPhoto)
+            val updated = repository.getCustomWaypointsForRoute(_uiState.value.routeId ?: 0L)
+            _uiState.update { state ->
+                state.copy(
+                    customUserWaypoints = updated,
+                    selectedCustomWaypointForDetails = if (state.selectedCustomWaypointForDetails?.id == id) {
+                        withoutPhoto
+                    } else {
+                        state.selectedCustomWaypointForDetails
+                    },
+                    deletedPinSnackbarMessage = "Foto slettet · Fortryd"
+                )
+            }
+            _userMessage.emit("Foto slettet")
         }
     }
 

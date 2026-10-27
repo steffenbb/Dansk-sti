@@ -717,7 +717,8 @@ object TrailSlicer {
             val lengthKm: Double,
             val ascentM: Double,
             val descentM: Double,
-            val sourceName: String
+            val sourceName: String,
+            val turnCues: List<com.example.data.model.TurnCue> = emptyList()
         )
 
         fun extractErrorMessage(res: RouteLegResult): String = when (res) {
@@ -748,7 +749,8 @@ object TrailSlicer {
                             lengthKm = res.lengthKm,
                             ascentM = res.ascentM,
                             descentM = res.descentM,
-                            sourceName = res.sourceName
+                            sourceName = res.sourceName,
+                            turnCues = res.turnCues
                         )
                     )
                 }
@@ -799,7 +801,8 @@ object TrailSlicer {
                                 lengthKm = res.lengthKm,
                                 ascentM = res.ascentM,
                                 descentM = res.descentM,
-                                sourceName = res.sourceName
+                                sourceName = res.sourceName,
+                                turnCues = res.turnCues
                             )
                         )
                     }
@@ -874,7 +877,8 @@ object TrailSlicer {
             roadKm = toExitRoadKm ?: 0.0,
             sourceName = "Trail",
             wayInfo = sliceToExit.wayInfo,
-            trailSegments = sliceToExit.trailSegments
+            trailSegments = sliceToExit.trailSegments,
+            turnCues = TurnCueGenerator.computeTrailTurnCues(sliceToExit.trailSegments, sliceToExit.points, sliceToExit.wayInfo)
         )
 
         val failedLegs = mutableMapOf<String, String>()
@@ -892,7 +896,8 @@ object TrailSlicer {
                 pathSharePct = exitPathShare,
                 roadKm = exitRoadKm ?: 0.0,
                 sourceName = bestExit.sourceName,
-                wayInfo = bestExit.wayInfo
+                wayInfo = bestExit.wayInfo,
+                turnCues = bestExit.turnCues
             )
         } else {
             failedLegs[exitLegKey] = lastExitError
@@ -913,7 +918,8 @@ object TrailSlicer {
                 pathSharePct = rejoinPathShare,
                 roadKm = rejoinRoadKm ?: 0.0,
                 sourceName = bestRejoin.sourceName,
-                wayInfo = bestRejoin.wayInfo
+                wayInfo = bestRejoin.wayInfo,
+                turnCues = bestRejoin.turnCues
             )
         } else {
             failedLegs[rejoinLegKey] = lastRejoinError
@@ -934,7 +940,8 @@ object TrailSlicer {
             roadKm = fromRejoinRoadKm ?: 0.0,
             sourceName = "Trail",
             wayInfo = sliceFromRejoin.wayInfo,
-            trailSegments = sliceFromRejoin.trailSegments
+            trailSegments = sliceFromRejoin.trailSegments,
+            turnCues = TurnCueGenerator.computeTrailTurnCues(sliceFromRejoin.trailSegments, sliceFromRejoin.points, sliceFromRejoin.wayInfo)
         )
 
         return DetourBuildResult(
@@ -1002,6 +1009,7 @@ object TrailSlicer {
         val canonicalTo = if (isReverse) (total - toKm).coerceIn(0.0, total) else toKm
         val sliced = sliceTrail(segments, canonicalFrom, canonicalTo)
         val (pathShare, roadKm) = computeTrailRangeMetrics(sliced.trailSegments, sliced.points, sliced.wayInfo)
+        val trailCues = TurnCueGenerator.computeTrailTurnCues(sliced.trailSegments, sliced.points, sliced.wayInfo)
         return LegGeometryData(
             fromWaypointId = fromWaypointId,
             toWaypointId = toWaypointId,
@@ -1014,7 +1022,8 @@ object TrailSlicer {
             roadKm = roadKm ?: 0.0,
             sourceName = "Trail",
             wayInfo = sliced.wayInfo,
-            trailSegments = sliced.trailSegments
+            trailSegments = sliced.trailSegments,
+            turnCues = trailCues
         )
     }
 

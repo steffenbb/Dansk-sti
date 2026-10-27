@@ -107,10 +107,12 @@ import com.example.data.model.TrailEntity
 import com.example.ui.components.EmptyStateView
 import com.example.ui.components.ErrorStateView
 import com.example.ui.components.MarkedRouteDetailSheet
+import com.example.ui.components.OfflineStatusPill
 import com.example.ui.components.SkeletonLoadingList
 import com.example.ui.components.TrailGeometryThumbnail
 import com.example.ui.components.formatDanishElevationMeters
 import com.example.ui.components.formatDanishKm
+import com.example.ui.components.formatDownloadedDateDanish
 import com.example.ui.map.DanskStiMap
 import com.example.ui.navigation.MapLayersOverlayManager
 import com.example.ui.theme.AccentAmber
@@ -178,6 +180,7 @@ fun TrailBrowserScreen(
     val friTeltningCounts by viewModel.friTeltningCounts.collectAsState()
     val trailMetrics by viewModel.trailMetrics.collectAsState()
     val placeSuggestions by viewModel.placeSuggestions.collectAsState()
+    val groupedSearchResults by viewModel.groupedSearchResults.collectAsState()
     val selectedTrailForPeek by viewModel.selectedTrailForPeek.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
 
@@ -276,6 +279,13 @@ fun TrailBrowserScreen(
 
     // Load geometries for map mode if needed
     val app = context.applicationContext as DanskStiApp
+    val downloadedTrails by remember(app) { app.repository.getAllDownloadedTrails() }.collectAsState(initial = emptyList())
+    val downloadedTrailMap = remember(downloadedTrails) {
+        downloadedTrails.associateBy { it.trailId }
+    }
+    val isDeviceOnline = remember(app) {
+        runCatching { app.repository.isDeviceOnline() }.getOrDefault(true)
+    }
     var allGeometries by remember { mutableStateOf<Map<String, List<GeoPointDto>>>(emptyMap()) }
     LaunchedEffect(allTrails, trailMetrics) {
         if (allTrails.isNotEmpty()) {
@@ -313,7 +323,7 @@ fun TrailBrowserScreen(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
     ) {
-        // Top header bar: Title + Liste / Kort segmented toggle
+        // Top header bar: Title + Offline pill (if offline) + Liste / Kort segmented toggle
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -321,11 +331,20 @@ fun TrailBrowserScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = stringResource(R.string.nav_explore),
-                style = MaterialTheme.typography.displayLarge,
-                color = MaterialTheme.colorScheme.onBackground
-            )
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.s2)
+            ) {
+                Text(
+                    text = stringResource(R.string.nav_explore),
+                    style = MaterialTheme.typography.displayLarge,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                if (!isDeviceOnline && !isMapView) {
+                    OfflineStatusPill()
+                }
+            }
 
             // Toggle Liste / Kort (Requirement C)
             Surface(
@@ -467,60 +486,34 @@ fun TrailBrowserScreen(
             }
         }
 
-        // Place search suggestions if user typed a place name
-        if (placeSuggestions.isNotEmpty() && searchQuery.length >= 2) {
-            Card(
-                shape = CardShape,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = Spacing.s4, vertical = Spacing.s1)
-            ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    placeSuggestions.take(3).forEach { place ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .sizeIn(minHeight = 48.dp)
-                                .clickable {
-                                    viewModel.setSearchQuery("")
-                                    viewModel.updateUserLocation(place.lat, place.lng)
-                                    if (isMapView) {
-                                        mapViewRef?.controller?.animateTo(GeoPoint(place.lat, place.lng), 11.5, 600L)
-                                    }
-                                }
-                                .padding(horizontal = Spacing.s4, vertical = Spacing.s2),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Place,
-                                contentDescription = null,
-                                tint = ForestGreenPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = place.displayName,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                place.type?.let { typeLabel ->
-                                    Text(
-                                        text = typeLabel,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
+        // Grouped search suggestions if user typed a query
+        if (!groupedSearchResults.isEmpty && searchQuery.trim().length >= 2) {
+            com.example.ui.components.GroupedPlaceSearchDropdown(
+                groupedResults = groupedSearchResults,
+                onSelectRouteOrTrail = { item ->
+                    viewModel.setSearchQuery("")
+                    if (item.isCustomRoute && item.customRouteId != null) {
+                        onTrailClick("route_${item.customRouteId}")
+                    } else if (item.trailId != null) {
+                        onTrailClick(item.trailId)
                     }
-                }
-            }
+                },
+                onRouteHere = { lat, lng, name ->
+                    viewModel.setSearchQuery("")
+                    onOpenRouteBuilder(lat, lng, name)
+                },
+                onAddAsPoint = { lat, lng, name ->
+                    viewModel.setSearchQuery("")
+                    onOpenRouteBuilder(lat, lng, name)
+                },
+                onShowOnMap = { lat, lng, _ ->
+                    viewModel.setSearchQuery("")
+                    viewModel.updateUserLocation(lat, lng)
+                    isMapView = true
+                    mapViewRef?.controller?.animateTo(GeoPoint(lat, lng), 13.0, 600L)
+                },
+                modifier = Modifier.padding(horizontal = Spacing.s4, vertical = Spacing.s1)
+            )
         }
 
         // Filter chips: Region, Længde, Flerdages, Shelters undervejs, Fri teltning (Requirement C)
@@ -819,6 +812,7 @@ fun TrailBrowserScreen(
                                     sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
                                     friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
                                     ascentMeters = metrics?.ascentMeters,
+                                    downloadedAt = downloadedTrailMap[trail.id]?.downloadedAt,
                                     isSaved = isSaved,
                                     isSelected = selectedTrailForPeek?.id == trail.id,
                                     onBookmarkClick = { viewModel.toggleBookmark(trail.id) },
@@ -879,6 +873,7 @@ fun TrailBrowserScreen(
                                     sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
                                     friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
                                     ascentMeters = metrics?.ascentMeters,
+                                    downloadedAt = downloadedTrailMap[trail.id]?.downloadedAt,
                                     isSaved = true,
                                     isSelected = selectedTrailForPeek?.id == trail.id,
                                     onBookmarkClick = { viewModel.toggleBookmark(trail.id) },
@@ -913,6 +908,7 @@ fun TrailBrowserScreen(
                                 sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
                                 friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
                                 ascentMeters = metrics?.ascentMeters,
+                                downloadedAt = downloadedTrailMap[trail.id]?.downloadedAt,
                                 isSaved = isSaved,
                                 isSelected = selectedTrailForPeek?.id == trail.id,
                                 onBookmarkClick = { viewModel.toggleBookmark(trail.id) },
@@ -932,6 +928,7 @@ fun TrailBrowserScreen(
                         interceptParentTouchScroll = true,
                         isSystemDarkOverride = isDark,
                         controlsTopPadding = 16.dp,
+                        controlsEndPadding = 16.dp,
                         attributionBottomPadding = 24.dp,
                         layersButtonTestTag = "open_layers_sheet_button",
                         compassButtonTestTag = "center_denmark_button",
@@ -1024,6 +1021,7 @@ fun TrailBrowserScreen(
                                 sheltersCount = shelterCounts[peekTrail.id] ?: metrics?.shelterCount ?: 0,
                                 friTeltningCount = friTeltningCounts[peekTrail.id] ?: metrics?.friTeltningCount ?: 0,
                                 ascentMeters = metrics?.ascentMeters,
+                                downloadedAt = downloadedTrailMap[peekTrail.id]?.downloadedAt,
                                 isSaved = savedTrailIds.contains(peekTrail.id),
                                 isSelected = true,
                                 onBookmarkClick = { viewModel.toggleBookmark(peekTrail.id) },
@@ -1154,6 +1152,7 @@ fun TrailCard(
     sheltersCount: Int,
     friTeltningCount: Int,
     ascentMeters: Int? = null,
+    downloadedAt: Long? = null,
     isSaved: Boolean = false,
     isSelected: Boolean = false,
     onBookmarkClick: (() -> Unit)? = null,
@@ -1281,11 +1280,11 @@ fun TrailCard(
                     }
                 }
 
-                // Real computed stats line: "215 km · +1.850 m · ca. 14 dage"
+                // Real computed stats line: "215 km · +1.850 m · ca. 14 dage" (minimum 16 sp in lists + tabular figures)
                 Text(
                     text = stringResource(R.string.ui_trailbrowserscreen_km_m_ca_184, kmFormatted, ascentFormatted, estimatedDays, if (estimatedDays == 1) "dag" else "dage"),
                     style = TabularBodyStyle.copy(
-                        fontSize = 14.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold
                     ),
                     color = MaterialTheme.colorScheme.primary
@@ -1306,6 +1305,17 @@ fun TrailCard(
                         text = stringResource(R.string.ui_trailbrowserscreen_shelters_fri_teltning_185, sheltersCount, friTeltningCount),
                         style = TabularLabelStyle,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Downloaded date badge ("Hentet <dato>") when trail is downloaded offline
+                if (downloadedAt != null) {
+                    Text(
+                        text = formatDownloadedDateDanish(downloadedAt),
+                        style = TabularLabelStyle,
+                        color = ForestGreenPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.testTag("trail_card_downloaded_date_${trail.id}")
                     )
                 }
             }

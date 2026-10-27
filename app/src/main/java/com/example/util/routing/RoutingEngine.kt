@@ -68,7 +68,8 @@ sealed interface RouteLegResult {
         val descentM: Double,
         val perPointWayInfo: List<WayInfo>,
         val sourceName: String,
-        val fetchedAt: Long = System.currentTimeMillis()
+        val fetchedAt: Long = System.currentTimeMillis(),
+        val turnCues: List<com.example.data.model.TurnCue> = emptyList()
     ) : RouteLegResult
 
     data class NoRoute(

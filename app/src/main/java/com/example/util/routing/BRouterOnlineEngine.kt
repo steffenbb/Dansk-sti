@@ -287,6 +287,7 @@ class BRouterOnlineEngine(
                 if (cached != null && cached.expiresAt > System.currentTimeMillis()) {
                     val points = deserializePoints(cached.pointsJson)
                     val wayInfo = deserializeWayInfo(cached.wayInfoJson)
+                    val cues = TurnCueGenerator.computeTurnCuesFromPointsAndWayInfo(points, wayInfo)
                     return@withContext RouteLegResult.Success(
                         points = points,
                         lengthKm = cached.lengthKm,
@@ -294,7 +295,8 @@ class BRouterOnlineEngine(
                         descentM = cached.descentM,
                         perPointWayInfo = wayInfo,
                         sourceName = "cache",
-                        fetchedAt = cached.cachedAt
+                        fetchedAt = cached.cachedAt,
+                        turnCues = cues
                     )
                 }
             } catch (e: Exception) {
@@ -440,6 +442,7 @@ class BRouterOnlineEngine(
             .addQueryParameter("profile", profileName)
             .addQueryParameter("alternativeidx", alternative.coerceIn(0, 3).toString())
             .addQueryParameter("format", "geojson")
+            .addQueryParameter("timode", "2")
 
         // Pass weighted no-go points for loop routing (format: lon,lat,radius,weight|...)
         if (options.noGoPoints.isNotEmpty()) {

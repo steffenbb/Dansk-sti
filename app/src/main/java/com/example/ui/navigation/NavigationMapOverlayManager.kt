@@ -89,6 +89,13 @@ class NavigationMapOverlayManager(
         outlinePaint.pathEffect = DashPathEffect(floatArrayOf(dp(8f), dp(6f)), 0f)
     }
 
+    private val backToRoutePolyline = Polyline(mapView).apply {
+        outlinePaint.color = Color.parseColor("#D32F2F")
+        outlinePaint.strokeWidth = dp(4.5f)
+        outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+        outlinePaint.pathEffect = DashPathEffect(floatArrayOf(dp(10f), dp(8f)), 0f)
+    }
+
     private val campDetourMarker = Marker(mapView).apply {
         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
     }
@@ -135,11 +142,24 @@ class NavigationMapOverlayManager(
         mapView.overlays.add(routePolyline)
         mapView.overlays.add(walkedPolyline)
         mapView.overlays.add(campDetourPolyline)
+        mapView.overlays.add(backToRoutePolyline)
         mapView.overlays.add(campDetourMarker)
         mapView.overlays.add(tonightCampMarker)
         mapView.overlays.add(poiClusterOverlay)
         mapView.overlays.add(accuracyPolygon)
         mapView.overlays.add(userMarker)
+    }
+
+    /**
+     * Updates the dashed "Rut mig tilbage" line without changing the planned route.
+     */
+    fun setBackToRoutePoints(points: List<com.example.util.routing.RoutePoint3D>) {
+        if (points.size < 2) {
+            backToRoutePolyline.safeSetPoints(emptyList())
+        } else {
+            backToRoutePolyline.safeSetPoints(points.map { GeoPoint(it.lat, it.lng) })
+        }
+        mapView.invalidate()
     }
 
     /**

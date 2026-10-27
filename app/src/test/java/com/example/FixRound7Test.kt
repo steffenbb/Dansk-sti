@@ -20,6 +20,9 @@ import com.example.data.model.TrailSegmentType
 import com.example.data.model.UserCustomWaypointEntity
 import com.example.data.model.WayTagRangeDto
 import com.example.data.repository.GeoFaRepository
+import com.example.data.repository.loadBundledFriTeltningFromDiskOrAssets
+import com.example.data.repository.loadBundledPoisFromDiskOrAssets
+import com.example.data.repository.loadBundledSheltersFromDiskOrAssets
 import com.example.data.repository.PlannedRouteRepository
 import com.example.data.repository.TrailGeometryRepository
 import com.example.service.NavigationTrackingService

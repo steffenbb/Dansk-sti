@@ -45,6 +45,7 @@ import java.util.Locale
 
 data class NavigationLiveState(
     val isTracking: Boolean = false,
+    val isPaused: Boolean = false,
     val currentLat: Double? = null,
     val currentLng: Double? = null,
     val bearing: Float = 0f,
@@ -56,6 +57,12 @@ data class NavigationLiveState(
     val distanceRemainingTripKm: Double = 0.0,
     val offTrailDistanceMeters: Double = 0.0,
     val isOffTrailWarning: Boolean = false,
+    val isDetourMuted: Boolean = false,
+    val detourMuteUntilMs: Long = 0L,
+    val lastFixTimestampMs: Long = 0L,
+    val nextTurnCue: com.example.data.model.TurnCue? = null,
+    val distanceToNextCueMeters: Double? = null,
+    val showContinueDayPrompt: Boolean = false,
     val currentSnappedPoint: GeoPointDto? = null,
     val planId: Long = 0L,
     val trailName: String = "",
@@ -76,6 +83,9 @@ class NavigationTrackingService : Service() {
     private var locationCallback: LocationCallback? = null
 
     private lateinit var plannedRouteRepo: PlannedRouteRepository
+    private lateinit var settingsRepository: com.example.data.local.SettingsRepository
+    @Volatile
+    private var userPaceKmh: Double = com.example.data.local.SettingsRepository.cachedMitTempoKmh
     private var routeTracker: RouteTracker? = null
     private var currentPlannedRoute: PlannedRoute? = null
     private var planId: Long = 0L
@@ -83,11 +93,20 @@ class NavigationTrackingService : Service() {
     // Speed smoothing over rolling 10 seconds
     private val speedHistory = ArrayDeque<Pair<Long, Double>>() // timestamp, speed m/s
     private var lastLocation: Location? = null
+    private var alerted150CueWalkKm: Double? = null
+    private var alerted30CueWalkKm: Double? = null
 
     override fun onCreate() {
         super.onCreate()
+        activeServiceInstance = this
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         plannedRouteRepo = PlannedRouteRepository(applicationContext)
+        settingsRepository = com.example.data.local.SettingsRepository(applicationContext)
+        serviceScope.launch {
+            settingsRepository.settingsFlow.collect { settings ->
+                userPaceKmh = settings.mitTempoKmh
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -110,6 +129,18 @@ class NavigationTrackingService : Service() {
                     Log.w("NavService", "No active planId provided or saved in storage")
                     stopSelf()
                 }
+            }
+            ACTION_PAUSE -> {
+                setPausedInternal(true)
+            }
+            ACTION_RESUME -> {
+                setPausedInternal(false)
+            }
+            ACTION_TOGGLE_PAUSE -> {
+                setPausedInternal(!_liveState.value.isPaused)
+            }
+            ACTION_TAKE_DETOUR -> {
+                takeDetourInternal()
             }
             ACTION_STOP_TODAY -> {
                 stopForToday()
@@ -150,8 +181,17 @@ class NavigationTrackingService : Service() {
             val remainingToday = maxOf(0.0, (initialStage?.endWalkKm ?: plannedRoute.totalWalkKm) - initialWalkKm)
             val remainingTrip = maxOf(0.0, plannedRoute.totalWalkKm - initialWalkKm)
 
+            val showContinuePrompt = existingProgress != null &&
+                (existingProgress.isPaused || initialDay > 1) &&
+                walkedToday < 0.05
+
+            val allCues = com.example.util.routing.TurnCueGenerator.computeTurnCuesForPlannedRoute(plannedRoute)
+            val firstCueAhead = allCues.firstOrNull { it.walkKm >= initialWalkKm }
+            val firstCueDistM = firstCueAhead?.let { ((it.walkKm - initialWalkKm) * 1000.0).coerceAtLeast(0.0) }
+
             _liveState.value = _liveState.value.copy(
                 isTracking = true,
+                isPaused = false,
                 planId = targetPlanId,
                 trailName = plannedRoute.trailName,
                 currentDay = initialDay,
@@ -160,7 +200,10 @@ class NavigationTrackingService : Service() {
                 distanceWalkedTodayKm = walkedToday,
                 distanceRemainingTodayKm = remainingToday,
                 distanceRemainingTripKm = remainingTrip,
-                plannedRoute = plannedRoute
+                plannedRoute = plannedRoute,
+                showContinueDayPrompt = showContinuePrompt,
+                nextTurnCue = if (firstCueDistM != null && firstCueDistM <= 500.0) firstCueAhead else null,
+                distanceToNextCueMeters = if (firstCueDistM != null && firstCueDistM <= 500.0) firstCueDistM else null
             )
 
             // Start foreground on main thread
@@ -254,6 +297,19 @@ class NavigationTrackingService : Service() {
         } else 0.0
         val speedKmh = smoothedSpeedMps * 3.6
 
+        // When paused, update live GPS position on the map without advancing walked-time or writing progress
+        if (_liveState.value.isPaused) {
+            _liveState.value = _liveState.value.copy(
+                currentLat = location.latitude,
+                currentLng = location.longitude,
+                bearing = location.bearing,
+                accuracyM = location.accuracy,
+                speedKmh = speedKmh,
+                lastFixTimestampMs = now
+            )
+            return
+        }
+
         // 2. Feed fix to RouteTracker
         val trackResult = tracker.onLocationUpdate(
             lat = location.latitude,
@@ -263,13 +319,29 @@ class NavigationTrackingService : Service() {
             timestampMs = now
         )
 
-        // 3. Trigger vibration if required by off-route logic
-        if (trackResult.shouldVibrate) {
+        // 3. Trigger vibration if required by off-route logic (suppressed when detour muted)
+        if (trackResult.shouldVibrate && !trackResult.isDetourMuted) {
             triggerOffTrailVibration()
         }
 
+        // 3b. Evaluate next turn cue and double vibration at 150 m and 30 m
+        val allCues = com.example.util.routing.TurnCueGenerator.computeTurnCuesForPlannedRoute(plannedRoute)
+        val upcomingCue = allCues.firstOrNull { it.walkKm >= trackResult.currentWalkKm - 0.005 }
+        val cueDistM = upcomingCue?.let {
+            maxOf(0.0, (it.walkKm - trackResult.currentWalkKm) * 1000.0)
+        }
+        if (upcomingCue != null && cueDistM != null && !trackResult.isOffRoute) {
+            if (cueDistM in 30.0..150.0 && alerted150CueWalkKm != upcomingCue.walkKm) {
+                alerted150CueWalkKm = upcomingCue.walkKm
+                triggerTurnCueDoubleVibration()
+            } else if (cueDistM < 30.0 && alerted30CueWalkKm != upcomingCue.walkKm) {
+                alerted30CueWalkKm = upcomingCue.walkKm
+                triggerTurnCueDoubleVibration()
+            }
+        }
+
         // 4. Update Live State
-        _liveState.value = NavigationLiveState(
+        _liveState.value = _liveState.value.copy(
             isTracking = true,
             currentLat = location.latitude,
             currentLng = location.longitude,
@@ -281,7 +353,12 @@ class NavigationTrackingService : Service() {
             distanceRemainingTodayKm = trackResult.remainingTodayKm,
             distanceRemainingTripKm = trackResult.remainingTripKm,
             offTrailDistanceMeters = trackResult.offRouteDistanceM,
-            isOffTrailWarning = trackResult.isOffRoute,
+            isOffTrailWarning = trackResult.isOffRoute && !trackResult.isDetourMuted,
+            isDetourMuted = trackResult.isDetourMuted,
+            detourMuteUntilMs = tracker.detourMuteUntilMs,
+            lastFixTimestampMs = now,
+            nextTurnCue = if (cueDistM != null && cueDistM <= 500.0) upcomingCue else null,
+            distanceToNextCueMeters = if (cueDistM != null && cueDistM <= 500.0) cueDistM else null,
             currentSnappedPoint = trackResult.snappedPoint,
             planId = planId,
             trailName = plannedRoute.trailName,
@@ -301,8 +378,10 @@ class NavigationTrackingService : Service() {
             speedKmh = speedKmh,
             remainingTodayKm = trackResult.remainingTodayKm,
             remainingTripKm = trackResult.remainingTripKm,
-            isOffRoute = trackResult.isOffRoute,
-            offRouteMeters = trackResult.offRouteDistanceM
+            isOffRoute = trackResult.isOffRoute && !trackResult.isDetourMuted,
+            offRouteMeters = trackResult.offRouteDistanceM,
+            walkedTodayKm = trackResult.walkedTodayKm,
+            isPaused = _liveState.value.isPaused
         )
         val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
         notifManager?.notify(NOTIFICATION_ID, notif)
@@ -354,7 +433,7 @@ class NavigationTrackingService : Service() {
         }
     }
 
-    private fun triggerOffTrailVibration() {
+    internal fun triggerOffTrailVibration() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
@@ -371,14 +450,65 @@ class NavigationTrackingService : Service() {
         }
     }
 
-    private fun buildNotification(
+    internal fun triggerTurnCueDoubleVibration() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                val vibrator = vibratorManager?.defaultVibrator
+                vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 180, 120, 180), -1))
+            } else {
+                @Suppress("DEPRECATION")
+                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(longArrayOf(0, 180, 120, 180), -1)
+            }
+        } catch (e: Exception) {
+            Log.e("NavService", "Turn cue vibration failed: ${e.message}")
+        }
+    }
+
+    internal fun setPausedInternal(paused: Boolean) {
+        _liveState.value = _liveState.value.copy(isPaused = paused)
+        val route = currentPlannedRoute
+        if (route != null) {
+            val st = _liveState.value
+            val notif = buildNotification(
+                trailName = route.trailName,
+                stageName = st.currentStage?.stopName ?: "Dagens etape",
+                speedKmh = st.speedKmh,
+                remainingTodayKm = st.distanceRemainingTodayKm,
+                remainingTripKm = st.distanceRemainingTripKm,
+                isOffRoute = st.isOffTrailWarning,
+                offRouteMeters = st.offTrailDistanceMeters,
+                walkedTodayKm = st.distanceWalkedTodayKm,
+                isPaused = paused
+            )
+            val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            notifManager?.notify(NOTIFICATION_ID, notif)
+        }
+    }
+
+    internal fun takeDetourInternal(nowMs: Long = System.currentTimeMillis()) {
+        val tracker = routeTracker
+        tracker?.takeDetour(nowMs)
+        val muteUntil = tracker?.detourMuteUntilMs ?: (nowMs + RouteTracker.DETOUR_MUTE_DURATION_MS)
+        _liveState.value = _liveState.value.copy(
+            isOffTrailWarning = false,
+            isDetourMuted = true,
+            detourMuteUntilMs = muteUntil
+        )
+    }
+
+    internal fun buildNotification(
         trailName: String,
         stageName: String,
         speedKmh: Double,
         remainingTodayKm: Double?,
         remainingTripKm: Double,
         isOffRoute: Boolean,
-        offRouteMeters: Double
+        offRouteMeters: Double,
+        walkedTodayKm: Double = 0.0,
+        isPaused: Boolean = false
     ): Notification {
         val launchIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -408,7 +538,8 @@ class NavigationTrackingService : Service() {
         }
 
         val content = if (remainingTodayKm != null) {
-            val pace = if (speedKmh > 1.0) speedKmh else 4.2
+            val configuredPace = com.example.data.local.SettingsRepository.cachedMitTempoKmh.takeIf { it > 0.0 } ?: userPaceKmh
+            val pace = (if (speedKmh >= 1.5) speedKmh else configuredPace).coerceAtLeast(0.5)
             val etaMinutes = (remainingTodayKm / pace * 60.0).toInt()
             val etaTimestamp = System.currentTimeMillis() + (etaMinutes * 60000L)
             val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -418,18 +549,42 @@ class NavigationTrackingService : Service() {
             "Næste lejr: $stageName"
         }
 
-        val channelId = if (isOffRoute) DanskStiApp.CHANNEL_ALERTS_ID else DanskStiApp.CHANNEL_NAVIGATION_ID
+        // Pause / Fortsæt action
+        val pauseIntent = Intent(this, NavigationTrackingService::class.java).apply {
+            action = ACTION_TOGGLE_PAUSE
+        }
+        val pausePending = PendingIntent.getService(
+            this,
+            2,
+            pauseIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
-        return NotificationCompat.Builder(this, channelId)
+        val channelId = if (isOffRoute) DanskStiApp.CHANNEL_ALERTS_ID else DanskStiApp.CHANNEL_NAVIGATION_ID
+        val pauseActionLabel = if (isPaused) "Fortsæt" else "Pause"
+
+        val builder = NotificationCompat.Builder(this, channelId)
             .setContentTitle(title)
             .setContentText(content)
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .addAction(
+                if (isPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+                pauseActionLabel,
+                pausePending
+            )
             .addAction(android.R.drawable.ic_media_pause, "Stop for i dag", stopTodayPending)
             .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .build()
+
+        if (remainingTodayKm != null) {
+            val totalDayKm = (walkedTodayKm + remainingTodayKm).coerceAtLeast(0.1)
+            val progressPct = ((walkedTodayKm / totalDayKm) * 100.0).toInt().coerceIn(0, 100)
+            builder.setProgress(100, progressPct, false)
+        }
+
+        return builder.build()
     }
 
     private fun stopForToday() {
@@ -440,9 +595,11 @@ class NavigationTrackingService : Service() {
                 DanskStiApp.instance.database.dao().saveTripProgress(progress)
                 _liveState.value = _liveState.value.copy(
                     isTracking = false,
+                    isPaused = true,
                     currentDay = progress.currentDay,
                     distanceWalkedTodayKm = 0.0,
-                    distanceRemainingTodayKm = progress.remainingDistanceTodayKm
+                    distanceRemainingTodayKm = progress.remainingDistanceTodayKm,
+                    showContinueDayPrompt = true
                 )
                 stopTracking()
             }
@@ -533,6 +690,9 @@ class NavigationTrackingService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (activeServiceInstance === this) {
+            activeServiceInstance = null
+        }
         locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
         serviceScope.cancel()
     }
@@ -545,11 +705,43 @@ class NavigationTrackingService : Service() {
         const val ACTION_START = "com.example.dansksti.ACTION_START"
         const val ACTION_STOP = "com.example.dansksti.ACTION_STOP"
         const val ACTION_STOP_TODAY = "com.example.dansksti.ACTION_STOP_TODAY"
+        const val ACTION_PAUSE = "com.example.dansksti.ACTION_PAUSE"
+        const val ACTION_RESUME = "com.example.dansksti.ACTION_RESUME"
+        const val ACTION_TOGGLE_PAUSE = "com.example.dansksti.ACTION_TOGGLE_PAUSE"
+        const val ACTION_TAKE_DETOUR = "com.example.dansksti.ACTION_TAKE_DETOUR"
 
         const val EXTRA_PLAN_ID = "extra_plan_id"
 
+        @Volatile
+        private var activeServiceInstance: NavigationTrackingService? = null
+
         private val _liveState = MutableStateFlow(NavigationLiveState())
         val liveState: StateFlow<NavigationLiveState> = _liveState.asStateFlow()
+
+        internal fun updateLiveStateForTest(state: NavigationLiveState) {
+            _liveState.value = state
+        }
+
+        fun setPaused(context: Context, paused: Boolean) {
+            activeServiceInstance?.setPausedInternal(paused) ?: run {
+                _liveState.value = _liveState.value.copy(isPaused = paused)
+            }
+        }
+
+        fun takeDetour(context: Context, nowMs: Long = System.currentTimeMillis()) {
+            activeServiceInstance?.takeDetourInternal(nowMs) ?: run {
+                val muteUntil = nowMs + RouteTracker.DETOUR_MUTE_DURATION_MS
+                _liveState.value = _liveState.value.copy(
+                    isOffTrailWarning = false,
+                    isDetourMuted = true,
+                    detourMuteUntilMs = muteUntil
+                )
+            }
+        }
+
+        fun dismissContinueDayPrompt() {
+            _liveState.value = _liveState.value.copy(showContinueDayPrompt = false)
+        }
 
         fun hasLocationPermission(context: Context): Boolean {
             val fine = androidx.core.content.ContextCompat.checkSelfPermission(

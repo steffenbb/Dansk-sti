@@ -9,7 +9,9 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "dansk_sti_settings")
 
@@ -100,16 +102,28 @@ data class AppSettings(
     val startTime: String = "09:00",
     val maxDetourKm: Double = 1.5,
     val dailyTargetKm: Double = 15.0,
-    val mapDarkMode: MapDarkMode = MapDarkMode.FOLLOW_SYSTEM
+    val mapDarkMode: MapDarkMode = MapDarkMode.FOLLOW_SYSTEM,
+    val keepScreenOn: Boolean = true,
+    val voiceGuidance: Boolean = false,
+    val plannerCoachMarksSeen: Boolean = false
 )
 
 class SettingsRepository(private val context: Context) {
     companion object {
+        @Volatile
+        var cachedMitTempoKmh: Double = 4.0
+
+        @Volatile
+        var cachedPlannerCoachMarksSeen: Boolean = false
+
         val KEY_MIT_TEMPO = doublePreferencesKey("mit_tempo_kmh")
         val KEY_UNITS = stringPreferencesKey("units")
         val KEY_START_TIME = stringPreferencesKey("start_time")
         val KEY_MAX_DETOUR = doublePreferencesKey("max_detour_km")
         val KEY_DAILY_TARGET = doublePreferencesKey("daily_target_km")
+        val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
+        val KEY_VOICE_GUIDANCE = booleanPreferencesKey("voice_guidance")
+        val KEY_PLANNER_COACH_MARKS_SEEN = booleanPreferencesKey("planner_coach_marks_seen")
 
         // Map Layers & Base Map Keys
         val KEY_BASE_MAP = stringPreferencesKey("base_map_type")
@@ -127,18 +141,33 @@ class SettingsRepository(private val context: Context) {
         val KEY_OVERLAY_MY_POINTS = booleanPreferencesKey("overlay_my_points")
     }
 
-    val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
+    private val safeDataFlow = context.dataStore.data
+        .onStart { emit(androidx.datastore.preferences.core.emptyPreferences()) }
+        .catch { emit(androidx.datastore.preferences.core.emptyPreferences()) }
+
+    val settingsFlow: Flow<AppSettings> = safeDataFlow.map { prefs ->
+        val tempo = prefs[KEY_MIT_TEMPO] ?: cachedMitTempoKmh
+        cachedMitTempoKmh = tempo
+        val coachSeen = prefs[KEY_PLANNER_COACH_MARKS_SEEN] ?: cachedPlannerCoachMarksSeen
+        cachedPlannerCoachMarksSeen = coachSeen
         AppSettings(
-            mitTempoKmh = prefs[KEY_MIT_TEMPO] ?: 4.0,
+            mitTempoKmh = tempo,
             units = prefs[KEY_UNITS] ?: "metric",
             startTime = prefs[KEY_START_TIME] ?: "09:00",
             maxDetourKm = prefs[KEY_MAX_DETOUR] ?: 1.5,
             dailyTargetKm = prefs[KEY_DAILY_TARGET] ?: 15.0,
-            mapDarkMode = MapDarkMode.fromString(prefs[KEY_MAP_DARK_MODE])
+            mapDarkMode = MapDarkMode.fromString(prefs[KEY_MAP_DARK_MODE]),
+            keepScreenOn = prefs[KEY_KEEP_SCREEN_ON] ?: true,
+            voiceGuidance = prefs[KEY_VOICE_GUIDANCE] ?: false,
+            plannerCoachMarksSeen = coachSeen
         )
     }
 
-    val mapLayersFlow: Flow<MapLayersState> = context.dataStore.data.map { prefs ->
+    val plannerCoachMarksSeenFlow: Flow<Boolean> = safeDataFlow.map { prefs ->
+        prefs[KEY_PLANNER_COACH_MARKS_SEEN] ?: cachedPlannerCoachMarksSeen
+    }
+
+    val mapLayersFlow: Flow<MapLayersState> = safeDataFlow.map { prefs ->
         MapLayersState(
             baseMap = BaseMapType.fromString(prefs[KEY_BASE_MAP]),
             showTerrain = prefs[KEY_OVERLAY_TERRAIN] ?: true,
@@ -235,6 +264,7 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun setMitTempoKmh(tempo: Double) {
+        cachedMitTempoKmh = tempo
         context.dataStore.edit { prefs ->
             prefs[KEY_MIT_TEMPO] = tempo
         }
@@ -265,4 +295,27 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun setDarkMapMode(mode: MapDarkMode) = setMapDarkMode(mode)
+
+    suspend fun setKeepScreenOn(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_KEEP_SCREEN_ON] = enabled
+        }
+    }
+
+    suspend fun setVoiceGuidance(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_VOICE_GUIDANCE] = enabled
+        }
+    }
+
+    suspend fun setPlannerCoachMarksSeen(seen: Boolean) {
+        cachedPlannerCoachMarksSeen = seen
+        runCatching {
+            kotlinx.coroutines.withTimeoutOrNull(500L) {
+                context.dataStore.edit { prefs ->
+                    prefs[KEY_PLANNER_COACH_MARKS_SEEN] = seen
+                }
+            }
+        }
+    }
 }

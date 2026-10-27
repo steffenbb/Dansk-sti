@@ -72,6 +72,10 @@ object BRouterGeoJsonParser {
         // Correlate way info per point
         val perPointWayInfo = correlateWayInfoToPoints(points, sectionWayInfos)
 
+        // Parse BRouter turn instructions (voicehints from timode=2) or fallback to geometry turn cues
+        val voiceHints = properties.optJSONArray("voicehints")
+        val turnCues = TurnCueGenerator.parseBRouterVoiceHints(voiceHints, points, perPointWayInfo)
+
         // Save into local Room database cache
         if (dao != null) {
             try {
@@ -108,7 +112,8 @@ object BRouterGeoJsonParser {
             descentM = descentM,
             perPointWayInfo = perPointWayInfo,
             sourceName = sourceName,
-            fetchedAt = System.currentTimeMillis()
+            fetchedAt = System.currentTimeMillis(),
+            turnCues = turnCues
         )
     }
 

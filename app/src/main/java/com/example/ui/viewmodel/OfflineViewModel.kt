@@ -174,11 +174,38 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private val _lastDeletedTrail = MutableStateFlow<DownloadedTrailEntity?>(null)
+    val lastDeletedTrail: StateFlow<DownloadedTrailEntity?> = _lastDeletedTrail.asStateFlow()
+
     fun deleteDownloadedTrail(trailId: String) {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
+                val existing = downloadedTrails.value.firstOrNull { it.trailId == trailId }
+                if (existing != null) {
+                    _lastDeletedTrail.value = existing
+                }
                 OfflineDownloadManager.deleteOfflineTrail(getApplication(), trailId)
                 repository.deleteDownloadedTrail(trailId)
+            }
+        }
+    }
+
+    fun deleteDownloadedTrailWithUndo(trail: DownloadedTrailEntity) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                _lastDeletedTrail.value = trail
+                OfflineDownloadManager.deleteOfflineTrail(getApplication(), trail.trailId)
+                repository.deleteDownloadedTrail(trail.trailId)
+            }
+        }
+    }
+
+    fun undoLastDeletedTrail() {
+        val item = _lastDeletedTrail.value ?: return
+        _lastDeletedTrail.value = null
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                (getApplication<Application>() as DanskStiApp).database.dao().insertDownloadedTrail(item)
             }
         }
     }

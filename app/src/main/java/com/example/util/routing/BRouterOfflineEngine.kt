@@ -56,6 +56,7 @@ class BRouterOfflineEngine(
                 if (cached != null && cached.expiresAt > System.currentTimeMillis()) {
                     val points = BRouterGeoJsonParser.deserializePoints(cached.pointsJson)
                     val wayInfo = BRouterGeoJsonParser.deserializeWayInfo(cached.wayInfoJson)
+                    val cues = TurnCueGenerator.computeTurnCuesFromPointsAndWayInfo(points, wayInfo)
                     Log.d(TAG, "Serving offline route leg from Room cache: $cacheKey")
                     return@withContext RouteLegResult.Success(
                         points = points,
@@ -64,7 +65,8 @@ class BRouterOfflineEngine(
                         descentM = cached.descentM,
                         perPointWayInfo = wayInfo,
                         sourceName = "brouter-offline",
-                        fetchedAt = cached.cachedAt
+                        fetchedAt = cached.cachedAt,
+                        turnCues = cues
                     )
                 }
             } catch (e: Exception) {
@@ -81,6 +83,7 @@ class BRouterOfflineEngine(
                     if (cached != null && cached.expiresAt > System.currentTimeMillis()) {
                         val points = BRouterGeoJsonParser.deserializePoints(cached.pointsJson)
                         val wayInfo = BRouterGeoJsonParser.deserializeWayInfo(cached.wayInfoJson)
+                        val cues = TurnCueGenerator.computeTurnCuesFromPointsAndWayInfo(points, wayInfo)
                         return@withLock RouteLegResult.Success(
                             points = points,
                             lengthKm = cached.lengthKm,
@@ -88,7 +91,8 @@ class BRouterOfflineEngine(
                             descentM = cached.descentM,
                             perPointWayInfo = wayInfo,
                             sourceName = "brouter-offline",
-                            fetchedAt = cached.cachedAt
+                            fetchedAt = cached.cachedAt,
+                            turnCues = cues
                         )
                     }
                 } catch (_: Exception) {}
@@ -117,12 +121,14 @@ class BRouterOfflineEngine(
                 val rc = RoutingContext()
                 rc.localFunction = "dansk-vandring"
 
-                // Pass profile expression parameters
+                // Pass profile expression parameters and timode=2 for turn instructions
                 val profileParams = mutableMapOf<String, String>()
                 profileParams["avoid_roads"] = String.format(Locale.US, "%.2f", options.avoidRoads.coerceIn(0.0, 1.0))
                 profileParams["prefer_nature"] = if (options.preferNature) "1" else "0"
                 profileParams["allow_ferries"] = if (options.allowFerries) "1" else "0"
+                profileParams["timode"] = "2"
                 rc.keyValues = profileParams
+                rc.turnInstructionMode = 2
                 rc.alternativeIdx = alternative.coerceIn(0, 3)
                 rc.outputFormat = "geojson"
 

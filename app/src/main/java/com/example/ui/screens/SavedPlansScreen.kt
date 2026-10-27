@@ -88,6 +88,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.DanskStiApp
 import com.example.R
 import com.example.data.model.CustomRouteEntity
 import com.example.data.model.DownloadedTrailEntity
@@ -96,8 +97,10 @@ import com.example.data.model.TrailEntity
 import com.example.data.model.TripPlanEntity
 import com.example.data.model.UserCustomWaypointEntity
 import com.example.ui.components.EmptyStateView
+import com.example.ui.components.OfflineStatusPill
 import com.example.ui.components.formatDanishElevationMeters
 import com.example.ui.components.formatDanishKm
+import com.example.ui.components.formatDownloadedDateDanish
 import com.example.ui.theme.AlertRed
 import com.example.ui.theme.CardShape
 import com.example.ui.theme.ForestGreenLight
@@ -215,16 +218,25 @@ fun SavedPlansScreen(
                 .padding(innerPadding)
         ) {
             // Header
-            Column(
+            val isDeviceOnline = remember(context) {
+                runCatching { (context.applicationContext as DanskStiApp).repository.isDeviceOnline() }.getOrDefault(true)
+            }
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = Spacing.s4, vertical = Spacing.s3)
+                    .padding(horizontal = Spacing.s4, vertical = Spacing.s3),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = stringResource(R.string.library_title),
                     style = MaterialTheme.typography.displayLarge,
-                    color = MaterialTheme.colorScheme.onBackground
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f)
                 )
+                if (!isDeviceOnline) {
+                    OfflineStatusPill()
+                }
             }
 
             // Segmented bar: Planer, Ruter, Punkter, Optagelser, Offline (Requirement H)
@@ -437,6 +449,10 @@ fun SavedPlansScreen(
                                         onDelete = {
                                             viewModel.deleteWaypointWithUndo(wp)
                                             showUndoSnackbar(wp.name)
+                                        },
+                                        onDeletePhoto = {
+                                            viewModel.deleteWaypointPhotoWithUndo(wp)
+                                            showUndoSnackbar("Foto (${wp.name})")
                                         }
                                     )
                                 }
@@ -889,7 +905,7 @@ private fun TripPlanLibraryCard(
 
             Text(
                 text = stringResource(R.string.ui_savedplansscreen_km_km_t_174, formatDanishKm(plan.totalDistanceKm, 1), plan.targetDays, if (plan.targetDays == 1) "dag" else "dage", formatDanishKm(plan.paceKmh, 1)),
-                style = TabularBodyStyle.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                style = TabularBodyStyle.copy(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
                 color = ForestGreenPrimary
             )
 
@@ -973,9 +989,8 @@ private fun CustomRouteLibraryCard(
                 )
                 Text(
                     text = stringResource(R.string.ui_savedplansscreen_km_m_177, formatDanishKm(route.lengthKm, 1), formatDanishElevationMeters(route.ascentM.toInt())),
-                    style = TabularLabelStyle,
-                    color = ForestGreenPrimary,
-                    fontWeight = FontWeight.SemiBold
+                    style = TabularBodyStyle.copy(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+                    color = ForestGreenPrimary
                 )
             }
             IconButton(
@@ -1049,7 +1064,7 @@ private fun SavedTrailLibraryCard(
                 )
                 Text(
                     text = stringResource(R.string.ui_kortscreen_km_55, trail.region, formatDanishKm(trail.lengthKm, 1)),
-                    style = TabularLabelStyle,
+                    style = TabularBodyStyle.copy(fontSize = 16.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -1073,7 +1088,8 @@ private fun SavedTrailLibraryCard(
 private fun WaypointLibraryCard(
     waypoint: UserCustomWaypointEntity,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onDeletePhoto: () -> Unit = {}
 ) {
     Card(
         shape = CardShape,
@@ -1084,49 +1100,68 @@ private fun WaypointLibraryCard(
             .clickable(onClick = onClick)
             .testTag("waypoint_card_${waypoint.id}")
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(Spacing.s4),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = ForestGreenPrimary.copy(alpha = 0.14f),
-                modifier = Modifier.size(44.dp)
+        Column(modifier = Modifier.padding(Spacing.s4)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Surface(
+                    shape = CircleShape,
+                    color = ForestGreenPrimary.copy(alpha = 0.14f),
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Place,
+                            contentDescription = null,
+                            tint = ForestGreenPrimary
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(Spacing.s3))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = waypoint.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = String.format(Locale("da", "DK"), "%.5f, %.5f", waypoint.lat, waypoint.lng),
+                        style = TabularBodyStyle.copy(fontSize = 16.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("delete_waypoint_${waypoint.id}")
+                ) {
                     Icon(
-                        imageVector = Icons.Default.Place,
-                        contentDescription = null,
-                        tint = ForestGreenPrimary
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = stringResource(R.string.cd_delete_item),
+                        tint = AlertRed
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(Spacing.s3))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = waypoint.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = String.format(Locale.US, "%.5f, %.5f", waypoint.lat, waypoint.lng),
-                    style = TabularLabelStyle,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier
-                    .size(48.dp)
-                    .testTag("delete_waypoint_${waypoint.id}")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = stringResource(R.string.cd_delete_item),
-                    tint = AlertRed
-                )
+            if (!waypoint.photoPath.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(Spacing.s2))
+                OutlinedButton(
+                    onClick = onDeletePhoto,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .testTag("delete_waypoint_photo_${waypoint.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Fjern foto",
+                        tint = AlertRed,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Fjern foto", color = AlertRed, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
@@ -1179,9 +1214,8 @@ private fun RecordingLibraryCard(
                 )
                 Text(
                     text = stringResource(R.string.ui_savedplansscreen_km_m_t_m_180, formatDanishKm(recording.distanceKm, 1), recording.ascentMeters, hours, mins, dateStr),
-                    style = TabularLabelStyle,
-                    color = ForestGreenPrimary,
-                    fontWeight = FontWeight.SemiBold
+                    style = TabularBodyStyle.copy(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+                    color = ForestGreenPrimary
                 )
             }
             IconButton(
@@ -1207,7 +1241,7 @@ private fun OfflineTrailLibraryCard(
     onDelete: () -> Unit
 ) {
     val itemMb = String.format(Locale("da", "DK"), "%.1f", item.sizeBytes / (1024.0 * 1024.0))
-    val dateStr = SimpleDateFormat("d. MMM yyyy", Locale("da", "DK")).format(Date(item.downloadedAt))
+    val downloadedLabel = formatDownloadedDateDanish(item.downloadedAt)
 
     Card(
         shape = CardShape,
@@ -1247,9 +1281,10 @@ private fun OfflineTrailLibraryCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = stringResource(R.string.ui_savedplansscreen_mb_fliser_hentet_181, itemMb, item.tileCount, dateStr),
-                    style = TabularLabelStyle,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "$itemMb MB · ${item.tileCount} fliser · $downloadedLabel",
+                    style = TabularBodyStyle.copy(fontSize = 16.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("offline_trail_downloaded_date_${item.trailId}")
                 )
             }
             IconButton(

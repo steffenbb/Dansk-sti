@@ -29,7 +29,8 @@ data class TrackingResult(
     val isCompleted: Boolean,
     val ignoredForProgress: Boolean,
     val shouldVibrate: Boolean,
-    val shouldPersistToDb: Boolean
+    val shouldPersistToDb: Boolean,
+    val isDetourMuted: Boolean = false
 )
 
 data class SegmentProjection(
@@ -66,8 +67,26 @@ class RouteTracker(
     var lastVibrationTimeMs: Long = 0L
         private set
 
+    var detourMuteUntilMs: Long = 0L
+        private set
+
     private var consecutiveOffRouteCount = 0
     private val consecutiveJumpCandidates = mutableListOf<SegmentProjection>()
+
+    companion object {
+        const val DETOUR_MUTE_DURATION_MS = 30L * 60L * 1000L // 30 minutes
+    }
+
+    /**
+     * Mutes off-route vibration and banner for 30 minutes or until back within 25 m.
+     */
+    fun takeDetour(nowMs: Long = System.currentTimeMillis()) {
+        detourMuteUntilMs = nowMs + DETOUR_MUTE_DURATION_MS
+    }
+
+    fun isDetourMuted(nowMs: Long = System.currentTimeMillis()): Boolean {
+        return detourMuteUntilMs > 0L && nowMs < detourMuteUntilMs
+    }
 
     /**
      * Called whenever GPS provides a new location update.
@@ -158,23 +177,31 @@ class RouteTracker(
 
             val offRouteThreshold = max(40.0, 1.5 * accuracy.toDouble())
 
+            // Back within 25 m clears detour mute as well as off-route state
+            if (distToRoute <= 25.0) {
+                detourMuteUntilMs = 0L
+            }
+            val muted = isDetourMuted(timestampMs)
+
             if (!isOffRoute) {
                 if (distToRoute > offRouteThreshold) {
                     consecutiveOffRouteCount++
                     if (consecutiveOffRouteCount >= 3) {
                         isOffRoute = true
-                        shouldVibrate = true
-                        lastVibrationTimeMs = timestampMs
+                        if (!muted) {
+                            shouldVibrate = true
+                            lastVibrationTimeMs = timestampMs
+                        }
                     }
                 } else {
                     consecutiveOffRouteCount = 0
                 }
             } else {
-                // Back on route = under 25 m
-                if (distToRoute < 25.0) {
+                // Back on route = within 25 m
+                if (distToRoute <= 25.0) {
                     isOffRoute = false
                     consecutiveOffRouteCount = 0
-                } else {
+                } else if (!muted) {
                     // Vibrate at most every 2 minutes while off route
                     if (timestampMs - lastVibrationTimeMs >= 120_000L) {
                         shouldVibrate = true
@@ -245,7 +272,8 @@ class RouteTracker(
             isCompleted = isCompleted,
             ignoredForProgress = !isAccurate,
             shouldVibrate = shouldVibrate,
-            shouldPersistToDb = shouldPersistToDb
+            shouldPersistToDb = shouldPersistToDb,
+            isDetourMuted = isDetourMuted(timestampMs)
         )
     }
 

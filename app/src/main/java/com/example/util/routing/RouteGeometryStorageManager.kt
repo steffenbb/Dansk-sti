@@ -24,7 +24,8 @@ data class LegGeometryData(
     val sourceName: String = "BRouter",
     val fetchedAt: Long = System.currentTimeMillis(),
     val wayInfo: List<WayInfo> = emptyList(),
-    val trailSegments: List<com.example.data.model.TrailSegmentDto> = emptyList()
+    val trailSegments: List<com.example.data.model.TrailSegmentDto> = emptyList(),
+    val turnCues: List<com.example.data.model.TurnCue> = emptyList()
 ) {
     val legKey: String get() = "${fromWaypointId}_to_${toWaypointId}"
     val slicedSegments: List<com.example.data.model.TrailSegmentDto> get() = trailSegments
@@ -100,6 +101,9 @@ data class LegGeometryData(
                 tsArr.put(tsObj)
             }
             obj.put("trailSegments", tsArr)
+        }
+        if (turnCues.isNotEmpty()) {
+            obj.put("turnCues", TurnCueGenerator.toJsonArray(turnCues))
         }
         return obj
     }
@@ -191,10 +195,22 @@ data class LegGeometryData(
                 }
             }
 
+            val rawTurnCues = TurnCueGenerator.fromJsonArray(obj.optJSONArray("turnCues"))
+            val parsedLegMode = runCatching { LegMode.valueOf(obj.getString("legMode")) }.getOrDefault(LegMode.SNAP)
+            val resolvedTurnCues = if (rawTurnCues.isNotEmpty()) {
+                rawTurnCues
+            } else if (parsedLegMode == LegMode.TRAIL) {
+                TurnCueGenerator.computeTrailTurnCues(tsList, ptsList, wiList)
+            } else if (parsedLegMode == LegMode.SNAP) {
+                TurnCueGenerator.computeTurnCuesFromPointsAndWayInfo(ptsList, wiList)
+            } else {
+                emptyList()
+            }
+
             return LegGeometryData(
                 fromWaypointId = obj.getString("fromWaypointId"),
                 toWaypointId = obj.getString("toWaypointId"),
-                legMode = runCatching { LegMode.valueOf(obj.getString("legMode")) }.getOrDefault(LegMode.SNAP),
+                legMode = parsedLegMode,
                 points = ptsList,
                 lengthKm = obj.optDouble("lengthKm", 0.0),
                 ascentM = obj.optDouble("ascentM", 0.0),
@@ -205,7 +221,8 @@ data class LegGeometryData(
                 sourceName = obj.optString("sourceName", "BRouter"),
                 fetchedAt = obj.optLong("fetchedAt", System.currentTimeMillis()),
                 wayInfo = wiList,
-                trailSegments = tsList
+                trailSegments = tsList,
+                turnCues = resolvedTurnCues
             )
         }
     }

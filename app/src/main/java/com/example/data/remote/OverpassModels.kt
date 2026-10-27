@@ -41,6 +41,10 @@ data class PlaceSearchResult(
     val displayName: String,
     val lat: Double,
     val lng: Double,
-    val type: String = "place"
+    val type: String = "place",
+    val subtitle: String? = null,
+    val osmKey: String? = null,
+    val osmValue: String? = null
 )
+
 

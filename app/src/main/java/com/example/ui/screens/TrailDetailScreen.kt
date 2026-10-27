@@ -18,9 +18,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -149,6 +151,16 @@ fun TrailDetailScreen(
     val isSyncingPois by viewModel.isSyncingPois.collectAsState()
     val longestGapWithoutWaterKm by viewModel.longestGapWithoutWaterKm.collectAsState()
     val longestGapWithoutOvernightKm by viewModel.longestGapWithoutOvernightKm.collectAsState()
+    val downloadedTrail by viewModel.downloadedTrail.collectAsState()
+    val createdNavigationPlanId by viewModel.createdNavigationPlanId.collectAsState()
+
+    LaunchedEffect(createdNavigationPlanId) {
+        val pid = createdNavigationPlanId
+        if (pid != null) {
+            viewModel.clearCreatedNavigationPlanId()
+            onStartNavigation(pid)
+        }
+    }
 
     var showApiKeyPrompt by remember { mutableStateOf(!DanskStiTileSource.hasValidKey && !DanskStiTileSource.userConfirmedOsmFallback) }
 
@@ -247,7 +259,12 @@ fun TrailDetailScreen(
                 mapTestTag = "trail_detail_map",
                 isInteractive = true,
                 isSystemDarkOverride = isDark,
-                controlsTopPadding = 56.dp,
+                shelters = emptyList(),
+                friTeltning = emptyList(),
+                pois = emptyList(),
+                customWaypoints = emptyList(),
+                controlsTopPadding = 16.dp,
+                controlsEndPadding = 16.dp,
                 layersButtonTestTag = "trail_detail_layers_button",
                 compassButtonTestTag = "trail_detail_compass_button",
                 myLocationButtonTestTag = "trail_detail_my_location_button",
@@ -427,20 +444,20 @@ fun TrailDetailScreen(
                 }
             }
 
-            // Top action buttons (Back & Fullscreen hint)
+            // Top action buttons (Back & Fullscreen hint) — padded on the right so they never overlap map_controls_column
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .padding(start = 16.dp, end = 76.dp, top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
                     shadowElevation = 4.dp,
-                    modifier = Modifier.size(44.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     IconButton(
                         onClick = onBack,
@@ -454,60 +471,55 @@ fun TrailDetailScreen(
                     }
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                    shadowElevation = 4.dp,
+                    modifier = Modifier.clickable { onOpenDiagnostics() }
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                        shadowElevation = 4.dp,
-                        modifier = Modifier.clickable { onOpenDiagnostics() }
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Explore,
-                                contentDescription = stringResource(R.string.ui_traildetailscreen_api_status_192),
-                                tint = ForestGreenPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = stringResource(R.string.ui_traildetailscreen_netv_rk_193),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Explore,
+                            contentDescription = stringResource(R.string.ui_traildetailscreen_api_status_192),
+                            tint = ForestGreenPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = stringResource(R.string.ui_traildetailscreen_netv_rk_193),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
+                }
 
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                        shadowElevation = 4.dp,
-                        modifier = Modifier.clickable { onOpenFullscreenMap(trailId) }
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                    shadowElevation = 4.dp,
+                    modifier = Modifier.clickable { onOpenFullscreenMap(trailId) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Fullscreen,
-                                contentDescription = stringResource(R.string.ui_traildetailscreen_fuldsk_rmskort_194),
-                                tint = ForestGreenPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = stringResource(R.string.ui_traildetailscreen_fuldsk_rm_195),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Fullscreen,
+                            contentDescription = stringResource(R.string.ui_traildetailscreen_fuldsk_rmskort_194),
+                            tint = ForestGreenPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = stringResource(R.string.ui_traildetailscreen_fuldsk_rm_195),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }
@@ -584,7 +596,7 @@ fun TrailDetailScreen(
                     .testTag("trail_detail_list"),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                // Title Block: title, region, data date (Requirement D)
+                // Title Block: title, region, data date (Requirement D) + "Hentet <dato>" when downloaded
                 item {
                     Column(
                         modifier = Modifier
@@ -610,6 +622,16 @@ fun TrailDetailScreen(
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                                 modifier = Modifier.testTag("trail_detail_data_date")
+                            )
+                        }
+                        downloadedTrail?.let { dl ->
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = com.example.ui.components.formatDownloadedDateDanish(dl.downloadedAt),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ForestGreenPrimary,
+                                modifier = Modifier.testTag("trail_detail_downloaded_date")
                             )
                         }
                     }
@@ -905,7 +927,7 @@ fun TrailDetailScreen(
                 }
             }
 
-            // Fixed Bottom Bar with Big Green "Planlæg tur" Button (56dp high, glove friendly)
+            // Fixed Bottom Bar with "Start nu" next to "Planlæg tur" (56dp min height, glove friendly)
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 8.dp,
@@ -914,18 +936,21 @@ fun TrailDetailScreen(
                     .fillMaxWidth()
                     .navigationBarsPadding()
             ) {
-                Box(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(
+                    OutlinedButton(
                         onClick = { onPlanTrip(trailId) },
                         shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                        border = BorderStroke(1.5.dp, ForestGreenPrimary),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ForestGreenPrimary),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
+                            .weight(1f)
+                            .heightIn(min = 56.dp)
                             .testTag("plan_trip_button")
                     ) {
                         Icon(
@@ -933,10 +958,55 @@ fun TrailDetailScreen(
                             contentDescription = null,
                             modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = stringResource(R.string.btn_plan_trip),
-                            fontSize = 16.sp,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            val gpsLoc = try {
+                                val lm = context.getSystemService(android.content.Context.LOCATION_SERVICE) as? android.location.LocationManager
+                                val hasPerm = androidx.core.content.ContextCompat.checkSelfPermission(
+                                    context,
+                                    android.Manifest.permission.ACCESS_FINE_LOCATION
+                                ) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                                    androidx.core.content.ContextCompat.checkSelfPermission(
+                                        context,
+                                        android.Manifest.permission.ACCESS_COARSE_LOCATION
+                                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                if (hasPerm && lm != null) {
+                                    lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                                        ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+                                } else null
+                            } catch (_: Exception) {
+                                null
+                            }
+                            viewModel.startTrailNow(
+                                gpsLat = gpsLoc?.latitude,
+                                gpsLng = gpsLoc?.longitude,
+                                onPlanCreated = {}
+                            )
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 56.dp)
+                            .testTag("start_now_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Navigation,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Start nu",
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -1081,7 +1151,7 @@ fun ElevationProfileCanvas(
 fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
     if (surfaceMix.isEmpty()) {
         Text(
-            text = "Stiandel: ukendt · Vej: ukendt",
+            text = stringResource(R.string.way_info_unknown_summary),
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.testTag("trail_surface_unknown_text")
@@ -1091,6 +1161,7 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
     val stiPct = (surfaceMix["Sti"] ?: 0).coerceAtLeast(0)
     val grusPct = (surfaceMix["Grus"] ?: 0).coerceAtLeast(0)
     val asfaltPct = (surfaceMix["Asfalt"] ?: 0).coerceAtLeast(0)
+    val ukendtPct = (surfaceMix["Ukendt"] ?: 0).coerceAtLeast(0)
 
     val validSti = if (stiPct > 0) stiPct.toFloat() else 0.001f
     val validGrus = if (grusPct > 0) grusPct.toFloat() else 0.001f
@@ -1106,18 +1177,29 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
             Box(
                 modifier = Modifier
                     .weight(validSti)
+                    .fillMaxHeight()
                     .background(ForestGreenPrimary)
             )
             Box(
                 modifier = Modifier
                     .weight(validGrus)
+                    .fillMaxHeight()
                     .background(AmberAccent)
             )
             Box(
                 modifier = Modifier
                     .weight(validAsfalt)
+                    .fillMaxHeight()
                     .background(Color.Gray)
             )
+            if (ukendtPct > 0) {
+                Box(
+                    modifier = Modifier
+                        .weight(ukendtPct.toFloat())
+                        .fillMaxHeight()
+                        .background(Color.LightGray)
+                )
+            }
         }
 
         Row(
@@ -1138,6 +1220,18 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
                 Box(modifier = Modifier.size(8.dp).background(Color.Gray, CircleShape))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(stringResource(R.string.ui_traildetailscreen_asfalt_212, asfaltPct), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (ukendtPct > 0) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(8.dp).background(Color.LightGray, CircleShape))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        stringResource(R.string.trail_surface_ukendt_pct, ukendtPct),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("trail_surface_ukendt_pct")
+                    )
+                }
             }
         }
     }
@@ -1179,12 +1273,12 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = spot.name,
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (spot.detourMeters > 50) "${spot.detourMeters.toInt()}m afstikker" else "Direkte på ruten",
+                        text = if (spot.detourMeters > 50) "${spot.detourMeters.toInt()} m afstikker" else "Direkte på ruten",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1203,7 +1297,8 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     Text(
-                        text = stringResource(R.string.ui_traildetailscreen_km_214, String.format(Locale.US, "%.1f", spot.kmOnRoute)),
+                        text = stringResource(R.string.ui_traildetailscreen_km_214, String.format(Locale("da", "DK"), "%.1f", spot.kmOnRoute)),
+                        style = com.example.ui.theme.TabularStatsTextStyle,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = ForestGreenPrimary,
@@ -1247,7 +1342,9 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = AmberAccent),
                         border = BorderStroke(1.dp, AmberAccent),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(34.dp).testTag("shelter_booking_button_${spot.id}")
+                        modifier = Modifier
+                            .heightIn(min = 36.dp)
+                            .testTag("shelter_booking_button_${spot.id}")
                     ) {
                         Text(text = buttonLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
@@ -1293,7 +1390,7 @@ fun PoiItemCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = poi.name,
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -1306,7 +1403,8 @@ fun PoiItemCard(
                 }
             }
             Text(
-                text = stringResource(R.string.ui_traildetailscreen_km_214, String.format(Locale.US, "%.1f", poi.kmOnRoute)),
+                text = stringResource(R.string.ui_traildetailscreen_km_214, String.format(Locale("da", "DK"), "%.1f", poi.kmOnRoute)),
+                style = com.example.ui.theme.TabularStatsTextStyle,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = ForestGreenPrimary

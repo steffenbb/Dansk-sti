@@ -93,6 +93,55 @@ fun formatDanishElevationMeters(meters: Double): String {
 }
 
 /**
+ * Formats a timestamp in Danish as "Hentet <dato>", e.g. "Hentet 27. okt. 2026".
+ */
+fun formatDownloadedDateDanish(epochMillis: Long): String {
+    val safeMillis = if (epochMillis > 0L) epochMillis else System.currentTimeMillis()
+    val sdf = java.text.SimpleDateFormat("d. MMM yyyy", Locale("da", "DK"))
+    return "Hentet ${sdf.format(java.util.Date(safeMillis))}"
+}
+
+/**
+ * UI Round 4 (Item 5): "Offline" pill shown on maps and lists without connection.
+ */
+@Composable
+fun OfflineStatusPill(
+    modifier: Modifier = Modifier,
+    testTag: String = "offline_pill"
+) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = Color(0xFF263238).copy(alpha = 0.92f),
+        border = BorderStroke(1.dp, com.example.ui.theme.AccentAmber.copy(alpha = 0.7f)),
+        shadowElevation = 2.dp,
+        modifier = modifier
+            .testTag(testTag)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Offline tilstand uden internetforbindelse"
+            }
+    ) {
+         androidx.compose.foundation.layout.Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(com.example.ui.theme.AccentAmber)
+            )
+            Text(
+                text = "Offline",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+        }
+    }
+}
+
+/**
  * Requirement A: Haptic tick when a pin is added, snapped or dropped.
  */
 object HapticFeedbackHelper {

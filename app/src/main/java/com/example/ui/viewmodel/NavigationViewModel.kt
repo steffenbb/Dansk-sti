@@ -19,7 +19,15 @@ import com.example.data.repository.PlannedRouteRepository
 import com.example.service.NavigationLiveState
 import com.example.service.NavigationTrackingService
 import com.example.util.GeoUtils
+import com.example.util.routing.BRouterOfflineEngine
+import com.example.util.routing.BRouterOnlineEngine
+import com.example.util.routing.LatLng
+import com.example.util.routing.RouteLegResult
+import com.example.util.routing.RouteOptions
+import com.example.util.routing.RoutePoint3D
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,6 +35,13 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import kotlin.math.max
+
+enum class NavigationMapMode(val label: String) {
+    FOLLOW_NORTH_UP("Følg (nord op)"),
+    FOLLOW_HEADING_UP("Følg (retning op)"),
+    OVERVIEW("Oversigt")
+}
 
 data class NextStopInfo(
     val name: String,
@@ -39,6 +54,13 @@ data class AheadOnRouteItem(
     val type: String,
     val kmRemaining: Double,
     val detourMeters: Double
+)
+
+data class DayProgressStopIcon(
+    val type: String, // "WATER", "SHOP", "CAMP"
+    val name: String,
+    val fraction: Float, // 0f..1f along today's stage
+    val walkKm: Double
 )
 
 class NavigationViewModel(application: Application) : AndroidViewModel(application) {
@@ -81,6 +103,9 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private val _aheadItems = MutableStateFlow<List<AheadOnRouteItem>>(emptyList())
     val aheadItems: StateFlow<List<AheadOnRouteItem>> = _aheadItems.asStateFlow()
 
+    private val _dayProgressStops = MutableStateFlow<List<DayProgressStopIcon>>(emptyList())
+    val dayProgressStops: StateFlow<List<DayProgressStopIcon>> = _dayProgressStops.asStateFlow()
+
     // Requirement 21: Route corridor POIs for overlayManager.updatePois
     private val _routeShelters = MutableStateFlow<List<ShelterEntity>>(emptyList())
     val routeShelters: StateFlow<List<ShelterEntity>> = _routeShelters.asStateFlow()
@@ -121,8 +146,35 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private val _mapTileMode = MutableStateFlow("topo") // "topo", "offline"
     val mapTileMode: StateFlow<String> = _mapTileMode.asStateFlow()
 
+    // UI Round 3: Map mode cycling (Følg nord op -> Følg retning op -> Oversigt)
+    private val _mapMode = MutableStateFlow(NavigationMapMode.FOLLOW_NORTH_UP)
+    val mapMode: StateFlow<NavigationMapMode> = _mapMode.asStateFlow()
+    private var previousFollowMode: NavigationMapMode = NavigationMapMode.FOLLOW_NORTH_UP
+    private var overviewReturnJob: Job? = null
+
+    // UI Round 3: "Rut mig tilbage" dashed route points
+    private val _backToRoutePoints = MutableStateFlow<List<RoutePoint3D>>(emptyList())
+    val backToRoutePoints: StateFlow<List<RoutePoint3D>> = _backToRoutePoints.asStateFlow()
+
+    private val _isRoutingBackToRoute = MutableStateFlow(false)
+    val isRoutingBackToRoute: StateFlow<Boolean> = _isRoutingBackToRoute.asStateFlow()
+
+    // UI Round 3: Sunset time for daylight warning & next day card
+    private val _sunsetTime = MutableStateFlow("20:30")
+    val sunsetTime: StateFlow<String> = _sunsetTime.asStateFlow()
+
     val isTripActive: StateFlow<Boolean> = MutableStateFlow(false)
         .combineWithLiveState()
+
+    private val settingsRepository = (application as DanskStiApp).settingsRepository
+    private val _mitTempoKmh = MutableStateFlow(com.example.data.local.SettingsRepository.cachedMitTempoKmh)
+    val mitTempoKmh: StateFlow<Double> = _mitTempoKmh.asStateFlow()
+
+    private val _keepScreenOn = MutableStateFlow(true)
+    val keepScreenOn: StateFlow<Boolean> = _keepScreenOn.asStateFlow()
+
+    private val _voiceGuidance = MutableStateFlow(false)
+    val voiceGuidance: StateFlow<Boolean> = _voiceGuidance.asStateFlow()
 
     private fun MutableStateFlow<Boolean>.combineWithLiveState(): StateFlow<Boolean> {
         val flow = MutableStateFlow(false)
@@ -135,6 +187,13 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     init {
+        viewModelScope.launch {
+            settingsRepository.settingsFlow.collect { settings ->
+                _mitTempoKmh.value = settings.mitTempoKmh
+                _keepScreenOn.value = settings.keepScreenOn
+                _voiceGuidance.value = settings.voiceGuidance
+            }
+        }
         // React to live GPS updates and read progress from service
         viewModelScope.launch {
             NavigationTrackingService.liveState.collect { state ->
@@ -146,6 +205,10 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                     _currentDay.value = state.currentDay
                 }
                 _distanceRemainingToday.value = state.distanceRemainingTodayKm
+
+                if (!state.isOffTrailWarning && _backToRoutePoints.value.isNotEmpty()) {
+                    _backToRoutePoints.value = emptyList()
+                }
 
                 if (state.isTracking) {
                     val days = _activePlan.value?.targetDays ?: _plannedRoute.value?.stages?.size ?: 1
@@ -159,11 +222,112 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 }
 
+                recalculateRouteStopsAndAhead(
+                    route = _plannedRoute.value ?: state.plannedRoute,
+                    currentWalkKm = state.totalDistanceWalkedKm,
+                    currentDay = state.currentDay,
+                    currentStage = state.currentStage,
+                    remainingTodayKm = state.distanceRemainingTodayKm
+                )
+
                 if (state.isTracking && state.currentLat != null && state.currentLng != null && state.currentLat != 0.0) {
                     _emergencyInfo.value = repository.getEmergencyInfo(state.currentLat, state.currentLng)
                 }
             }
         }
+    }
+
+    private fun recalculateRouteStopsAndAhead(
+        route: PlannedRoute?,
+        currentWalkKm: Double,
+        currentDay: Int,
+        currentStage: TripStage?,
+        remainingTodayKm: Double
+    ) {
+        if (route == null || route.points.isEmpty()) return
+
+        val stage = currentStage ?: route.stages.getOrNull(currentDay - 1) ?: route.stages.lastOrNull()
+        val stageStartKm = stage?.startWalkKm ?: 0.0
+        val stageEndKm = stage?.endWalkKm ?: route.totalWalkKm
+        val stageSpanKm = (stageEndKm - stageStartKm).coerceAtLeast(0.1)
+
+        val upcomingItems = mutableListOf<AheadOnRouteItem>()
+        val progressIcons = mutableListOf<DayProgressStopIcon>()
+
+        // Project water POIs
+        var bestWater: NextStopInfo? = null
+        for (w in _routeWaters.value) {
+            val (wKm, detourM) = route.projectPoint(w.lat, w.lng)
+            if (detourM <= 1500.0) {
+                if (wKm in (stageStartKm - 0.1)..(stageEndKm + 0.1)) {
+                    val frac = ((wKm - stageStartKm) / stageSpanKm).toFloat().coerceIn(0.02f, 0.96f)
+                    progressIcons.add(DayProgressStopIcon("WATER", w.name, frac, wKm))
+                }
+                val remKm = wKm - currentWalkKm
+                if (remKm > 0.02) {
+                    upcomingItems.add(AheadOnRouteItem(w.name, "WATER", remKm, detourM))
+                    if (bestWater == null || remKm < bestWater.distanceRemainingKm) {
+                        bestWater = NextStopInfo(w.name, remKm, "WATER")
+                    }
+                }
+            }
+        }
+        if (bestWater == null && stage?.hasWaterNearby == true && remainingTodayKm > 0.0) {
+            bestWater = NextStopInfo(stage.stopName, remainingTodayKm, "WATER")
+        }
+        _nextWater.value = bestWater
+
+        // Project shop POIs
+        var bestShop: NextStopInfo? = null
+        for (s in _routeShops.value) {
+            val (sKm, detourM) = route.projectPoint(s.lat, s.lng)
+            if (detourM <= 2000.0) {
+                if (sKm in (stageStartKm - 0.1)..(stageEndKm + 0.1)) {
+                    val frac = ((sKm - stageStartKm) / stageSpanKm).toFloat().coerceIn(0.02f, 0.96f)
+                    progressIcons.add(DayProgressStopIcon("SHOP", s.name, frac, sKm))
+                }
+                val remKm = sKm - currentWalkKm
+                if (remKm > 0.02) {
+                    upcomingItems.add(AheadOnRouteItem(s.name, "SHOP", remKm, detourM))
+                    if (bestShop == null || remKm < bestShop.distanceRemainingKm) {
+                        bestShop = NextStopInfo(s.name, remKm, "SHOP")
+                    }
+                }
+            }
+        }
+        _nextShop.value = bestShop
+
+        // Project shelters ahead
+        for (sh in _routeShelters.value) {
+            val (shKm, detourM) = route.projectPoint(sh.lat, sh.lng)
+            val remKm = shKm - currentWalkKm
+            if (detourM <= 1500.0 && remKm > 0.05 && shKm <= stageEndKm + 0.5) {
+                upcomingItems.add(AheadOnRouteItem(sh.name, "SHELTER", remKm, detourM))
+            }
+        }
+
+        // Tonight's camp at end of stage
+        if (stage != null) {
+            progressIcons.add(DayProgressStopIcon("CAMP", stage.stopName, 1.0f, stageEndKm))
+            _nextOvernight.value = NextStopInfo(
+                name = stage.stopName,
+                distanceRemainingKm = max(0.0, stageEndKm - currentWalkKm),
+                type = stage.stopType
+            )
+            if (upcomingItems.none { it.title == stage.stopName }) {
+                upcomingItems.add(
+                    AheadOnRouteItem(
+                        title = stage.stopName,
+                        type = "SHELTER",
+                        kmRemaining = max(0.0, stageEndKm - currentWalkKm),
+                        detourMeters = stage.detourMeters
+                    )
+                )
+            }
+        }
+
+        _aheadItems.value = upcomingItems.sortedBy { it.kmRemaining }
+        _dayProgressStops.value = progressIcons.sortedBy { it.fraction }
     }
 
     private fun loadRouteCorridorPois(route: PlannedRoute) {
@@ -207,6 +371,23 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
                 val hazards = repository.getHazardNotesForTrail(trailId).firstOrNull() ?: emptyList()
                 _routeHazards.value = hazards
+
+                val midPt = route.points.getOrNull(route.points.size / 2)
+                if (midPt != null) {
+                    val weather = runCatching { repository.getTrailWeather(midPt.lat, midPt.lng) }.getOrNull()
+                    if (!weather?.sunset.isNullOrBlank()) {
+                        _sunsetTime.value = weather!!.sunset
+                    }
+                }
+
+                val st = liveState.value
+                recalculateRouteStopsAndAhead(
+                    route = route,
+                    currentWalkKm = st.totalDistanceWalkedKm,
+                    currentDay = st.currentDay,
+                    currentStage = st.currentStage,
+                    remainingTodayKm = st.distanceRemainingTodayKm
+                )
             } catch (_: Exception) {}
         }
     }
@@ -221,7 +402,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 if (item is JSONArray && item.length() >= 2) {
                     val v0 = item.getDouble(0)
                     val v1 = item.getDouble(1)
-                    // GeoJSON coordinates are [lng, lat] or [lat, lng]; Denmark lat is 54..58, lng is 8..16
                     if (v0 in 53.0..59.0) {
                         pts.add(GeoPointDto(v0, v1))
                     } else {
@@ -259,7 +439,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                     _activeStages.value = stages
                 }
 
-                // If tracking is not active, start it (startTrip checks location permission first)
                 if (!NavigationTrackingService.liveState.value.isTracking) {
                     startTrip(targetId)
                 }
@@ -309,7 +488,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                     return@withContext
                 }
 
-                // Start background tracking service (service restores existing progress from DB)
                 NavigationTrackingService.start(
                     context = getApplication(),
                     planId = planId
@@ -356,6 +534,131 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         _plannedRoute.value = null
         _isBatterySaverMode.value = false
         plannedRouteRepo.clearLastActivePlanId()
+    }
+
+    fun stopForToday() {
+        NavigationTrackingService.stopForToday(getApplication())
+    }
+
+    fun togglePause() {
+        val nextPaused = !liveState.value.isPaused
+        NavigationTrackingService.setPaused(getApplication(), nextPaused)
+    }
+
+    fun setPaused(paused: Boolean) {
+        NavigationTrackingService.setPaused(getApplication(), paused)
+    }
+
+    /**
+     * Requirement 3: "Jeg tager en omvej" - mute off-route vibration and banner
+     * for 30 minutes or until back within 25 m.
+     */
+    fun takeDetour(nowMs: Long = System.currentTimeMillis()) {
+        NavigationTrackingService.takeDetour(getApplication(), nowMs)
+        _backToRoutePoints.value = emptyList()
+    }
+
+    /**
+     * Requirement 3: "Rut mig tilbage" - route from current position to the route ahead,
+     * drawn dashed, without changing the plan.
+     */
+    fun routeMeBack() {
+        val state = liveState.value
+        val curLat = state.currentLat ?: return
+        val curLng = state.currentLng ?: return
+        val route = _plannedRoute.value ?: state.plannedRoute
+        val targetPt = state.nearestPointAhead
+            ?: route?.points?.filter { it.walkKm >= state.totalDistanceWalkedKm }?.minByOrNull {
+                GeoUtils.distanceMeters(curLat, curLng, it.lat, it.lng)
+            }
+            ?: route?.points?.firstOrNull()
+            ?: return
+
+        // Immediately draw dashed line while BRouter refines it
+        _backToRoutePoints.value = listOf(
+            RoutePoint3D(curLat, curLng),
+            RoutePoint3D(targetPt.lat, targetPt.lng, targetPt.ele)
+        )
+        _isRoutingBackToRoute.value = true
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val from = LatLng(curLat, curLng)
+                val to = LatLng(targetPt.lat, targetPt.lng)
+                val offlineEngine = BRouterOfflineEngine(getApplication<Application>())
+                val offlineRes = offlineEngine.routeLeg(from, to, RouteOptions())
+                if (offlineRes is RouteLegResult.Success && offlineRes.points.size >= 2) {
+                    _backToRoutePoints.value = offlineRes.points
+                } else {
+                    val onlineEngine = BRouterOnlineEngine(getApplication<Application>())
+                    val onlineRes = onlineEngine.routeLeg(from, to, RouteOptions())
+                    if (onlineRes is RouteLegResult.Success && onlineRes.points.size >= 2) {
+                        _backToRoutePoints.value = onlineRes.points
+                    }
+                }
+            } catch (_: Exception) {
+                // Keep the 2-point dashed fallback line
+            } finally {
+                _isRoutingBackToRoute.value = false
+            }
+        }
+    }
+
+    /**
+     * Requirement 4: Map mode button cycling:
+     * Følg (nord op) -> Følg (retning op) -> Oversigt (fit today's stage, return to follow after 10 s or on tap).
+     */
+    fun cycleMapMode() {
+        val next = when (_mapMode.value) {
+            NavigationMapMode.FOLLOW_NORTH_UP -> NavigationMapMode.FOLLOW_HEADING_UP
+            NavigationMapMode.FOLLOW_HEADING_UP -> {
+                previousFollowMode = NavigationMapMode.FOLLOW_HEADING_UP
+                NavigationMapMode.OVERVIEW
+            }
+            NavigationMapMode.OVERVIEW -> NavigationMapMode.FOLLOW_NORTH_UP
+        }
+        setMapMode(next)
+    }
+
+    fun setMapMode(mode: NavigationMapMode) {
+        overviewReturnJob?.cancel()
+        if (mode != NavigationMapMode.OVERVIEW) {
+            previousFollowMode = mode
+        }
+        _mapMode.value = mode
+        if (mode == NavigationMapMode.OVERVIEW) {
+            overviewReturnJob = viewModelScope.launch {
+                delay(10_000L)
+                if (_mapMode.value == NavigationMapMode.OVERVIEW) {
+                    _mapMode.value = previousFollowMode
+                }
+            }
+        }
+    }
+
+    fun onMapTappedInOverview() {
+        if (_mapMode.value == NavigationMapMode.OVERVIEW) {
+            overviewReturnJob?.cancel()
+            _mapMode.value = previousFollowMode
+        }
+    }
+
+    fun setKeepScreenOn(enabled: Boolean) {
+        _keepScreenOn.value = enabled
+        viewModelScope.launch {
+            settingsRepository.setKeepScreenOn(enabled)
+        }
+    }
+
+    fun setVoiceGuidance(enabled: Boolean) {
+        _voiceGuidance.value = enabled
+        viewModelScope.launch {
+            settingsRepository.setVoiceGuidance(enabled)
+        }
+    }
+
+    fun dismissContinueDayPrompt() {
+        NavigationTrackingService.dismissContinueDayPrompt()
     }
 
     fun toggleBatterySaver() {

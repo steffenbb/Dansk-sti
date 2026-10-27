@@ -64,6 +64,7 @@ import androidx.compose.material.icons.filled.NightShelter
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.SwapVert
@@ -83,10 +84,20 @@ import com.example.data.model.SupplyGapType
 import com.example.data.model.SupplyGapWarning
 import com.example.data.model.UserCustomWaypointEntity
 import com.example.data.model.WaypointWeatherEta
+import com.example.ui.components.GroupedPlaceSearchDropdown
 import com.example.ui.screens.planner.AlternativeRouteCard
+import com.example.ui.screens.planner.CrosshairPlacementOverlay
 import com.example.ui.screens.planner.CustomWaypointRow
+import com.example.ui.screens.planner.KigTegnSegmentedToggle
+import com.example.ui.screens.planner.PinSelectionActionBar
 import com.example.ui.screens.planner.PlannerBottomSheet
+import com.example.ui.screens.planner.RouteBuilderPinDragOverlay
+import com.example.ui.screens.planner.SelectedLegCard
+import com.example.ui.screens.planner.TalkBackRouteSemanticsOverlay
 import com.example.ui.screens.planner.WaypointWeatherEtaCard
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import java.io.File
 import java.io.FileOutputStream
 import androidx.compose.material3.ButtonDefaults
@@ -101,6 +112,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -203,8 +215,10 @@ fun RouteBuilderScreen(
     var showSaveDialog by remember { mutableStateOf(false) }
     var renameRouteName by remember { mutableStateOf("") }
     var showRenameDialog by remember { mutableStateOf(false) }
-    var selectedWaypointForSheet by remember { mutableStateOf<RouteWaypoint?>(null) }
+    var showRenameWaypointDialog by remember { mutableStateOf(false) }
+    var renameWaypointTargetId by remember { mutableStateOf<String?>(null) }
     var renameWaypointText by remember { mutableStateOf("") }
+    var showPlannerMenu by remember { mutableStateOf(false) }
     var showLayersSheet by remember { mutableStateOf(false) }
     var hasZoomedToInitialRoute by remember { mutableStateOf(false) }
 
@@ -321,6 +335,40 @@ fun RouteBuilderScreen(
         }
     }
 
+    // UI Round 2 Item 4: Pan/zoom map so selected pin, leg, or day section is not hidden behind the bottom sheet
+    LaunchedEffect(uiState.mapViewportTarget, uiState.selectedDayNumber, mapViewInstance) {
+        val map = mapViewInstance ?: return@LaunchedEffect
+        val target = uiState.mapViewportTarget ?: return@LaunchedEffect
+        val dayNum = uiState.selectedDayNumber
+        map.post {
+            try {
+                val sectionPts = if (dayNum != null) viewModel.getPointsForDaySection(dayNum) else emptyList()
+                if (sectionPts.size >= 2) {
+                    val minLat = sectionPts.minOf { it.lat }
+                    val maxLat = sectionPts.maxOf { it.lat }
+                    val minLng = sectionPts.minOf { it.lng }
+                    val maxLng = sectionPts.maxOf { it.lng }
+                    val latSpan = (maxLat - minLat).coerceAtLeast(0.01)
+                    // Expand south bound proportionally to sheet height so the day's section sits above the sheet
+                    val sheetRatio = uiState.sheetHeightFraction.coerceIn(0.18f, 0.60f)
+                    val extraSouth = latSpan * (sheetRatio / (1f - sheetRatio)).coerceIn(0.25f, 1.5f)
+                    val box = BoundingBox(
+                        maxLat + latSpan * 0.15,
+                        maxLng + 0.01,
+                        (minLat - extraSouth).coerceAtLeast(-85.0),
+                        minLng - 0.01
+                    )
+                    map.zoomToBoundingBox(box, true)
+                } else {
+                    val zoom = map.zoomLevelDouble.coerceAtLeast(14.0)
+                    map.controller.animateTo(GeoPoint(target.lat, target.lng), zoom, 350L)
+                }
+            } catch (_: Exception) {
+                map.controller.setCenter(GeoPoint(target.lat, target.lng))
+            }
+        }
+    }
+
     var overlayManagerInstance by remember { mutableStateOf<com.example.ui.navigation.MapLayersOverlayManager?>(null) }
     var currentEffectiveDarkMap by remember { mutableStateOf(isDark) }
 
@@ -331,6 +379,9 @@ fun RouteBuilderScreen(
         uiState.loadingLegKeys,
         uiState.failedLegs,
         uiState.alternatives,
+        uiState.legAlternatives,
+        uiState.selectedWaypointId,
+        uiState.selectedLegKey,
         uiState.gpxOriginalPoints,
         uiState.scrubbedPointOnMap,
         uiState.baseTrailPoints,
@@ -351,8 +402,7 @@ fun RouteBuilderScreen(
             state = uiState,
             viewModel = viewModel,
             onWaypointClicked = { wp ->
-                selectedWaypointForSheet = wp
-                renameWaypointText = wp.name ?: ""
+                viewModel.selectWaypoint(wp.id)
             }
         )
     }
@@ -471,6 +521,48 @@ fun RouteBuilderScreen(
                             Icon(Icons.Default.UploadFile, contentDescription = stringResource(R.string.ui_routebuilderscreen_importer_gpx_103))
                         }
                     }
+
+                    // UI Round 1 Item 10: Planner menu ("Luk ruten" & "Ud og hjem")
+                    Box {
+                        IconButton(
+                            onClick = { showPlannerMenu = true },
+                            modifier = Modifier.testTag("btn_planner_menu")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Ruteplanlægger menu"
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showPlannerMenu,
+                            onDismissRequest = { showPlannerMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.planner_menu_close_loop)) },
+                                onClick = {
+                                    showPlannerMenu = false
+                                    viewModel.closeRouteLoop()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Loop, contentDescription = null)
+                                },
+                                enabled = visibleWaypoints.size >= 2,
+                                modifier = Modifier.testTag("menu_item_luk_ruten")
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.planner_menu_out_and_back)) },
+                                onClick = {
+                                    showPlannerMenu = false
+                                    viewModel.appendOutAndBack()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.SwapVert, contentDescription = null)
+                                },
+                                enabled = visibleWaypoints.size >= 2,
+                                modifier = Modifier.testTag("menu_item_ud_og_hjem")
+                            )
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -492,7 +584,8 @@ fun RouteBuilderScreen(
                 isSystemDarkOverride = isDark,
                 customWaypoints = uiState.customUserWaypoints,
                 routeIdForDropPinSave = uiState.routeId,
-                controlsTopPadding = 12.dp,
+                controlsTopPadding = 16.dp,
+                controlsEndPadding = 16.dp,
                 attributionBottomPadding = when (uiState.sheetHeightState) {
                     SheetHeightState.PEEK -> 200.dp
                     SheetHeightState.HALF -> 390.dp
@@ -517,8 +610,10 @@ fun RouteBuilderScreen(
                     }
                 },
                 onMapTap = { p ->
-                    com.example.ui.components.HapticFeedbackHelper.performPinHapticTick(localView, "add_pin")
-                    viewModel.addPointAtEnd(p.latitude, p.longitude)
+                    if (uiState.interactionMode == com.example.ui.viewmodel.PlannerInteractionMode.TEGN) {
+                        com.example.ui.components.HapticFeedbackHelper.performPinHapticTick(localView, "add_pin")
+                    }
+                    viewModel.onMapTapped(p.latitude, p.longitude)
                     true
                 },
                 onAddToRouteFromDropPin = { lat, lng, label ->
@@ -548,17 +643,20 @@ fun RouteBuilderScreen(
                     }
                 },
                 onPoiTapped = { poiItem ->
-                    val role = if (poiItem.type == "shelter" || poiItem.type == "tent") {
-                        WaypointRole.OVERNIGHT
-                    } else {
-                        WaypointRole.VIA
+                    val mappedType = when (poiItem.type.lowercase()) {
+                        "shelter" -> "SHELTER"
+                        "tent", "fri_teltning" -> "FRI_TELTNING"
+                        "water" -> "WATER"
+                        "toilet" -> "TOILET"
+                        "shop" -> "SHOP"
+                        else -> poiItem.type.uppercase()
                     }
-                    viewModel.addDetourPoiToRoute(
-                        lat = poiItem.lat,
-                        lng = poiItem.lng,
+                    viewModel.onPoiTapped(
+                        id = poiItem.id,
                         name = poiItem.name,
-                        role = role,
-                        poiId = poiItem.id
+                        type = mappedType,
+                        lat = poiItem.lat,
+                        lng = poiItem.lng
                     )
                 },
                 onAccessPolygonTapped = { poly ->
@@ -575,6 +673,21 @@ fun RouteBuilderScreen(
                             isMapLayerAccessEnabled = layersState.showAccessLand
                         )
                     }
+                    val map = mapViewInstance
+                    val mgr = overlayManagerInstance
+                    if (map != null && mgr != null) {
+                        refreshMapOverlays(
+                            mapView = map,
+                            overlayManager = mgr,
+                            isDark = currentEffectiveDarkMap,
+                            context = context,
+                            state = uiState,
+                            viewModel = viewModel,
+                            onWaypointClicked = { wp ->
+                                viewModel.selectWaypoint(wp.id)
+                            }
+                        )
+                    }
                 },
                 onMapReady = { mv ->
                     mapViewInstance = mv
@@ -584,7 +697,7 @@ fun RouteBuilderScreen(
                         mv.controller.setCenter(GeoPoint(initialLoc.latitude, initialLoc.longitude))
                     }
                 },
-                updateOverlaysKey = Triple(uiState.waypoints, uiState.legs, uiState.baseTrailPoints),
+                updateOverlaysKey = Triple(uiState.waypoints, uiState.legs, Pair(uiState.selectedWaypointId, uiState.selectedLegKey)),
                 onUpdateOverlays = { mapView, overlayManager, isDarkMap ->
                     overlayManagerInstance = overlayManager
                     currentEffectiveDarkMap = isDarkMap
@@ -596,11 +709,51 @@ fun RouteBuilderScreen(
                         state = uiState,
                         viewModel = viewModel,
                         onWaypointClicked = { wp ->
-                            selectedWaypointForSheet = wp
-                            renameWaypointText = wp.name ?: ""
+                            viewModel.selectWaypoint(wp.id)
                         }
                     )
                 }
+            )
+
+            // UI Round 1 Item 11: TalkBack semantic nodes for every pin and leg
+            TalkBackRouteSemanticsOverlay(
+                uiState = uiState,
+                onSelectWaypoint = { wpId -> viewModel.selectWaypoint(wpId) },
+                onSelectLeg = { legKey -> viewModel.selectLeg(legKey) }
+            )
+
+            // UI Round 1 Item 4 & 5: Press-and-move pin and ghost handle drag overlay
+            RouteBuilderPinDragOverlay(
+                mapView = mapViewInstance,
+                uiState = uiState,
+                viewModel = viewModel
+            )
+
+            // UI Round 1 Item 6: Crosshair placement ("+" button, centre crosshair, "Tilføj her", "Annuller")
+            CrosshairPlacementOverlay(
+                isCrosshairMode = uiState.isCrosshairMode,
+                onOpenCrosshair = { viewModel.openCrosshairMode() },
+                onConfirmHere = {
+                    val center = mapViewInstance?.mapCenter
+                    if (center != null) {
+                        val snap = viewModel.confirmCrosshairPlacement(center.latitude, center.longitude)
+                        if (snap.snapped) {
+                            com.example.ui.components.HapticFeedbackHelper.performPinHapticTick(localView, "crosshair_snap")
+                        } else {
+                            com.example.ui.components.HapticFeedbackHelper.performPinHapticTick(localView, "crosshair_add")
+                        }
+                    }
+                },
+                onCancel = { viewModel.cancelCrosshairMode() }
+            )
+
+            // UI Round 1 Item 1: Kig / Tegn toggle at the top of the planner (segmented button, 48 dp)
+            KigTegnSegmentedToggle(
+                interactionMode = uiState.interactionMode,
+                onModeChange = { viewModel.setInteractionMode(it) },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 16.dp, top = 16.dp)
             )
 
             // Live dragging km badge in TRAIL mode (Requirement C: show "km 23,4" next to pin while dragging)
@@ -636,6 +789,7 @@ fun RouteBuilderScreen(
             }
 
             // Top overlay column:
+            // - Planner search field + grouped search dropdown (Mine ruter og vandreruter, Shelters og fri teltning, Steder)
             // - Amber banner when BRouterOnlineEngine.isBuiltinFallbackInUse() is true
             // - Prompt when waiting for start point tap ("Vælg startpunkt - tryk på kortet")
             // - Failed leg chip with "Prøv igen", "Tegn lige linje", "Flyt punkt"
@@ -643,9 +797,123 @@ fun RouteBuilderScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .padding(start = 12.dp, end = 68.dp, top = if (uiState.draggingTrailKmLabel != null) 54.dp else 12.dp),
+                    .padding(start = 16.dp, end = 72.dp, top = 72.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // UI Round 2 Item 5: Search field in the planner
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    shadowElevation = 4.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = uiState.plannerSearchQuery,
+                        onValueChange = { viewModel.setPlannerSearchQuery(it) },
+                        placeholder = {
+                            Text(
+                                text = stringResource(R.string.planner_search_placeholder),
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = ForestGreenPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            if (uiState.plannerSearchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { viewModel.clearPlannerSearch() },
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .testTag("planner_clear_search_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = stringResource(R.string.btn_close),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ForestGreenPrimary,
+                            unfocusedBorderColor = Color.Transparent,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("planner_search_input")
+                    )
+                }
+
+                if (uiState.plannerSearchQuery.trim().length >= 2 && !uiState.plannerSearchResults.isEmpty) {
+                    GroupedPlaceSearchDropdown(
+                        groupedResults = uiState.plannerSearchResults,
+                        onSelectRouteOrTrail = { item ->
+                            viewModel.clearPlannerSearch()
+                            val loc = getLastKnownLocation(context)
+                            if (item.isCustomRoute && item.customRouteId != null) {
+                                viewModel.initialize(
+                                    routeId = item.customRouteId,
+                                    destLat = null,
+                                    destLng = null,
+                                    destName = null,
+                                    gpsLat = loc?.latitude,
+                                    gpsLng = loc?.longitude
+                                )
+                            } else {
+                                viewModel.initialize(
+                                    routeId = null,
+                                    destLat = null,
+                                    destLng = null,
+                                    destName = null,
+                                    gpsLat = loc?.latitude,
+                                    gpsLng = loc?.longitude,
+                                    baseTrailId = item.id
+                                )
+                            }
+                        },
+                        onRouteHere = { lat, lng, name ->
+                            val loc = getLastKnownLocation(context)
+                            viewModel.routeToPlace(
+                                destLat = lat,
+                                destLng = lng,
+                                destName = name,
+                                currentLat = loc?.latitude,
+                                currentLng = loc?.longitude
+                            )
+                        },
+                        onAddAsPoint = { lat, lng, name ->
+                            viewModel.clearPlannerSearch()
+                            if (uiState.mode == PlannerMode.TRAIL) {
+                                viewModel.addDetourPoiToRoute(
+                                    lat = lat,
+                                    lng = lng,
+                                    name = name,
+                                    role = WaypointRole.VIA
+                                )
+                            } else {
+                                viewModel.addPointAtEnd(lat, lng, name)
+                            }
+                            viewModel.panMapAboveSheetTo(lat, lng, 14.0)
+                        },
+                        onShowOnMap = { lat, lng, _ ->
+                            viewModel.clearPlannerSearch()
+                            viewModel.panMapAboveSheetTo(lat, lng, 14.5)
+                        }
+                    )
+                }
+
                 if (uiState.isBuiltinFallbackInUse || com.example.util.routing.BRouterOnlineEngine.isBuiltinFallbackInUse()) {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
@@ -756,7 +1024,7 @@ fun RouteBuilderScreen(
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                 modifier = Modifier
-                                    .height(34.dp)
+                                    .heightIn(min = 36.dp)
                                     .testTag("btn_retry_trail_download")
                             ) {
                                 Text(stringResource(R.string.state_Close_or_retry), fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -816,7 +1084,7 @@ fun RouteBuilderScreen(
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(32.dp)
+                                        .heightIn(min = 36.dp)
                                         .testTag("btn_retry_leg_$legKey")
                                 ) {
                                     Text(stringResource(R.string.state_Close_or_retry), fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -827,7 +1095,7 @@ fun RouteBuilderScreen(
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(32.dp)
+                                        .heightIn(min = 36.dp)
                                         .testTag("btn_straight_leg_$legKey")
                                 ) {
                                     Text(stringResource(R.string.ui_routebuilderscreen_tegn_lige_linje_108), fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -838,7 +1106,7 @@ fun RouteBuilderScreen(
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(32.dp)
+                                        .heightIn(min = 36.dp)
                                         .testTag("btn_move_point_$legKey")
                                 ) {
                                     Text(stringResource(R.string.ui_routebuilderscreen_flyt_punkt_109), fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -849,30 +1117,15 @@ fun RouteBuilderScreen(
                 }
             }
 
-            // Additional Planner Floating Controls: Zoom to route & "Mit punkt"
+            // Additional Planner Floating Controls: placed on the START (left) side below open_crosshair_button
+            // so the planner's own buttons NEVER overlap the right-side map controls (Lag, Kompas, Min position).
             Column(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 180.dp, end = 12.dp),
+                    .align(Alignment.TopStart)
+                    .padding(start = 16.dp, top = 194.dp)
+                    .testTag("planner_own_buttons_column"),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Zoom to bounds button
-                if (visibleWaypoints.size >= 2) {
-                    FloatingActionButton(
-                        onClick = {
-                            val map = mapViewInstance ?: return@FloatingActionButton
-                            zoomToRoute(map, visibleWaypoints)
-                        },
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .testTag("btn_recenter")
-                    ) {
-                        Icon(Icons.Default.ZoomOutMap, contentDescription = stringResource(R.string.ui_routebuilderscreen_zoom_til_rute_110), modifier = Modifier.size(20.dp))
-                    }
-                }
-
                 // "Mit punkt" (Mine punkter)
                 FloatingActionButton(
                     onClick = {
@@ -886,20 +1139,134 @@ fun RouteBuilderScreen(
                     containerColor = MaterialTheme.colorScheme.surface,
                     contentColor = Color(0xFF7B1FA2),
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .testTag("btn_add_custom_waypoint")
                 ) {
                     Icon(Icons.Default.Place, contentDescription = stringResource(R.string.ui_routebuilderscreen_tilf_j_mit_punkt_111), modifier = Modifier.size(20.dp))
                 }
+
+                // Zoom to bounds button
+                if (visibleWaypoints.size >= 2) {
+                    FloatingActionButton(
+                        onClick = {
+                            val map = mapViewInstance ?: return@FloatingActionButton
+                            zoomToRoute(map, visibleWaypoints)
+                        },
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("btn_recenter")
+                    ) {
+                        Icon(Icons.Default.ZoomOutMap, contentDescription = stringResource(R.string.ui_routebuilderscreen_zoom_til_rute_110), modifier = Modifier.size(20.dp))
+                    }
+                }
             }
 
-            // Requirement F: Bottom floating toolbar above the sheet + Planner Bottom Sheet (PEEK / HALF / FULL)
+            // UI Round 4 Item 1: First-run coach marks in the planner (3 tips: tap to add, drag a point, drag the middle of a leg)
+            com.example.ui.screens.planner.PlannerCoachMarksOverlay(
+                uiState = uiState,
+                onNextStep = { viewModel.nextCoachMarkStep() },
+                onDismiss = { viewModel.dismissCoachMarks() }
+            )
+
+            // Requirement F & UI Round 1 Items 4, 7, 9:
+            // Deleted-pin snackbar, slim PinSelectionActionBar, SelectedLegCard, floating toolbar, and Planner Bottom Sheet
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
             ) {
-                // Bottom floating toolbar above the sheet: Fortryd, Gendan, Følg stier / Lige linje, Vend, Overnatning, Gem
+                // UI Round 1 Item 4 & UI Round 4 Item 3: "Punkt slettet · Fortryd" / "Foto slettet · Fortryd" snackbar
+                uiState.deletedPinSnackbarMessage?.let { snackMsg ->
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFF263238),
+                        shadowElevation = 6.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .testTag("deleted_pin_snackbar")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = snackMsg,
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = {
+                                    viewModel.undoLastDelete()
+                                },
+                                modifier = Modifier.testTag("deleted_pin_undo_button")
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.snackbar_undo),
+                                    color = AmberAccent,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // UI Round 1 Item 7: Slim action bar above the planner sheet when a pin is selected
+                val selectedWpIdx = visibleWaypoints.indexOfFirst { it.id == uiState.selectedWaypointId }
+                if (selectedWpIdx != -1) {
+                    val selectedWp = visibleWaypoints[selectedWpIdx]
+                    val targetLegWpId = if (selectedWp.role == WaypointRole.END && visibleWaypoints.size >= 2) {
+                        visibleWaypoints[visibleWaypoints.size - 2].id
+                    } else {
+                        selectedWp.id
+                    }
+                    PinSelectionActionBar(
+                        waypoint = selectedWp,
+                        waypointIndex = selectedWpIdx,
+                        onDelete = { viewModel.deleteWaypointWithUndoSnackbar(selectedWp.id) },
+                        onToggleOvernight = { viewModel.toggleWaypointOvernight(selectedWp.id) },
+                        onToggleLegMode = { viewModel.toggleLegMode(targetLegWpId) },
+                        onSnapToNearestTrail = { viewModel.snapWaypointToNearestTrail(selectedWp.id) },
+                        onRenameClick = {
+                            renameWaypointTargetId = selectedWp.id
+                            renameWaypointText = selectedWp.name ?: ""
+                            showRenameWaypointDialog = true
+                        },
+                        onClose = { viewModel.selectWaypoint(null) }
+                    )
+                }
+
+                // UI Round 1 Item 9: Leg card when a route leg is selected
+                uiState.selectedLegKey?.let { legKey ->
+                    val parts = legKey.split("_to_")
+                    val fromIdx = if (parts.size == 2) visibleWaypoints.indexOfFirst { it.id == parts[0] } else -1
+                    if (fromIdx != -1) {
+                        val fromWp = visibleWaypoints[fromIdx]
+                        val legData = uiState.legs[legKey]
+                        val legAlts = uiState.legAlternatives[legKey].orEmpty()
+                        SelectedLegCard(
+                            legKey = legKey,
+                            legIndex = fromIdx,
+                            leg = legData,
+                            fromWaypoint = fromWp,
+                            alternatives = legAlts,
+                            isFetchingAlternatives = uiState.isFetchingLegAlternatives,
+                            onToggleMode = { viewModel.toggleLegMode(fromWp.id) },
+                            onFetchAlternatives = { viewModel.fetchAlternativesForLeg(legKey) },
+                            onSelectAlternative = { alt -> viewModel.selectAlternativeForLeg(legKey, alt) },
+                            onClose = { viewModel.selectLeg(null) }
+                        )
+                    }
+                }
+
+                // Bottom floating toolbar above the sheet: Fortryd, Gendan, Følg stier / Lige linje, Vend, Luk ruten, Ud og hjem, Overnatning, Gem
                 Surface(
                     shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
@@ -1038,6 +1405,64 @@ fun RouteBuilderScreen(
                             }
                         }
 
+                        // 4b. Luk ruten (UI Round 1 Item 10)
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (visibleWaypoints.size >= 2) 0.7f else 0.3f),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable(enabled = visibleWaypoints.size >= 2) { viewModel.closeRouteLoop() }
+                                .testTag("btn_close_route_loop")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Loop,
+                                    contentDescription = stringResource(R.string.planner_menu_close_loop),
+                                    tint = if (visibleWaypoints.size >= 2) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.planner_menu_close_loop),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (visibleWaypoints.size >= 2) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                )
+                            }
+                        }
+
+                        // 4c. Ud og hjem (UI Round 1 Item 10)
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (visibleWaypoints.size >= 2) 0.7f else 0.3f),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable(enabled = visibleWaypoints.size >= 2) { viewModel.appendOutAndBack() }
+                                .testTag("btn_out_and_back")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AltRoute,
+                                    contentDescription = stringResource(R.string.planner_menu_out_and_back),
+                                    tint = if (visibleWaypoints.size >= 2) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.planner_menu_out_and_back),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (visibleWaypoints.size >= 2) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                )
+                            }
+                        }
+
                         // 5. Overnatning (active tool highlighted amber)
                         Surface(
                             shape = RoundedCornerShape(16.dp),
@@ -1117,7 +1542,7 @@ fun RouteBuilderScreen(
                     onOpenNearestPoiDialog = { viewModel.openNearestPoiDialog() },
                     onShareRoute = { viewModel.shareRoute(context) },
                     onReplaceOvernight = { wpId -> viewModel.openReplaceOvernightDialog(wpId) },
-                    onDeleteWaypoint = { wpId -> viewModel.deleteWaypoint(wpId) },
+                    onDeleteWaypoint = { wpId -> viewModel.deleteWaypointWithUndoSnackbar(wpId) },
                     onZoomToCoordinate = { lat, lng ->
                         mapViewInstance?.controller?.animateTo(GeoPoint(lat, lng), 15.0, 500L)
                     },
@@ -1128,15 +1553,21 @@ fun RouteBuilderScreen(
                     },
                     onUpdateOptions = { newOptions -> viewModel.updateOptions(newOptions) },
                     onWaypointClicked = { wp ->
-                        selectedWaypointForSheet = wp
-                        renameWaypointText = wp.name ?: ""
+                        viewModel.selectWaypoint(wp.id)
                     },
                     onOpenSaveDialog = {
                         renameRouteName = uiState.routeName.ifBlank {
                             uiState.baseTrail?.name ?: "Min rute"
                         }
                         showSaveDialog = true
-                    }
+                    },
+                    onSelectSheetTab = { tab -> viewModel.setSelectedSheetTab(tab) },
+                    onSheetHeightFractionChanged = { fraction -> viewModel.setSheetHeightFraction(fraction) },
+                    onReorderWaypoints = { fromIdx, toIdx -> viewModel.reorderWaypoints(fromIdx, toIdx) },
+                    onDayCardClicked = { day -> viewModel.selectDaySection(day.dayNumber) },
+                    onCustomWaypointClicked = { wp -> viewModel.selectCustomWaypointForDetails(wp) },
+                    onDeleteCustomWaypoint = { wpId -> viewModel.deleteCustomWaypoint(wpId) },
+                    onDeleteCustomWaypointPhoto = { wpId -> viewModel.deleteCustomWaypointPhoto(wpId) }
                 )
             }
         }
@@ -1270,160 +1701,47 @@ fun RouteBuilderScreen(
         )
     }
 
-    // Dialog / Small sheet: Waypoint details (Requirement C & D)
-    selectedWaypointForSheet?.let { wp ->
+    // UI Round 1 Item 7: Rename waypoint dialog triggered from "Navngiv" in the slim pin action bar
+    if (showRenameWaypointDialog && renameWaypointTargetId != null) {
+        val targetId = renameWaypointTargetId!!
         AlertDialog(
-            onDismissRequest = { selectedWaypointForSheet = null },
-            title = {
-                Text(
-                    text = when (wp.role) {
-                        WaypointRole.START -> "Startpunkt"
-                        WaypointRole.END -> "Slutpunkt"
-                        WaypointRole.OVERNIGHT -> "Overnatningspunkt"
-                        WaypointRole.VIA -> "Viapunkt"
-                    } + (if (!wp.name.isNullOrBlank()) " (${wp.name})" else "")
+            onDismissRequest = {
+                showRenameWaypointDialog = false
+                renameWaypointTargetId = null
+            },
+            title = { Text("Navngiv punkt") },
+            text = {
+                OutlinedTextField(
+                    value = renameWaypointText,
+                    onValueChange = { renameWaypointText = it },
+                    label = { Text(stringResource(R.string.save_point_name_label)) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_waypoint_name")
                 )
             },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // Show trail km if on trail (Requirement C)
-                    if (wp.trailKm != null) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = ForestGreenPrimary.copy(alpha = 0.12f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = String.format(Locale.GERMANY, "På vandreruten: km %.1f", wp.trailKm),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = ForestGreenPrimary,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
-                    }
-
-                    // Show detour cost on pin and in sheet (Requirement D: "Omvej til <navn>: +1,4 km, +12 m")
-                    val detourKm = wp.detourDistanceKm
-                    if (detourKm != null && detourKm > 0.01) {
-                        val detourAsc = (wp.detourAscentM ?: 0.0).toInt()
-                        val displayName = wp.name?.ifBlank { null } ?: "punkt"
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = AmberAccent.copy(alpha = 0.16f),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("waypoint_sheet_detour_info")
-                        ) {
-                            Text(
-                                text = String.format(
-                                    Locale.GERMANY,
-                                    "Omvej til %s: +%.1f km, +%d m",
-                                    displayName,
-                                    detourKm,
-                                    detourAsc
-                                ),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFE65100),
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
-                    }
-
-                    // Rename field
-                    OutlinedTextField(
-                        value = renameWaypointText,
-                        onValueChange = { renameWaypointText = it },
-                        label = { Text(stringResource(R.string.save_point_name_label)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("input_waypoint_name")
-                    )
-
-                    // Skift overnatning (Requirement E: lists candidates within max detour)
-                    if (wp.role == WaypointRole.OVERNIGHT) {
-                        Button(
-                            onClick = {
-                                val id = wp.id
-                                selectedWaypointForSheet = null
-                                viewModel.openReplaceOvernightDialog(id)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("btn_replace_overnight_waypoint")
-                        ) {
-                            Icon(Icons.Default.NightShelter, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.ui_routebuilderscreen_skift_overnatning_121))
-                        }
-                    }
-
-                    // Role: Gør til overnatning / Gør til via
-                    if (wp.role != WaypointRole.START && wp.role != WaypointRole.END) {
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.toggleWaypointOvernight(wp.id)
-                                selectedWaypointForSheet = null
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(
-                                imageVector = if (wp.role == WaypointRole.OVERNIGHT) Icons.Default.DirectionsWalk else Icons.Default.NightShelter,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (wp.role == WaypointRole.OVERNIGHT) "Gør til almindeligt viapunkt" else "Gør til overnatning")
-                        }
-                    }
-
-                    // Leg mode to next: Lige linje herfra / Følg stier herfra
-                    if (wp.role != WaypointRole.END && uiState.mode == PlannerMode.FREE) {
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.toggleLegMode(wp.id)
-                                selectedWaypointForSheet = null
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(
-                                imageVector = if (wp.legModeToNext == LegMode.SNAP) Icons.Default.Straighten else Icons.Default.Route,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (wp.legModeToNext == LegMode.SNAP) "Lige linje herfra" else "Følg stier herfra")
-                        }
-                    }
-
-                    // Slet punkt
-                    if (!(uiState.mode == PlannerMode.TRAIL && (wp.role == WaypointRole.START || wp.role == WaypointRole.END))) {
-                        Button(
-                            onClick = {
-                                viewModel.deleteWaypoint(wp.id)
-                                selectedWaypointForSheet = null
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            modifier = Modifier.fillMaxWidth().testTag("btn_delete_waypoint")
-                        ) {
-                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.ui_routebuilderscreen_slet_punkt_122))
-                        }
-                    }
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.renameWaypoint(targetId, renameWaypointText)
+                        showRenameWaypointDialog = false
+                        renameWaypointTargetId = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                    modifier = Modifier.testTag("btn_confirm_rename_waypoint")
+                ) {
+                    Text(stringResource(R.string.btn_save))
                 }
             },
-            confirmButton = {
+            dismissButton = {
                 TextButton(
                     onClick = {
-                        if (renameWaypointText != (wp.name ?: "")) {
-                            viewModel.renameWaypoint(wp.id, renameWaypointText)
-                        }
-                        selectedWaypointForSheet = null
+                        showRenameWaypointDialog = false
+                        renameWaypointTargetId = null
                     }
                 ) {
-                    Text(stringResource(R.string.btn_close))
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -2279,10 +2597,10 @@ fun RouteBuilderScreen(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (!wp.photoPath.isNullOrBlank() && File(wp.photoPath).exists()) {
+                    if (!wp.photoPath.isNullOrBlank()) {
                         val bitmap = remember(wp.photoPath) {
                             try {
-                                BitmapFactory.decodeFile(wp.photoPath)
+                                if (File(wp.photoPath).exists()) BitmapFactory.decodeFile(wp.photoPath) else null
                             } catch (_: Exception) {
                                 null
                             }
@@ -2296,6 +2614,15 @@ fun RouteBuilderScreen(
                                     .height(160.dp)
                                     .clip(RoundedCornerShape(8.dp))
                             )
+                        }
+                        TextButton(
+                            onClick = { viewModel.deleteCustomWaypointPhoto(wp.id) },
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.testTag("btn_delete_waypoint_photo")
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(stringResource(R.string.ui_routebuilderscreen_fjern_foto_163), fontSize = 12.sp)
                         }
                     }
 
@@ -2334,7 +2661,9 @@ fun RouteBuilderScreen(
                         Button(
                             onClick = { viewModel.deleteCustomWaypoint(wp.id) },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_delete_custom_waypoint_dialog")
                         ) {
                             Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
@@ -2598,13 +2927,16 @@ private fun refreshMapOverlays(
 ) {
     val routeFolder = mutableListOf<org.osmdroid.views.overlay.Overlay>()
 
-    // 0. Requirement C & E: In TRAIL mode, draw the full trail in muted green with km labels every 5 km
+    val hasAnySelection = state.selectedWaypointId != null || state.selectedLegKey != null
+
+    // 0. Requirement C & E & UI Round 1 Item 2: In TRAIL mode, draw the full trail in muted green with km labels every 5 km.
+    // Tapping the base trail line opens the chooser ("Start her", "Slut her", "Overnat her", "Tilføj stop") - never addPointAtEnd.
     if (state.mode == PlannerMode.TRAIL && state.baseTrailPoints.size >= 2) {
         val trailGeoPoints = state.baseTrailPoints.map { GeoPoint(it.lat, it.lng) }
         val mutedLine = RouteMarkerHelper.createMutedTrailPolyline(mapView, trailGeoPoints, isDark = isDark).apply {
             setOnClickListener { _, _, eventPos ->
                 if (eventPos != null) {
-                    viewModel.addPointAtEnd(eventPos.latitude, eventPos.longitude)
+                    viewModel.onTrailLineTapped(eventPos.latitude, eventPos.longitude)
                 }
                 true
             }
@@ -2630,11 +2962,23 @@ private fun refreshMapOverlays(
         routeFolder.add(gpxLine)
     }
 
-    // 2. Draw alternative routes (1-3)
+    // 2. Draw alternative routes (1-3) for whole route or selected leg
     state.alternatives.forEach { alt ->
         val altGeoPoints = alt.points.map { GeoPoint(it.lat, it.lng) }
         val altLine = RouteMarkerHelper.createAlternativePolyline(mapView, altGeoPoints, alt.index)
         routeFolder.add(altLine)
+    }
+    state.selectedLegKey?.let { selLegKey ->
+        state.legAlternatives[selLegKey]?.forEach { alt ->
+            val altGeoPoints = alt.points.map { GeoPoint(it.lat, it.lng) }
+            val altLine = RouteMarkerHelper.createAlternativePolyline(mapView, altGeoPoints, alt.index - 1).apply {
+                setOnClickListener { _, _, _ ->
+                    viewModel.selectAlternativeForLeg(selLegKey, alt)
+                    true
+                }
+            }
+            routeFolder.add(altLine)
+        }
     }
 
     // 3. Draw Planned Legs on top in the route colour (Casing first, then core stroke)
@@ -2647,26 +2991,94 @@ private fun refreshMapOverlays(
         val isLoading = state.loadingLegKeys.contains(legKey)
         val isFailed = state.failedLegs.containsKey(legKey)
         val legData = state.legs[legKey]
+        val isLegSelected = state.selectedLegKey == legKey
+        val isLegDimmed = hasAnySelection && !isLegSelected
 
         if (isLoading) {
             val linePts = listOf(GeoPoint(wpFrom.lat, wpFrom.lng), GeoPoint(wpTo.lat, wpTo.lng))
-            val loadingLine = RouteMarkerHelper.createDashedLegPolyline(mapView, linePts, isLoading = true, isDark = isDark)
+            val loadingLine = RouteMarkerHelper.createDashedLegPolyline(
+                mapView,
+                linePts,
+                isLoading = true,
+                isDark = isDark,
+                isDimmed = isLegDimmed,
+                isSelected = isLegSelected
+            )
             routeFolder.add(loadingLine)
         } else if (isFailed) {
             val linePts = listOf(GeoPoint(wpFrom.lat, wpFrom.lng), GeoPoint(wpTo.lat, wpTo.lng))
-            val failedLine = RouteMarkerHelper.createFailedLegPolyline(mapView, linePts)
+            val failedLine = RouteMarkerHelper.createFailedLegPolyline(mapView, linePts, isDimmed = isLegDimmed).apply {
+                setOnClickListener { _, _, _ ->
+                    viewModel.selectLeg(legKey)
+                    true
+                }
+            }
             routeFolder.add(failedLine)
         } else if (legData != null) {
             val geoPoints = legData.points.map { GeoPoint(it.lat, it.lng) }
+            val legDesc = RouteMarkerHelper.formatLegTalkBackDescription(
+                legIndex = i,
+                lengthKm = legData.lengthKm,
+                ascentM = legData.ascentM,
+                legMode = legData.legMode
+            )
             if (legData.legMode == LegMode.STRAIGHT) {
-                val straightLine = RouteMarkerHelper.createDashedLegPolyline(mapView, geoPoints, isLoading = false, isDark = isDark)
+                val straightLine = RouteMarkerHelper.createDashedLegPolyline(
+                    mapView,
+                    geoPoints,
+                    isLoading = false,
+                    isDark = isDark,
+                    isDimmed = isLegDimmed,
+                    isSelected = isLegSelected
+                ).apply {
+                    title = legDesc
+                    setOnClickListener { _, _, _ ->
+                        viewModel.selectLeg(legKey)
+                        true
+                    }
+                }
                 routeFolder.add(straightLine)
             } else {
-                val casing = RouteMarkerHelper.createCasingPolyline(mapView, geoPoints, isDark = isDark)
-                val core = RouteMarkerHelper.createSnappedLegPolyline(mapView, geoPoints, legData.hasAccessWarning, isDark = isDark)
+                val casing = RouteMarkerHelper.createCasingPolyline(
+                    mapView,
+                    geoPoints,
+                    isDark = isDark,
+                    isDimmed = isLegDimmed,
+                    isSelected = isLegSelected
+                )
+                val core = RouteMarkerHelper.createSnappedLegPolyline(
+                    mapView,
+                    geoPoints,
+                    legData.hasAccessWarning,
+                    isDark = isDark,
+                    isDimmed = isLegDimmed,
+                    isSelected = isLegSelected
+                ).apply {
+                    title = legDesc
+                    setOnClickListener { _, _, _ ->
+                        viewModel.selectLeg(legKey)
+                        true
+                    }
+                }
                 routeFolder.add(casing)
                 routeFolder.add(core)
             }
+        }
+    }
+
+    // 3a. UI Round 1 Item 5: Ghost handles at zoom >= 13 at the middle of each leg
+    if (mapView.zoomLevelDouble >= 13.0) {
+        val ghostHandles = viewModel.getLegMidpointHandles()
+        ghostHandles.forEach { handle ->
+            val ghostMarker = Marker(mapView).apply {
+                position = GeoPoint(handle.lat, handle.lng)
+                title = "Indsæt viapunkt på strækning ${handle.legIndex + 1}"
+                icon = RouteMarkerHelper.createGhostHandleIcon(context, isDimmed = hasAnySelection)
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                setInfoWindow(null)
+                isDraggable = false
+            }
+            routeFolder.add(ghostMarker)
         }
     }
 
@@ -2690,7 +3102,7 @@ private fun refreshMapOverlays(
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                     setOnMarkerClickListener { _, _ ->
                         if (group.size == 1) {
-                            viewModel.selectNearbyPoiForSheet(first)
+                            viewModel.onPoiTapped(first)
                         } else {
                             mapView.controller.animateTo(GeoPoint(first.lat, first.lng), currentZoom + 2.0, 400L)
                         }
@@ -2711,7 +3123,7 @@ private fun refreshMapOverlays(
                     )
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                     setOnMarkerClickListener { _, _ ->
-                        viewModel.selectNearbyPoiForSheet(poi)
+                        viewModel.onPoiTapped(poi)
                         true
                     }
                 }
@@ -2722,7 +3134,19 @@ private fun refreshMapOverlays(
 
     // 4. Draw Visible Waypoint Markers (skip hidden detour helper waypoints where wp.isHelper == true)
     val visibleWaypoints = wps.filter { !it.isHelper }
+    var overnightDayCounter = 0
+    var runningKmForPins = 0.0
     visibleWaypoints.forEachIndexed { idx, wp ->
+        if (idx > 0) {
+            val prevWp = visibleWaypoints[idx - 1]
+            runningKmForPins += state.legs["${prevWp.id}_to_${wp.id}"]?.lengthKm ?: 0.0
+        }
+        val dayNumForPin = if (wp.role == WaypointRole.OVERNIGHT) {
+            overnightDayCounter += 1
+            overnightDayCounter
+        } else {
+            1
+        }
         val wpDetourDist = wp.detourDistanceKm
         val badgeText: String? = when {
             state.draggingWaypointId == wp.id && state.draggingTrailKmLabel != null -> state.draggingTrailKmLabel
@@ -2735,45 +3159,34 @@ private fun refreshMapOverlays(
             else -> null
         }
 
+        val isSelected = wp.id == state.selectedWaypointId
+        val isDimmed = hasAnySelection && !isSelected
+        val talkBackDesc = RouteMarkerHelper.formatPinTalkBackDescription(
+            index = idx,
+            waypoint = wp,
+            cumulativeKm = wp.trailKm ?: runningKmForPins
+        )
+
         val marker = Marker(mapView).apply {
             position = GeoPoint(wp.lat, wp.lng)
+            title = talkBackDesc
+            subDescription = talkBackDesc
             icon = RouteMarkerHelper.createWaypointIcon(
                 context = context,
                 role = wp.role,
                 index = idx,
-                isSelected = wp.id == state.selectedWaypointId,
-                badgeLabel = badgeText
+                isSelected = isSelected,
+                badgeLabel = badgeText,
+                dayNumber = dayNumForPin,
+                isDimmed = isDimmed
             )
             setAnchor(
-                if (badgeText != null) 0.25f else Marker.ANCHOR_CENTER,
+                Marker.ANCHOR_CENTER,
                 Marker.ANCHOR_CENTER
             )
-            isDraggable = true
-
-            setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
-                override fun onMarkerDrag(m: Marker) {
-                    val proj = viewModel.onWaypointDragging(wp.id, m.position.latitude, m.position.longitude)
-                    if (proj != null) {
-                        m.position = GeoPoint(proj.lat, proj.lng)
-                        m.icon = RouteMarkerHelper.createWaypointIcon(
-                            context = context,
-                            role = wp.role,
-                            index = idx,
-                            isSelected = true,
-                            badgeLabel = String.format(Locale.GERMANY, "km %.1f", proj.trailKm)
-                        )
-                        mapView.invalidate()
-                    }
-                }
-
-                override fun onMarkerDragStart(m: Marker) {
-                    viewModel.onWaypointDragging(wp.id, m.position.latitude, m.position.longitude)
-                }
-
-                override fun onMarkerDragEnd(m: Marker) {
-                    viewModel.moveWaypoint(wp.id, m.position.latitude, m.position.longitude)
-                }
-            })
+            setInfoWindow(null)
+            // Press-and-move dragging is handled immediately by RouteBuilderPinDragOverlay (Item 4)
+            isDraggable = false
 
             setOnMarkerClickListener { _, _ ->
                 onWaypointClicked(wp)

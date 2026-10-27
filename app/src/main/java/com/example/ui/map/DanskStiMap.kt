@@ -146,9 +146,9 @@ fun DanskStiMap(
     pois: List<PoiEntity>? = null,
     customWaypoints: List<UserCustomWaypointEntity>? = null,
     routeIdForDropPinSave: Long? = null,
-    controlsTopPadding: Dp = 12.dp,
-    controlsBottomPadding: Dp = 12.dp,
-    controlsEndPadding: Dp = 12.dp,
+    controlsTopPadding: Dp = 16.dp,
+    controlsBottomPadding: Dp = 16.dp,
+    controlsEndPadding: Dp = 16.dp,
     attributionBottomPadding: Dp = 8.dp,
     attributionStartPadding: Dp = 10.dp,
     layersButtonTestTag: String = "layers_fab",
@@ -515,13 +515,20 @@ fun DanskStiMap(
             }
         )
 
-        // Bottom-left: Scale indicator & active layer attribution
+        val isDeviceOnline = remember(context) {
+            (context.applicationContext as? com.example.DanskStiApp)?.repository?.isDeviceOnline() ?: true
+        }
+
+        // Bottom-left: Offline pill (when offline), Scale indicator & active layer attribution
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = attributionStartPadding, bottom = attributionBottomPadding),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            if (!isDeviceOnline) {
+                com.example.ui.components.OfflineStatusPill()
+            }
             MapAttributionPill(
                 layersState = mapLayersState,
                 isDarkMode = effectiveIsDark,
@@ -534,7 +541,8 @@ fun DanskStiMap(
             Column(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = controlsTopPadding, end = controlsEndPadding),
+                    .padding(top = controlsTopPadding, end = controlsEndPadding)
+                    .testTag("map_controls_column"),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalAlignment = Alignment.End
             ) {

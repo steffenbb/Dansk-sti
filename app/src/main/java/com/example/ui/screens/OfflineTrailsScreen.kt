@@ -49,6 +49,10 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -61,22 +65,26 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.DanskStiApp
 import com.example.data.model.DownloadedTrailEntity
+import com.example.ui.components.OfflineStatusPill
+import com.example.ui.components.formatDownloadedDateDanish
 import com.example.ui.theme.AlertRed
 import com.example.ui.theme.ForestGreenLight
 import com.example.ui.theme.ForestGreenPrimary
+import com.example.ui.theme.TabularBodyStyle
 import com.example.ui.viewmodel.OfflineViewModel
 import com.example.util.routing.BRouterSegments
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,6 +96,13 @@ fun OfflineTrailsScreen(
     onOpenCredits: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val isDeviceOnline = remember(context) {
+        runCatching { (context.applicationContext as DanskStiApp).repository.isDeviceOnline() }.getOrDefault(true)
+    }
+
     val downloadedTrails by viewModel.downloadedTrails.collectAsState()
     val isDownloading by viewModel.isDownloading.collectAsState()
     val downloadProgressText by viewModel.downloadProgressText.collectAsState()
@@ -96,7 +111,9 @@ fun OfflineTrailsScreen(
     var trailToDelete by remember { mutableStateOf<DownloadedTrailEntity?>(null) }
 
     val totalBytes = downloadedTrails.sumOf { it.sizeBytes } + brouterState.totalDownloadedBytes
-    val totalMbStr = String.format(Locale.ROOT, "%.1f", totalBytes / (1024.0 * 1024.0))
+    val totalMbStr = String.format(Locale("da", "DK"), "%.1f", totalBytes / (1024.0 * 1024.0))
+    val deletedMsg = stringResource(R.string.library_deleted_snackbar)
+    val undoLabel = stringResource(R.string.library_undo_action)
 
     BackHandler {
         onBack()
@@ -107,6 +124,12 @@ fun OfflineTrailsScreen(
             .fillMaxSize()
             .testTag("offline_screen"),
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.testTag("offline_snackbar_host")
+            )
+        },
         topBar = {
             TopAppBar(
                 title = {
@@ -119,7 +142,7 @@ fun OfflineTrailsScreen(
                         )
                         Text(
                             text = stringResource(R.string.ui_offlinetrailsscreen_ruter_mb_samlet_81, downloadedTrails.size, totalMbStr),
-                            fontSize = 12.sp,
+                            style = TabularBodyStyle.copy(fontSize = 13.sp),
                             color = ForestGreenPrimary
                         )
                     }
@@ -137,6 +160,9 @@ fun OfflineTrailsScreen(
                     }
                 },
                 actions = {
+                    if (!isDeviceOnline) {
+                        OfflineStatusPill(modifier = Modifier.padding(end = 6.dp))
+                    }
                     IconButton(
                         onClick = onOpenCredits,
                         modifier = Modifier.testTag("offline_credits_button")
@@ -613,8 +639,8 @@ fun OfflineTrailsScreen(
                 }
             } else {
                 items(downloadedTrails, key = { it.trailId }) { item ->
-                    val itemMb = String.format(Locale.ROOT, "%.1f", item.sizeBytes / (1024.0 * 1024.0))
-                    val dateStr = SimpleDateFormat("d. MMM yyyy", Locale.getDefault()).format(Date(item.downloadedAt))
+                    val itemMb = String.format(Locale("da", "DK"), "%.1f", item.sizeBytes / (1024.0 * 1024.0))
+                    val downloadedLabel = formatDownloadedDateDanish(item.downloadedAt)
 
                     Card(
                         shape = RoundedCornerShape(14.dp),
@@ -651,20 +677,23 @@ fun OfflineTrailsScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = item.trailName,
-                                    fontSize = 15.sp,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = stringResource(R.string.ui_offlinetrailsscreen_mb_fliser_hentet_95, itemMb, item.tileCount, dateStr),
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = "$itemMb MB · ${item.tileCount} fliser · $downloadedLabel",
+                                    style = TabularBodyStyle.copy(fontSize = 16.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.testTag("offline_trail_downloaded_date_${item.trailId}")
                                 )
                             }
 
                             IconButton(
                                 onClick = { trailToDelete = item },
-                                modifier = Modifier.testTag("delete_offline_${item.trailId}")
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .testTag("delete_offline_${item.trailId}")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Delete,
@@ -680,7 +709,7 @@ fun OfflineTrailsScreen(
         }
     }
 
-    // Delete confirmation dialog
+    // Delete confirmation dialog with Fortryd snackbar
     trailToDelete?.let { trail ->
         AlertDialog(
             onDismissRequest = { trailToDelete = null },
@@ -693,9 +722,21 @@ fun OfflineTrailsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.deleteDownloadedTrail(trail.trailId)
+                        viewModel.deleteDownloadedTrailWithUndo(trail)
                         trailToDelete = null
-                    }
+                        coroutineScope.launch {
+                            snackbarHostState.currentSnackbarData?.dismiss()
+                            val result = snackbarHostState.showSnackbar(
+                                message = "$deletedMsg: ${trail.trailName}",
+                                actionLabel = undoLabel,
+                                duration = SnackbarDuration.Short
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                viewModel.undoLastDeletedTrail()
+                            }
+                        }
+                    },
+                    modifier = Modifier.testTag("confirm_delete_offline_button")
                 ) {
                     Text(stringResource(R.string.btn_delete), color = AlertRed, fontWeight = FontWeight.Bold)
                 }

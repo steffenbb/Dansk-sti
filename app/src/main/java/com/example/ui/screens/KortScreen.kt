@@ -122,6 +122,7 @@ fun KortScreen(
 
     val searchQuery by viewModel.searchQuery.collectAsState()
     val placeSuggestions by viewModel.placeSuggestions.collectAsState()
+    val groupedSearchResults by viewModel.groupedSearchResults.collectAsState()
     val allTrails by viewModel.allTrails.collectAsState()
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
@@ -160,7 +161,8 @@ fun KortScreen(
             initialCenter = GeoPoint(56.0, 10.2),
             initialZoom = 8.0,
             isSystemDarkOverride = isDark,
-            controlsTopPadding = 84.dp,
+            controlsTopPadding = 16.dp,
+            controlsEndPadding = 16.dp,
             attributionBottomPadding = 88.dp,
             layersButtonTestTag = "kort_layers_button",
             compassButtonTestTag = "kort_compass_button",
@@ -232,13 +234,13 @@ fun KortScreen(
                 }
             }
         ) { _, _ ->
-            // Top search bar overlay (Requirement E)
+            // Top search bar overlay (Requirement E) — padded on the right so it never overlaps map_controls_column
             Column(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
+                    .align(Alignment.TopStart)
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .padding(horizontal = Spacing.s4, vertical = Spacing.s3)
+                    .padding(start = Spacing.s4, end = 76.dp, top = Spacing.s3, bottom = Spacing.s3)
             ) {
                 Surface(
                     shape = RoundedCornerShape(24.dp),
@@ -301,87 +303,36 @@ fun KortScreen(
                     }
                 }
 
-                // Search suggestions dropdown (places + trails)
-                if (searchQuery.trim().length >= 2 && (placeSuggestions.isNotEmpty() || matchingTrails.isNotEmpty())) {
+                // Grouped search dropdown: Mine ruter og vandreruter; Shelters og fri teltning; Steder
+                if (searchQuery.trim().length >= 2 && !groupedSearchResults.isEmpty) {
                     Spacer(modifier = Modifier.height(Spacing.s2))
-                    Card(
-                        shape = CardShape,
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            matchingTrails.forEach { trail ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .sizeIn(minHeight = 48.dp)
-                                        .clickable {
-                                            viewModel.setSearchQuery("")
-                                            onTrailClick(trail.id)
-                                        }
-                                        .padding(horizontal = Spacing.s4, vertical = Spacing.s2),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Route,
-                                        contentDescription = null,
-                                        tint = ForestGreenPrimary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = trail.name,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = stringResource(R.string.ui_kortscreen_km_55, trail.region, formatDanishKm(trail.lengthKm, 1)),
-                                            style = TabularLabelStyle,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
+                    com.example.ui.components.GroupedPlaceSearchDropdown(
+                        groupedResults = groupedSearchResults,
+                        onSelectRouteOrTrail = { item ->
+                            viewModel.setSearchQuery("")
+                            if (item.isCustomRoute && item.customRouteId != null) {
+                                onTrailClick("route_${item.customRouteId}")
+                            } else if (item.trailId != null) {
+                                onTrailClick(item.trailId)
                             }
-                            placeSuggestions.take(4).forEach { place ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .sizeIn(minHeight = 48.dp)
-                                        .clickable {
-                                            viewModel.setSearchQuery("")
-                                            mapViewRef?.controller?.animateTo(
-                                                GeoPoint(place.lat, place.lng),
-                                                13.5,
-                                                600L
-                                            )
-                                        }
-                                        .padding(horizontal = Spacing.s4, vertical = Spacing.s2),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Place,
-                                        contentDescription = null,
-                                        tint = AccentAmber,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = place.displayName,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                            }
+                        },
+                        onRouteHere = { lat, lng, name ->
+                            viewModel.setSearchQuery("")
+                            onNavigateToPoint(lat, lng, name)
+                        },
+                        onAddAsPoint = { lat, lng, name ->
+                            viewModel.setSearchQuery("")
+                            onOpenPlanner(lat, lng, name)
+                        },
+                        onShowOnMap = { lat, lng, _ ->
+                            viewModel.setSearchQuery("")
+                            mapViewRef?.controller?.animateTo(
+                                GeoPoint(lat, lng),
+                                13.5,
+                                600L
+                            )
                         }
-                    }
+                    )
                 }
             }
 

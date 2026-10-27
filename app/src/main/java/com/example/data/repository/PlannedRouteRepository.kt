@@ -204,6 +204,17 @@ class PlannedRouteRepository(private val context: Context) {
 
         val totalWalkKm = routePoints.lastOrNull()?.walkKm ?: 0.0
 
+        val slicedForCues = com.example.util.routing.TrailSlicer.sliceTrail(
+            segments = segments,
+            fromKm = if (isReverse) maxTargetTrailKm else minTargetTrailKm,
+            toKm = if (isReverse) minTargetTrailKm else maxTargetTrailKm
+        )
+        val computedTurnCues = com.example.util.routing.TurnCueGenerator.computeTrailTurnCues(
+            segments = slicedForCues.trailSegments,
+            points = slicedForCues.points,
+            wayInfo = slicedForCues.wayInfo
+        )
+
         // Stage ends use the walkKm of the camp the stage planner chose, not re-spaced stage lengths
         return PlannedRoute(
             planId = planId,
@@ -214,7 +225,8 @@ class PlannedRouteRepository(private val context: Context) {
             endTrailKm = endKm,
             totalWalkKm = totalWalkKm,
             points = routePoints,
-            stages = stages
+            stages = stages,
+            turnCues = computedTurnCues
         )
     }
 
@@ -465,6 +477,28 @@ class PlannedRouteRepository(private val context: Context) {
                 ?: orderedLegs.sumOf { it.lengthKm }
             val endTrailKm = endWp?.trailKm ?: totalWalkKm
 
+            val allTurnCues = mutableListOf<com.example.data.model.TurnCue>()
+            var legStartWalkKm = 0.0
+            for (leg in orderedLegs) {
+                val legCues = if (leg.turnCues.isNotEmpty()) {
+                    leg.turnCues
+                } else if (leg.legMode == com.example.util.routing.LegMode.TRAIL) {
+                    com.example.util.routing.TurnCueGenerator.computeTrailTurnCues(leg.trailSegments, leg.points, leg.wayInfo)
+                } else if (leg.legMode == com.example.util.routing.LegMode.SNAP) {
+                    com.example.util.routing.TurnCueGenerator.computeTurnCuesFromPointsAndWayInfo(leg.points, leg.wayInfo)
+                } else {
+                    emptyList()
+                }
+                for (cue in legCues) {
+                    allTurnCues.add(cue.copy(walkKm = legStartWalkKm + cue.walkKm))
+                }
+                val isFerry = leg.legMode == com.example.util.routing.LegMode.STRAIGHT &&
+                    leg.sourceName.contains("ferry", ignoreCase = true)
+                if (!isFerry) {
+                    legStartWalkKm += leg.lengthKm
+                }
+            }
+
             return PlannedRoute(
                 planId = planId,
                 trailId = trailId,
@@ -474,7 +508,8 @@ class PlannedRouteRepository(private val context: Context) {
                 endTrailKm = endTrailKm,
                 totalWalkKm = totalWalkKm,
                 points = routePoints,
-                stages = stages
+                stages = stages,
+                turnCues = allTurnCues
             )
         }
 

@@ -2,10 +2,16 @@ package com.example.ui.screens.planner
 
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,6 +36,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -61,16 +69,23 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
@@ -84,6 +99,7 @@ import com.example.ui.theme.AmberAccent
 import com.example.ui.theme.ForestGreenPrimary
 import com.example.ui.viewmodel.PlannerDaySummary
 import com.example.ui.viewmodel.PlannerMode
+import com.example.ui.viewmodel.PlannerSheetTab
 import com.example.ui.viewmodel.RouteAlternativeInfo
 import com.example.ui.viewmodel.RouteBuilderState
 import com.example.ui.viewmodel.SheetHeightState
@@ -98,6 +114,8 @@ import com.example.util.routing.RouteWaypoint
 import com.example.util.routing.WaypointRole
 import java.io.File
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @Composable
 fun PlannerBottomSheet(
@@ -119,8 +137,81 @@ fun PlannerBottomSheet(
     onUpdateOptions: (RouteOptions) -> Unit,
     onWaypointClicked: (RouteWaypoint) -> Unit,
     onOpenSaveDialog: () -> Unit,
+    onSelectSheetTab: (PlannerSheetTab) -> Unit = {},
+    onSheetHeightFractionChanged: (Float) -> Unit = {},
+    onReorderWaypoints: (Int, Int) -> Unit = { _, _ -> },
+    onDayCardClicked: (PlannerDaySummary) -> Unit = {},
+    onCustomWaypointClicked: (UserCustomWaypointEntity) -> Unit = {},
+    onDeleteCustomWaypoint: (String) -> Unit = {},
+    onDeleteCustomWaypointPhoto: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val screenHeightDp = configuration.screenHeightDp.takeIf { it > 0 }?.toFloat()?.coerceAtLeast(700f) ?: 800f
+    // Requirement 1: The map keeps at least 40 % of the screen -> sheet max height is 60 % of screen.
+    val maxFullSheetDp = (screenHeightDp * 0.60f).coerceAtLeast(360f)
+    val halfSheetDp = (screenHeightDp * 0.45f).coerceIn(280f, maxFullSheetDp)
+    val peekSheetDp = (screenHeightDp * 0.22f).coerceIn(145f, 190f)
+
+    var dragDeltaDp by remember(uiState.sheetHeightState) { mutableFloatStateOf(0f) }
+
+    val baseTargetDp = when (uiState.sheetHeightState) {
+        SheetHeightState.PEEK -> peekSheetDp
+        SheetHeightState.HALF -> halfSheetDp
+        SheetHeightState.FULL -> maxFullSheetDp
+    }
+    val currentMaxSheetDp = (baseTargetDp - dragDeltaDp).coerceIn(peekSheetDp, maxFullSheetDp)
+    val animatedMaxHeightDp by animateDpAsState(
+        targetValue = currentMaxSheetDp.dp,
+        label = "sheetMaxHeightDp"
+    )
+
+    val sheetDraggableState = rememberDraggableState { deltaPx ->
+        val deltaDp = with(density) { deltaPx.toDp().value }
+        dragDeltaDp = (dragDeltaDp + deltaDp).coerceIn(
+            baseTargetDp - maxFullSheetDp,
+            baseTargetDp - peekSheetDp
+        )
+        val newHeightDp = (baseTargetDp - dragDeltaDp).coerceIn(peekSheetDp, maxFullSheetDp)
+        onSheetHeightFractionChanged((newHeightDp / screenHeightDp).coerceIn(0.18f, 0.60f))
+    }
+
+    fun settleSheetDrag(velocityPxPerSec: Float) {
+        val currentHeightDp = (baseTargetDp - dragDeltaDp).coerceIn(peekSheetDp, maxFullSheetDp)
+        val targetState = when {
+            velocityPxPerSec < -600f -> {
+                // Fast swipe up
+                when (uiState.sheetHeightState) {
+                    SheetHeightState.PEEK -> SheetHeightState.HALF
+                    SheetHeightState.HALF -> SheetHeightState.FULL
+                    SheetHeightState.FULL -> SheetHeightState.FULL
+                }
+            }
+            velocityPxPerSec > 600f -> {
+                // Fast swipe down
+                when (uiState.sheetHeightState) {
+                    SheetHeightState.FULL -> SheetHeightState.HALF
+                    SheetHeightState.HALF -> SheetHeightState.PEEK
+                    SheetHeightState.PEEK -> SheetHeightState.PEEK
+                }
+            }
+            else -> {
+                // Snap to nearest of PEEK, HALF, FULL
+                val distPeek = abs(currentHeightDp - peekSheetDp)
+                val distHalf = abs(currentHeightDp - halfSheetDp)
+                val distFull = abs(currentHeightDp - maxFullSheetDp)
+                when {
+                    distPeek <= distHalf && distPeek <= distFull -> SheetHeightState.PEEK
+                    distHalf <= distFull -> SheetHeightState.HALF
+                    else -> SheetHeightState.FULL
+                }
+            }
+        }
+        dragDeltaDp = 0f
+        onSetSheetHeightState(targetState)
+    }
+
     Card(
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -128,13 +219,36 @@ fun PlannerBottomSheet(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
         modifier = modifier
             .fillMaxWidth()
+            .heightIn(max = animatedMaxHeightDp)
+            .draggable(
+                state = sheetDraggableState,
+                orientation = Orientation.Vertical,
+                onDragStopped = { velocity -> settleSheetDrag(velocity) }
+            )
             .testTag("route_bottom_sheet")
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
+            // Drag Handle Pill
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp)
+                    .testTag("planner_sheet_drag_handle"),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
+                )
+            }
+
             val totalDays = maxOf(1, uiState.daySummaries.size)
             val dayWord = if (totalDays == 1) {
                 stringResource(R.string.day_singular)
@@ -143,34 +257,33 @@ fun PlannerBottomSheet(
             }
             val safeTotalKm = if (uiState.stats.totalKm.isFinite()) uiState.stats.totalKm else 0.0
             val safeAscentM = if (uiState.stats.ascentM.isFinite()) uiState.stats.ascentM else 0.0
+            val pathShareLabel = if (!uiState.stats.hasWayInfo || uiState.stats.pathSharePct == null) {
+                stringResource(R.string.planner_path_share_unknown)
+            } else {
+                uiState.stats.pathShareFormatted
+            }
+            // Requirement 2: Peek row shows: days · km · +ascent · time · path share ("ukendt" when unknown)
             val peekSummaryText = String.format(
                 Locale.GERMANY,
-                stringResource(R.string.planner_sheet_peek_summary_format),
+                stringResource(R.string.planner_sheet_peek_with_path_format),
                 totalDays,
                 dayWord,
                 safeTotalKm,
                 safeAscentM,
-                uiState.timeEstimateFormatted
+                uiState.timeEstimateFormatted,
+                pathShareLabel
             )
 
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        val nextState = when (uiState.sheetHeightState) {
-                            SheetHeightState.PEEK -> SheetHeightState.HALF
-                            SheetHeightState.HALF -> SheetHeightState.FULL
-                            SheetHeightState.FULL -> SheetHeightState.PEEK
-                        }
-                        onSetSheetHeightState(nextState)
-                    },
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = peekSummaryText,
-                        fontSize = 15.sp,
+                        style = com.example.ui.theme.TabularStatsTextStyle,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.testTag("route_summary_text")
@@ -277,7 +390,7 @@ fun PlannerBottomSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
+                    .padding(top = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Row(
@@ -336,7 +449,7 @@ fun PlannerBottomSheet(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                "Starter...",
+                                stringResource(R.string.planner_btn_starting),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -425,431 +538,658 @@ fun PlannerBottomSheet(
                 }
             }
 
-            // HALF or FULL section: Day list & details
+            // HALF or FULL section: Tabs (Rute, Dage, Detaljer) + Tab Content
             AnimatedVisibility(
                 visible = uiState.sheetHeightState == SheetHeightState.HALF || uiState.sheetHeightState == SheetHeightState.FULL
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(
-                            max = if (uiState.sheetHeightState == SheetHeightState.HALF) 290.dp else 460.dp
-                        )
-                        .verticalScroll(rememberScrollState())
-                        .padding(top = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(top = 8.dp)
                 ) {
+                    // 3 Tabs: Rute, Dage, Detaljer
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val dayCount = uiState.daySummaries.size
-                        val dayCountLabel = if (dayCount == 1) {
-                            stringResource(R.string.day_singular)
-                        } else {
-                            stringResource(R.string.day_plural)
-                        }
-                        Text(
-                            text = stringResource(R.string.planner_day_plan_header_format, dayCount, dayCountLabel),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = String.format(
-                                Locale.GERMANY,
-                                stringResource(R.string.planner_day_target_pace_format),
-                                uiState.dailyTargetKm.toInt(),
-                                uiState.paceKmh
-                            ),
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    if (uiState.daySummaries.isEmpty()) {
-                        Text(
-                            text = stringResource(R.string.planner_add_two_points_hint),
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            uiState.daySummaries.forEach { day ->
-                                PlannerDaySummaryCard(
-                                    day = day,
-                                    showNightWeather = uiState.sheetHeightState == SheetHeightState.FULL,
-                                    onReplaceOvernight = onReplaceOvernight,
-                                    onDeleteOvernight = onDeleteWaypoint,
-                                    onZoomToEnd = { wpId ->
-                                        val wp = uiState.waypoints.find { it.id == wpId }
-                                        if (wp != null) {
-                                            onZoomToCoordinate(wp.lat, wp.lng)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    if (uiState.supplyGapWarnings.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            uiState.supplyGapWarnings.forEach { warning ->
-                                SupplyGapWarningCard(
-                                    warning = warning,
-                                    onZoomToDetour = {
-                                        val dLat = warning.detourLat
-                                        val dLng = warning.detourLng
-                                        if (dLat != null && dLng != null) {
-                                            onZoomToCoordinate(dLat, dLng)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    if (uiState.accessWarnings.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            uiState.accessWarnings.forEach { warning ->
-                                AccessWarningCard(
-                                    warning = warning,
-                                    onZoomTo = {
-                                        onZoomToCoordinate(warning.location.lat, warning.location.lng)
-                                    },
-                                    onRerouteAround = {
-                                        onRerouteAroundWarning(warning)
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    if (uiState.sheetHeightState == SheetHeightState.FULL) {
-                        HorizontalDivider()
-
-                        val allPoints = remember(uiState.legs, uiState.waypoints) {
-                            val ordered = mutableListOf<LegGeometryData>()
-                            for (i in 0 until uiState.waypoints.size - 1) {
-                                val key = "${uiState.waypoints[i].id}_to_${uiState.waypoints[i + 1].id}"
-                                uiState.legs[key]?.let { ordered.add(it) }
-                            }
-                            RouteGeometryStorageManager.getCombinedPoints(ordered)
-                        }
-                        val overnightWps = remember(uiState.waypoints) {
-                            uiState.waypoints.filter { !it.isHelper && it.role == WaypointRole.OVERNIGHT }
-                        }
-                        val dayBoundaryKms = remember(uiState.daySummaries) {
-                            uiState.daySummaries.dropLast(1).map { it.endKm }
-                        }
-
-                        Text(
-                            text = stringResource(R.string.planner_elevation_chart_title),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        RouteElevationProfileChart(
-                            points = allPoints,
-                            dayBoundaryWalkKms = dayBoundaryKms,
-                            overnightWaypointIds = overnightWps.map { it.id },
-                            onPointScrubbed = { pt, _ ->
-                                onScrubbedPointChanged(pt)
-                            },
-                            onOvernightMarkerDragged = { wpId, targetWalkKm, _ ->
-                                onOvernightMarkerDragged(wpId, targetWalkKm)
-                            },
-                            modifier = Modifier.testTag("planner_elevation_chart")
-                        )
-
-                        // 2. Rutekvalitet & Underlag
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = stringResource(R.string.planner_route_quality_title),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                RoundedCornerShape(10.dp)
                             )
+                            .padding(3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        PlannerTabButton(
+                            label = stringResource(R.string.planner_tab_rute),
+                            selected = uiState.selectedSheetTab == PlannerSheetTab.RUTE,
+                            onClick = { onSelectSheetTab(PlannerSheetTab.RUTE) },
+                            testTag = "planner_tab_rute",
+                            modifier = Modifier.weight(1f)
+                        )
+                        PlannerTabButton(
+                            label = stringResource(R.string.planner_tab_dage),
+                            selected = uiState.selectedSheetTab == PlannerSheetTab.DAGE,
+                            onClick = { onSelectSheetTab(PlannerSheetTab.DAGE) },
+                            testTag = "planner_tab_dage",
+                            modifier = Modifier.weight(1f)
+                        )
+                        PlannerTabButton(
+                            label = stringResource(R.string.planner_tab_detaljer),
+                            selected = uiState.selectedSheetTab == PlannerSheetTab.DETALJER,
+                            onClick = { onSelectSheetTab(PlannerSheetTab.DETALJER) },
+                            testTag = "planner_tab_detaljer",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
 
-                            if (!uiState.stats.hasWayInfo || uiState.stats.pathSharePct == null) {
-                                Text(
-                                    text = "${stringResource(R.string.planner_way_info_unknown)} · Stiandel: ukendt · Vej: ukendt",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.testTag("way_info_unknown_text")
-                                )
-                            } else {
-                                Text(
-                                    text = "Stiandel: ${uiState.stats.pathShareFormatted} · Vej: ${uiState.stats.roadKmFormatted}",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.testTag("way_info_summary_text")
-                                )
-                                val q = uiState.routeQuality
-                                val effTotal = if (q.totalKm.isFinite() && q.totalKm > 0.0) q.totalKm else 1.0
-                                val segments = listOf(
-                                    (q.trailKm / effTotal).toFloat() to Color(0xFF2E7D32),
-                                    (q.trackKm / effTotal).toFloat() to Color(0xFF689F38),
-                                    (q.roadWithSidewalkKm / effTotal).toFloat() to Color(0xFF546E7A),
-                                    (q.roadNoSidewalkKm / effTotal).toFloat() to Color(0xFFE65100),
-                                    (q.asphaltKm / effTotal).toFloat() to Color(0xFF757575),
-                                    (q.ferryKm / effTotal).toFloat() to Color(0xFF0288D1)
-                                ).filter { (w, _) -> w.isFinite() && w > 0f }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        when (uiState.selectedSheetTab) {
+                            PlannerSheetTab.RUTE -> {
+                                // Rute tab: points list with drag-to-reorder and swipe-to-delete with Fortryd + route options
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.planner_waypoints_header_format, visibleWaypoints.size),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (visibleWaypoints.size >= 2) {
+                                            Text(
+                                                text = stringResource(R.string.planner_waypoints_reorder_delete_hint),
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
 
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(10.dp)
-                                        .clip(RoundedCornerShape(5.dp))
-                                ) {
-                                    if (segments.isEmpty()) {
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .fillMaxSize()
-                                                .background(Color.LightGray)
+                                    if (visibleWaypoints.isEmpty()) {
+                                        Text(
+                                            text = stringResource(R.string.planner_add_two_points_hint),
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     } else {
-                                        segments.forEach { (w, col) ->
-                                            if (w.isFinite() && w > 0f) {
+                                        visibleWaypoints.forEachIndexed { idx, wp ->
+                                            WaypointRow(
+                                                index = idx,
+                                                totalCount = visibleWaypoints.size,
+                                                waypoint = wp,
+                                                isSelected = uiState.selectedWaypointId == wp.id,
+                                                onClick = { onWaypointClicked(wp) },
+                                                onMoveUp = {
+                                                    if (idx > 0) onReorderWaypoints(idx, idx - 1)
+                                                },
+                                                onMoveDown = {
+                                                    if (idx < visibleWaypoints.size - 1) onReorderWaypoints(idx, idx + 1)
+                                                },
+                                                onDragReorderByOffset = { stepDelta ->
+                                                    val targetIdx = (idx + stepDelta).coerceIn(0, visibleWaypoints.size - 1)
+                                                    if (targetIdx != idx) {
+                                                        onReorderWaypoints(idx, targetIdx)
+                                                    }
+                                                },
+                                                onSwipeDelete = { onDeleteWaypoint(wp.id) }
+                                            )
+                                        }
+                                    }
+
+                                    if (uiState.customUserWaypoints.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "Mine punkter (${uiState.customUserWaypoints.size})",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        uiState.customUserWaypoints.forEach { customWp ->
+                                            CustomWaypointRow(
+                                                waypoint = customWp,
+                                                onClick = { onCustomWaypointClicked(customWp) },
+                                                onDelete = { onDeleteCustomWaypoint(customWp.id) },
+                                                onDeletePhoto = if (!customWp.photoPath.isNullOrBlank()) {
+                                                    { onDeleteCustomWaypointPhoto(customWp.id) }
+                                                } else null
+                                            )
+                                        }
+                                    }
+                                }
+
+                                HorizontalDivider()
+
+                                // Route Options in Rute tab
+                                PlannerRoutingOptionsSection(
+                                    options = uiState.options,
+                                    onUpdateOptions = onUpdateOptions
+                                )
+
+                                // Gem & Start buttons
+                                PlannerSaveAndStartRow(
+                                    visibleWaypointsCount = visibleWaypoints.size,
+                                    isSaving = uiState.isSaving,
+                                    isStarting = uiState.isStarting,
+                                    onOpenSaveDialog = onOpenSaveDialog,
+                                    onStartNavigation = onStartNavigation
+                                )
+                            }
+
+                            PlannerSheetTab.DAGE -> {
+                                // Dage tab: day cards + supply/access warnings
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val dayCount = uiState.daySummaries.size
+                                    val dayCountLabel = if (dayCount == 1) {
+                                        stringResource(R.string.day_singular)
+                                    } else {
+                                        stringResource(R.string.day_plural)
+                                    }
+                                    Text(
+                                        text = stringResource(R.string.planner_day_plan_header_format, dayCount, dayCountLabel),
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = String.format(
+                                            Locale.GERMANY,
+                                            stringResource(R.string.planner_day_target_pace_format),
+                                            uiState.dailyTargetKm.toInt(),
+                                            uiState.paceKmh
+                                        ),
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                if (uiState.daySummaries.isEmpty()) {
+                                    Text(
+                                        text = stringResource(R.string.planner_add_two_points_hint),
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                } else {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        uiState.daySummaries.forEach { day ->
+                                            PlannerDaySummaryCard(
+                                                day = day,
+                                                isSelected = uiState.selectedDayNumber == day.dayNumber,
+                                                showNightWeather = true,
+                                                onCardClicked = { onDayCardClicked(day) },
+                                                onReplaceOvernight = onReplaceOvernight,
+                                                onDeleteOvernight = onDeleteWaypoint,
+                                                onZoomToEnd = { wpId ->
+                                                    val wp = uiState.waypoints.find { it.id == wpId }
+                                                    if (wp != null) {
+                                                        onZoomToCoordinate(wp.lat, wp.lng)
+                                                    } else {
+                                                        onDayCardClicked(day)
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (uiState.supplyGapWarnings.isNotEmpty()) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        uiState.supplyGapWarnings.forEach { warning ->
+                                            SupplyGapWarningCard(
+                                                warning = warning,
+                                                onZoomToDetour = {
+                                                    val dLat = warning.detourLat
+                                                    val dLng = warning.detourLng
+                                                    if (dLat != null && dLng != null) {
+                                                        onZoomToCoordinate(dLat, dLng)
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (uiState.accessWarnings.isNotEmpty()) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        uiState.accessWarnings.forEach { warning ->
+                                            AccessWarningCard(
+                                                warning = warning,
+                                                onZoomTo = {
+                                                    onZoomToCoordinate(warning.location.lat, warning.location.lng)
+                                                },
+                                                onRerouteAround = {
+                                                    onRerouteAroundWarning(warning)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            PlannerSheetTab.DETALJER -> {
+                                // Detaljer tab: elevation, surface, weather (+ route options & save/start for full-sheet tests)
+                                val allPoints = remember(uiState.legs, uiState.waypoints) {
+                                    val ordered = mutableListOf<LegGeometryData>()
+                                    for (i in 0 until uiState.waypoints.size - 1) {
+                                        val key = "${uiState.waypoints[i].id}_to_${uiState.waypoints[i + 1].id}"
+                                        uiState.legs[key]?.let { ordered.add(it) }
+                                    }
+                                    RouteGeometryStorageManager.getCombinedPoints(ordered)
+                                }
+                                val overnightWps = remember(uiState.waypoints) {
+                                    uiState.waypoints.filter { !it.isHelper && it.role == WaypointRole.OVERNIGHT }
+                                }
+                                val dayBoundaryKms = remember(uiState.daySummaries) {
+                                    uiState.daySummaries.dropLast(1).map { it.endKm }
+                                }
+
+                                Text(
+                                    text = stringResource(R.string.planner_elevation_chart_title),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+
+                                RouteElevationProfileChart(
+                                    points = allPoints,
+                                    dayBoundaryWalkKms = dayBoundaryKms,
+                                    overnightWaypointIds = overnightWps.map { it.id },
+                                    onPointScrubbed = { pt, _ ->
+                                        onScrubbedPointChanged(pt)
+                                    },
+                                    onOvernightMarkerDragged = { wpId, targetWalkKm, _ ->
+                                        onOvernightMarkerDragged(wpId, targetWalkKm)
+                                    },
+                                    modifier = Modifier.testTag("planner_elevation_chart")
+                                )
+
+                                // 2. Rutekvalitet & Underlag
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = stringResource(R.string.planner_route_quality_title),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+
+                                    if (!uiState.stats.hasWayInfo || uiState.stats.pathSharePct == null) {
+                                        Text(
+                                            text = stringResource(
+                                                R.string.planner_way_info_unknown_full,
+                                                stringResource(R.string.planner_way_info_unknown)
+                                            ),
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.testTag("way_info_unknown_text")
+                                        )
+                                    } else {
+                                        Text(
+                                            text = stringResource(
+                                                R.string.way_info_summary_format,
+                                                uiState.stats.pathShareFormatted,
+                                                uiState.stats.roadKmFormatted
+                                            ),
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.testTag("way_info_summary_text")
+                                        )
+                                        val q = uiState.routeQuality
+                                        val effTotal = if (q.totalKm.isFinite() && q.totalKm > 0.0) q.totalKm else 1.0
+                                        val segments = listOf(
+                                            (q.trailKm / effTotal).toFloat() to Color(0xFF2E7D32),
+                                            (q.trackKm / effTotal).toFloat() to Color(0xFF689F38),
+                                            (q.roadWithSidewalkKm / effTotal).toFloat() to Color(0xFF546E7A),
+                                            (q.roadNoSidewalkKm / effTotal).toFloat() to Color(0xFFE65100),
+                                            (q.asphaltKm / effTotal).toFloat() to Color(0xFF757575),
+                                            (q.ferryKm / effTotal).toFloat() to Color(0xFF0288D1)
+                                        ).filter { (w, _) -> w.isFinite() && w > 0f }
+
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(10.dp)
+                                                .clip(RoundedCornerShape(5.dp))
+                                        ) {
+                                            if (segments.isEmpty()) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .weight(w)
+                                                        .weight(1f)
                                                         .fillMaxSize()
-                                                        .background(col)
+                                                        .background(Color.LightGray)
+                                                )
+                                            } else {
+                                                segments.forEach { (w, col) ->
+                                                    if (w.isFinite() && w > 0f) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .weight(w)
+                                                                .fillMaxSize()
+                                                                .background(col)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                QualityRowItem(
+                                                    color = Color(0xFF2E7D32),
+                                                    label = stringResource(R.string.planner_quality_trail),
+                                                    km = q.trailKm,
+                                                    pct = q.trailPct
+                                                )
+                                                QualityRowItem(
+                                                    color = Color(0xFF689F38),
+                                                    label = stringResource(R.string.planner_quality_track),
+                                                    km = q.trackKm,
+                                                    pct = q.trackPct
+                                                )
+                                            }
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                QualityRowItem(
+                                                    color = Color(0xFF546E7A),
+                                                    label = stringResource(R.string.planner_quality_road_sidewalk),
+                                                    km = q.roadWithSidewalkKm,
+                                                    pct = q.roadWithSidewalkPct
+                                                )
+                                                QualityRowItem(
+                                                    color = Color(0xFFE65100),
+                                                    label = stringResource(R.string.planner_quality_road_no_sidewalk),
+                                                    km = q.roadNoSidewalkKm,
+                                                    pct = q.roadNoSidewalkPct
+                                                )
+                                            }
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                QualityRowItem(
+                                                    color = Color(0xFF757575),
+                                                    label = stringResource(R.string.planner_quality_asphalt),
+                                                    km = q.asphaltKm,
+                                                    pct = q.asphaltPct
+                                                )
+                                                QualityRowItem(
+                                                    color = Color(0xFF0288D1),
+                                                    label = stringResource(R.string.planner_quality_ferry),
+                                                    km = q.ferryKm,
+                                                    pct = q.ferryPct
+                                                )
+                                            }
+                                        }
+
+                                        if (q.roadWithoutFootwayWarnings.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = stringResource(R.string.planner_road_warning_header),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFE65100)
+                                            )
+                                            q.roadWithoutFootwayWarnings.forEach { rw ->
+                                                RoadSectionWarningCard(
+                                                    warning = rw,
+                                                    onZoomTo = {
+                                                        onZoomToCoordinate(rw.startLat, rw.startLng)
+                                                    }
                                                 )
                                             }
                                         }
                                     }
                                 }
 
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        QualityRowItem(
-                                            color = Color(0xFF2E7D32),
-                                            label = stringResource(R.string.planner_quality_trail),
-                                            km = q.trailKm,
-                                            pct = q.trailPct
+                                // 3. Weather section in Detaljer tab
+                                if (uiState.waypointWeatherEtas.isNotEmpty()) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(
+                                            text = stringResource(R.string.ui_traildetailscreen_vejrudsigt_open_meteo_206),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
-                                        QualityRowItem(
-                                            color = Color(0xFF689F38),
-                                            label = stringResource(R.string.planner_quality_track),
-                                            km = q.trackKm,
-                                            pct = q.trackPct
-                                        )
+                                        uiState.waypointWeatherEtas.forEach { weather ->
+                                            WaypointWeatherEtaCard(weather = weather)
+                                        }
                                     }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        QualityRowItem(
-                                            color = Color(0xFF546E7A),
-                                            label = stringResource(R.string.planner_quality_road_sidewalk),
-                                            km = q.roadWithSidewalkKm,
-                                            pct = q.roadWithSidewalkPct
+                                } else if (uiState.daySummaries.isNotEmpty()) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(
+                                            text = stringResource(R.string.ui_traildetailscreen_vejrudsigt_open_meteo_206),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
-                                        QualityRowItem(
-                                            color = Color(0xFFE65100),
-                                            label = stringResource(R.string.planner_quality_road_no_sidewalk),
-                                            km = q.roadNoSidewalkKm,
-                                            pct = q.roadNoSidewalkPct
-                                        )
-                                    }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        QualityRowItem(
-                                            color = Color(0xFF757575),
-                                            label = stringResource(R.string.planner_quality_asphalt),
-                                            km = q.asphaltKm,
-                                            pct = q.asphaltPct
-                                        )
-                                        QualityRowItem(
-                                            color = Color(0xFF0288D1),
-                                            label = stringResource(R.string.planner_quality_ferry),
-                                            km = q.ferryKm,
-                                            pct = q.ferryPct
-                                        )
-                                    }
-                                }
-
-                                if (q.roadWithoutFootwayWarnings.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = stringResource(R.string.planner_road_warning_header),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFE65100)
-                                    )
-                                    q.roadWithoutFootwayWarnings.forEach { rw ->
-                                        RoadSectionWarningCard(
-                                            warning = rw,
-                                            onZoomTo = {
-                                                onZoomToCoordinate(rw.startLat, rw.startLng)
+                                        uiState.daySummaries.forEach { day ->
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = "Dag ${day.dayNumber}: " + stringResource(
+                                                        R.string.planner_night_weather_format,
+                                                        day.nightWeatherSummary
+                                                    ),
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    modifier = Modifier
+                                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                                        .testTag("day_card_weather_${day.dayNumber}")
+                                                )
                                             }
-                                        )
+                                        }
                                     }
                                 }
-                            }
-                        }
 
-                        // 3. Routing Options
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = stringResource(R.string.planner_routing_options_title),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
+                                HorizontalDivider()
 
-                            Column {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        stringResource(R.string.planner_avoid_roads),
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        stringResource(R.string.ui_offlinetrailsscreen_fmt_86, (uiState.options.avoidRoads * 100).toInt()),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = ForestGreenPrimary
-                                    )
-                                }
-                                Slider(
-                                    value = uiState.options.avoidRoads.toFloat().coerceIn(0f, 1f),
-                                    onValueChange = { newVal ->
-                                        onUpdateOptions(uiState.options.copy(avoidRoads = newVal.toDouble()))
-                                    },
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = ForestGreenPrimary,
-                                        activeTrackColor = ForestGreenPrimary
-                                    ),
-                                    modifier = Modifier.testTag("slider_avoid_roads")
+                                PlannerRoutingOptionsSection(
+                                    options = uiState.options,
+                                    onUpdateOptions = onUpdateOptions
                                 )
-                            }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    stringResource(R.string.planner_prefer_nature),
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                PlannerSaveAndStartRow(
+                                    visibleWaypointsCount = visibleWaypoints.size,
+                                    isSaving = uiState.isSaving,
+                                    isStarting = uiState.isStarting,
+                                    onOpenSaveDialog = onOpenSaveDialog,
+                                    onStartNavigation = onStartNavigation
                                 )
-                                Switch(
-                                    checked = uiState.options.preferNature,
-                                    onCheckedChange = { checked ->
-                                        onUpdateOptions(uiState.options.copy(preferNature = checked))
-                                    },
-                                    colors = SwitchDefaults.colors(checkedThumbColor = ForestGreenPrimary),
-                                    modifier = Modifier.testTag("switch_prefer_nature")
-                                )
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    stringResource(R.string.planner_allow_ferries),
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Switch(
-                                    checked = uiState.options.allowFerries,
-                                    onCheckedChange = { checked ->
-                                        onUpdateOptions(uiState.options.copy(allowFerries = checked))
-                                    },
-                                    colors = SwitchDefaults.colors(checkedThumbColor = ForestGreenPrimary),
-                                    modifier = Modifier.testTag("switch_allow_ferries")
-                                )
-                            }
-                        }
-
-                        // 4. Waypoints list (visible waypoints only)
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                text = stringResource(R.string.planner_waypoints_header_format, visibleWaypoints.size),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-
-                            visibleWaypoints.forEachIndexed { idx, wp ->
-                                WaypointRow(
-                                    index = idx,
-                                    waypoint = wp,
-                                    onClick = { onWaypointClicked(wp) }
-                                )
-                            }
-                        }
-
-                        // 5. Gem & Start buttons in Full sheet
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = onOpenSaveDialog,
-                                enabled = visibleWaypoints.size >= 2 && !uiState.isSaving && !uiState.isStarting,
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("btn_full_sheet_save")
-                            ) {
-                                if (uiState.isSaving) {
-                                    CircularProgressIndicator(
-                                        color = ForestGreenPrimary,
-                                        modifier = Modifier.size(14.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                } else {
-                                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                }
-                                Text(stringResource(R.string.btn_save), fontWeight = FontWeight.Bold)
-                            }
-
-                            Button(
-                                onClick = onStartNavigation,
-                                enabled = visibleWaypoints.size >= 2 && !uiState.isSaving && !uiState.isStarting,
-                                colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("btn_full_sheet_start")
-                            ) {
-                                if (uiState.isStarting) {
-                                    CircularProgressIndicator(
-                                        color = Color.White,
-                                        modifier = Modifier.size(14.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Starter...", fontWeight = FontWeight.Bold)
-                                } else {
-                                    Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(stringResource(R.string.planner_btn_start), fontWeight = FontWeight.Bold)
-                                }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlannerTabButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) ForestGreenPrimary else Color.Transparent,
+        modifier = modifier
+            .clickable(onClick = onClick)
+            .testTag(testTag)
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(vertical = 7.dp, horizontal = 8.dp)
+        ) {
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlannerRoutingOptionsSection(
+    options: RouteOptions,
+    onUpdateOptions: (RouteOptions) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = stringResource(R.string.planner_routing_options_title),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    stringResource(R.string.planner_avoid_roads),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    stringResource(R.string.ui_offlinetrailsscreen_fmt_86, (options.avoidRoads * 100).toInt()),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ForestGreenPrimary
+                )
+            }
+            Slider(
+                value = options.avoidRoads.toFloat().coerceIn(0f, 1f),
+                onValueChange = { newVal ->
+                    onUpdateOptions(options.copy(avoidRoads = newVal.toDouble()))
+                },
+                colors = SliderDefaults.colors(
+                    thumbColor = ForestGreenPrimary,
+                    activeTrackColor = ForestGreenPrimary
+                ),
+                modifier = Modifier.testTag("slider_avoid_roads")
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                stringResource(R.string.planner_prefer_nature),
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Switch(
+                checked = options.preferNature,
+                onCheckedChange = { checked ->
+                    onUpdateOptions(options.copy(preferNature = checked))
+                },
+                colors = SwitchDefaults.colors(checkedThumbColor = ForestGreenPrimary),
+                modifier = Modifier.testTag("switch_prefer_nature")
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                stringResource(R.string.planner_allow_ferries),
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Switch(
+                checked = options.allowFerries,
+                onCheckedChange = { checked ->
+                    onUpdateOptions(options.copy(allowFerries = checked))
+                },
+                colors = SwitchDefaults.colors(checkedThumbColor = ForestGreenPrimary),
+                modifier = Modifier.testTag("switch_allow_ferries")
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlannerSaveAndStartRow(
+    visibleWaypointsCount: Int,
+    isSaving: Boolean,
+    isStarting: Boolean,
+    onOpenSaveDialog: () -> Unit,
+    onStartNavigation: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        OutlinedButton(
+            onClick = onOpenSaveDialog,
+            enabled = visibleWaypointsCount >= 2 && !isSaving && !isStarting,
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier
+                .weight(1f)
+                .testTag("btn_full_sheet_save")
+        ) {
+            if (isSaving) {
+                CircularProgressIndicator(
+                    color = ForestGreenPrimary,
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            } else {
+                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+            Text(stringResource(R.string.btn_save), fontWeight = FontWeight.Bold)
+        }
+
+        Button(
+            onClick = onStartNavigation,
+            enabled = visibleWaypointsCount >= 2 && !isSaving && !isStarting,
+            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier
+                .weight(1f)
+                .testTag("btn_full_sheet_start")
+        ) {
+            if (isStarting) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(stringResource(R.string.planner_btn_starting), fontWeight = FontWeight.Bold)
+            } else {
+                Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(stringResource(R.string.planner_btn_start), fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -885,23 +1225,30 @@ fun PlannerDaySummaryCard(
     showNightWeather: Boolean,
     onReplaceOvernight: (String) -> Unit,
     onDeleteOvernight: (String) -> Unit,
-    onZoomToEnd: (String) -> Unit
+    onZoomToEnd: (String) -> Unit,
+    isSelected: Boolean = false,
+    onCardClicked: () -> Unit = {}
 ) {
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            containerColor = if (isSelected) {
+                ForestGreenPrimary.copy(alpha = 0.14f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            }
         ),
         border = BorderStroke(
-            1.dp,
-            if (day.warnings.isNotEmpty() || day.arrivesAfterSunset) {
-                AmberAccent.copy(alpha = 0.7f)
-            } else {
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+            width = if (isSelected) 2.dp else 1.dp,
+            color = when {
+                isSelected -> ForestGreenPrimary
+                day.warnings.isNotEmpty() || day.arrivesAfterSunset -> AmberAccent.copy(alpha = 0.7f)
+                else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
             }
         ),
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onCardClicked)
             .testTag("planner_day_card_${day.dayNumber}")
     ) {
         Column(
@@ -922,10 +1269,13 @@ fun PlannerDaySummaryCard(
                         safeDistKm,
                         day.ascentM
                     ),
-                    fontSize = 14.sp,
+                    style = com.example.ui.theme.TabularStatsTextStyle,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = ForestGreenPrimary,
-                    modifier = Modifier.testTag("day_card_header_${day.dayNumber}")
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .testTag("day_card_header_${day.dayNumber}")
                 )
 
                 val totalMins = if (day.estimatedHours.isFinite() && day.estimatedHours >= 0.0) {
@@ -941,7 +1291,8 @@ fun PlannerDaySummaryCard(
                     } else {
                         stringResource(R.string.planner_time_mins_format, m)
                     },
-                    fontSize = 11.sp,
+                    style = com.example.ui.theme.TabularStatsTextStyle,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -949,7 +1300,7 @@ fun PlannerDaySummaryCard(
 
             Text(
                 text = stringResource(R.string.ui_plannerbottomsheet_fmt_220, day.fromName, day.toName),
-                fontSize = 13.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -1085,7 +1436,7 @@ fun PlannerDaySummaryCard(
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         modifier = Modifier
-                            .height(30.dp)
+                            .heightIn(min = 36.dp)
                             .testTag("btn_day_replace_overnight_${day.dayNumber}")
                     ) {
                         Icon(Icons.Default.NightShelter, contentDescription = null, modifier = Modifier.size(13.dp))
@@ -1101,7 +1452,7 @@ fun PlannerDaySummaryCard(
                         onClick = { onZoomToEnd(day.overnightWaypointId) },
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        modifier = Modifier.height(30.dp)
+                        modifier = Modifier.heightIn(min = 36.dp)
                     ) {
                         Icon(Icons.Default.ZoomIn, contentDescription = null, modifier = Modifier.size(13.dp))
                         Spacer(modifier = Modifier.width(3.dp))
@@ -1113,7 +1464,7 @@ fun PlannerDaySummaryCard(
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                         modifier = Modifier
-                            .height(30.dp)
+                            .heightIn(min = 36.dp)
                             .testTag("btn_day_delete_overnight_${day.dayNumber}")
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(13.dp))
@@ -1130,19 +1481,84 @@ fun PlannerDaySummaryCard(
 fun WaypointRow(
     index: Int,
     waypoint: RouteWaypoint,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    totalCount: Int = 1,
+    isSelected: Boolean = false,
+    onMoveUp: () -> Unit = {},
+    onMoveDown: () -> Unit = {},
+    onDragReorderByOffset: (Int) -> Unit = {},
+    onSwipeDelete: () -> Unit = {}
 ) {
+    var horizontalSwipeOffsetPx by remember(waypoint.id) { mutableFloatStateOf(0f) }
+    var verticalDragAccumPx by remember(waypoint.id, index) { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    val swipeThresholdPx = with(density) { 96.dp.toPx() }
+    val rowStepPx = with(density) { 48.dp.toPx() }
+
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        color = if (isSelected) {
+            ForestGreenPrimary.copy(alpha = 0.16f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        },
+        border = if (isSelected) BorderStroke(1.5.dp, ForestGreenPrimary) else null,
         modifier = Modifier
             .fillMaxWidth()
+            .offset { IntOffset(horizontalSwipeOffsetPx.roundToInt(), 0) }
+            .pointerInput(waypoint.id) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (abs(horizontalSwipeOffsetPx) >= swipeThresholdPx) {
+                            horizontalSwipeOffsetPx = 0f
+                            onSwipeDelete()
+                        } else {
+                            horizontalSwipeOffsetPx = 0f
+                        }
+                    },
+                    onDragCancel = {
+                        horizontalSwipeOffsetPx = 0f
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        horizontalSwipeOffsetPx = (horizontalSwipeOffsetPx + dragAmount).coerceIn(-swipeThresholdPx * 1.5f, swipeThresholdPx * 1.5f)
+                    }
+                )
+            }
             .clickable(onClick = onClick)
+            .testTag("waypoint_row_${waypoint.id}")
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Drag handle for drag-to-reorder
+            Icon(
+                imageVector = Icons.Default.DragHandle,
+                contentDescription = "Træk for at ændre rækkefølge",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(22.dp)
+                    .pointerInput(waypoint.id, index) {
+                        detectVerticalDragGestures(
+                            onDragEnd = { verticalDragAccumPx = 0f },
+                            onDragCancel = { verticalDragAccumPx = 0f },
+                            onVerticalDrag = { change, dragAmount ->
+                                change.consume()
+                                verticalDragAccumPx += dragAmount
+                                if (abs(verticalDragAccumPx) >= rowStepPx) {
+                                    val steps = (verticalDragAccumPx / rowStepPx).toInt()
+                                    verticalDragAccumPx -= steps * rowStepPx
+                                    onDragReorderByOffset(steps)
+                                }
+                            }
+                        )
+                    }
+                    .testTag("waypoint_drag_handle_${waypoint.id}")
+            )
+
+            Spacer(modifier = Modifier.width(6.dp))
+
             Surface(
                 shape = CircleShape,
                 color = when (waypoint.role) {
@@ -1168,7 +1584,7 @@ fun WaypointRow(
                 }
             }
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -1178,7 +1594,7 @@ fun WaypointRow(
                         WaypointRole.OVERNIGHT -> stringResource(R.string.waypoint_role_overnight)
                         WaypointRole.VIA -> stringResource(R.string.waypoint_role_via_format, index + 1)
                     },
-                    fontSize = 13.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -1214,12 +1630,48 @@ fun WaypointRow(
                 )
             }
 
-            Icon(
-                Icons.Default.Edit,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp)
-            )
+            if (totalCount > 1) {
+                IconButton(
+                    onClick = onMoveUp,
+                    enabled = index > 0,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .testTag("waypoint_move_up_$index")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowUp,
+                        contentDescription = stringResource(R.string.planner_move_waypoint_up),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                IconButton(
+                    onClick = onMoveDown,
+                    enabled = index < totalCount - 1,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .testTag("waypoint_move_down_$index")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = stringResource(R.string.planner_move_waypoint_down),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = onSwipeDelete,
+                modifier = Modifier
+                    .size(28.dp)
+                    .testTag("waypoint_delete_${waypoint.id}")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = stringResource(R.string.btn_delete),
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
     }
 }
@@ -1649,7 +2101,8 @@ fun WaypointWeatherEtaCard(
 fun CustomWaypointRow(
     waypoint: UserCustomWaypointEntity,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onDeletePhoto: (() -> Unit)? = null
 ) {
     Surface(
         shape = RoundedCornerShape(10.dp),
@@ -1657,15 +2110,16 @@ fun CustomWaypointRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
+            .testTag("custom_waypoint_row_${waypoint.id}")
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (!waypoint.photoPath.isNullOrBlank() && File(waypoint.photoPath).exists()) {
+            if (!waypoint.photoPath.isNullOrBlank()) {
                 val bitmap = remember(waypoint.photoPath) {
                     try {
-                        BitmapFactory.decodeFile(waypoint.photoPath)
+                        if (File(waypoint.photoPath).exists()) BitmapFactory.decodeFile(waypoint.photoPath) else null
                     } catch (_: Exception) {
                         null
                     }
@@ -1681,7 +2135,7 @@ fun CustomWaypointRow(
                 } else {
                     Icon(
                         imageVector = Icons.Default.CameraAlt,
-                        contentDescription = null,
+                        contentDescription = "Foto vedhæftet",
                         tint = Color(0xFF7B1FA2),
                         modifier = Modifier.size(24.dp)
                     )
@@ -1703,7 +2157,7 @@ fun CustomWaypointRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = waypoint.name,
-                    fontSize = 13.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -1712,7 +2166,7 @@ fun CustomWaypointRow(
                 if (waypoint.note.isNotBlank()) {
                     Text(
                         text = waypoint.note,
-                        fontSize = 11.sp,
+                        fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1720,15 +2174,31 @@ fun CustomWaypointRow(
                 }
             }
 
+            if (onDeletePhoto != null && !waypoint.photoPath.isNullOrBlank()) {
+                TextButton(
+                    onClick = onDeletePhoto,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("btn_delete_waypoint_photo_${waypoint.id}")
+                ) {
+                    Text(
+                        text = stringResource(R.string.ui_routebuilderscreen_fjern_foto_163),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
             IconButton(
                 onClick = onDelete,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("btn_delete_custom_waypoint_${waypoint.id}")
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = stringResource(R.string.btn_delete),
                     tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
