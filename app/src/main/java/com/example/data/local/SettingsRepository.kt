@@ -8,10 +8,13 @@ import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "dansk_sti_settings")
 
@@ -43,8 +46,8 @@ enum class BaseMapType(
 
 enum class MapDarkMode(val displayName: String) {
     FOLLOW_SYSTEM("Følg telefonen"),
-    ALWAYS_LIGHT("Altid lyst"),
-    ALWAYS_DARK("Altid mørkt");
+    ALWAYS_LIGHT("Lyst"),
+    ALWAYS_DARK("Mørkt");
 
     val title: String
         get() = displayName
@@ -56,17 +59,44 @@ enum class MapDarkMode(val displayName: String) {
     }
 
     companion object {
+        val LIGHT: MapDarkMode = ALWAYS_LIGHT
+        val DARK: MapDarkMode = ALWAYS_DARK
+
         fun fromString(value: String?): MapDarkMode {
             if (value.isNullOrBlank()) return FOLLOW_SYSTEM
-            return entries.find {
-                it.name.equals(value, ignoreCase = true) ||
-                    it.displayName.equals(value, ignoreCase = true)
-            } ?: FOLLOW_SYSTEM
+            return when (value.trim().uppercase()) {
+                "FOLLOW_SYSTEM", "SYSTEM", "FØLG TELEFONEN" -> FOLLOW_SYSTEM
+                "ALWAYS_LIGHT", "LIGHT", "LYST", "ALTID LYST" -> ALWAYS_LIGHT
+                "ALWAYS_DARK", "DARK", "MØRKT", "ALTID MØRKT" -> ALWAYS_DARK
+                else -> entries.find {
+                    it.name.equals(value, ignoreCase = true) ||
+                        it.displayName.equals(value, ignoreCase = true)
+                } ?: FOLLOW_SYSTEM
+            }
         }
     }
 }
 
 typealias DarkMapMode = MapDarkMode
+typealias AppAppearanceMode = MapDarkMode
+
+enum class MapThemeOverride(val displayName: String) {
+    LIGHT("Lyst"),
+    DARK("Mørkt");
+
+    val title: String
+        get() = displayName
+
+    companion object {
+        fun fromString(value: String?): MapThemeOverride {
+            if (value.isNullOrBlank()) return LIGHT
+            return when (value.trim().uppercase()) {
+                "DARK", "MØRKT", "ALWAYS_DARK", "ALTID MØRKT" -> DARK
+                else -> LIGHT
+            }
+        }
+    }
+}
 
 data class MapLayersState(
     val baseMap: BaseMapType = BaseMapType.SKAERMKORT,
@@ -81,7 +111,9 @@ data class MapLayersState(
     val showShops: Boolean = false,
     val showTransport: Boolean = false,
     val showMyPoints: Boolean = true,
-    val mapDarkMode: MapDarkMode = MapDarkMode.FOLLOW_SYSTEM
+    val mapDarkMode: MapDarkMode = MapDarkMode.FOLLOW_SYSTEM,
+    val mapFollowsApp: Boolean = true,
+    val mapThemeOverride: MapThemeOverride = MapThemeOverride.LIGHT
 ) {
     val showAccessLand: Boolean
         get() = showAccess
@@ -91,9 +123,25 @@ data class MapLayersState(
         get() = showTransport
     val darkMapMode: MapDarkMode
         get() = mapDarkMode
+    val appearanceMode: MapDarkMode
+        get() = mapDarkMode
 
-    fun resolveIsDark(isSystemDark: Boolean): Boolean = mapDarkMode.resolveIsDark(isSystemDark)
-    fun resolveIsDarkMap(isSystemDark: Boolean): Boolean = mapDarkMode.resolveIsDark(isSystemDark)
+    fun resolveIsDarkApp(isSystemDark: Boolean): Boolean =
+        mapDarkMode.resolveIsDark(isSystemDark)
+
+    fun resolveIsDark(isSystemDark: Boolean): Boolean =
+        resolveIsDarkMap(isSystemDark = isSystemDark)
+
+    fun resolveIsDarkMap(
+        isSystemDark: Boolean,
+        isAppDark: Boolean? = null
+    ): Boolean {
+        return if (mapFollowsApp) {
+            isAppDark ?: mapDarkMode.resolveIsDark(isSystemDark)
+        } else {
+            mapThemeOverride == MapThemeOverride.DARK
+        }
+    }
 }
 
 data class AppSettings(
@@ -103,10 +151,21 @@ data class AppSettings(
     val maxDetourKm: Double = 1.5,
     val dailyTargetKm: Double = 15.0,
     val mapDarkMode: MapDarkMode = MapDarkMode.FOLLOW_SYSTEM,
+    val mapFollowsApp: Boolean = true,
+    val mapThemeOverride: MapThemeOverride = MapThemeOverride.LIGHT,
     val keepScreenOn: Boolean = true,
     val voiceGuidance: Boolean = false,
     val plannerCoachMarksSeen: Boolean = false
-)
+) {
+    val appearanceMode: MapDarkMode
+        get() = mapDarkMode
+
+    fun resolveIsDarkApp(isSystemDark: Boolean): Boolean =
+        mapDarkMode.resolveIsDark(isSystemDark)
+
+    fun resolveIsDarkMap(isSystemDark: Boolean): Boolean =
+        if (mapFollowsApp) resolveIsDarkApp(isSystemDark) else (mapThemeOverride == MapThemeOverride.DARK)
+}
 
 class SettingsRepository(private val context: Context) {
     companion object {
@@ -115,6 +174,8 @@ class SettingsRepository(private val context: Context) {
 
         @Volatile
         var cachedPlannerCoachMarksSeen: Boolean = false
+
+        private val memoryPrefsFlow = MutableStateFlow(androidx.datastore.preferences.core.emptyPreferences())
 
         val KEY_MIT_TEMPO = doublePreferencesKey("mit_tempo_kmh")
         val KEY_UNITS = stringPreferencesKey("units")
@@ -125,9 +186,12 @@ class SettingsRepository(private val context: Context) {
         val KEY_VOICE_GUIDANCE = booleanPreferencesKey("voice_guidance")
         val KEY_PLANNER_COACH_MARKS_SEEN = booleanPreferencesKey("planner_coach_marks_seen")
 
-        // Map Layers & Base Map Keys
+        // Appearance & Map Layers Keys
         val KEY_BASE_MAP = stringPreferencesKey("base_map_type")
         val KEY_MAP_DARK_MODE = stringPreferencesKey("map_dark_mode")
+        val KEY_APP_APPEARANCE = KEY_MAP_DARK_MODE
+        val KEY_MAP_FOLLOWS_APP = booleanPreferencesKey("map_follows_app")
+        val KEY_MAP_THEME_OVERRIDE = stringPreferencesKey("map_theme_override")
         val KEY_OVERLAY_TERRAIN = booleanPreferencesKey("overlay_terrain")
         val KEY_OVERLAY_WATER_BODIES = booleanPreferencesKey("overlay_water_bodies")
         val KEY_OVERLAY_MARKED_ROUTES = booleanPreferencesKey("overlay_marked_routes")
@@ -141,26 +205,58 @@ class SettingsRepository(private val context: Context) {
         val KEY_OVERLAY_MY_POINTS = booleanPreferencesKey("overlay_my_points")
     }
 
-    private val safeDataFlow = context.dataStore.data
-        .onStart { emit(androidx.datastore.preferences.core.emptyPreferences()) }
-        .catch { emit(androidx.datastore.preferences.core.emptyPreferences()) }
+    init {
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                context.dataStore.data.collect { diskPrefs ->
+                    if (memoryPrefsFlow.value.asMap().isEmpty() && diskPrefs.asMap().isNotEmpty()) {
+                        memoryPrefsFlow.value = diskPrefs
+                    }
+                }
+            }
+        }
+    }
 
-    val settingsFlow: Flow<AppSettings> = safeDataFlow.map { prefs ->
+    private val safeDataFlow: Flow<Preferences> = memoryPrefsFlow
+
+    private suspend fun <T> updatePref(key: Preferences.Key<T>, value: T) {
+        val updated = memoryPrefsFlow.value.toMutablePreferences().apply {
+            this[key] = value
+        }.toPreferences()
+        memoryPrefsFlow.value = updated
+        runCatching {
+            withTimeoutOrNull(300L) {
+                context.dataStore.edit { prefs ->
+                    prefs[key] = value
+                }
+            }
+        }
+    }
+
+    private fun parseSettings(prefs: Preferences): AppSettings {
         val tempo = prefs[KEY_MIT_TEMPO] ?: cachedMitTempoKmh
         cachedMitTempoKmh = tempo
         val coachSeen = prefs[KEY_PLANNER_COACH_MARKS_SEEN] ?: cachedPlannerCoachMarksSeen
         cachedPlannerCoachMarksSeen = coachSeen
-        AppSettings(
+        return AppSettings(
             mitTempoKmh = tempo,
             units = prefs[KEY_UNITS] ?: "metric",
             startTime = prefs[KEY_START_TIME] ?: "09:00",
             maxDetourKm = prefs[KEY_MAX_DETOUR] ?: 1.5,
             dailyTargetKm = prefs[KEY_DAILY_TARGET] ?: 15.0,
             mapDarkMode = MapDarkMode.fromString(prefs[KEY_MAP_DARK_MODE]),
+            mapFollowsApp = prefs[KEY_MAP_FOLLOWS_APP] ?: true,
+            mapThemeOverride = MapThemeOverride.fromString(prefs[KEY_MAP_THEME_OVERRIDE]),
             keepScreenOn = prefs[KEY_KEEP_SCREEN_ON] ?: true,
             voiceGuidance = prefs[KEY_VOICE_GUIDANCE] ?: false,
             plannerCoachMarksSeen = coachSeen
         )
+    }
+
+    fun currentSettingsSnapshot(): AppSettings = parseSettings(memoryPrefsFlow.value)
+
+    val settingsFlow: Flow<AppSettings> = safeDataFlow.map { prefs ->
+        parseSettings(prefs)
     }
 
     val plannerCoachMarksSeenFlow: Flow<Boolean> = safeDataFlow.map { prefs ->
@@ -181,141 +277,109 @@ class SettingsRepository(private val context: Context) {
             showShops = prefs[KEY_OVERLAY_SHOPS] ?: false,
             showTransport = prefs[KEY_OVERLAY_TRANSPORT] ?: false,
             showMyPoints = prefs[KEY_OVERLAY_MY_POINTS] ?: true,
-            mapDarkMode = MapDarkMode.fromString(prefs[KEY_MAP_DARK_MODE])
+            mapDarkMode = MapDarkMode.fromString(prefs[KEY_MAP_DARK_MODE]),
+            mapFollowsApp = prefs[KEY_MAP_FOLLOWS_APP] ?: true,
+            mapThemeOverride = MapThemeOverride.fromString(prefs[KEY_MAP_THEME_OVERRIDE])
         )
     }
 
     suspend fun setBaseMap(type: BaseMapType) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_BASE_MAP] = type.name
-        }
+        updatePref(KEY_BASE_MAP, type.name)
+    }
+
+    suspend fun setAppearanceMode(mode: MapDarkMode) {
+        updatePref(KEY_MAP_DARK_MODE, mode.name)
     }
 
     suspend fun setMapDarkMode(mode: MapDarkMode) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_MAP_DARK_MODE] = mode.name
-        }
+        updatePref(KEY_MAP_DARK_MODE, mode.name)
+    }
+
+    suspend fun setMapFollowsApp(followsApp: Boolean) {
+        updatePref(KEY_MAP_FOLLOWS_APP, followsApp)
+    }
+
+    suspend fun setMapThemeOverride(overrideMode: MapThemeOverride) {
+        updatePref(KEY_MAP_THEME_OVERRIDE, overrideMode.name)
     }
 
     suspend fun setOverlayTerrain(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_OVERLAY_TERRAIN] = enabled
-        }
+        updatePref(KEY_OVERLAY_TERRAIN, enabled)
     }
 
     suspend fun setOverlayWaterLayer(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_OVERLAY_WATER_BODIES] = enabled
-        }
+        updatePref(KEY_OVERLAY_WATER_BODIES, enabled)
     }
 
     suspend fun setOverlayMarkedRoutes(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_OVERLAY_MARKED_ROUTES] = enabled
-        }
+        updatePref(KEY_OVERLAY_MARKED_ROUTES, enabled)
     }
 
     suspend fun setOverlayAccess(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_OVERLAY_ACCESS] = enabled
-        }
+        updatePref(KEY_OVERLAY_ACCESS, enabled)
     }
 
     suspend fun setOverlayShelters(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_OVERLAY_SHELTERS] = enabled
-        }
+        updatePref(KEY_OVERLAY_SHELTERS, enabled)
     }
 
     suspend fun setOverlayFriTeltning(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_OVERLAY_FRI_TELTNING] = enabled
-        }
+        updatePref(KEY_OVERLAY_FRI_TELTNING, enabled)
     }
 
     suspend fun setOverlayWater(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_OVERLAY_WATER] = enabled
-        }
+        updatePref(KEY_OVERLAY_WATER, enabled)
     }
 
     suspend fun setOverlayToilets(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_OVERLAY_TOILETS] = enabled
-        }
+        updatePref(KEY_OVERLAY_TOILETS, enabled)
     }
 
     suspend fun setOverlayShops(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_OVERLAY_SHOPS] = enabled
-        }
+        updatePref(KEY_OVERLAY_SHOPS, enabled)
     }
 
     suspend fun setOverlayTransport(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_OVERLAY_TRANSPORT] = enabled
-        }
+        updatePref(KEY_OVERLAY_TRANSPORT, enabled)
     }
 
     suspend fun setOverlayMyPoints(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_OVERLAY_MY_POINTS] = enabled
-        }
+        updatePref(KEY_OVERLAY_MY_POINTS, enabled)
     }
 
     suspend fun setMitTempoKmh(tempo: Double) {
         cachedMitTempoKmh = tempo
-        context.dataStore.edit { prefs ->
-            prefs[KEY_MIT_TEMPO] = tempo
-        }
+        updatePref(KEY_MIT_TEMPO, tempo)
     }
 
     suspend fun setUnits(units: String) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_UNITS] = units
-        }
+        updatePref(KEY_UNITS, units)
     }
 
     suspend fun setStartTime(time: String) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_START_TIME] = time
-        }
+        updatePref(KEY_START_TIME, time)
     }
 
     suspend fun setMaxDetourKm(detour: Double) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_MAX_DETOUR] = detour
-        }
+        updatePref(KEY_MAX_DETOUR, detour)
     }
 
     suspend fun setDailyTargetKm(dailyKm: Double) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_DAILY_TARGET] = dailyKm
-        }
+        updatePref(KEY_DAILY_TARGET, dailyKm)
     }
 
     suspend fun setDarkMapMode(mode: MapDarkMode) = setMapDarkMode(mode)
 
     suspend fun setKeepScreenOn(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_KEEP_SCREEN_ON] = enabled
-        }
+        updatePref(KEY_KEEP_SCREEN_ON, enabled)
     }
 
     suspend fun setVoiceGuidance(enabled: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_VOICE_GUIDANCE] = enabled
-        }
+        updatePref(KEY_VOICE_GUIDANCE, enabled)
     }
 
     suspend fun setPlannerCoachMarksSeen(seen: Boolean) {
         cachedPlannerCoachMarksSeen = seen
-        runCatching {
-            kotlinx.coroutines.withTimeoutOrNull(500L) {
-                context.dataStore.edit { prefs ->
-                    prefs[KEY_PLANNER_COACH_MARKS_SEEN] = seen
-                }
-            }
-        }
+        updatePref(KEY_PLANNER_COACH_MARKS_SEEN, seen)
     }
 }

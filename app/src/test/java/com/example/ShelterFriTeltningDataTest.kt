@@ -14,13 +14,16 @@ class Phase2DataTest {
     fun testPreseededTrailsOnlyContainMetadataAndRelationIds() {
         val trails = PreseededData.getInitialTrails()
 
-        assertTrue("Should have at least 12 Danish national trails", trails.size >= 12)
+        assertTrue("Should have at least 51 Danish national trails", trails.size >= 51)
 
         for (trail in trails) {
             assertNotNull(trail.id)
             assertTrue("Trail ${trail.name} id must start with trail_", trail.id.startsWith("trail_"))
             assertTrue("Trail ${trail.name} must have a name", trail.name.isNotBlank())
-            assertTrue("Trail ${trail.name} must have a description", trail.description.isNotBlank())
+            assertEquals("Trail ${trail.name} must not have typed description", "", trail.description)
+            assertEquals("Trail ${trail.name} must not have typed region", "", trail.region)
+            assertEquals("Trail ${trail.name} must not have typed length", 0.0, trail.computedWalkingKm, 0.001)
+            assertEquals("OSM wiki Denmark Walking Routes", trail.source)
             if (trail.id !in listOf("trail_camoenoen", "trail_bornholm_kyststi", "trail_amarminoen")) {
                 assertNotNull("Trail ${trail.name} must have an osmRelationId", trail.osmRelationId)
                 assertTrue("Trail ${trail.name} osmRelationId must be positive", trail.osmRelationId!! > 0L)

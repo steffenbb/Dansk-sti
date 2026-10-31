@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -55,9 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.MarkedRouteDto
 import com.example.data.model.TrailEntity
-import com.example.ui.theme.ForestGreenLight
-import com.example.ui.theme.ForestGreenPrimary
-import com.example.ui.theme.NordicBlue
+import com.example.ui.theme.DanskStiTheme
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -99,6 +98,8 @@ fun MarkedRouteDetailSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val stiColors = DanskStiTheme.colors
 
     var isSaving by remember { mutableStateOf(false) }
     var savedTrail by remember { mutableStateOf<TrailEntity?>(null) }
@@ -112,7 +113,7 @@ fun MarkedRouteDetailSheet(
     val routeColor = try {
         Color(android.graphics.Color.parseColor(route.colorHex))
     } catch (e: Exception) {
-        ForestGreenPrimary
+        primaryColor
     }
 
     ModalBottomSheet(
@@ -198,7 +199,7 @@ fun MarkedRouteDetailSheet(
                         Icon(
                             imageVector = Icons.Default.Straighten,
                             contentDescription = null,
-                            tint = ForestGreenPrimary,
+                            tint = primaryColor,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -231,7 +232,7 @@ fun MarkedRouteDetailSheet(
                         Icon(
                             imageVector = Icons.Default.Schedule,
                             contentDescription = null,
-                            tint = NordicBlue,
+                            tint = stiColors.plannedRoute,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -318,8 +319,8 @@ fun MarkedRouteDetailSheet(
             if (savedTrail != null) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = ForestGreenPrimary.copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, ForestGreenPrimary),
+                    color = primaryColor.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, primaryColor),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -329,7 +330,7 @@ fun MarkedRouteDetailSheet(
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = null,
-                            tint = ForestGreenPrimary,
+                            tint = primaryColor,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -337,7 +338,7 @@ fun MarkedRouteDetailSheet(
                             text = stringResource(R.string.ui_markedroutedetailsheet_ruten_er_gemt_som_vandrerute_25),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = ForestGreenPrimary
+                            color = primaryColor
                         )
                     }
                 }
@@ -361,7 +362,7 @@ fun MarkedRouteDetailSheet(
                             onDismiss()
                             savedTrail?.let { onOpenTrailDetails(it.id) }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .weight(1f)
@@ -395,16 +396,16 @@ fun MarkedRouteDetailSheet(
                         }
                     },
                     enabled = !isSaving,
-                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .heightIn(min = 50.dp)
                         .testTag("save_as_trail_button")
                 ) {
                     if (isSaving) {
                         CircularProgressIndicator(
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(20.dp),
                             strokeWidth = 2.dp
                         )

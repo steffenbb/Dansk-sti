@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.ui.theme.DanskStiTheme
 import com.example.util.routing.RoutePoint3D
 import java.util.Locale
 import kotlin.math.abs
@@ -44,9 +45,9 @@ import kotlin.math.sqrt
 
 /**
  * Elevation profile chart coloured by gradient:
- * - Green < 3 %
- * - Yellow 3-8 %
- * - Red > 8 %
+ * - Green < 3 % (DanskStiColors.success)
+ * - Yellow 3-8 % (DanskStiColors.warning)
+ * - Red > 8 % (DanskStiColors.danger)
  *
  * Draws only points that have real elevation (`pt.ele != null`).
  * If fewer than 2 points have elevation, shows "Ingen højdedata tilgængelig".
@@ -60,6 +61,15 @@ fun RouteElevationProfileChart(
     onPointScrubbed: ((RoutePoint3D?, Double) -> Unit)? = null,
     onOvernightMarkerDragged: ((String, Double, Boolean) -> Unit)? = null
 ) {
+    val stiColors = DanskStiTheme.colors
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+    val lowSlopeColor = stiColors.success
+    val mediumSlopeColor = stiColors.warning
+    val highSlopeColor = stiColors.danger
+    val overnightColor = stiColors.overnight
+    val casingColor = stiColors.routeCasing
+
     val validPoints = remember(points) {
         points.filter { pt ->
             val ele = pt.ele
@@ -147,7 +157,7 @@ fun RouteElevationProfileChart(
                     ),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+                    color = primaryColor
                 )
             } else {
                 Text(
@@ -169,7 +179,7 @@ fun RouteElevationProfileChart(
                     modifier = Modifier
                         .width(8.dp)
                         .height(8.dp)
-                        .background(Color(0xFF4CAF50), CircleShape)
+                        .background(lowSlopeColor, CircleShape)
                 )
                 Spacer(modifier = Modifier.width(3.dp))
                 Text(
@@ -182,7 +192,7 @@ fun RouteElevationProfileChart(
                     modifier = Modifier
                         .width(8.dp)
                         .height(8.dp)
-                        .background(Color(0xFFFFB300), CircleShape)
+                        .background(mediumSlopeColor, CircleShape)
                 )
                 Spacer(modifier = Modifier.width(3.dp))
                 Text(
@@ -195,7 +205,7 @@ fun RouteElevationProfileChart(
                     modifier = Modifier
                         .width(8.dp)
                         .height(8.dp)
-                        .background(Color(0xFFE53935), CircleShape)
+                        .background(highSlopeColor, CircleShape)
                 )
                 Spacer(modifier = Modifier.width(3.dp))
                 Text(
@@ -327,7 +337,7 @@ fun RouteElevationProfileChart(
             }
             drawPath(
                 path = fillPath,
-                color = Color(0x334CAF50)
+                color = lowSlopeColor.copy(alpha = 0.20f)
             )
 
             for (i in 0 until validPoints.size - 1) {
@@ -341,9 +351,9 @@ fun RouteElevationProfileChart(
                 val gradientPct = if (dDistM > 0.1) (abs(dEleM) / dDistM) * 100.0 else 0.0
 
                 val segmentColor = when {
-                    gradientPct < 3.0 -> Color(0xFF4CAF50)
-                    gradientPct <= 8.0 -> Color(0xFFFFB300)
-                    else -> Color(0xFFE53935)
+                    gradientPct < 3.0 -> lowSlopeColor
+                    gradientPct <= 8.0 -> mediumSlopeColor
+                    else -> highSlopeColor
                 }
 
                 drawLine(
@@ -362,7 +372,7 @@ fun RouteElevationProfileChart(
                     val bFraction = (boundaryKm.toFloat() / totalKm).coerceIn(0f, 1f)
                     val bx = bFraction * width
                     drawLine(
-                        color = Color(0xFFE65100),
+                        color = overnightColor,
                         start = Offset(bx, 0f),
                         end = Offset(bx, height),
                         strokeWidth = 2.dp.toPx(),
@@ -371,12 +381,12 @@ fun RouteElevationProfileChart(
                     val bIdx = findClosestIndex(distancesKm, boundaryKm.toFloat())
                     val by = yCoords.getOrElse(bIdx) { height / 2f }
                     drawCircle(
-                        color = Color.White,
+                        color = casingColor,
                         radius = 7.dp.toPx(),
                         center = Offset(bx, by)
                     )
                     drawCircle(
-                        color = Color(0xFFE65100),
+                        color = overnightColor,
                         radius = 5.dp.toPx(),
                         center = Offset(bx, by)
                     )
@@ -386,7 +396,7 @@ fun RouteElevationProfileChart(
             if (scrubFraction in 0f..1f) {
                 val scrubX = scrubFraction * width
                 drawLine(
-                    color = Color.White,
+                    color = onSurfaceColor,
                     start = Offset(scrubX, 0f),
                     end = Offset(scrubX, height),
                     strokeWidth = 1.5.dp.toPx()
@@ -401,12 +411,12 @@ fun RouteElevationProfileChart(
                 val dotY = yCoords.getOrElse(scrubIdx) { height / 2f }
 
                 drawCircle(
-                    color = Color.White,
+                    color = casingColor,
                     radius = 5.dp.toPx(),
                     center = Offset(dotX, dotY)
                 )
                 drawCircle(
-                    color = Color(0xFF2E7D32),
+                    color = primaryColor,
                     radius = 3.dp.toPx(),
                     center = Offset(dotX, dotY)
                 )

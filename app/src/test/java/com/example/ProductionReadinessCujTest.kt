@@ -65,6 +65,48 @@ class ProductionReadinessCujTest {
         DanskStiTileSource.userConfirmedOsmFallback = true
         runBlocking {
             app.repository.initializePreseededDataIfEmpty()
+            val ohavsGeom = com.example.data.model.TrailGeometryDto(
+                trailId = "trail_ohavsstien",
+                osmRelationId = 1202410L,
+                osmRelationName = "Øhavsstien",
+                segments = listOf(
+                    com.example.data.model.TrailSegmentDto(
+                        type = com.example.data.model.TrailSegmentType.WALK,
+                        points = listOf(
+                            GeoPointDto(55.0597, 10.6067, 12.0),
+                            GeoPointDto(55.0200, 10.4500, 24.0),
+                            GeoPointDto(54.9600, 10.2200, 8.0)
+                        ),
+                        lengthKm = 220.0
+                    )
+                ),
+                totalWalkingKm = 220.0,
+                totalAscentM = 1420,
+                totalDescentM = 1410,
+                gapsOver200mCount = 0,
+                bboxSouth = 54.85,
+                bboxWest = 10.10,
+                bboxNorth = 55.20,
+                bboxEast = 10.90
+            )
+            app.repository.geometryRepository.saveGeometry(ohavsGeom)
+            database.danskStiDao().getTrailById("trail_ohavsstien")?.let { existing ->
+                val computedReg = com.example.util.GeoUtils.computeDanishRegionFromBbox(54.85, 10.10, 55.20, 10.90)
+                database.danskStiDao().insertTrails(
+                    listOf(
+                        existing.copy(
+                            region = computedReg,
+                            parentRegion = computedReg,
+                            computedWalkingKm = 220.0,
+                            bboxSouth = 54.85,
+                            bboxWest = 10.10,
+                            bboxNorth = 55.20,
+                            bboxEast = 10.90,
+                            isGeometryDownloaded = true
+                        )
+                    )
+                )
+            }
         }
     }
 
@@ -108,7 +150,7 @@ class ProductionReadinessCujTest {
         composeTestRule.onNodeWithTag("trail_search_input").assertExists()
         composeTestRule.onNodeWithTag("filter_chip_region").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("filter_region_fyn & øer").performClick()
+        composeTestRule.onNodeWithTag("filter_region_fyn & øerne").performClick()
         composeTestRule.waitForIdle()
 
         // Scroll to and click Øhavsstien card

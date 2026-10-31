@@ -10,8 +10,7 @@ import com.example.data.model.TrailEntity
 import com.example.data.model.TrailSegmentDto
 import com.example.data.model.TrailSegmentType
 import com.example.data.repository.PlannedRouteRepository
-import com.example.ui.viewmodel.PlannerMode
-import com.example.ui.viewmodel.RouteBuilderViewModel
+import com.example.ui.viewmodel.*
 import com.example.util.StagePlanner
 import com.example.util.routing.LegGeometryData
 import com.example.util.routing.LegMode
@@ -383,6 +382,40 @@ class FixRound3Part2Test {
     fun testOhavsstienEndToEndPlannerFlow() = runBlocking {
         val appInstance = app as DanskStiApp
         appInstance.repository.initializePreseededDataIfEmpty()
+
+        // Seed 220 km Øhavsstien geometry on disk so offline Robolectric test can load it without Overpass network call
+        val pts = (0..2200).map { idx ->
+            GeoPointDto(
+                lat = 55.0200 + idx * 0.0004,
+                lng = 10.2000 + idx * 0.0005,
+                ele = 5.0 + (idx % 20)
+            )
+        }
+        com.example.data.repository.TrailGeometryRepository(app).saveGeometry(
+            com.example.data.model.TrailGeometryDto(
+                trailId = "trail_ohavsstien",
+                osmRelationId = 1202410L,
+                segments = listOf(
+                    TrailSegmentDto(
+                        type = TrailSegmentType.WALK,
+                        points = pts,
+                        lengthKm = 220.0,
+                        highway = "path",
+                        surface = "dirt"
+                    )
+                ),
+                sideBranches = emptyList(),
+                gaps = emptyList(),
+                totalWalkingKm = 220.0,
+                totalAscentM = 450,
+                totalDescentM = 440,
+                gapsOver200mCount = 0,
+                bboxNorth = pts.maxOf { it.lat },
+                bboxSouth = pts.minOf { it.lat },
+                bboxEast = pts.maxOf { it.lng },
+                bboxWest = pts.minOf { it.lng }
+            )
+        )
 
         val vm = RouteBuilderViewModel(app)
         vm.initTrailMode("trail_ohavsstien")

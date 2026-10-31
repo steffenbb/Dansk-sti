@@ -165,9 +165,9 @@ data class TripStageEntity(
 data class TrailEntity(
     @PrimaryKey val id: String,
     val name: String,
-    val description: String,
-    val region: String,
-    val parentRegion: String,
+    val description: String = "",
+    val region: String = "",
+    val parentRegion: String = "",
     val osmRelationId: Long? = null,
     val computedWalkingKm: Double = 0.0,
     val gapsOver200m: Int = 0,
@@ -177,7 +177,8 @@ data class TrailEntity(
     val bboxEast: Double? = null,
     val bboxWest: Double? = null,
     val isGeometryDownloaded: Boolean = false,
-    val lastUpdated: Long = System.currentTimeMillis()
+    val lastUpdated: Long = System.currentTimeMillis(),
+    val source: String = "OSM wiki Denmark Walking Routes"
 ) {
     val lengthKm: Double
         get() = computedWalkingKm

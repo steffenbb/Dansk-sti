@@ -1,20 +1,23 @@
 package com.example.util
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
+import android.os.Looper
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
@@ -25,12 +28,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.osmdroid.tileprovider.MapTileProviderArray
 import org.osmdroid.tileprovider.MapTileProviderBase
 import org.osmdroid.tileprovider.MapTileProviderBasic
+import org.osmdroid.tileprovider.ReusableBitmapDrawable
 import org.osmdroid.tileprovider.modules.DatabaseFileArchive
 import org.osmdroid.tileprovider.modules.IArchiveFile
 import org.osmdroid.tileprovider.modules.MapTileFileArchiveProvider
@@ -43,8 +48,13 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.Projection
 import org.osmdroid.views.overlay.CopyrightOverlay
 import org.osmdroid.views.overlay.TilesOverlay
+import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.InputStream
+import java.util.ArrayDeque
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.roundToInt
 
 /**
@@ -71,12 +81,25 @@ data class DhmCapabilities(
 /**
  * Shared Danish Skærmkortet tile provider for all MapViews in Dansk Sti.
  * Uses official Dataforsyningen / SDFI WMS in Web Mercator (EPSG:3857).
- * Supports both standard ("dtk_skaermkort") and muted/grey dark-mode variant ("dtk_skaermkort_daempet").
+ *
+ * Round 9B Item 5:
+ * - No `createHuePreservingDarkColorMatrix` on the Skærmkort layer.
+ * - In `getDrawable(InputStream)`, when `isDarkMode` is on, pixels are recoloured on a background thread
+ *   using reusable bitmaps while keeping the downloaded/cached bytes unchanged:
+ *   - colours close to the map's water colour -> dark-mode water blue (`#1F4E6E`)
+ *   - light land -> dark neutral grey (`#24282B`)
+ *   - dark text and lines -> light grey (`#DCE0E3`)
  */
 class DanskStiTileSource(
     private val apiKey: String,
     val wmsLayerName: String = "dtk_skaermkort",
-    tileSourceName: String = if (wmsLayerName == "dtk_skaermkort") "DanskSti_Skaermkort" else "DanskSti_Skaermkort_$wmsLayerName"
+    val isDarkMode: Boolean = false,
+    tileSourceName: String = when {
+        isDarkMode && wmsLayerName == "dtk_skaermkort" -> "DanskSti_Skaermkort_Dark"
+        wmsLayerName == "dtk_skaermkort" -> "DanskSti_Skaermkort"
+        isDarkMode -> "DanskSti_Skaermkort_${wmsLayerName}_Dark"
+        else -> "DanskSti_Skaermkort_$wmsLayerName"
+    }
 ) : OnlineTileSourceBase(
     tileSourceName,
     7,
@@ -89,6 +112,56 @@ class DanskStiTileSource(
     override fun getTileURLString(pMapTileIndex: Long): String {
         val bbox = DanskStiTileSourceHelper.computeWebMercatorBbox(pMapTileIndex)
         return "https://api.dataforsyningen.dk/topo_skaermkort_DAF?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&FORMAT=image/jpeg&LAYERS=$wmsLayerName&STYLES=&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&BBOX=$bbox&token=$apiKey"
+    }
+
+    override fun getDrawable(aFilePath: String?): Drawable? {
+        if (aFilePath.isNullOrBlank()) return null
+        val file = File(aFilePath)
+        if (!file.exists() || !file.isFile) return null
+        return try {
+            FileInputStream(file).use { stream ->
+                getDrawable(stream)
+            }
+        } catch (e: Exception) {
+            Log.w("DanskStiTileSource", "Failed to decode tile from path $aFilePath: ${e.message}")
+            null
+        }
+    }
+
+    override fun getDrawable(aFileInputStream: InputStream?): Drawable? {
+        if (aFileInputStream == null) return null
+        return try {
+            // Read stream bytes into memory without modifying the underlying cached file or stream source
+            val rawBytes = aFileInputStream.readBytes()
+            if (rawBytes.isEmpty()) return null
+
+            val processBlock: () -> Drawable? = {
+                val decoded = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
+                if (decoded == null) {
+                    null
+                } else if (!isDarkMode) {
+                    ReusableBitmapDrawable(decoded)
+                } else {
+                    val recolored = DanskStiTileSourceHelper.recolorBitmapForDarkMap(decoded)
+                    if (recolored !== decoded) {
+                        DanskStiTileSourceHelper.recycleBitmapToPool(decoded)
+                    }
+                    ReusableBitmapDrawable(recolored)
+                }
+            }
+
+            // Ensure pixel recolouring always runs on a background thread
+            if (isDarkMode && Looper.myLooper() == Looper.getMainLooper()) {
+                runBlocking(Dispatchers.Default) {
+                    processBlock()
+                }
+            } else {
+                processBlock()
+            }
+        } catch (e: Exception) {
+            Log.w("DanskStiTileSource", "Failed to decode/recolour Skærmkort tile: ${e.message}")
+            null
+        }
     }
 
     companion object {
@@ -143,9 +216,10 @@ class DanskStiTileSource(
  * Uses Thunderforest Outdoors when API key is configured, otherwise OpenTopoMap.
  */
 class DanskStiFriluftskortTileSource(
-    private val apiKey: String
+    private val apiKey: String,
+    val isDarkMode: Boolean = false
 ) : OnlineTileSourceBase(
-    "DanskSti_Friluftskort",
+    if (isDarkMode) "DanskSti_Friluftskort_Dark" else "DanskSti_Friluftskort",
     5,
     18,
     256,
@@ -181,11 +255,48 @@ class DanskStiFriluftskortTileSource(
             "${getBaseUrl()}$zoom/$x/$y.png"
         }
     }
+
+    override fun getDrawable(aFilePath: String?): Drawable? {
+        if (aFilePath.isNullOrBlank()) return null
+        val file = File(aFilePath)
+        if (!file.exists() || !file.isFile) return null
+        return try {
+            FileInputStream(file).use { getDrawable(it) }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    override fun getDrawable(aFileInputStream: InputStream?): Drawable? {
+        if (aFileInputStream == null) return null
+        return try {
+            val rawBytes = aFileInputStream.readBytes()
+            if (rawBytes.isEmpty()) return null
+            val block: () -> Drawable? = {
+                val decoded = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
+                if (decoded == null) null
+                else if (!isDarkMode) ReusableBitmapDrawable(decoded)
+                else {
+                    val recolored = DanskStiTileSourceHelper.recolorBitmapForDarkMap(decoded)
+                    if (recolored !== decoded) DanskStiTileSourceHelper.recycleBitmapToPool(decoded)
+                    ReusableBitmapDrawable(recolored)
+                }
+            }
+            if (isDarkMode && Looper.myLooper() == Looper.getMainLooper()) {
+                runBlocking(Dispatchers.Default) { block() }
+            } else {
+                block()
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
 }
 
 /**
  * Luftfoto tile provider:
  * Official GeoDanmark Ortofoto (forår) from Dataforsyningen / Klimadatastyrelsen in EPSG:3857.
+ * Round 9B Item 8: Aerial photos stay completely unfiltered in both light and dark mode.
  */
 class DanskStiLuftfotoTileSource(
     private val apiKey: String
@@ -208,8 +319,9 @@ class DanskStiLuftfotoTileSource(
 }
 
 /**
- * Requirement C: Dataforsyningen DHM Terrain Hillshade tile source ("dhm_terraen_skyggekort").
+ * Requirement C & Round 9B Item 7: Dataforsyningen DHM Terrain Hillshade tile source ("dhm_terraen_skyggekort").
  * Uses WMS 1.1.1 in EPSG:3857 with transparent PNG.
+ * Skips hillshade pixels with no data / sea / flat grey so the terrain overlay is never opaque over sea.
  */
 class DanskStiDhmHillshadeTileSource(
     private val apiKey: String,
@@ -226,6 +338,45 @@ class DanskStiDhmHillshadeTileSource(
     override fun getTileURLString(pMapTileIndex: Long): String {
         val bbox = DanskStiTileSourceHelper.computeWebMercatorBbox(pMapTileIndex)
         return "$serviceEndpoint?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=TRUE&LAYERS=$layerName&STYLES=&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&BBOX=$bbox&token=$apiKey"
+    }
+
+    override fun getDrawable(aFilePath: String?): Drawable? {
+        if (aFilePath.isNullOrBlank()) return null
+        val file = File(aFilePath)
+        if (!file.exists() || !file.isFile) return null
+        return try {
+            FileInputStream(file).use { getDrawable(it) }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    override fun getDrawable(aFileInputStream: InputStream?): Drawable? {
+        if (aFileInputStream == null) return null
+        return try {
+            val rawBytes = aFileInputStream.readBytes()
+            if (rawBytes.isEmpty()) return null
+            val block: () -> Drawable? = {
+                val decoded = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
+                if (decoded == null) {
+                    null
+                } else {
+                    val processed = DanskStiTileSourceHelper.processHillshadeBitmap(decoded)
+                    if (processed !== decoded) {
+                        DanskStiTileSourceHelper.recycleBitmapToPool(decoded)
+                    }
+                    ReusableBitmapDrawable(processed)
+                }
+            }
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                runBlocking(Dispatchers.Default) { block() }
+            } else {
+                block()
+            }
+        } catch (e: Exception) {
+            Log.w("DanskStiTileSource", "Failed to process DHM hillshade tile: ${e.message}")
+            null
+        }
     }
 }
 
@@ -252,8 +403,13 @@ class DanskStiDhmContourTileSource(
 }
 
 /**
- * Requirement C: Custom TilesOverlay for DHM Hillshade (alpha 30% light / 45% dark)
+ * Requirement C & Round 9B Item 7: Custom TilesOverlay for DHM Hillshade (alpha 30% light / 45% dark)
  * and DHM Contours (from zoom 14 with alpha 60%).
+ *
+ * Notice: The previous `hillshadeReliefFilter` had `+455f` on the alpha row (`-0.8*R - 0.8*G - 0.8*B + 455`),
+ * which turned transparent `(0,0,0,0)` sea pixels into opaque black `ARGB(255,0,0,0)`!
+ * Now `DanskStiDhmHillshadeTileSource` skips no-data/sea/flat pixels directly in `processHillshadeBitmap`,
+ * and `TerrainTilesOverlay` never applies a blackening ColorMatrix over sea.
  */
 class TerrainTilesOverlay(
     tileProvider: MapTileProviderBase,
@@ -268,19 +424,6 @@ class TerrainTilesOverlay(
             field = value
             updateFilter()
         }
-
-    // Hillshade relief ColorMatrix: converts neutral flat grey (189,189,189) to transparent
-    // and shaded slopes (<185) to crisp shadow relief so base map water/forest colors stay vivid.
-    private val hillshadeReliefFilter = ColorMatrixColorFilter(
-        ColorMatrix(
-            floatArrayOf(
-                0f, 0f, 0f, 0f, 0f,
-                0f, 0f, 0f, 0f, 0f,
-                0f, 0f, 0f, 0f, 0f,
-                -0.8f, -0.8f, -0.8f, 0f, 455f
-            )
-        )
-    )
 
     // In dark mode, brighten brown contour lines slightly so they are clearly legible on dark terrain
     private val darkContourFilter = ColorMatrixColorFilter(
@@ -303,7 +446,7 @@ class TerrainTilesOverlay(
     private fun updateFilter() {
         if (isHillshade) {
             overlayAlpha = if (isDarkMode) 0.45f else 0.30f
-            setColorFilter(hillshadeReliefFilter)
+            setColorFilter(null)
         } else {
             overlayAlpha = 0.60f
             setColorFilter(if (isDarkMode) darkContourFilter else null)
@@ -326,6 +469,171 @@ class TerrainTilesOverlay(
 object DanskStiTileSourceHelper {
     private const val TAG = "DanskStiTileSource"
     const val ATTRIBUTION_TEXT = "Klimadatastyrelsen / Skærmkortet • © OpenStreetMap-bidragydere"
+
+    /** Theme water colours (Round 9B Items 3, 5, 6) */
+    const val LIGHT_WATER_COLOR_INT: Int = 0xFFA3CDE3.toInt() // #A3CDE3
+    const val DARK_WATER_COLOR_INT: Int = 0xFF1F4E6E.toInt()  // #1F4E6E
+    const val DARK_LAND_COLOR_INT: Int = 0xFF24282B.toInt()   // #24282B dark neutral grey
+    const val DARK_TEXT_COLOR_INT: Int = 0xFFDCE0E3.toInt()   // #DCE0E3 light grey for text & lines
+    const val DARK_FOREST_COLOR_INT: Int = 0xFF1F3628.toInt() // #1F3628 dark forest green-grey
+
+    fun getThemeWaterColorInt(isDarkMode: Boolean): Int =
+        if (isDarkMode) DARK_WATER_COLOR_INT else LIGHT_WATER_COLOR_INT
+
+    private const val MAX_BITMAP_POOL_SIZE = 32
+    private val bitmapPool = ArrayDeque<Bitmap>(MAX_BITMAP_POOL_SIZE)
+    private val reusedBitmapCounter = AtomicInteger(0)
+
+    val reusedBitmapCount: Int
+        get() = reusedBitmapCounter.get()
+
+    private val threadLocalPixels = object : ThreadLocal<IntArray>() {
+        override fun initialValue(): IntArray = IntArray(256 * 256)
+    }
+
+    fun acquireReusableBitmap(width: Int = 256, height: Int = 256): Bitmap {
+        synchronized(bitmapPool) {
+            val iterator = bitmapPool.iterator()
+            while (iterator.hasNext()) {
+                val candidate = iterator.next()
+                if (candidate.isRecycled) {
+                    iterator.remove()
+                } else if (candidate.isMutable && candidate.width == width && candidate.height == height &&
+                    candidate.config == Bitmap.Config.ARGB_8888
+                ) {
+                    iterator.remove()
+                    reusedBitmapCounter.incrementAndGet()
+                    return candidate
+                }
+            }
+        }
+        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    }
+
+    fun recycleBitmapToPool(bitmap: Bitmap?) {
+        if (bitmap == null || bitmap.isRecycled || !bitmap.isMutable || bitmap.config != Bitmap.Config.ARGB_8888) {
+            return
+        }
+        synchronized(bitmapPool) {
+            if (bitmapPool.size < MAX_BITMAP_POOL_SIZE && !bitmapPool.contains(bitmap)) {
+                bitmapPool.addLast(bitmap)
+            }
+        }
+    }
+
+    /**
+     * Round 9B Item 5:
+     * Recolours a single ARGB pixel for the dark map:
+     * - Colours close to the map's water colour -> dark-mode water blue (`#1F4E6E`)
+     * - Forest / green areas -> dark forest green-grey (`#1F3628`, keeping `G > R && G > B`)
+     * - Light land -> dark neutral grey (`#24282B`)
+     * - Dark text and lines -> light grey (`#DCE0E3`)
+     */
+    fun recolorPixelForDarkMap(color: Int): Int {
+        val a = (color ushr 24) and 0xFF
+        if (a == 0) return 0
+        val r = (color ushr 16) and 0xFF
+        val g = (color ushr 8) and 0xFF
+        val b = color and 0xFF
+
+        // 1. Water detection:
+        // In Skærmkortet (dtk_skaermkort & dtk_skaermkort_daempet) and OpenTopoMap/OSM,
+        // sea, fjords, lakes, and streams have blue dominance (B > R and B >= G - 3) with B >= 110.
+        val isWater = (b >= 110 && b > r + 4 && b >= g - 3 && (b - r) >= 6) ||
+            (r in 140..225 && g in 185..242 && b in 210..255 && b > r + 4 && b >= g - 2)
+        if (isWater) {
+            return (a shl 24) or (DARK_WATER_COLOR_INT and 0x00FFFFFF)
+        }
+
+        val lum = (r * 77 + g * 150 + b * 29) shr 8
+
+        // 2. Forest / green vegetation areas (G > R + 6 and G > B + 6):
+        if (g > r + 6 && g > b + 6 && lum > 65) {
+            return (a shl 24) or (DARK_FOREST_COLOR_INT and 0x00FFFFFF)
+        }
+
+        // 3. Light land -> dark neutral grey (#24282B)
+        if (lum >= 165) {
+            return (a shl 24) or (DARK_LAND_COLOR_INT and 0x00FFFFFF)
+        }
+
+        // 4. Dark text and lines -> light grey (#DCE0E3)
+        if (lum <= 120) {
+            return (a shl 24) or (DARK_TEXT_COLOR_INT and 0x00FFFFFF)
+        }
+
+        // 5. Anti-aliased transition pixels (120 < lum < 165): interpolate smoothly between
+        // light grey (#DCE0E3: 220,224,227) and dark neutral grey (#24282B: 36,40,43)
+        val t = (lum - 120) // 1..44 out of 45
+        val outR = 220 - (t * (220 - 36)) / 45
+        val outG = 224 - (t * (224 - 40)) / 45
+        val outB = 227 - (t * (227 - 43)) / 45
+        return (a shl 24) or (outR shl 16) or (outG shl 8) or outB
+    }
+
+    /**
+     * Backwards-compatible alias used by tests.
+     */
+    fun transformColorForDarkMap(color: Int): Int = recolorPixelForDarkMap(color)
+
+    /**
+     * Recolours an entire tile Bitmap for dark mode using the reusable bitmap pool and thread-local pixel buffer.
+     */
+    fun recolorBitmapForDarkMap(source: Bitmap): Bitmap {
+        val width = source.width
+        val height = source.height
+        val count = width * height
+        val pixels = if (count <= 256 * 256) {
+            threadLocalPixels.get() ?: IntArray(count)
+        } else {
+            IntArray(count)
+        }
+        source.getPixels(pixels, 0, width, 0, 0, width, height)
+        for (i in 0 until count) {
+            pixels[i] = recolorPixelForDarkMap(pixels[i])
+        }
+        val out = acquireReusableBitmap(width, height)
+        out.setPixels(pixels, 0, width, 0, 0, width, height)
+        return out
+    }
+
+    /**
+     * Round 9B Item 7:
+     * Processes a DHM hillshade tile bitmap so that sea / no-data / flat pixels are skipped (transparent `0x00000000`),
+     * preventing the terrain overlay from ever turning the sea black or opaque.
+     */
+    fun processHillshadeBitmap(source: Bitmap): Bitmap {
+        val width = source.width
+        val height = source.height
+        val count = width * height
+        val pixels = if (count <= 256 * 256) {
+            threadLocalPixels.get() ?: IntArray(count)
+        } else {
+            IntArray(count)
+        }
+        source.getPixels(pixels, 0, width, 0, 0, width, height)
+        for (i in 0 until count) {
+            val c = pixels[i]
+            val a = (c ushr 24) and 0xFF
+            val r = (c ushr 16) and 0xFF
+            val g = (c ushr 8) and 0xFF
+            val b = c and 0xFF
+            val lum = (r * 77 + g * 150 + b * 29) shr 8
+
+            // Skip no-data transparent pixels, solid-black sea/no-data pixels (lum < 38),
+            // flat/neutral terrain & sea surface (lum >= 175), or blue-tinted water pixels (b > r + 6)
+            if (a < 32 || lum < 38 || lum >= 175 || b > r + 6) {
+                pixels[i] = 0x00000000
+            } else {
+                // Proportional slope shadow alpha for genuine hillslopes (38 <= lum < 175)
+                val shadowAlpha = (((175 - lum) * 140) / 137).coerceIn(0, 140)
+                pixels[i] = (shadowAlpha shl 24) or (20 shl 16) or (24 shl 8) or 22
+            }
+        }
+        val out = acquireReusableBitmap(width, height)
+        out.setPixels(pixels, 0, width, 0, 0, width, height)
+        return out
+    }
 
     private val capabilitiesScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -393,17 +701,23 @@ object DanskStiTileSourceHelper {
     private var capabilitiesRequested: Boolean = false
 
     val skaermkortInstance: DanskStiTileSource by lazy {
-        DanskStiTileSource(sharedKey, wmsLayerName = "dtk_skaermkort")
+        DanskStiTileSource(sharedKey, wmsLayerName = "dtk_skaermkort", isDarkMode = false)
     }
 
-    val skaermkortDarkInstance: DanskStiTileSource
-        get() = DanskStiTileSource(
+    val skaermkortDarkInstance: DanskStiTileSource by lazy {
+        DanskStiTileSource(
             apiKey = sharedKey,
-            wmsLayerName = selectedDarkSkaermkortLayer.ifBlank { "dtk_skaermkort_daempet" }
+            wmsLayerName = "dtk_skaermkort",
+            isDarkMode = true
         )
+    }
 
     val friluftskortInstance: DanskStiFriluftskortTileSource by lazy {
-        DanskStiFriluftskortTileSource(outdoorKey)
+        DanskStiFriluftskortTileSource(outdoorKey, isDarkMode = false)
+    }
+
+    val friluftskortDarkInstance: DanskStiFriluftskortTileSource by lazy {
+        DanskStiFriluftskortTileSource(outdoorKey, isDarkMode = true)
     }
 
     val luftfotoInstance: DanskStiLuftfotoTileSource by lazy {
@@ -435,7 +749,7 @@ object DanskStiTileSourceHelper {
 
     /**
      * Requirement B: Parses Skærmkortet WMS GetCapabilities XML, logs every layer name,
-     * and picks a muted or grey variant (name containing "daempet" or "graa") for dark mode.
+     * and picks a muted or grey variant (name containing "daempet" or "graa") for metadata discovery.
      */
     fun parseSkaermkortCapabilitiesXml(xml: String): SkaermkortCapabilities {
         val layerNames = extractWmsLayerNames(xml)
@@ -444,7 +758,6 @@ object DanskStiTileSourceHelper {
         }
         val supports3857 = xml.contains("EPSG:3857", ignoreCase = true)
 
-        // Pick muted or grey variant (name containing "daempet" or "graa"), preferring non-print base layers
         val mutedOrGrey = layerNames.firstOrNull {
             it.equals("dtk_skaermkort_daempet", ignoreCase = true)
         } ?: layerNames.firstOrNull {
@@ -497,7 +810,6 @@ object DanskStiTileSourceHelper {
             Log.w(TAG, "DHM WMS does not advertise image/png support; skipping DHM overlays")
         }
 
-        // Pick terrain hillshade layer ("skyggekort", terrain not surface/overflade)
         val rawHillshade = layerNames.firstOrNull { name ->
             name.contains("skyggekort", ignoreCase = true) &&
                 (name.contains("terraen", ignoreCase = true) || !name.contains("overflade", ignoreCase = true))
@@ -506,7 +818,6 @@ object DanskStiTileSourceHelper {
             Log.w(TAG, "DHM WMS missing terrain hillshade ('skyggekort') layer; leaving hillshade out")
         }
 
-        // Pick contour layer ("kurve"), preferring dhm_kurve_traditionel (visible from zoom 14+)
         val rawContour = layerNames.firstOrNull { name ->
             name.equals("dhm_kurve_traditionel", ignoreCase = true)
         } ?: layerNames.firstOrNull { name ->
@@ -542,7 +853,6 @@ object DanskStiTileSourceHelper {
         val result = mutableListOf<String>()
         val layerRegex = Regex("<Layer\\b[^>]*>([\\s\\S]*?)</Layer>", RegexOption.IGNORE_CASE)
         val nameRegex = Regex("<Name>\\s*([^<\\s]+)\\s*</Name>", RegexOption.IGNORE_CASE)
-        // Extract every <Name> that is a direct child of a <Layer> (not a <Style><Name>)
         val withoutStyles = xml.replace(Regex("<Style\\b[^>]*>[\\s\\S]*?</Style>", RegexOption.IGNORE_CASE), "")
         val withoutGetMap = withoutStyles.replace(Regex("<Request\\b[^>]*>[\\s\\S]*?</Request>", RegexOption.IGNORE_CASE), "")
         for (match in nameRegex.findAll(withoutGetMap)) {
@@ -560,9 +870,6 @@ object DanskStiTileSourceHelper {
         return result
     }
 
-    /**
-     * Fetches Skærmkortet WMS GetCapabilities from Dataforsyningen on IO dispatcher.
-     */
     suspend fun fetchSkaermkortCapabilities(
         apiKey: String = sharedKey,
         client: OkHttpClient = httpClient
@@ -589,9 +896,6 @@ object DanskStiTileSourceHelper {
         }
     }
 
-    /**
-     * Fetches DHM ("dhm" / "dhm_DAF") WMS GetCapabilities from Dataforsyningen on IO dispatcher.
-     */
     suspend fun fetchDhmCapabilities(
         apiKey: String = sharedKey,
         client: OkHttpClient = httpClient
@@ -633,86 +937,6 @@ object DanskStiTileSourceHelper {
         }
     }
 
-    /**
-     * Requirement E: Hue-preserving dark filter:
-     * 1. Invert brightness (R' = 255 - R, G' = 255 - G, B' = 255 - B)
-     * 2. Rotate hue 180 degrees (standard CSS hue-rotate(180deg) color matrix)
-     * 3. Multiply contrast by 0.85 and brightness by 0.9
-     * Preserves blue water and green forests while darkening white land to near-black.
-     */
-    fun createHuePreservingDarkColorMatrix(): ColorMatrix {
-        // 1. Invert RGB brightness
-        val invertMatrix = ColorMatrix(
-            floatArrayOf(
-                -1f, 0f, 0f, 0f, 255f,
-                0f, -1f, 0f, 0f, 255f,
-                0f, 0f, -1f, 0f, 255f,
-                0f, 0f, 0f, 1f, 0f
-            )
-        )
-
-        // 2. Rotate hue 180 degrees (standard W3C / CSS hue-rotate(180deg) matrix)
-        // lumR = 0.213, lumG = 0.715, lumB = 0.072; cos(180) = -1, sin(180) = 0
-        val hueRotate180 = ColorMatrix(
-            floatArrayOf(
-                -0.574f, 1.430f, 0.144f, 0f, 0f,
-                0.426f, 0.430f, 0.144f, 0f, 0f,
-                0.426f, 1.430f, -0.856f, 0f, 0f,
-                0f, 0f, 0f, 1f, 0f
-            )
-        )
-
-        // 3. Multiply contrast by 0.85 (around midpoint 127.5) and brightness by 0.9
-        val contrast = 0.85f
-        val contrastTranslate = 127.5f * (1f - contrast) // 19.125f
-        val contrastMatrix = ColorMatrix(
-            floatArrayOf(
-                contrast, 0f, 0f, 0f, contrastTranslate,
-                0f, contrast, 0f, 0f, contrastTranslate,
-                0f, 0f, contrast, 0f, contrastTranslate,
-                0f, 0f, 0f, 1f, 0f
-            )
-        )
-
-        val brightness = 0.9f
-        val brightnessMatrix = ColorMatrix(
-            floatArrayOf(
-                brightness, 0f, 0f, 0f, 0f,
-                0f, brightness, 0f, 0f, 0f,
-                0f, 0f, brightness, 0f, 0f,
-                0f, 0f, 0f, 1f, 0f
-            )
-        )
-
-        val combined = ColorMatrix()
-        combined.set(invertMatrix)
-        combined.postConcat(hueRotate180)
-        combined.postConcat(contrastMatrix)
-        combined.postConcat(brightnessMatrix)
-        return combined
-    }
-
-    /**
-     * Transforms an ARGB color through the hue-preserving dark color matrix (used for verification & tests).
-     */
-    fun transformColorForDarkMap(color: Int): Int {
-        val m = createHuePreservingDarkColorMatrix().array
-        val r = android.graphics.Color.red(color).toFloat()
-        val g = android.graphics.Color.green(color).toFloat()
-        val b = android.graphics.Color.blue(color).toFloat()
-        val a = android.graphics.Color.alpha(color).toFloat()
-
-        val outR = (m[0] * r + m[1] * g + m[2] * b + m[3] * a + m[4]).roundToInt().coerceIn(0, 255)
-        val outG = (m[5] * r + m[6] * g + m[7] * b + m[8] * a + m[9]).roundToInt().coerceIn(0, 255)
-        val outB = (m[10] * r + m[11] * g + m[12] * b + m[13] * a + m[14]).roundToInt().coerceIn(0, 255)
-        val outA = (m[15] * r + m[16] * g + m[17] * b + m[18] * a + m[19]).roundToInt().coerceIn(0, 255)
-
-        return android.graphics.Color.argb(outA, outR, outG, outB)
-    }
-
-    /**
-     * Applies the designated base map, hue-preserving dark filter, and attribution to any MapView.
-     */
     fun isNetworkAvailable(context: Context): Boolean {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
@@ -733,6 +957,19 @@ object DanskStiTileSourceHelper {
         return !sqliteFiles.isNullOrEmpty()
     }
 
+    /**
+     * Round 9B Item 6:
+     * Applies the theme's water colour to `tilesOverlay.loadingBackgroundColor`,
+     * `tilesOverlay.loadingLineColor`, and the `MapView` background.
+     */
+    fun applyThemeWaterBackground(mapView: MapView, isDarkMode: Boolean) {
+        val waterColor = getThemeWaterColorInt(isDarkMode)
+        mapView.setBackgroundColor(waterColor)
+        mapView.background = android.graphics.drawable.ColorDrawable(waterColor)
+        mapView.overlayManager.tilesOverlay.loadingBackgroundColor = waterColor
+        mapView.overlayManager.tilesOverlay.loadingLineColor = waterColor
+    }
+
     fun applyTo(
         mapView: MapView,
         baseMap: BaseMapType = BaseMapType.SKAERMKORT,
@@ -742,31 +979,26 @@ object DanskStiTileSourceHelper {
         ensureCapabilitiesLoadedAsync()
         val offlineWithArchives = !isNetworkAvailable(mapView.context) && hasOfflineSqliteArchives(mapView.context)
 
+        // Round 9B Item 6: Always set loadingBackgroundColor, loadingLineColor, and MapView background to water colour
+        applyThemeWaterBackground(mapView, isDarkMode)
+        // Round 9B Item 5 & 8: Never apply a ColorMatrix filter on the base map TilesOverlay
+        mapView.overlayManager.tilesOverlay.setColorFilter(null)
+
         when (baseMap) {
             BaseMapType.SKAERMKORT -> {
-                if (offlineWithArchives) {
-                    // Item 5: When offline, use the light Skærmkort archive with the dark colour filter
-                    if (mapView.tileProvider.tileSource?.name() != skaermkortInstance.name()) {
-                        mapView.setTileSource(skaermkortInstance)
-                    }
-                    mapView.overlayManager.tilesOverlay.isEnabled = true
-                    mapView.overlays.removeAll { it is NoKeyOverlay }
-                    applyDarkMapFilter(mapView, isDarkMode)
-                } else if (hasValidKey) {
-                    val targetSource = if (isDarkMode) skaermkortDarkInstance else skaermkortInstance
+                val targetSource = if (isDarkMode) skaermkortDarkInstance else skaermkortInstance
+                if (offlineWithArchives || hasValidKey) {
                     if (mapView.tileProvider.tileSource?.name() != targetSource.name()) {
                         mapView.setTileSource(targetSource)
                     }
                     mapView.overlayManager.tilesOverlay.isEnabled = true
                     mapView.overlays.removeAll { it is NoKeyOverlay }
-                    applyDarkMapFilter(mapView, isDarkMode)
                 } else if (allowOsmFallback) {
                     if (mapView.tileProvider.tileSource?.name() != TileSourceFactory.MAPNIK.name()) {
                         mapView.setTileSource(TileSourceFactory.MAPNIK)
                     }
                     mapView.overlayManager.tilesOverlay.isEnabled = true
                     mapView.overlays.removeAll { it is NoKeyOverlay }
-                    applyDarkMapFilter(mapView, isDarkMode)
                 } else {
                     mapView.overlayManager.tilesOverlay.isEnabled = false
                     if (mapView.overlays.none { it is NoKeyOverlay }) {
@@ -776,12 +1008,12 @@ object DanskStiTileSourceHelper {
             }
 
             BaseMapType.FRILUFTSKORT -> {
-                if (mapView.tileProvider.tileSource?.name() != friluftskortInstance.name()) {
-                    mapView.setTileSource(friluftskortInstance)
+                val targetSource = if (isDarkMode) friluftskortDarkInstance else friluftskortInstance
+                if (mapView.tileProvider.tileSource?.name() != targetSource.name()) {
+                    mapView.setTileSource(targetSource)
                 }
                 mapView.overlayManager.tilesOverlay.isEnabled = true
                 mapView.overlays.removeAll { it is NoKeyOverlay }
-                applyDarkMapFilter(mapView, isDarkMode)
             }
 
             BaseMapType.LUFTFOTO -> {
@@ -791,7 +1023,7 @@ object DanskStiTileSourceHelper {
                     }
                     mapView.overlayManager.tilesOverlay.isEnabled = true
                     mapView.overlays.removeAll { it is NoKeyOverlay }
-                    // Do NOT apply dark color filter to aerial photography
+                    // Round 9B Item 8: Aerial photos stay unfiltered
                     mapView.overlayManager.tilesOverlay.setColorFilter(null)
                 } else if (allowOsmFallback) {
                     if (mapView.tileProvider.tileSource?.name() != TileSourceFactory.MAPNIK.name()) {
@@ -799,7 +1031,6 @@ object DanskStiTileSourceHelper {
                     }
                     mapView.overlayManager.tilesOverlay.isEnabled = true
                     mapView.overlays.removeAll { it is NoKeyOverlay }
-                    applyDarkMapFilter(mapView, isDarkMode)
                 } else {
                     mapView.overlayManager.tilesOverlay.isEnabled = false
                     if (mapView.overlays.none { it is NoKeyOverlay }) {
@@ -945,9 +1176,9 @@ object DanskStiTileSourceHelper {
 
     /**
      * Wraps a DatabaseFileArchive so that in dark mode (when the active tile source is
-     * "DanskSti_Skaermkort_dtk_skaermkort_daempet"), if no dark tile exists in the archive,
-     * it serves the downloaded light "DanskSti_Skaermkort" tile (which is rendered with the
-     * dark ColorMatrixColorFilter on the map's TilesOverlay).
+     * "DanskSti_Skaermkort_Dark"), if no dark tile exists in the archive,
+     * it serves the downloaded light "DanskSti_Skaermkort" tile bytes unchanged so
+     * `DanskStiTileSource.getDrawable(InputStream)` can recolour them in memory.
      */
     private class FallbackSkaermkortArchiveFile(
         private val delegate: DatabaseFileArchive
@@ -955,7 +1186,7 @@ object DanskStiTileSourceHelper {
         override fun getInputStream(
             pTileSource: org.osmdroid.tileprovider.tilesource.ITileSource?,
             pMapTileIndex: Long
-        ): java.io.InputStream? {
+        ): InputStream? {
             val direct = delegate.getInputStream(pTileSource, pMapTileIndex)
             if (direct != null) return direct
             val sourceName = pTileSource?.name().orEmpty()
@@ -967,12 +1198,8 @@ object DanskStiTileSourceHelper {
     }
 
     fun applyDarkMapFilter(mapView: MapView, isDarkMode: Boolean) {
-        if (isDarkMode) {
-            val matrix = createHuePreservingDarkColorMatrix()
-            mapView.overlayManager.tilesOverlay.setColorFilter(ColorMatrixColorFilter(matrix))
-        } else {
-            mapView.overlayManager.tilesOverlay.setColorFilter(null)
-        }
+        applyThemeWaterBackground(mapView, isDarkMode)
+        mapView.overlayManager.tilesOverlay.setColorFilter(null)
     }
 
     fun getAttributionForBaseMap(baseMap: BaseMapType): String {
@@ -1084,14 +1311,14 @@ fun MapAttributionPill(
     Box(
         modifier = modifier
             .background(
-                Color.Black.copy(alpha = 0.70f),
+                MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.78f),
                 RoundedCornerShape(topEnd = 8.dp)
             )
             .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
         Text(
             text = text,
-            color = Color.White.copy(alpha = 0.90f),
+            color = MaterialTheme.colorScheme.inverseOnSurface,
             fontSize = 9.sp,
             maxLines = 1
         )

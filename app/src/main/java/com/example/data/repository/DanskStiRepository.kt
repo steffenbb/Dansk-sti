@@ -82,19 +82,57 @@ class DanskStiRepository(
                         val existing = dao.getTrailById(preTrail.id)
                         if (existing == null) {
                             dao.insertTrail(preTrail)
-                        } else if (!geometryRepository.isGeometryCached(existing.id) &&
-                            (existing.isGeometryDownloaded || existing.computedWalkingKm > 0.0 || existing.bboxSouth != null)
-                        ) {
-                            dao.insertTrail(
-                                existing.copy(
-                                    isGeometryDownloaded = false,
-                                    computedWalkingKm = 0.0,
-                                    bboxNorth = null,
-                                    bboxSouth = null,
-                                    bboxEast = null,
-                                    bboxWest = null
+                        } else if (!geometryRepository.isGeometryCached(existing.id)) {
+                            if (existing.isGeometryDownloaded || existing.computedWalkingKm > 0.0 ||
+                                existing.bboxSouth != null || existing.description.isNotEmpty() || existing.region.isNotEmpty()
+                            ) {
+                                dao.insertTrail(
+                                    existing.copy(
+                                        description = "",
+                                        region = "",
+                                        parentRegion = "",
+                                        isGeometryDownloaded = false,
+                                        computedWalkingKm = 0.0,
+                                        bboxNorth = null,
+                                        bboxSouth = null,
+                                        bboxEast = null,
+                                        bboxWest = null,
+                                        source = preTrail.source
+                                    )
                                 )
-                            )
+                            }
+                        } else {
+                            // Geometry is cached on disk: ensure region & length are computed from cached geometry
+                            val cachedGeom = geometryRepository.loadGeometry(existing.id)
+                            if (cachedGeom != null) {
+                                val computedReg = GeoUtils.computeDanishRegionFromBbox(
+                                    south = cachedGeom.bboxSouth,
+                                    west = cachedGeom.bboxWest,
+                                    north = cachedGeom.bboxNorth,
+                                    east = cachedGeom.bboxEast
+                                )
+                                if (!existing.isGeometryDownloaded ||
+                                    existing.computedWalkingKm != cachedGeom.totalWalkingKm ||
+                                    existing.region != computedReg ||
+                                    existing.description.isNotEmpty()
+                                ) {
+                                    dao.insertTrail(
+                                        existing.copy(
+                                            description = "",
+                                            region = computedReg,
+                                            parentRegion = computedReg,
+                                            computedWalkingKm = cachedGeom.totalWalkingKm,
+                                            gapsOver200m = cachedGeom.gapsOver200mCount,
+                                            bboxNorth = cachedGeom.bboxNorth,
+                                            bboxSouth = cachedGeom.bboxSouth,
+                                            bboxEast = cachedGeom.bboxEast,
+                                            bboxWest = cachedGeom.bboxWest,
+                                            isGeometryDownloaded = true,
+                                            source = preTrail.source
+                                        )
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -171,6 +209,14 @@ class DanskStiRepository(
         val trail = dao.getTrailById(id)
         if (trail != null) return@withContext trail
 
+        val preseeded = PreseededData.getInitialTrails().find { it.id == id }
+        if (preseeded != null) {
+            try {
+                dao.insertTrail(preseeded)
+            } catch (_: Exception) {}
+            return@withContext preseeded
+        }
+
         // Custom route support: custom routes work everywhere a trail works (Phase 11 Requirement E)
         val cleanRouteId = id.removePrefix("custom_route_").removePrefix("route_").toLongOrNull()
         if (cleanRouteId != null) {
@@ -196,11 +242,21 @@ class DanskStiRepository(
             val trail = dao.getTrailById(trailId)
             if (trail != null) {
                 val fresh = try {
-                    geometryRepository.fetchAndProcessTrail(trail.id, trail.name, trail.osmRelationId)?.takeIf {
+                    kotlinx.coroutines.withTimeoutOrNull(3_000L) {
+                        geometryRepository.fetchAndProcessTrail(trail.id, trail.name, trail.osmRelationId)
+                    }?.takeIf {
                         it.segments.any { seg -> seg.points.isNotEmpty() }
                     }?.also {
                         geometryRepository.saveGeometry(it)
+                        val computedReg = GeoUtils.computeDanishRegionFromBbox(
+                            south = it.bboxSouth,
+                            west = it.bboxWest,
+                            north = it.bboxNorth,
+                            east = it.bboxEast
+                        )
                         dao.insertTrail(trail.copy(
+                            region = computedReg,
+                            parentRegion = computedReg,
                             computedWalkingKm = it.totalWalkingKm,
                             gapsOver200m = it.gapsOver200mCount,
                             osmTimestamp = it.osmTimestamp,
@@ -230,13 +286,47 @@ class DanskStiRepository(
         }
 
         if (cached != null) {
+            val computedReg = GeoUtils.computeDanishRegionFromBbox(
+                south = cached.bboxSouth,
+                west = cached.bboxWest,
+                north = cached.bboxNorth,
+                east = cached.bboxEast
+            )
+            if (!trail.id.startsWith("route_") &&
+                (!trail.isGeometryDownloaded || trail.computedWalkingKm <= 0.0 || trail.region != computedReg)
+            ) {
+                dao.insertTrail(
+                    trail.copy(
+                        region = computedReg,
+                        parentRegion = computedReg,
+                        computedWalkingKm = cached.totalWalkingKm,
+                        gapsOver200m = cached.gapsOver200mCount,
+                        osmTimestamp = cached.osmTimestamp,
+                        bboxNorth = cached.bboxNorth,
+                        bboxSouth = cached.bboxSouth,
+                        bboxEast = cached.bboxEast,
+                        bboxWest = cached.bboxWest,
+                        isGeometryDownloaded = true
+                    )
+                )
+            }
             if (!trail.id.startsWith("route_") && !geometryRepository.hasWayTagRanges(cached) && isDeviceOnline()) {
                 val fresh = try {
-                    geometryRepository.fetchAndProcessTrail(trail.id, trail.name, trail.osmRelationId)?.takeIf {
+                    kotlinx.coroutines.withTimeoutOrNull(3_000L) {
+                        geometryRepository.fetchAndProcessTrail(trail.id, trail.name, trail.osmRelationId)
+                    }?.takeIf {
                         it.segments.any { seg -> seg.points.isNotEmpty() }
                     }?.also {
                         geometryRepository.saveGeometry(it)
+                        val freshReg = GeoUtils.computeDanishRegionFromBbox(
+                            south = it.bboxSouth,
+                            west = it.bboxWest,
+                            north = it.bboxNorth,
+                            east = it.bboxEast
+                        )
                         dao.insertTrail(trail.copy(
+                            region = freshReg,
+                            parentRegion = freshReg,
                             computedWalkingKm = it.totalWalkingKm,
                             gapsOver200m = it.gapsOver200mCount,
                             osmTimestamp = it.osmTimestamp,
@@ -274,12 +364,20 @@ class DanskStiRepository(
                     }
                     customGeom
                 } else null
-            } else if (isDeviceOnline()) {
+            } else if (isDeviceOnline() || TrailGeometryRepository.customRelationFetcher != null) {
                 geometryRepository.fetchAndProcessTrail(trail.id, trail.name, trail.osmRelationId)?.takeIf {
                     it.segments.any { seg -> seg.points.isNotEmpty() }
                 }?.also {
                     geometryRepository.saveGeometry(it)
+                    val computedReg = GeoUtils.computeDanishRegionFromBbox(
+                        south = it.bboxSouth,
+                        west = it.bboxWest,
+                        north = it.bboxNorth,
+                        east = it.bboxEast
+                    )
                     dao.insertTrail(trail.copy(
+                        region = computedReg,
+                        parentRegion = computedReg,
                         computedWalkingKm = it.totalWalkingKm,
                         gapsOver200m = it.gapsOver200mCount,
                         osmTimestamp = it.osmTimestamp,
@@ -1249,17 +1347,28 @@ class DanskStiRepository(
             // 3. Steder (towns, forests, lakes, stations) from Photon OpenStreetMap Denmark search + 50-item cache
             val places = photonPlaceSearchService.searchPlaces(q, isOnline = isDeviceOnline())
 
-            com.example.data.remote.GroupedSearchResults(
+            val grouped = com.example.data.remote.GroupedSearchResults(
                 query = q,
                 routesAndTrails = routesAndTrails.take(6),
                 sheltersAndFriTeltning = sheltersAndTentItems.take(8),
                 places = places.take(8)
             )
+            lastGroupedSearchResult = grouped
+            grouped
         }
 
-    suspend fun searchPlacesInDenmark(query: String): List<com.example.data.remote.PlaceSearchResult> =
+    @Volatile
+    private var lastGroupedSearchResult: com.example.data.remote.GroupedSearchResults? = null
+
+    suspend fun searchPlacesInDenmark(
+        query: String,
+        precomputedGrouped: com.example.data.remote.GroupedSearchResults? = null
+    ): List<com.example.data.remote.PlaceSearchResult> =
         withContext(Dispatchers.IO) {
-            val grouped = searchGroupedInDenmark(query)
+            val q = query.trim()
+            val grouped = precomputedGrouped
+                ?: lastGroupedSearchResult?.takeIf { it.query.equals(q, ignoreCase = true) }
+                ?: searchGroupedInDenmark(query)
             val results = mutableListOf<com.example.data.remote.PlaceSearchResult>()
 
             grouped.sheltersAndFriTeltning.take(5).forEach { s ->
@@ -1673,6 +1782,20 @@ class DanskStiRepository(
         markedRoute: com.example.data.model.MarkedRouteDto
     ): Result<com.example.data.model.TrailEntity> = withContext(Dispatchers.IO) {
         markedRouteRepository.saveMarkedRouteAsTrail(markedRoute)
+    }
+
+    // Round 9 C Requirement 2: "Flere afmærkede ruter"
+    suspend fun getMoreMarkedHikingRoutes(
+        forceRefresh: Boolean = false
+    ): List<com.example.data.model.DiscoveredHikingRouteDto> = withContext(Dispatchers.IO) {
+        markedRouteRepository.getMoreMarkedHikingRoutes(forceRefresh)
+    }
+
+    suspend fun saveAndDownloadDiscoveredRoute(
+        route: com.example.data.model.DiscoveredHikingRouteDto,
+        onProgress: ((com.example.data.model.TrailDownloadProgress) -> Unit)? = null
+    ): Result<com.example.data.model.TrailEntity> = withContext(Dispatchers.IO) {
+        markedRouteRepository.saveAndDownloadDiscoveredRoute(route, onProgress)
     }
 }
 

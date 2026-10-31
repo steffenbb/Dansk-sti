@@ -41,11 +41,16 @@ sealed class DeletedLibraryItem {
 
 class SavedViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val app = application as DanskStiApp
-    private val repository: DanskStiRepository = app.repository
-    private val dao = app.database.dao()
-    private val storageManager: BRouterStorageManager = BRouterStorageManager.getInstance(application)
-    private val workManager: WorkManager? = runCatching { WorkManager.getInstance(application) }.getOrNull()
+    private val app: DanskStiApp
+        get() = try { DanskStiApp.instance } catch (_: Exception) { getApplication() as DanskStiApp }
+    private val repository: DanskStiRepository
+        get() = app.repository
+    private val dao
+        get() = app.database.dao()
+    private val storageManager: BRouterStorageManager
+        get() = BRouterStorageManager.getInstance(app)
+    private val workManager: WorkManager?
+        get() = runCatching { WorkManager.getInstance(app) }.getOrNull()
 
     // 1. Planer
     val savedPlans: StateFlow<List<TripPlanEntity>> = repository.getAllTripPlans()

@@ -282,7 +282,11 @@ object StagePlanner {
         val waterPois = pois.filter { it.type == "water" }
         val toiletPois = pois.filter { it.type == "toilet" }
         val shopPois = pois.filter { it.type in listOf("shop", "supermarket", "convenience", "bakery", "farm") }
-        val effSunset = sunsetTime ?: "Solnedgang ukendt"
+        val effSunset = sunsetTime?.takeIf { it.isNotBlank() && it != "Solnedgang ukendt" }
+            ?: SunCalculator.calculateSunset(
+                lat = plannedRoute.points.lastOrNull()?.lat ?: SunCalculator.DEFAULT_COPENHAGEN_LAT,
+                lng = plannedRoute.points.lastOrNull()?.lng ?: SunCalculator.DEFAULT_COPENHAGEN_LNG
+            )
 
         // Requirement E & H: OVERNIGHT pins end a day. Day boundaries are the OVERNIGHT pins in order;
         // the last day ends at END.
@@ -574,7 +578,11 @@ object StagePlanner {
         val waterPois = pois.filter { it.type == "water" }
         val toiletPois = pois.filter { it.type == "toilet" }
         val shopPois = pois.filter { it.type in listOf("shop", "supermarket", "convenience", "bakery", "farm") }
-        val effSunset = sunsetTime ?: "Solnedgang ukendt"
+        val effSunset = sunsetTime?.takeIf { it.isNotBlank() && it != "Solnedgang ukendt" }
+            ?: SunCalculator.calculateSunset(
+                lat = plannedRoute.points.lastOrNull()?.lat ?: SunCalculator.DEFAULT_COPENHAGEN_LAT,
+                lng = plannedRoute.points.lastOrNull()?.lng ?: SunCalculator.DEFAULT_COPENHAGEN_LNG
+            )
         val totalWalkKm = max(0.1, plannedRoute.totalWalkKm)
 
         val newStages = mutableListOf<TripStage>()
@@ -786,7 +794,11 @@ object StagePlanner {
         val waterPois = pois.filter { it.type == "water" }
         val toiletPois = pois.filter { it.type == "toilet" }
         val shopPois = pois.filter { it.type in listOf("shop", "supermarket", "convenience", "bakery", "farm") }
-        val effSunset = sunsetTime ?: "Solnedgang ukendt"
+        val effSunset = sunsetTime?.takeIf { it.isNotBlank() && it != "Solnedgang ukendt" }
+            ?: SunCalculator.calculateSunset(
+                lat = plannedRoute.points.lastOrNull()?.lat ?: SunCalculator.DEFAULT_COPENHAGEN_LAT,
+                lng = plannedRoute.points.lastOrNull()?.lng ?: SunCalculator.DEFAULT_COPENHAGEN_LNG
+            )
         val totalWalkKm = max(0.1, plannedRoute.totalWalkKm)
 
         val allCandidates = extractCandidates(

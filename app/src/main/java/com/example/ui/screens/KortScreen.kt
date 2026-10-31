@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
@@ -62,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -79,9 +82,8 @@ import com.example.ui.components.HapticFeedbackHelper
 import com.example.ui.components.formatDanishKm
 import com.example.ui.map.DanskStiMap
 import com.example.ui.navigation.MapLayersOverlayManager
-import com.example.ui.theme.AccentAmber
 import com.example.ui.theme.CardShape
-import com.example.ui.theme.ForestGreenPrimary
+import com.example.ui.theme.DanskStiTheme
 import com.example.ui.theme.Spacing
 import com.example.ui.theme.TabularBodyStyle
 import com.example.ui.theme.TabularLabelStyle
@@ -117,7 +119,9 @@ fun KortScreen(
     val context = LocalContext.current
     val view = LocalView.current
     val coroutineScope = rememberCoroutineScope()
-    val isDark = isSystemInDarkTheme()
+    val isDark = DanskStiTheme.isDark
+    val danskStiColors = DanskStiTheme.colors
+    val colorScheme = MaterialTheme.colorScheme
     val snackbarHostState = remember { SnackbarHostState() }
 
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -204,7 +208,7 @@ fun KortScreen(
                     if (pts.size >= 2) {
                         val casing = Polyline(mapView).apply {
                             setPoints(pts)
-                            outlinePaint.color = android.graphics.Color.BLACK
+                            outlinePaint.color = danskStiColors.routeCasing.toArgb()
                             outlinePaint.strokeWidth = 6f * density
                             outlinePaint.strokeCap = Paint.Cap.ROUND
                             outlinePaint.isAntiAlias = true
@@ -213,7 +217,7 @@ fun KortScreen(
 
                         val measureLine = Polyline(mapView).apply {
                             setPoints(pts)
-                            outlinePaint.color = 0xFFF2A33A.toInt() // AccentAmber
+                            outlinePaint.color = danskStiColors.warning.toArgb()
                             outlinePaint.strokeWidth = 3.5f * density
                             outlinePaint.pathEffect = DashPathEffect(floatArrayOf(16f, 10f), 0f)
                             outlinePaint.strokeCap = Paint.Cap.ROUND
@@ -224,8 +228,8 @@ fun KortScreen(
                     pts.forEach { pt ->
                         val dot = Polygon(mapView).apply {
                             points = Polygon.pointsAsCircle(pt, 35.0)
-                            fillPaint.color = 0xFFF2A33A.toInt()
-                            outlinePaint.color = android.graphics.Color.WHITE
+                            fillPaint.color = danskStiColors.warning.toArgb()
+                            outlinePaint.color = danskStiColors.routeCasing.toArgb()
                             outlinePaint.strokeWidth = 2f * density
                         }
                         children.add(dot)
@@ -240,6 +244,7 @@ fun KortScreen(
                     .align(Alignment.TopStart)
                     .fillMaxWidth()
                     .statusBarsPadding()
+                    .imePadding()
                     .padding(start = Spacing.s4, end = 76.dp, top = Spacing.s3, bottom = Spacing.s3)
             ) {
                 Surface(
@@ -260,7 +265,7 @@ fun KortScreen(
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = stringResource(R.string.cd_search),
-                            tint = ForestGreenPrimary,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(22.dp)
                         )
                         Spacer(modifier = Modifier.width(Spacing.s2))
@@ -341,6 +346,8 @@ fun KortScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .imePadding()
                     .padding(horizontal = Spacing.s3, vertical = Spacing.s3),
                 verticalArrangement = Arrangement.spacedBy(Spacing.s2)
             ) {
@@ -350,7 +357,7 @@ fun KortScreen(
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
                         ),
-                        border = BorderStroke(1.5.dp, AccentAmber),
+                        border = BorderStroke(1.5.dp, danskStiColors.warning),
                         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -568,7 +575,7 @@ fun KortScreen(
                             snackbarHostState.showSnackbar("Punkt '$finalName' gemt i Mine ture")
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
                     modifier = Modifier.testTag("kort_save_point_confirm_button")
                 ) {
                     Text(stringResource(R.string.btn_save))
@@ -602,15 +609,17 @@ private fun KortFloatingToolButton(
     onClick: () -> Unit,
     testTag: String
 ) {
-    val containerColor = if (isSelected) AccentAmber else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
-    val contentColor = if (isSelected) Color(0xFF1F1600) else MaterialTheme.colorScheme.onSurface
+    val danskStiColors = DanskStiTheme.colors
+    val colorScheme = MaterialTheme.colorScheme
+    val containerColor = if (isSelected) danskStiColors.warning else colorScheme.surfaceVariant.copy(alpha = 0.65f)
+    val contentColor = if (isSelected) colorScheme.onSecondary else colorScheme.onSurface
 
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = containerColor,
         border = BorderStroke(
             1.dp,
-            if (isSelected) AccentAmber else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+            if (isSelected) danskStiColors.warning else colorScheme.outline.copy(alpha = 0.25f)
         ),
         modifier = Modifier
             .sizeIn(minHeight = 48.dp)
@@ -626,7 +635,7 @@ private fun KortFloatingToolButton(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = if (isSelected) Color(0xFF1F1600) else ForestGreenPrimary,
+                tint = if (isSelected) colorScheme.onSecondary else colorScheme.primary,
                 modifier = Modifier.size(18.dp)
             )
             Text(

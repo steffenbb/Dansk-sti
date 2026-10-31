@@ -21,10 +21,7 @@ import com.example.ui.screens.RouteBuilderScreen
 import com.example.ui.screens.TrailDetailScreen
 import com.example.ui.theme.DanskStiTheme
 import com.example.ui.theme.TABULAR_FIGURES_FEATURE
-import com.example.ui.viewmodel.ExploreViewModel
-import com.example.ui.viewmodel.RouteBuilderViewModel
-import com.example.ui.viewmodel.SavedViewModel
-import com.example.ui.viewmodel.TrailViewModel
+import com.example.ui.viewmodel.*
 import com.example.util.DanskStiTileSource
 import com.example.util.DanskStiTileSourceHelper
 import kotlinx.coroutines.delay

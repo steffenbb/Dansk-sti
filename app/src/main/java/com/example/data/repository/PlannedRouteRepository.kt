@@ -32,15 +32,25 @@ class PlannedRouteRepository(private val context: Context) {
 
     private val plannedRouteAdapter = moshi.adapter(PlannedRoute::class.java)
 
-    private val plansDir: File
-        get() = File(context.filesDir, "plans").apply { if (!exists()) mkdirs() }
+    private val effectiveContext: Context
+        get() = try {
+            com.example.DanskStiApp.instance
+        } catch (_: Exception) {
+            context.applicationContext ?: context
+        }
 
-    private val prefs by lazy {
-        context.getSharedPreferences("dansk_sti_nav_prefs", Context.MODE_PRIVATE)
-    }
+    private val plansDir: File
+        get() = File(effectiveContext.filesDir, "plans").apply { if (!exists()) mkdirs() }
+
+    private val prefs
+        get() = effectiveContext.getSharedPreferences("dansk_sti_nav_prefs", Context.MODE_PRIVATE)
 
     fun getPlanFile(planId: Long): File {
-        return File(plansDir, "$planId.json.gz")
+        val primary = File(plansDir, "$planId.json.gz")
+        if (primary.exists()) return primary
+        val fallback = File(File(context.filesDir, "plans"), "$planId.json.gz")
+        if (fallback.exists()) return fallback
+        return primary
     }
 
     suspend fun savePlannedRoute(route: PlannedRoute): Boolean = withContext(Dispatchers.IO) {

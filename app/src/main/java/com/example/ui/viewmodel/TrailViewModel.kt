@@ -52,7 +52,8 @@ data class PoiSpotItem(
 
 class TrailViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: DanskStiRepository = (application as DanskStiApp).repository
+    private val repository: DanskStiRepository
+        get() = try { DanskStiApp.instance.repository } catch (_: Exception) { (getApplication<Application>() as DanskStiApp).repository }
 
     private val _trail = MutableStateFlow<TrailEntity?>(null)
     val trail: StateFlow<TrailEntity?> = _trail.asStateFlow()
@@ -116,6 +117,9 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _createdNavigationPlanId = MutableStateFlow<Long?>(null)
     val createdNavigationPlanId: StateFlow<Long?> = _createdNavigationPlanId.asStateFlow()
+
+    val downloadProgress: StateFlow<Map<String, com.example.data.model.TrailDownloadProgress>> =
+        com.example.data.repository.TrailGeometryRepository.globalDownloadProgress
 
     private val settingsRepository = com.example.data.local.SettingsRepository(application)
 

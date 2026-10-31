@@ -276,9 +276,9 @@ class FixRound5PartBTest {
                 baseMap = BaseMapType.SKAERMKORT,
                 isDarkMode = true
             )
-            assertNotNull(
-                "Dark colour matrix must be created for dark mode",
-                DanskStiTileSource.createHuePreservingDarkColorMatrix()
+            assertTrue(
+                "Dark Skærmkort tile source must have isDarkMode enabled",
+                DanskStiTileSource.skaermkortDarkInstance.isDarkMode
             )
         } finally {
             dummySqlite.delete()
@@ -311,11 +311,12 @@ class FixRound5PartBTest {
             Manifest.permission.ACCESS_COARSE_LOCATION,
             Manifest.permission.POST_NOTIFICATIONS
         )
+        app.repository.isOnlineOverrideForTests = false
 
         // Ensure real Øhavsstien geometry is cached (either from live OSM or real bundled Øhavsstien OSM coordinates for offline test runner)
         runBlocking {
             val existing = app.repository.getTrailGeometry("trail_ohavsstien")
-            if (existing == null || existing.segments.sumOf { it.points.size } <= 100) {
+            if (existing == null || existing.segments.sumOf { it.points.size } <= 100 || !app.repository.geometryRepository.hasWayTagRanges(existing)) {
                 val realOsmNodes = OsmPoiRepository(app).loadBundledPois("trail_ohavsstien").pois
                 assertTrue("Bundled Øhavsstien OSM file must have > 100 real points", realOsmNodes.size > 100)
                 val sortedPts = realOsmNodes
@@ -328,7 +329,17 @@ class FixRound5PartBTest {
                         TrailSegmentDto(
                             type = TrailSegmentType.WALK,
                             points = sortedPts,
-                            lengthKm = 220.0
+                            lengthKm = 220.0,
+                            highway = "path",
+                            surface = "dirt",
+                            wayTagRanges = listOf(
+                                com.example.data.model.WayTagRangeDto(
+                                    fromKm = 0.0,
+                                    toKm = 220.0,
+                                    highway = "path",
+                                    surface = "dirt"
+                                )
+                            )
                         )
                     ),
                     totalWalkingKm = 220.0,

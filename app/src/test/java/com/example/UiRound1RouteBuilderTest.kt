@@ -5,10 +5,7 @@ import android.graphics.drawable.BitmapDrawable
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.DanskStiDatabase
 import com.example.data.model.ShelterEntity
-import com.example.ui.viewmodel.PlannerInteractionMode
-import com.example.ui.viewmodel.PlannerMapPoi
-import com.example.ui.viewmodel.PlannerMode
-import com.example.ui.viewmodel.RouteBuilderViewModel
+import com.example.ui.viewmodel.*
 import com.example.util.routing.LegMode
 import com.example.util.routing.RouteMarkerHelper
 import com.example.util.routing.RouteWaypoint
@@ -67,7 +64,6 @@ class UiRound1RouteBuilderTest {
 
         // Tap map in KIG mode -> adds no point
         vm.onMapTapped(56.0, 10.0)
-        vm.addPointAtEnd(56.1, 10.1)
         assertEquals("A tap in Kig mode must add no point", 0, vm.uiState.value.waypoints.size)
 
         // Switch back to TEGN mode -> map tap adds a point

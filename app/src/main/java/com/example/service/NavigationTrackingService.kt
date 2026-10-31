@@ -73,7 +73,8 @@ data class NavigationLiveState(
     val isCompleted: Boolean = false,
     val plannedRoute: PlannedRoute? = null,
     val privateForestSunsetWarning: String? = null,
-    val locationPermissionMissing: Boolean = false
+    val locationPermissionMissing: Boolean = false,
+    val deviceHeadingDegrees: Float? = null
 )
 
 class NavigationTrackingService : Service() {
@@ -539,11 +540,12 @@ class NavigationTrackingService : Service() {
 
         val content = if (remainingTodayKm != null) {
             val configuredPace = com.example.data.local.SettingsRepository.cachedMitTempoKmh.takeIf { it > 0.0 } ?: userPaceKmh
-            val pace = (if (speedKmh >= 1.5) speedKmh else configuredPace).coerceAtLeast(0.5)
-            val etaMinutes = (remainingTodayKm / pace * 60.0).toInt()
-            val etaTimestamp = System.currentTimeMillis() + (etaMinutes * 60000L)
-            val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-            val etaString = "kl. ${timeFormat.format(Date(etaTimestamp))}"
+            val arrivalClock = com.example.util.SunCalculator.computeArrivalClock(
+                remainingTodayKm = remainingTodayKm,
+                speedKmh = speedKmh,
+                configuredPaceKmh = configuredPace
+            )
+            val etaString = "kl. $arrivalClock"
             "Næste lejr: $stageName • ${String.format(Locale.getDefault(), "%.1f", remainingTodayKm)} km ($etaString)"
         } else {
             "Næste lejr: $stageName"
@@ -627,8 +629,7 @@ class NavigationTrackingService : Service() {
             )
             val containing = com.example.util.access.AccessGeometryUtils.findContainingPolygon(pt, polygons)
             if (containing != null && containing.type == com.example.data.model.access.AccessLandType.PRIVATE_FOREST) {
-                val weather = DanskStiApp.instance.repository.getTrailWeather(pt.lat, pt.lng)
-                val sunsetStr = weather?.sunset ?: "20:30"
+                val sunsetStr = com.example.util.SunCalculator.calculateSunset(lat = pt.lat, lng = pt.lng)
                 val sunsetMins = com.example.util.access.AccessGeometryUtils.parseTimeToMinutes(sunsetStr)
 
                 val cal = java.util.Calendar.getInstance()

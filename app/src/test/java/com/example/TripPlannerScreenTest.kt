@@ -5,8 +5,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
 import com.example.ui.screens.RouteBuilderScreen
-import com.example.ui.viewmodel.PlannerMode
-import com.example.ui.viewmodel.RouteBuilderViewModel
+import com.example.ui.viewmodel.*
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Rule

@@ -76,17 +76,16 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.viewmodel.LegMidpointHandle
-import com.example.ui.viewmodel.PlannerInteractionMode
-import com.example.ui.viewmodel.RouteAlternativeInfo
-import com.example.ui.viewmodel.RouteBuilderState
-import com.example.ui.viewmodel.RouteBuilderViewModel
+import com.example.R
+import com.example.ui.theme.DanskStiTheme
+import com.example.ui.viewmodel.*
 import com.example.util.routing.LegGeometryData
 import com.example.util.routing.LegMode
 import com.example.util.routing.RouteMarkerHelper
@@ -124,6 +123,7 @@ fun KigTegnSegmentedToggle(
             verticalAlignment = Alignment.CenterVertically
         ) {
             val isKig = interactionMode == PlannerInteractionMode.KIG
+            val kigCd = stringResource(R.string.planner_mode_kig_cd)
             Box(
                 modifier = Modifier
                     .heightIn(min = 40.dp)
@@ -133,7 +133,7 @@ fun KigTegnSegmentedToggle(
                     )
                     .clickable { onModeChange(PlannerInteractionMode.KIG) }
                     .padding(horizontal = 14.dp, vertical = 6.dp)
-                    .semantics { contentDescription = "Kig tilstand" }
+                    .semantics { contentDescription = kigCd }
                     .testTag("mode_kig_button"),
                 contentAlignment = Alignment.Center
             ) {
@@ -146,7 +146,7 @@ fun KigTegnSegmentedToggle(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Kig",
+                        text = stringResource(R.string.planner_mode_kig),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = if (isKig) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -155,6 +155,7 @@ fun KigTegnSegmentedToggle(
             }
 
             val isTegn = interactionMode == PlannerInteractionMode.TEGN
+            val tegnCd = stringResource(R.string.planner_mode_tegn_cd)
             Box(
                 modifier = Modifier
                     .heightIn(min = 40.dp)
@@ -164,7 +165,7 @@ fun KigTegnSegmentedToggle(
                     )
                     .clickable { onModeChange(PlannerInteractionMode.TEGN) }
                     .padding(horizontal = 14.dp, vertical = 6.dp)
-                    .semantics { contentDescription = "Tegn tilstand" }
+                    .semantics { contentDescription = tegnCd }
                     .testTag("mode_tegn_button"),
                 contentAlignment = Alignment.Center
             ) {
@@ -177,13 +178,100 @@ fun KigTegnSegmentedToggle(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Tegn",
+                        text = stringResource(R.string.planner_mode_tegn),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = if (isTegn) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Round 9A Item 7 & 8:
+ * Encapsulates pin drag and ghost handle drag state transitions:
+ * - Item 7: Ghost handles insert the via point ONLY when the drag passes touch slop;
+ *   if the gesture is cancelled, it removes the via point again.
+ * - Item 8: If a second finger goes down during a pin drag, it cancels the drag
+ *   (the pin returns to its old place) and lets the map zoom.
+ */
+class PlannerDragGestureSession(
+    private val viewModel: RouteBuilderViewModel,
+    val touchSlopPx: Float,
+    private val hitWaypoint: RouteWaypoint? = null,
+    hitWaypointIdx: Int = -1,
+    private val hitGhostHandle: LegMidpointHandle? = null
+) {
+    val originalLat: Double? = hitWaypoint?.lat
+    val originalLng: Double? = hitWaypoint?.lng
+    val originalTrailKm: Double? = hitWaypoint?.trailKm
+
+    var isDragging: Boolean = false
+        private set
+    var isCancelled: Boolean = false
+        private set
+    var draggedWpId: String? = hitWaypoint?.id
+        private set
+    var insertedGhostWpId: String? = null
+        private set
+    var draggedRole: WaypointRole = hitWaypoint?.role ?: WaypointRole.VIA
+        private set
+    var draggedIdx: Int = if (hitWaypointIdx >= 0) hitWaypointIdx else 1
+        private set
+
+    fun onMoveDistance(moveDistancePx: Float): Boolean {
+        if (isCancelled || isDragging) return false
+        if (moveDistancePx <= touchSlopPx) return false
+        isDragging = true
+        if (hitGhostHandle != null && draggedWpId == null) {
+            val insertedId = viewModel.startGhostHandleDrag(
+                hitGhostHandle.lat,
+                hitGhostHandle.lng
+            )
+            insertedGhostWpId = insertedId
+            draggedWpId = insertedId
+            draggedRole = WaypointRole.VIA
+            val updatedVisible = viewModel.uiState.value.visibleWaypoints
+            draggedIdx = updatedVisible.indexOfFirst { it.id == insertedId }.coerceAtLeast(1)
+        }
+        return true
+    }
+
+    fun onSecondFingerDownOrCancel() {
+        if (isCancelled) return
+        isCancelled = true
+        isDragging = false
+        val ghostId = insertedGhostWpId
+        if (ghostId != null) {
+            insertedGhostWpId = null
+            draggedWpId = null
+            viewModel.cancelGhostHandleDrag(ghostId)
+        } else if (hitWaypoint != null && originalLat != null && originalLng != null) {
+            viewModel.cancelPinDrag(
+                waypointId = hitWaypoint.id,
+                originalLat = originalLat,
+                originalLng = originalLng,
+                originalTrailKm = originalTrailKm
+            )
+        }
+    }
+
+    fun onRelease(
+        finalLat: Double,
+        finalLng: Double,
+        isOverTrashZone: Boolean = false,
+        onTrashHaptic: () -> Unit = {}
+    ) {
+        if (isCancelled || !isDragging) return
+        isDragging = false
+        val wpId = draggedWpId ?: return
+        if (isOverTrashZone) {
+            onTrashHaptic()
+            viewModel.deleteWaypointWithUndoSnackbar(wpId)
+        } else {
+            viewModel.moveWaypoint(wpId, finalLat, finalLng)
         }
     }
 }
@@ -286,108 +374,127 @@ fun RouteBuilderPinDragOverlay(
                         return@awaitEachGesture
                     }
 
-                    var isDragging = false
-                    var draggedWpId: String? = hitWaypoint?.id
-                    var draggedRole: WaypointRole = hitWaypoint?.role ?: WaypointRole.VIA
-                    var draggedIdx: Int = if (hitWaypointIdx >= 0) hitWaypointIdx else 1
+                    val gestureSession = PlannerDragGestureSession(
+                        viewModel = viewModel,
+                        touchSlopPx = touchSlop,
+                        hitWaypoint = hitWaypoint,
+                        hitWaypointIdx = hitWaypointIdx,
+                        hitGhostHandle = hitGhostHandle
+                    )
                     var lastSnappedState = false
+                    var completedOrCancelled = false
 
-                    while (true) {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) {
-                            if (isDragging) {
-                                change.consume()
-                                val finalDrag = activeDrag
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+
+                            // Round 9A Item 8: If a second finger goes down during a pin drag,
+                            // cancel the drag (pin returns to its old place) and let the map zoom (do not consume).
+                            val pressedCount = event.changes.count { it.pressed }
+                            if (pressedCount > 1 || event.changes.size > 1) {
+                                gestureSession.onSecondFingerDownOrCancel()
                                 activeDrag = null
-                                if (finalDrag != null) {
-                                    if (finalDrag.isOverTrashZone) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        viewModel.deleteWaypointWithUndoSnackbar(finalDrag.waypointId)
-                                    } else {
-                                        viewModel.moveWaypoint(
-                                            finalDrag.waypointId,
-                                            finalDrag.currentLat,
-                                            finalDrag.currentLng
+                                completedOrCancelled = true
+                                break
+                            }
+
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                            if (change == null || change.isConsumed) {
+                                // Round 9A Item 7 & 8: Gesture cancelled externally
+                                gestureSession.onSecondFingerDownOrCancel()
+                                activeDrag = null
+                                completedOrCancelled = true
+                                break
+                            }
+
+                            if (!change.pressed) {
+                                if (gestureSession.isDragging) {
+                                    change.consume()
+                                    val finalDrag = activeDrag
+                                    activeDrag = null
+                                    if (finalDrag != null) {
+                                        gestureSession.onRelease(
+                                            finalLat = finalDrag.currentLat,
+                                            finalLng = finalDrag.currentLng,
+                                            isOverTrashZone = finalDrag.isOverTrashZone,
+                                            onTrashHaptic = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
                                         )
                                     }
                                 }
+                                completedOrCancelled = true
+                                break
                             }
-                            break
-                        }
 
-                        val moveDist = (change.position - downPos).getDistance()
-                        if (!isDragging && moveDist > touchSlop) {
-                            isDragging = true
-                            change.consume()
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            if (hitGhostHandle != null && draggedWpId == null) {
-                                val insertedId = viewModel.startGhostHandleDrag(
-                                    hitGhostHandle.lat,
-                                    hitGhostHandle.lng
+                            val moveDist = (change.position - downPos).getDistance()
+                            if (!gestureSession.isDragging) {
+                                val started = gestureSession.onMoveDistance(moveDist)
+                                if (started) {
+                                    change.consume()
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                            }
+
+                            if (gestureSession.isDragging) {
+                                change.consume()
+                                val wpId = gestureSession.draggedWpId ?: continue
+                                val fingerPos = change.position
+                                val pinPos = Offset(fingerPos.x, (fingerPos.y - pinAboveFingerPx).coerceAtLeast(16f))
+                                val activeProj = mv.projection ?: continue
+                                val geo = activeProj.fromPixels(pinPos.x.toInt(), pinPos.y.toInt())
+                                val rawLat = geo.latitude
+                                val rawLng = geo.longitude
+
+                                val snapRes = viewModel.snapCoordinateWithin25m(rawLat, rawLng)
+                                if (snapRes.snapped && !lastSnappedState) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                                lastSnappedState = snapRes.snapped
+
+                                val effectivePinPos = if (snapRes.snapped) {
+                                    val snappedPt = Point()
+                                    activeProj.toPixels(GeoPoint(snapRes.lat, snapRes.lng), snappedPt)
+                                    Offset(snappedPt.x.toFloat(), snappedPt.y.toFloat())
+                                } else {
+                                    pinPos
+                                }
+
+                                val allWps = viewModel.uiState.value.visibleWaypoints
+                                val idxInAll = allWps.indexOfFirst { it.id == wpId }
+                                val prevScreen = if (idxInAll > 0) {
+                                    val pt = Point()
+                                    activeProj.toPixels(GeoPoint(allWps[idxInAll - 1].lat, allWps[idxInAll - 1].lng), pt)
+                                    Offset(pt.x.toFloat(), pt.y.toFloat())
+                                } else null
+                                val nextScreen = if (idxInAll >= 0 && idxInAll < allWps.lastIndex) {
+                                    val pt = Point()
+                                    activeProj.toPixels(GeoPoint(allWps[idxInAll + 1].lat, allWps[idxInAll + 1].lng), pt)
+                                    Offset(pt.x.toFloat(), pt.y.toFloat())
+                                } else null
+
+                                val deltaKm = viewModel.computeDragLengthDeltaKm(wpId, snapRes.lat, snapRes.lng)
+                                val overTrash = fingerPos.y >= (size.height - trashZoneHeightPx)
+
+                                activeDrag = ActivePinDragState(
+                                    waypointId = wpId,
+                                    role = gestureSession.draggedRole,
+                                    waypointIndex = if (idxInAll >= 0) idxInAll else gestureSession.draggedIdx,
+                                    fingerOffset = fingerPos,
+                                    pinOffset = effectivePinPos,
+                                    currentLat = snapRes.lat,
+                                    currentLng = snapRes.lng,
+                                    isSnapped = snapRes.snapped,
+                                    snapLabel = snapRes.snapLabel,
+                                    deltaKm = deltaKm,
+                                    prevScreenOffset = prevScreen,
+                                    nextScreenOffset = nextScreen,
+                                    isOverTrashZone = overTrash
                                 )
-                                draggedWpId = insertedId
-                                draggedRole = WaypointRole.VIA
-                                val updatedVisible = viewModel.uiState.value.visibleWaypoints
-                                draggedIdx = updatedVisible.indexOfFirst { it.id == insertedId }.coerceAtLeast(1)
                             }
                         }
-
-                        if (isDragging) {
-                            change.consume()
-                            val wpId = draggedWpId ?: continue
-                            val fingerPos = change.position
-                            val pinPos = Offset(fingerPos.x, (fingerPos.y - pinAboveFingerPx).coerceAtLeast(16f))
-                            val activeProj = mv.projection ?: continue
-                            val geo = activeProj.fromPixels(pinPos.x.toInt(), pinPos.y.toInt())
-                            val rawLat = geo.latitude
-                            val rawLng = geo.longitude
-
-                            val snapRes = viewModel.snapCoordinateWithin25m(rawLat, rawLng)
-                            if (snapRes.snapped && !lastSnappedState) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                            lastSnappedState = snapRes.snapped
-
-                            val effectivePinPos = if (snapRes.snapped) {
-                                val snappedPt = Point()
-                                activeProj.toPixels(GeoPoint(snapRes.lat, snapRes.lng), snappedPt)
-                                Offset(snappedPt.x.toFloat(), snappedPt.y.toFloat())
-                            } else {
-                                pinPos
-                            }
-
-                            val allWps = viewModel.uiState.value.visibleWaypoints
-                            val idxInAll = allWps.indexOfFirst { it.id == wpId }
-                            val prevScreen = if (idxInAll > 0) {
-                                val pt = Point()
-                                activeProj.toPixels(GeoPoint(allWps[idxInAll - 1].lat, allWps[idxInAll - 1].lng), pt)
-                                Offset(pt.x.toFloat(), pt.y.toFloat())
-                            } else null
-                            val nextScreen = if (idxInAll >= 0 && idxInAll < allWps.lastIndex) {
-                                val pt = Point()
-                                activeProj.toPixels(GeoPoint(allWps[idxInAll + 1].lat, allWps[idxInAll + 1].lng), pt)
-                                Offset(pt.x.toFloat(), pt.y.toFloat())
-                            } else null
-
-                            val deltaKm = viewModel.computeDragLengthDeltaKm(wpId, snapRes.lat, snapRes.lng)
-                            val overTrash = fingerPos.y >= (size.height - trashZoneHeightPx)
-
-                            activeDrag = ActivePinDragState(
-                                waypointId = wpId,
-                                role = draggedRole,
-                                waypointIndex = if (idxInAll >= 0) idxInAll else draggedIdx,
-                                fingerOffset = fingerPos,
-                                pinOffset = effectivePinPos,
-                                currentLat = snapRes.lat,
-                                currentLng = snapRes.lng,
-                                isSnapped = snapRes.snapped,
-                                snapLabel = snapRes.snapLabel,
-                                deltaKm = deltaKm,
-                                prevScreenOffset = prevScreen,
-                                nextScreenOffset = nextScreen,
-                                isOverTrashZone = overTrash
-                            )
+                    } finally {
+                        if (!completedOrCancelled && gestureSession.isDragging) {
+                            gestureSession.onSecondFingerDownOrCancel()
+                            activeDrag = null
                         }
                     }
                 }
@@ -395,12 +502,14 @@ fun RouteBuilderPinDragOverlay(
     ) {
         val drag = activeDrag
         if (drag != null) {
+            val danskStiColors = DanskStiTheme.colors
+            val scheme = MaterialTheme.colorScheme
             // Dashed straight lines to neighbouring pins + 64 dp magnifier circle + elevated pin
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val dashEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 12f), 0f)
                 drag.prevScreenOffset?.let { prev ->
                     drawLine(
-                        color = Color(0xFF1565C0),
+                        color = danskStiColors.plannedRoute,
                         start = prev,
                         end = drag.pinOffset,
                         strokeWidth = 6f,
@@ -410,7 +519,7 @@ fun RouteBuilderPinDragOverlay(
                 }
                 drag.nextScreenOffset?.let { next ->
                     drawLine(
-                        color = Color(0xFF1565C0),
+                        color = danskStiColors.plannedRoute,
                         start = drag.pinOffset,
                         end = next,
                         strokeWidth = 6f,
@@ -421,12 +530,12 @@ fun RouteBuilderPinDragOverlay(
 
                 // 64 dp magnifier circle around the elevated pin
                 drawCircle(
-                    color = Color.White.copy(alpha = 0.35f),
+                    color = scheme.surface.copy(alpha = 0.35f),
                     radius = magnifierRadiusPx,
                     center = drag.pinOffset
                 )
                 drawCircle(
-                    color = if (drag.isSnapped) Color(0xFF2E7D32) else Color(0xFF1E88E5),
+                    color = if (drag.isSnapped) danskStiColors.success else danskStiColors.plannedRoute,
                     radius = magnifierRadiusPx,
                     center = drag.pinOffset,
                     style = Stroke(width = 3.dp.toPx())
@@ -434,23 +543,23 @@ fun RouteBuilderPinDragOverlay(
                 // Crosshair ticks inside magnifier
                 val chLen = 10.dp.toPx()
                 drawLine(
-                    color = Color(0xFF263238),
+                    color = scheme.onSurface,
                     start = Offset(drag.pinOffset.x - chLen, drag.pinOffset.y),
                     end = Offset(drag.pinOffset.x + chLen, drag.pinOffset.y),
                     strokeWidth = 2.dp.toPx()
                 )
                 drawLine(
-                    color = Color(0xFF263238),
+                    color = scheme.onSurface,
                     start = Offset(drag.pinOffset.x, drag.pinOffset.y - chLen),
                     end = Offset(drag.pinOffset.x, drag.pinOffset.y + chLen),
                     strokeWidth = 2.dp.toPx()
                 )
                 // Pin dot at center of magnifier
                 val pinFill = when (drag.role) {
-                    WaypointRole.START -> Color(0xFF2E7D32)
-                    WaypointRole.END -> Color(0xFF263238)
-                    WaypointRole.OVERNIGHT -> Color(0xFFE65100)
-                    WaypointRole.VIA -> Color.White
+                    WaypointRole.START -> danskStiColors.success
+                    WaypointRole.END -> scheme.inverseSurface
+                    WaypointRole.OVERNIGHT -> danskStiColors.overnight
+                    WaypointRole.VIA -> scheme.surface
                 }
                 drawCircle(
                     color = pinFill,
@@ -458,7 +567,7 @@ fun RouteBuilderPinDragOverlay(
                     center = drag.pinOffset
                 )
                 drawCircle(
-                    color = Color(0xFF1E88E5),
+                    color = danskStiColors.plannedRoute,
                     radius = 10.dp.toPx(),
                     center = drag.pinOffset,
                     style = Stroke(width = 2.5.dp.toPx())
@@ -485,13 +594,13 @@ fun RouteBuilderPinDragOverlay(
                     .size(width = 96.dp, height = 28.dp)
                     .testTag("drag_length_delta_badge"),
                 shape = RoundedCornerShape(14.dp),
-                color = Color(0xEE263238),
+                color = scheme.inverseSurface.copy(alpha = 0.93f),
                 shadowElevation = 4.dp
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
                         text = badgeLabel,
-                        color = Color.White,
+                        color = scheme.inverseOnSurface,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1
@@ -506,8 +615,8 @@ fun RouteBuilderPinDragOverlay(
                     .fillMaxWidth()
                     .height(88.dp)
                     .background(
-                        if (drag.isOverTrashZone) Color(0xFFD32F2F).copy(alpha = 0.92f)
-                        else Color(0xFF263238).copy(alpha = 0.85f)
+                        if (drag.isOverTrashZone) danskStiColors.danger.copy(alpha = 0.92f)
+                        else scheme.inverseSurface.copy(alpha = 0.85f)
                     )
                     .testTag("drag_trash_zone"),
                 contentAlignment = Alignment.Center
@@ -515,14 +624,14 @@ fun RouteBuilderPinDragOverlay(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Slip her for at slette punkt",
-                        tint = Color.White,
+                        contentDescription = stringResource(R.string.planner_trash_drop_cd),
+                        tint = if (drag.isOverTrashZone) scheme.onError else scheme.inverseOnSurface,
                         modifier = Modifier.size(if (drag.isOverTrashZone) 28.dp else 24.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (drag.isOverTrashZone) "Slip for at slette punkt" else "Træk herned for at slette",
-                        color = Color.White,
+                        text = if (drag.isOverTrashZone) stringResource(R.string.planner_trash_release_to_delete) else stringResource(R.string.planner_trash_drag_here_to_delete),
+                        color = if (drag.isOverTrashZone) scheme.onError else scheme.inverseOnSurface,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -545,6 +654,7 @@ fun CrosshairPlacementOverlay(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val crosshairCd = stringResource(R.string.planner_crosshair_open_cd)
     Box(modifier = modifier.fillMaxSize()) {
         if (!isCrosshairMode) {
             // "+" button to enter crosshair placement mode (placed on left side below search bar so it never overlaps right-side map controls)
@@ -555,7 +665,7 @@ fun CrosshairPlacementOverlay(
                     .size(48.dp)
                     .clip(CircleShape)
                     .clickable { onOpenCrosshair() }
-                    .semantics { contentDescription = "Tilføj punkt med sigtekorn" }
+                    .semantics { contentDescription = crosshairCd }
                     .testTag("open_crosshair_button"),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primaryContainer,
@@ -565,12 +675,13 @@ fun CrosshairPlacementOverlay(
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "Tilføj punkt med sigtekorn",
+                        contentDescription = crosshairCd,
                         tint = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
             }
         } else {
+            val danskStiColors = DanskStiTheme.colors
             // Fixed crosshair in the exact map centre
             Canvas(
                 modifier = Modifier
@@ -583,22 +694,22 @@ fun CrosshairPlacementOverlay(
                 val ringRadius = 18.dp.toPx()
                 val lineHalf = 28.dp.toPx()
 
-                // White halo for contrast
+                // Halo for contrast
                 drawCircle(
-                    color = Color.White,
+                    color = danskStiColors.routeCasing,
                     radius = ringRadius,
                     center = Offset(cx, cy),
                     style = Stroke(width = 4.dp.toPx())
                 )
                 drawLine(
-                    color = Color.White,
+                    color = danskStiColors.routeCasing,
                     start = Offset(cx - lineHalf, cy),
                     end = Offset(cx + lineHalf, cy),
                     strokeWidth = 4.dp.toPx(),
                     cap = StrokeCap.Round
                 )
                 drawLine(
-                    color = Color.White,
+                    color = danskStiColors.routeCasing,
                     start = Offset(cx, cy - lineHalf),
                     end = Offset(cx, cy + lineHalf),
                     strokeWidth = 4.dp.toPx(),
@@ -607,27 +718,27 @@ fun CrosshairPlacementOverlay(
 
                 // Inner precision crosshair
                 drawCircle(
-                    color = Color(0xFF1E88E5),
+                    color = danskStiColors.plannedRoute,
                     radius = ringRadius,
                     center = Offset(cx, cy),
                     style = Stroke(width = 2.dp.toPx())
                 )
                 drawLine(
-                    color = Color(0xFF1E88E5),
+                    color = danskStiColors.plannedRoute,
                     start = Offset(cx - lineHalf, cy),
                     end = Offset(cx + lineHalf, cy),
                     strokeWidth = 2.dp.toPx(),
                     cap = StrokeCap.Round
                 )
                 drawLine(
-                    color = Color(0xFF1E88E5),
+                    color = danskStiColors.plannedRoute,
                     start = Offset(cx, cy - lineHalf),
                     end = Offset(cx, cy + lineHalf),
                     strokeWidth = 2.dp.toPx(),
                     cap = StrokeCap.Round
                 )
                 drawCircle(
-                    color = Color(0xFFD32F2F),
+                    color = danskStiColors.danger,
                     radius = 3.dp.toPx(),
                     center = Offset(cx, cy)
                 )
@@ -662,7 +773,7 @@ fun CrosshairPlacementOverlay(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Tilføj her", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.planner_crosshair_add_here), fontWeight = FontWeight.Bold)
                     }
 
                     OutlinedButton(
@@ -672,7 +783,7 @@ fun CrosshairPlacementOverlay(
                             .testTag("crosshair_cancel_button"),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                     ) {
-                        Text("Annuller")
+                        Text(stringResource(R.string.btn_cancel))
                     }
                 }
             }
@@ -734,7 +845,7 @@ fun PinSelectionActionBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Luk punktpanel",
+                        contentDescription = stringResource(R.string.planner_pin_bar_close_cd),
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -750,7 +861,7 @@ fun PinSelectionActionBar(
                 // 1. Slet
                 AssistChip(
                     onClick = onDelete,
-                    label = { Text("Slet") },
+                    label = { Text(stringResource(R.string.btn_delete)) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Delete,
@@ -766,7 +877,7 @@ fun PinSelectionActionBar(
                 )
 
                 // 2. Overnat her / Almindeligt punkt
-                val overnightText = if (isOvernight) "Almindeligt punkt" else "Overnat her"
+                val overnightText = if (isOvernight) stringResource(R.string.planner_pin_bar_normal_point) else stringResource(R.string.planner_pin_bar_overnight_here)
                 AssistChip(
                     onClick = onToggleOvernight,
                     label = { Text(overnightText) },
@@ -781,7 +892,7 @@ fun PinSelectionActionBar(
                 )
 
                 // 3. Følg stier / Lige linje
-                val legModeText = if (isStraight) "Følg stier" else "Lige linje"
+                val legModeText = if (isStraight) stringResource(R.string.planner_leg_mode_follow_trails) else stringResource(R.string.planner_leg_mode_straight_line)
                 AssistChip(
                     onClick = onToggleLegMode,
                     label = { Text(legModeText) },
@@ -798,7 +909,7 @@ fun PinSelectionActionBar(
                 // 4. Flyt til nærmeste sti
                 AssistChip(
                     onClick = onSnapToNearestTrail,
-                    label = { Text("Flyt til nærmeste sti") },
+                    label = { Text(stringResource(R.string.planner_pin_bar_snap_nearest_trail)) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.MyLocation,
@@ -812,7 +923,7 @@ fun PinSelectionActionBar(
                 // 5. Navngiv
                 AssistChip(
                     onClick = onRenameClick,
-                    label = { Text("Navngiv") },
+                    label = { Text(stringResource(R.string.planner_pin_bar_rename)) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Edit,
@@ -849,8 +960,8 @@ fun SelectedLegCard(
     val lengthKm = leg?.lengthKm ?: 0.0
     val ascentM = leg?.ascentM ?: 0.0
     val currentMode = leg?.legMode ?: fromWaypoint.legModeToNext
-    val modeLabel = if (currentMode == LegMode.STRAIGHT) "Lige linje" else "Følg stier"
-    val toggleTargetLabel = if (currentMode == LegMode.STRAIGHT) "Følg stier" else "Lige linje"
+    val modeLabel = if (currentMode == LegMode.STRAIGHT) stringResource(R.string.planner_leg_mode_straight_line) else stringResource(R.string.planner_leg_mode_follow_trails)
+    val toggleTargetLabel = if (currentMode == LegMode.STRAIGHT) stringResource(R.string.planner_leg_mode_follow_trails) else stringResource(R.string.planner_leg_mode_straight_line)
 
     Card(
         modifier = modifier
@@ -869,7 +980,7 @@ fun SelectedLegCard(
             ) {
                 Column {
                     Text(
-                        text = "Strækning ${legIndex + 1} · $modeLabel",
+                        text = stringResource(R.string.planner_leg_card_title_format, legIndex + 1, modeLabel),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -887,7 +998,7 @@ fun SelectedLegCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Luk strækningskort",
+                        contentDescription = stringResource(R.string.planner_leg_card_close_cd),
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -937,7 +1048,7 @@ fun SelectedLegCard(
                         )
                     }
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Vis alternativer", fontSize = 12.sp)
+                    Text(stringResource(R.string.planner_leg_card_show_alternatives), fontSize = 12.sp)
                 }
             }
 
@@ -1045,40 +1156,41 @@ fun PlannerCoachMarksOverlay(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (!uiState.showCoachMarks) return
+    if (!uiState.showCoachMarks || uiState.waypoints.isNotEmpty() || uiState.mode != com.example.ui.viewmodel.PlannerMode.FREE || uiState.sheetHeightState != com.example.ui.viewmodel.SheetHeightState.PEEK) return
 
     val tips = listOf(
-        "Tryk på kortet for at tilføje et punkt" to "I Tegn-tilstand sætter hvert tryk på kortet det næste punkt på din rute.",
-        "Træk i et punkt for at flytte det" to "Hold fingeren på en markør og træk med det samme for at flytte punktet eller slippe det i papirkurven.",
-        "Træk i midten af en strækning" to "Træk i den lille cirkel midt på en strækning for at indsætte et nyt via-punkt."
+        stringResource(R.string.planner_coach_tip1_title) to stringResource(R.string.planner_coach_tip1_subtitle),
+        stringResource(R.string.planner_coach_tip2_title) to stringResource(R.string.planner_coach_tip2_subtitle),
+        stringResource(R.string.planner_coach_tip3_title) to stringResource(R.string.planner_coach_tip3_subtitle)
     )
     val stepIndex = uiState.coachMarkStep.coerceIn(0, tips.lastIndex)
+    val coachIntroCd = stringResource(R.string.planner_coach_intro_cd)
 
     Box(
         modifier = modifier
             .zIndex(20f)
-            .fillMaxSize()
-            .padding(start = 16.dp, end = 16.dp, top = 68.dp, bottom = 24.dp)
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 4.dp)
             .testTag("planner_coach_marks"),
         contentAlignment = Alignment.TopCenter
     ) {
         Card(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
             ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-                .semantics { contentDescription = "Introduktion til ruteplanlægger" }
+                .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                .semantics { contentDescription = coachIntroCd }
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1086,8 +1198,8 @@ fun PlannerCoachMarksOverlay(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Sådan planlægger du (${stepIndex + 1}/3)",
-                        style = MaterialTheme.typography.titleMedium,
+                        text = stringResource(R.string.planner_coach_header_format, stepIndex + 1),
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
@@ -1097,12 +1209,13 @@ fun PlannerCoachMarksOverlay(
                     IconButton(
                         onClick = onDismiss,
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(32.dp)
                             .testTag("coach_marks_close_icon")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Luk tips"
+                            contentDescription = stringResource(R.string.planner_coach_close_cd),
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
@@ -1110,7 +1223,7 @@ fun PlannerCoachMarksOverlay(
                 tips.forEachIndexed { idx, (title, subtitle) ->
                     val isCurrent = idx == stepIndex
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = if (isCurrent) {
                             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
                         } else {
@@ -1121,19 +1234,21 @@ fun PlannerCoachMarksOverlay(
                             .testTag("coach_mark_tip_$idx")
                     ) {
                         Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            verticalArrangement = Arrangement.spacedBy(1.dp)
                         ) {
                             Text(
                                 text = "${idx + 1}. $title",
-                                style = MaterialTheme.typography.bodyLarge,
+                                fontSize = 12.sp,
+                                lineHeight = 14.sp,
                                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             if (isCurrent) {
                                 Text(
                                     text = subtitle,
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontSize = 11.sp,
+                                    lineHeight = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -1143,27 +1258,30 @@ fun PlannerCoachMarksOverlay(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 48.dp)
+                            .heightIn(min = 38.dp)
                             .testTag("coach_marks_dismiss_button")
                     ) {
-                        Text("Forstået", fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.planner_coach_understood), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                     Button(
                         onClick = onNextStep,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 48.dp)
+                            .heightIn(min = 38.dp)
                             .testTag("coach_marks_next_button")
                     ) {
                         Text(
-                            text = if (stepIndex < tips.lastIndex) "Næste tip" else "Start planlægning",
+                            text = if (stepIndex < tips.lastIndex) stringResource(R.string.planner_coach_next_tip) else stringResource(R.string.planner_coach_start_planning),
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }

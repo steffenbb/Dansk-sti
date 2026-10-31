@@ -45,11 +45,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.example.R
 import com.example.data.remote.GroupedSearchResults
 import com.example.data.remote.RouteOrTrailSearchItem
-import com.example.ui.theme.AccentAmber
 import com.example.ui.theme.CardShape
-import com.example.ui.theme.ForestGreenPrimary
+import com.example.ui.theme.DanskStiTheme
 import com.example.ui.theme.Spacing
 
 @Composable
@@ -62,6 +63,12 @@ fun GroupedPlaceSearchDropdown(
     modifier: Modifier = Modifier
 ) {
     if (groupedResults.isEmpty) return
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val warningColor = DanskStiTheme.colors.warning
+
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val availableHeightDp = configuration.screenHeightDp.takeIf { it > 0 }?.dp ?: 640.dp
+    val dropdownMaxHeight = availableHeightDp * 0.48f
 
     Card(
         shape = CardShape,
@@ -75,14 +82,14 @@ fun GroupedPlaceSearchDropdown(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 380.dp)
+                .heightIn(max = dropdownMaxHeight)
                 .verticalScroll(rememberScrollState())
                 .padding(vertical = 6.dp)
         ) {
             // Group 1: Mine ruter og vandreruter
             if (groupedResults.routesAndTrails.isNotEmpty()) {
                 SearchGroupHeader(
-                    title = "Mine ruter og vandreruter",
+                    title = stringResource(R.string.search_group_routes_title),
                     testTag = "search_group_routes_header"
                 )
                 groupedResults.routesAndTrails.forEach { item ->
@@ -99,7 +106,7 @@ fun GroupedPlaceSearchDropdown(
                         Icon(
                             imageVector = Icons.Default.Route,
                             contentDescription = null,
-                            tint = ForestGreenPrimary,
+                            tint = primaryColor,
                             modifier = Modifier.size(20.dp)
                         )
                         Column(modifier = Modifier.weight(1f)) {
@@ -127,7 +134,7 @@ fun GroupedPlaceSearchDropdown(
             // Group 2: Shelters og fri teltning
             if (groupedResults.sheltersAndFriTeltning.isNotEmpty()) {
                 SearchGroupHeader(
-                    title = "Shelters og fri teltning",
+                    title = stringResource(R.string.search_group_shelters_title),
                     testTag = "search_group_shelters_header"
                 )
                 groupedResults.sheltersAndFriTeltning.forEach { item ->
@@ -145,7 +152,7 @@ fun GroupedPlaceSearchDropdown(
                             Icon(
                                 imageVector = if (item.type == "FRI_TELTNING") Icons.Default.Forest else Icons.Default.Cabin,
                                 contentDescription = null,
-                                tint = Color(0xFFE65100),
+                                tint = warningColor,
                                 modifier = Modifier.size(20.dp)
                             )
                             Column(modifier = Modifier.weight(1f)) {
@@ -183,7 +190,7 @@ fun GroupedPlaceSearchDropdown(
             // Group 3: Steder (towns, forests, lakes, stations)
             if (groupedResults.places.isNotEmpty()) {
                 SearchGroupHeader(
-                    title = "Steder",
+                    title = stringResource(R.string.search_group_places_title),
                     testTag = "search_group_places_header"
                 )
                 groupedResults.places.forEachIndexed { idx, place ->
@@ -201,7 +208,7 @@ fun GroupedPlaceSearchDropdown(
                             Icon(
                                 imageVector = Icons.Default.Place,
                                 contentDescription = null,
-                                tint = AccentAmber,
+                                tint = warningColor,
                                 modifier = Modifier.size(20.dp)
                             )
                             Column(modifier = Modifier.weight(1f)) {
@@ -275,7 +282,7 @@ private fun PlaceActionButtonsRow(
     ) {
         Button(
             onClick = onRouteHere,
-            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             shape = RoundedCornerShape(10.dp),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             modifier = Modifier
@@ -289,7 +296,7 @@ private fun PlaceActionButtonsRow(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = "Rute hertil",
+                text = stringResource(R.string.search_action_route_here),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -310,7 +317,7 @@ private fun PlaceActionButtonsRow(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = "Tilføj som punkt",
+                text = stringResource(R.string.search_action_add_as_point),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -331,7 +338,7 @@ private fun PlaceActionButtonsRow(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = "Vis på kort",
+                text = stringResource(R.string.search_action_show_on_map),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )

@@ -25,8 +25,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -82,10 +85,12 @@ import com.example.ui.components.DropPinBottomSheet
 import com.example.ui.components.MapAttributionPill
 import com.example.ui.components.MapLayersBottomSheet
 import com.example.ui.components.MarkedRouteDetailSheet
+import androidx.compose.ui.graphics.toArgb
 import com.example.ui.navigation.MapLayersOverlayManager
 import com.example.ui.navigation.PoiClusterOverlay
 import com.example.ui.navigation.PoiItem
-import com.example.ui.theme.ForestGreenPrimary
+import com.example.ui.theme.DanskStiTheme
+import com.example.ui.theme.LightDanskStiColors
 import com.example.util.DanskStiTileSourceHelper as DanskStiTileSource
 import com.example.util.MapIconUtils
 import kotlinx.coroutines.Dispatchers
@@ -117,7 +122,7 @@ import kotlin.math.cos
  * Responsibilities owned by `DanskStiMap`:
  * - Tile source and layers (Topografisk Skærmkortet + dæmpet dark variant, Udendørs, Luftfoto,
  *   DHM Terræn hillshade + contours, Overpass Vand water overlay, Adgang, Afmærkede ruter, 7 POI layers)
- * - Dark mode following "Kort i mørke" (`MapDarkMode`: SYSTEM / LIGHT / DARK)
+ * - Dark mode following "Udseende" + "Kortet følger appen"
  * - Lifecycle (`onResume` / `onPause` / `onDetach`)
  * - Location dot with heading cone and accuracy circle (registered under stable key `"location"`)
  * - Scale bar at bottom-left (registered under stable key `"scale_bar"`)
@@ -174,6 +179,7 @@ fun DanskStiMap(
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current.density
+    val colorScheme = MaterialTheme.colorScheme
 
     val settingsRepository = remember { SettingsRepository(context) }
     val mapLayersState by settingsRepository.mapLayersFlow.collectAsState(initial = MapLayersState())
@@ -181,8 +187,20 @@ fun DanskStiMap(
     val configuration = LocalConfiguration.current
     val systemDark = isSystemDarkOverride
         ?: ((configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES)
-    val effectiveIsDark = remember(mapLayersState.mapDarkMode, systemDark) {
-        mapLayersState.resolveIsDarkMap(systemDark)
+    val appDark = isSystemDarkOverride ?: mapLayersState.resolveIsDarkApp(systemDark)
+    val effectiveIsDark = remember(
+        mapLayersState.mapDarkMode,
+        mapLayersState.mapFollowsApp,
+        mapLayersState.mapThemeOverride,
+        systemDark,
+        appDark
+    ) {
+        mapLayersState.resolveIsDarkMap(isSystemDark = systemDark, isAppDark = appDark)
+    }
+    val themeWaterColorInt = if (effectiveIsDark) {
+        DanskStiTileSource.DARK_WATER_COLOR_INT
+    } else {
+        DanskStiTheme.colors.water.toArgb()
     }
 
     // Load global POIs from DB if screen didn't pass a pre-filtered list
@@ -367,7 +385,7 @@ fun DanskStiMap(
         } else {
             val marker = Marker(map).apply {
                 position = pin
-                title = "Valgt punkt"
+                title = context.getString(R.string.drop_pin_selected_point)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 icon = MapIconUtils.getCustomWaypointPinIcon(context)
                 setOnMarkerClickListener { _, _ -> true }
@@ -398,6 +416,9 @@ fun DanskStiMap(
                     tag = mapTestTag
                     DanskStiTileSource.configureOsmdroid(ctx)
                     DanskStiTileSource.applyBaseMapTo(this, mapLayersState.baseMap, effectiveIsDark)
+                    setBackgroundColor(themeWaterColorInt)
+                    getOverlayManager().tilesOverlay.loadingBackgroundColor = themeWaterColorInt
+                    getOverlayManager().tilesOverlay.loadingLineColor = themeWaterColorInt
                     setMultiTouchControls(isInteractive)
                     zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
                     minZoomLevel = 6.0
@@ -450,6 +471,7 @@ fun DanskStiMap(
                     overlayManager.registerOverlay(MapLayersOverlayManager.KEY_LOCATION, locationDotOverlay)
 
                     // 3. Register scale bar (bottom-left) under stable key "scale_bar"
+                    val scaleBarFg = colorScheme.onSurface.toArgb()
                     val scaleBar = ScaleBarOverlay(this).apply {
                         setCentred(false)
                         setAlignBottom(true)
@@ -458,8 +480,8 @@ fun DanskStiMap(
                             (12f * density).toInt(),
                             (34f * density).toInt()
                         )
-                        textPaint.color = if (effectiveIsDark) Color.WHITE else Color.BLACK
-                        barPaint.color = if (effectiveIsDark) Color.WHITE else Color.BLACK
+                        textPaint.color = scaleBarFg
+                        barPaint.color = scaleBarFg
                     }
                     overlayManager.registerOverlay(MapLayersOverlayManager.KEY_SCALE_BAR, scaleBar)
 
@@ -505,10 +527,13 @@ fun DanskStiMap(
             },
             update = { mapView ->
                 mapViewRef = mapView
+                mapView.setBackgroundColor(themeWaterColorInt)
+                mapView.overlayManager.tilesOverlay.loadingBackgroundColor = themeWaterColorInt
+                mapView.overlayManager.tilesOverlay.loadingLineColor = themeWaterColorInt
                 // Keep scale bar readable in dark/light mode
                 val sb = overlayManager.getOverlay(MapLayersOverlayManager.KEY_SCALE_BAR) as? ScaleBarOverlay
                 if (sb != null) {
-                    val fg = if (effectiveIsDark) Color.WHITE else Color.BLACK
+                    val fg = colorScheme.onSurface.toArgb()
                     sb.textPaint.color = fg
                     sb.barPaint.color = fg
                 }
@@ -523,6 +548,8 @@ fun DanskStiMap(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
+                .navigationBarsPadding()
+                .imePadding()
                 .padding(start = attributionStartPadding, bottom = attributionBottomPadding),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -538,9 +565,11 @@ fun DanskStiMap(
 
         // Standard Map Buttons (Lag, Kompas/nord op, Min position)
         if (showStandardButtons) {
+            val primaryColor = MaterialTheme.colorScheme.primary
             Column(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
+                    .statusBarsPadding()
                     .padding(top = controlsTopPadding, end = controlsEndPadding)
                     .testTag("map_controls_column"),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -550,7 +579,7 @@ fun DanskStiMap(
                 SmallFloatingActionButton(
                     onClick = { showLayersSheet = true },
                     containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                    contentColor = ForestGreenPrimary,
+                    contentColor = primaryColor,
                     shape = CircleShape,
                     elevation = FloatingActionButtonDefaults.elevation(4.dp),
                     modifier = Modifier
@@ -574,7 +603,7 @@ fun DanskStiMap(
                         onCompassClick?.invoke()
                     },
                     containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                    contentColor = if (currentBearing != 0f) ForestGreenPrimary else MaterialTheme.colorScheme.onSurface,
+                    contentColor = if (currentBearing != 0f) primaryColor else MaterialTheme.colorScheme.onSurface,
                     shape = CircleShape,
                     elevation = FloatingActionButtonDefaults.elevation(4.dp),
                     modifier = Modifier
@@ -615,7 +644,7 @@ fun DanskStiMap(
                         }
                     },
                     containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                    contentColor = ForestGreenPrimary,
+                    contentColor = primaryColor,
                     shape = CircleShape,
                     elevation = FloatingActionButtonDefaults.elevation(4.dp),
                     modifier = Modifier
@@ -662,6 +691,12 @@ fun DanskStiMap(
             userLocation = effectiveUserLocation,
             routeIdForSave = routeIdForDropPinSave,
             onDismiss = { droppedPinLocation = null },
+            onAddToRoute = onAddToRouteFromDropPin?.let { cb ->
+                { lat, lng, label ->
+                    droppedPinLocation = null
+                    cb(lat, lng, label)
+                }
+            },
             onRouteHere = { lat, lng, label ->
                 droppedPinLocation = null
                 (onRouteHereFromDropPin ?: onAddToRouteFromDropPin)?.invoke(lat, lng, label)
@@ -697,7 +732,7 @@ class UserLocationHeadingOverlay : Overlay() {
     }
     private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.WHITE
+        color = Color.rgb(255, 255, 255)
     }
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL

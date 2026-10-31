@@ -130,7 +130,10 @@ object AccessGeometryUtils {
         accessPolygons: List<AccessPolygon>,
         startTimeStr: String = "09:00",
         pacingSpeedKmh: Double = 4.5,
-        sunsetTimeStr: String = "20:30"
+        sunsetTimeStr: String = com.example.util.SunCalculator.calculateSunset(
+            lat = waypoints.firstOrNull()?.lat ?: com.example.util.SunCalculator.DEFAULT_COPENHAGEN_LAT,
+            lng = waypoints.firstOrNull()?.lng ?: com.example.util.SunCalculator.DEFAULT_COPENHAGEN_LNG
+        )
     ): List<RouteAccessWarning> {
         val warnings = mutableListOf<RouteAccessWarning>()
         if (waypoints.isEmpty()) return warnings

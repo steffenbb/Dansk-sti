@@ -1,8 +1,8 @@
 package com.example.ui.navigation
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.DashPathEffect
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.ContextCompat
 import com.example.R
 import com.example.data.model.FriTeltningEntity
@@ -15,6 +15,9 @@ import com.example.data.model.TrailSegmentType
 import com.example.data.model.TripStage
 import com.example.data.model.UserHazardNoteEntity
 import com.example.service.NavigationLiveState
+import com.example.ui.theme.DanskStiColors
+import com.example.ui.theme.DarkDanskStiColors
+import com.example.ui.theme.LightDanskStiColors
 import com.example.util.GeoUtils
 import com.example.util.MapIconUtils
 import org.osmdroid.util.GeoPoint
@@ -28,7 +31,7 @@ import java.util.Locale
  * High-performance, lifecycle-safe overlay manager for OpenStreetMap (osmdroid).
  * Requirement D & B:
  * - Persistent overlays, NEVER clears overlays on GPS tick.
- * - Route line: 10 dp white casing underneath, 6 dp #1E88E5 on top. Walked: 6 dp grey.
+ * - Route line: 10 dp casing underneath, 6 dp plannedRoute on top. Walked: 6 dp walkedRoute.
  * - Small direction chevron every 250 m.
  * - Ferry segments: dashed blue line with ferry marker and text "Færge - tjek sejlplan".
  * - Tonight camp: thin dashed line when detour > 50 m.
@@ -38,6 +41,7 @@ import java.util.Locale
 class NavigationMapOverlayManager(
     private val mapView: MapView,
     private val context: Context,
+    private var danskStiColors: DanskStiColors = LightDanskStiColors,
     private val onSelectPoi: (Any) -> Unit
 ) {
 
@@ -58,21 +62,21 @@ class NavigationMapOverlayManager(
 
     // Permanent Route Overlays
     private val casingPolyline = Polyline(mapView).apply {
-        outlinePaint.color = Color.WHITE
+        outlinePaint.color = danskStiColors.routeCasing.toArgb()
         outlinePaint.strokeWidth = dp(10f)
         outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
         outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
     }
 
     private val routePolyline = Polyline(mapView).apply {
-        outlinePaint.color = Color.parseColor("#1E88E5") // Strong Nordic Blue
+        outlinePaint.color = danskStiColors.plannedRoute.toArgb()
         outlinePaint.strokeWidth = dp(6f)
         outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
         outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
     }
 
     private val walkedPolyline = Polyline(mapView).apply {
-        outlinePaint.color = Color.parseColor("#888888") // 6 dp grey
+        outlinePaint.color = danskStiColors.walkedRoute.toArgb()
         outlinePaint.strokeWidth = dp(6f)
         outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
         outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
@@ -84,13 +88,13 @@ class NavigationMapOverlayManager(
     private val chevronMarkers = mutableListOf<Marker>()
 
     private val campDetourPolyline = Polyline(mapView).apply {
-        outlinePaint.color = Color.parseColor("#E65100")
+        outlinePaint.color = danskStiColors.overnight.toArgb()
         outlinePaint.strokeWidth = dp(3f)
         outlinePaint.pathEffect = DashPathEffect(floatArrayOf(dp(8f), dp(6f)), 0f)
     }
 
     private val backToRoutePolyline = Polyline(mapView).apply {
-        outlinePaint.color = Color.parseColor("#D32F2F")
+        outlinePaint.color = danskStiColors.offRoute.toArgb()
         outlinePaint.strokeWidth = dp(4.5f)
         outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
         outlinePaint.pathEffect = DashPathEffect(floatArrayOf(dp(10f), dp(8f)), 0f)
@@ -103,7 +107,7 @@ class NavigationMapOverlayManager(
     private val tonightCampMarker = Marker(mapView).apply {
         icon = MapIconUtils.getNightCampIcon(context)
         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-        title = "I nat"
+        title = context.getString(R.string.nav_overlay_tonight_title)
     }
 
     // Dynamic POI & Polygon overlays
@@ -119,16 +123,16 @@ class NavigationMapOverlayManager(
 
     // GPS accuracy circle (> 15m)
     private val accuracyPolygon = Polygon(mapView).apply {
-        outlinePaint.color = Color.parseColor("#4442A5F5")
+        outlinePaint.color = danskStiColors.plannedRoute.copy(alpha = 0.27f).toArgb()
         outlinePaint.strokeWidth = dp(1.5f)
-        fillPaint.color = Color.parseColor("#2242A5F5")
+        fillPaint.color = danskStiColors.plannedRoute.copy(alpha = 0.13f).toArgb()
     }
 
     // User position marker (ic_user_heading)
     private val userMarker = Marker(mapView).apply {
         icon = ContextCompat.getDrawable(context, R.drawable.ic_user_heading)
         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-        title = "Din position"
+        title = context.getString(R.string.nav_overlay_your_position)
     }
 
     private var currentRouteId: Long = -1L
@@ -165,13 +169,26 @@ class NavigationMapOverlayManager(
     /**
      * Configures the planned route polylines and 250m chevrons once when the route or dark mode changes.
      */
-    fun setPlannedRoute(route: PlannedRoute, isDark: Boolean = false) {
-        if (currentRouteId == route.planId && currentRouteIsDark == isDark && allRouteGeoPoints.isNotEmpty()) {
+    fun setPlannedRoute(
+        route: PlannedRoute,
+        isDark: Boolean = false,
+        colors: DanskStiColors = if (isDark) DarkDanskStiColors else LightDanskStiColors
+    ) {
+        if (currentRouteId == route.planId && currentRouteIsDark == isDark && allRouteGeoPoints.isNotEmpty() && danskStiColors == colors) {
             return
         }
         currentRouteId = route.planId
         currentRouteIsDark = isDark
+        danskStiColors = colors
         routePointsData = route.points
+
+        casingPolyline.outlinePaint.color = colors.routeCasing.toArgb()
+        routePolyline.outlinePaint.color = colors.plannedRoute.toArgb()
+        walkedPolyline.outlinePaint.color = colors.walkedRoute.toArgb()
+        campDetourPolyline.outlinePaint.color = colors.overnight.toArgb()
+        backToRoutePolyline.outlinePaint.color = colors.offRoute.toArgb()
+        accuracyPolygon.outlinePaint.color = colors.plannedRoute.copy(alpha = 0.27f).toArgb()
+        accuracyPolygon.fillPaint.color = colors.plannedRoute.copy(alpha = 0.13f).toArgb()
 
         val geoPoints = route.points.map { GeoPoint(it.lat, it.lng) }
         allRouteGeoPoints = geoPoints
@@ -215,16 +232,8 @@ class NavigationMapOverlayManager(
             segments.add(curSegment)
         }
 
-        val casingColor = if (isDark) {
-            com.example.util.routing.RouteMarkerHelper.COLOR_PLANNED_CASING_DARK
-        } else {
-            com.example.util.routing.RouteMarkerHelper.COLOR_PLANNED_CASING_LIGHT
-        }
-        val routeColor = if (isDark) {
-            com.example.util.routing.RouteMarkerHelper.COLOR_PLANNED_ROUTE_DARK
-        } else {
-            com.example.util.routing.RouteMarkerHelper.COLOR_PLANNED_ROUTE_LIGHT
-        }
+        val casingColor = colors.routeCasing.toArgb()
+        val routeColor = colors.plannedRoute.toArgb()
 
         // Draw each WALK segment with its own casing and route line (gaps are NEVER drawn as a solid line)
         val insertBaseIdx = mapView.overlays.indexOf(walkedPolyline).coerceAtLeast(0)
@@ -276,7 +285,7 @@ class NavigationMapOverlayManager(
         // 2. Build Ferry Segments (dashed blue line + text)
         for (fSeg in segments.filter { it.first().segmentType == TrailSegmentType.FERRY }) {
             val ferryLine = Polyline(mapView).apply {
-                outlinePaint.color = Color.parseColor("#0288D1")
+                outlinePaint.color = colors.plannedRoute.toArgb()
                 outlinePaint.strokeWidth = dp(4f)
                 outlinePaint.pathEffect = DashPathEffect(floatArrayOf(dp(12f), dp(8f)), 0f)
                 setPoints(fSeg.map { GeoPoint(it.lat, it.lng) })
@@ -288,8 +297,8 @@ class NavigationMapOverlayManager(
             val ferryMarker = Marker(mapView).apply {
                 position = GeoPoint(midPt.lat, midPt.lng)
                 icon = ContextCompat.getDrawable(context, R.drawable.ic_poi_transit)
-                title = "Færge - tjek sejlplan"
-                subDescription = "Færgeforbindelse på ruten"
+                title = context.getString(R.string.nav_overlay_ferry_check_schedule)
+                subDescription = context.getString(R.string.nav_overlay_ferry_sub)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             }
             ferryOverlays.add(ferryMarker)
@@ -388,8 +397,8 @@ class NavigationMapOverlayManager(
                 if (boundaryPts.size >= 3) {
                     val polygon = Polygon(mapView).apply {
                         points = boundaryPts.map { GeoPoint(it.lat, it.lng) }
-                        fillPaint.color = Color.parseColor("#332E7D32")
-                        outlinePaint.color = Color.parseColor("#802E7D32")
+                        fillPaint.color = danskStiColors.success.copy(alpha = 0.2f).toArgb()
+                        outlinePaint.color = danskStiColors.success.copy(alpha = 0.5f).toArgb()
                         outlinePaint.strokeWidth = dp(1.5f)
                         title = ft.name
                         subDescription = "Fri teltning (${ft.forestType})"

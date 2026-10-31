@@ -448,5 +448,83 @@ object GeoUtils {
         val speed = (asphaltPct * 4.9 + gravelPct * 4.7 + forestSoilPct * 4.3 + sandBeachPct * 2.8) / 100.0
         return speed.coerceIn(2.5, 5.0)
     }
+
+    /**
+     * Round 9 C: Computes the Danish region from a route's geographic centre:
+     * - Jylland
+     * - Fyn & Øerne
+     * - Sjælland & Lolland-Falster
+     * - Bornholm
+     */
+    fun computeDanishRegionFromCenter(centerLat: Double, centerLng: Double): String {
+        if (centerLat == 0.0 && centerLng == 0.0) return ""
+        // Bornholm & Christiansø
+        if (centerLng >= 14.0) {
+            return "Bornholm"
+        }
+        // Sjælland, Lolland, Falster, Møn
+        if ((centerLng >= 10.95 && centerLat <= 56.30) ||
+            (centerLng >= 10.86 && centerLat in 55.35..56.15)
+        ) {
+            return "Sjælland & Lolland-Falster"
+        }
+        // Fyn, Langeland, Ærø, Tåsinge (excluding Als which has centerLat < 55.12 and centerLng < 10.10)
+        if (centerLat in 54.70..55.65 &&
+            centerLng in 9.72..10.95 &&
+            !(centerLat < 55.12 && centerLng < 10.10)
+        ) {
+            return "Fyn & Øerne"
+        }
+        return "Jylland"
+    }
+
+    fun computeDanishRegionFromBbox(
+        south: Double?,
+        west: Double?,
+        north: Double?,
+        east: Double?
+    ): String {
+        val s = south ?: return ""
+        val w = west ?: return ""
+        val n = north ?: return ""
+        val e = east ?: return ""
+        if (s == 0.0 && w == 0.0 && n == 0.0 && e == 0.0) return ""
+        val centerLat = (s + n) / 2.0
+        val centerLng = (w + e) / 2.0
+        return computeDanishRegionFromCenter(centerLat, centerLng)
+    }
+
+    fun computeDanishRegionFromPoints(points: List<GeoPointDto>): String {
+        if (points.isEmpty()) return ""
+        var minLat = Double.MAX_VALUE
+        var maxLat = -Double.MAX_VALUE
+        var minLng = Double.MAX_VALUE
+        var maxLng = -Double.MAX_VALUE
+        for (p in points) {
+            if (p.lat < minLat) minLat = p.lat
+            if (p.lat > maxLat) maxLat = p.lat
+            if (p.lng < minLng) minLng = p.lng
+            if (p.lng > maxLng) maxLng = p.lng
+        }
+        return computeDanishRegionFromBbox(minLat, minLng, maxLat, maxLng)
+    }
+
+    /**
+     * Round 9 C: Computes the region of a TrailEntity strictly from its downloaded geometry / bounding box centre.
+     * Returns empty string if no geometry/bbox has been computed yet.
+     */
+    fun computeDanishRegionForTrail(trail: com.example.data.model.TrailEntity): String {
+        if (!trail.isGeometryDownloaded &&
+            (trail.bboxSouth == null || trail.bboxNorth == null || trail.bboxWest == null || trail.bboxEast == null)
+        ) {
+            return ""
+        }
+        return computeDanishRegionFromBbox(
+            south = trail.bboxSouth,
+            west = trail.bboxWest,
+            north = trail.bboxNorth,
+            east = trail.bboxEast
+        )
+    }
 }
 

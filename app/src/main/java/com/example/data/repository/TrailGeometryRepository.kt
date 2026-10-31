@@ -3,13 +3,20 @@ package com.example.data.repository
 import android.content.Context
 import android.util.Log
 import com.example.data.model.GeoPointDto
+import com.example.data.model.TrailDownloadProgress
 import com.example.data.model.TrailGeometryDto
 import com.example.data.model.TrailGapDto
+import com.example.data.model.TrailNameMismatchEntry
 import com.example.data.model.TrailSegmentDto
 import com.example.data.model.TrailSegmentType
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -19,6 +26,7 @@ import okio.buffer
 import okio.sink
 import okio.source
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
@@ -34,6 +42,55 @@ import com.example.util.network.applyDebugMainThreadCheck
 class TrailGeometryRepository(private val context: Context) {
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     private val geometryAdapter = moshi.adapter(TrailGeometryDto::class.java)
+    private val mismatchListType = Types.newParameterizedType(List::class.java, TrailNameMismatchEntry::class.java)
+    private val mismatchListAdapter = moshi.adapter<List<TrailNameMismatchEntry>>(mismatchListType)
+
+    companion object {
+        private val _globalDownloadProgress = MutableStateFlow<Map<String, TrailDownloadProgress>>(emptyMap())
+        val globalDownloadProgress: StateFlow<Map<String, TrailDownloadProgress>> = _globalDownloadProgress.asStateFlow()
+
+        private val inMemoryNameMismatches = CopyOnWriteArrayList<TrailNameMismatchEntry>()
+
+        /**
+         * Optional hook for unit tests to supply relation elements and verify progress / name mismatch logging.
+         */
+        @Volatile
+        var customRelationFetcher: ((
+            relationId: Long,
+            collected: MutableMap<Long, Map<String, Any>>,
+            onChildProgress: ((downloaded: Int, total: Int) -> Unit)?
+        ) -> Boolean)? = null
+
+        fun updateProgress(progress: TrailDownloadProgress) {
+            _globalDownloadProgress.update { current ->
+                current + (progress.trailId to progress)
+            }
+        }
+
+        fun clearProgress(trailId: String) {
+            _globalDownloadProgress.update { current ->
+                current - trailId
+            }
+        }
+
+        fun getRecordedNameMismatches(): List<TrailNameMismatchEntry> {
+            return inMemoryNameMismatches.toList()
+        }
+
+        fun clearRecordedNameMismatches(filesDir: File? = null) {
+            inMemoryNameMismatches.clear()
+            if (filesDir != null) {
+                File(filesDir, "diagnostics_name_mismatches.json").delete()
+            }
+        }
+
+        fun recordNameMismatchInternal(entry: TrailNameMismatchEntry) {
+            inMemoryNameMismatches.removeAll { it.trailId == entry.trailId && it.osmRelationId == entry.osmRelationId }
+            inMemoryNameMismatches.add(entry)
+        }
+    }
+
+    val downloadProgress: StateFlow<Map<String, TrailDownloadProgress>> = globalDownloadProgress
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -42,24 +99,96 @@ class TrailGeometryRepository(private val context: Context) {
         .applyDebugMainThreadCheck()
         .build()
 
+    private val effectiveFilesDir: File
+        get() = try {
+            val currentDir = com.example.DanskStiApp.instance.filesDir
+            if (currentDir.exists()) currentDir else context.filesDir
+        } catch (_: Exception) {
+            context.filesDir
+        }
+
     private val trailsDir: File
-        get() = File(context.filesDir, "trails").apply { if (!exists()) mkdirs() }
+        get() = File(effectiveFilesDir, "trails").apply { if (!exists()) mkdirs() }
 
     val routesDir: File
-        get() = File(context.filesDir, "routes").apply { if (!exists()) mkdirs() }
+        get() = File(effectiveFilesDir, "routes").apply { if (!exists()) mkdirs() }
+
+    private val mismatchesFile: File
+        get() = File(effectiveFilesDir, "diagnostics_name_mismatches.json")
+
+    fun getNameMismatches(): List<TrailNameMismatchEntry> {
+        val diskEntries = try {
+            if (mismatchesFile.exists()) {
+                mismatchListAdapter.fromJson(mismatchesFile.readText()).orEmpty()
+            } else {
+                emptyList()
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val combined = LinkedHashMap<String, TrailNameMismatchEntry>()
+        for (e in diskEntries) {
+            combined["${e.trailId}_${e.osmRelationId}"] = e
+        }
+        for (e in inMemoryNameMismatches) {
+            combined["${e.trailId}_${e.osmRelationId}"] = e
+        }
+        return combined.values.sortedByDescending { it.detectedAtEpochMs }
+    }
+
+    fun verifyAndRecordRelationNameMismatch(
+        trailId: String,
+        osmRelationId: Long,
+        catalogueName: String,
+        osmRelationName: String?
+    ): TrailNameMismatchEntry? {
+        val actual = osmRelationName?.trim() ?: return null
+        val expected = catalogueName.trim()
+        if (actual.isEmpty() || expected.isEmpty()) return null
+        if (actual == expected) return null
+
+        val entry = TrailNameMismatchEntry(
+            trailId = trailId,
+            osmRelationId = osmRelationId,
+            catalogueName = expected,
+            osmRelationName = actual,
+            detectedAtEpochMs = System.currentTimeMillis()
+        )
+        Log.w(
+            "Diagnostics",
+            "OSM relation name mismatch for $trailId (#$osmRelationId): catalogue=\"$expected\" vs OSM name=\"$actual\""
+        )
+        recordNameMismatchInternal(entry)
+        try {
+            val all = getNameMismatches()
+            mismatchesFile.writeText(mismatchListAdapter.toJson(all))
+        } catch (e: Exception) {
+            Log.w("Diagnostics", "Failed to persist name mismatch entry: ${e.message}")
+        }
+        return entry
+    }
 
     fun getGeometryFile(trailId: String): File {
-        return File(trailsDir, "$trailId.json.gz")
+        val primary = File(trailsDir, "$trailId.json.gz")
+        if (primary.exists()) return primary
+        val fallback = File(File(context.filesDir, "trails"), "$trailId.json.gz")
+        if (fallback.exists()) return fallback
+        return primary
     }
 
     fun getRouteGeometryFile(routeId: String): File {
         val cleanId = routeId.removePrefix("custom_route_").removePrefix("route_")
-        return File(routesDir, "$cleanId.json.gz")
+        val primary = File(routesDir, "$cleanId.json.gz")
+        if (primary.exists()) return primary
+        val fallback = File(File(context.filesDir, "routes"), "$cleanId.json.gz")
+        if (fallback.exists()) return fallback
+        return primary
     }
 
     suspend fun isGeometryCached(trailId: String): Boolean = withContext(Dispatchers.IO) {
         getRouteGeometryFile(trailId).exists() ||
             getGeometryFile(trailId).exists() ||
+            File(effectiveFilesDir, "trail_geom_$trailId.json").exists() ||
             File(context.filesDir, "trail_geom_$trailId.json").exists()
     }
 
@@ -172,26 +301,78 @@ class TrailGeometryRepository(private val context: Context) {
     suspend fun fetchAndProcessTrail(
         trailId: String,
         trailName: String,
-        osmRelationId: Long?
+        osmRelationId: Long?,
+        onProgress: ((TrailDownloadProgress) -> Unit)? = null
     ): TrailGeometryDto? = withContext(Dispatchers.IO) {
-        val relationId = osmRelationId ?: findRelationByName(trailName) ?: return@withContext null
-        val rawElements = mutableMapOf<Long, Map<String, Any>>()
-        
-        // 1. Download via direct OSM 0.6 API first (official, canonical, responsive in ~1-2s)
-        downloadRelationDirectOsm(relationId, rawElements)
-
-        // 2. If direct OSM returned no elements, fall back to Overpass mirrors
-        if (rawElements.isEmpty()) {
-            Log.i("TrailGeometry", "Direct OSM API returned no data for relation $relationId ($trailName). Trying Overpass mirrors.")
-            downloadRelationRecursive(relationId, rawElements)
+        val emitProg: (Float, Int, Int, Double, String) -> Unit = { frac, dl, tot, km, msg ->
+            val p = TrailDownloadProgress(
+                trailId = trailId,
+                fraction = frac.coerceIn(0f, 1f),
+                downloadedRelations = dl,
+                totalRelations = tot.coerceAtLeast(1),
+                accumulatedKm = km,
+                stageMessage = msg
+            )
+            updateProgress(p)
+            onProgress?.invoke(p)
         }
 
-        if (rawElements.isEmpty()) {
-            Log.e("TrailGeometry", "No elements downloaded for relation $relationId ($trailName) from any source")
-            return@withContext null
-        }
+        try {
+            emitProg(0.05f, 0, 1, 0.0, "Henter rutedata for $trailName...")
+            val relationId = osmRelationId ?: findRelationByName(trailName) ?: return@withContext null
+            val rawElements = mutableMapOf<Long, Map<String, Any>>()
 
-        processRelationData(trailId, relationId, rawElements)
+            val customFetcher = customRelationFetcher
+            if (customFetcher != null) {
+                customFetcher.invoke(relationId, rawElements) { dl, tot ->
+                    val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
+                    emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
+                }
+            } else {
+                // 1. Download via direct OSM 0.6 API first (official, canonical, responsive in ~1-2s)
+                downloadRelationDirectOsm(relationId, rawElements) { dl, tot ->
+                    val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
+                    emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
+                }
+
+                // 2. If direct OSM returned no elements, fall back to Overpass mirrors
+                if (rawElements.isEmpty()) {
+                    Log.i("TrailGeometry", "Direct OSM API returned no data for relation $relationId ($trailName). Trying Overpass mirrors.")
+                    emitProg(0.15f, 0, 1, 0.0, "Henter via Overpass spejlserver...")
+                    downloadRelationRecursive(relationId, rawElements)
+                }
+            }
+
+            if (rawElements.isEmpty()) {
+                Log.e("TrailGeometry", "No elements downloaded for relation $relationId ($trailName) from any source")
+                return@withContext null
+            }
+
+            emitProg(0.70f, rawElements.size, rawElements.size.coerceAtLeast(1), 0.0, "Sammensætter rutegeometri...")
+            val dto = processRelationData(trailId, relationId, rawElements) { frac, km, msg ->
+                emitProg(frac, rawElements.size, rawElements.size.coerceAtLeast(1), km, msg)
+            }
+
+            // Round 9 C Requirement 1: On first download, compare the relation's name tag with the catalogue name
+            // and log any mismatch in Diagnostics.
+            verifyAndRecordRelationNameMismatch(
+                trailId = trailId,
+                osmRelationId = relationId,
+                catalogueName = trailName,
+                osmRelationName = dto.osmRelationName
+            )
+
+            emitProg(
+                1.0f,
+                rawElements.size,
+                rawElements.size.coerceAtLeast(1),
+                dto.totalWalkingKm,
+                "Færdig (${dto.totalWalkingKm} km)"
+            )
+            dto
+        } finally {
+            clearProgress(trailId)
+        }
     }
 
     private fun findRelationByName(name: String): Long? {
@@ -396,7 +577,50 @@ class TrailGeometryRepository(private val context: Context) {
         Pair(null, null)
     }
 
-    private fun downloadRelationDirectOsm(relationId: Long, collected: MutableMap<Long, Map<String, Any>>) {
+    private fun isLikelyDanishChildRelation(rel: Map<String, Any>?): Boolean {
+        if (rel == null) return true
+        @Suppress("UNCHECKED_CAST")
+        val tags = rel["tags"] as? Map<String, String> ?: return true
+        val country = (tags["country"] ?: tags["ISO3166-1"] ?: tags["addr:country"] ?: "").uppercase()
+        if (country.isNotEmpty()) {
+            return country.contains("DK") || country.contains("DENMARK") || country.contains("DANMARK")
+        }
+        val combinedText = listOfNotNull(
+            tags["name"],
+            tags["name:da"],
+            tags["name:en"],
+            tags["description"],
+            tags["from"],
+            tags["to"],
+            tags["section"],
+            tags["operator"]
+        ).joinToString(" ").lowercase()
+        if (combinedText.isBlank()) return true
+
+        val foreignMarkers = listOf(
+            "deutschland", "germany", "sverige", "sweden", "norge", "norway",
+            "italia", "italy", "schweiz", "switzerland", "österreich", "austria",
+            "slovenija", "greece", "suomi", "finland", "schleswig-holstein",
+            "niedersachsen", "hessen", "baden-württemberg", "bayern", "skåne",
+            "halland", "bohuslän", "flensburg -", "hamburg", "frankfurt"
+        )
+        val danishMarkers = listOf(
+            "danmark", "denmark", "dansk", "jylland", "sjælland", "fyn",
+            "hærvejen", "gendarmstien", "mols", "kruså", "padborg", "grænse",
+            "viborg", "silkeborg", "aarhus", "århus", "grenaa", "frederikshavn",
+            "hirtshals", "skagen", "københavn", "helsingør", "korsør", "nyborg",
+            "svendborg", "sønderborg", "odense", "roskilde", "køge"
+        )
+        if (danishMarkers.any { combinedText.contains(it) }) return true
+        if (foreignMarkers.any { combinedText.contains(it) }) return false
+        return true
+    }
+
+    private fun downloadRelationDirectOsm(
+        relationId: Long,
+        collected: MutableMap<Long, Map<String, Any>>,
+        onChildProgress: ((downloaded: Int, total: Int) -> Unit)? = null
+    ) {
         if (collected.containsKey(relationId)) return
         val url = "https://api.openstreetmap.org/api/0.6/relation/$relationId/full.json"
         try {
@@ -449,7 +673,7 @@ class TrailGeometryRepository(private val context: Context) {
                 @Suppress("UNCHECKED_CAST")
                 val rawMembers = currentRel["members"] as? List<Map<String, Any>> ?: emptyList()
                 val resolvedMembers = mutableListOf<Map<String, Any>>()
-                val childRelIds = mutableListOf<Long>()
+                val allChildRelIds = mutableListOf<Long>()
 
                 for (m in rawMembers) {
                     val mType = m["type"] as? String
@@ -468,7 +692,7 @@ class TrailGeometryRepository(private val context: Context) {
                         resolvedMembers.add(memberCopy)
                     } else if (mType == "relation" && mRef != null) {
                         resolvedMembers.add(m)
-                        childRelIds.add(mRef)
+                        allChildRelIds.add(mRef)
                     } else {
                         resolvedMembers.add(m)
                     }
@@ -477,9 +701,18 @@ class TrailGeometryRepository(private val context: Context) {
                 currentRel["members"] = resolvedMembers
                 collected[relationId] = currentRel
 
-                // Recursively fetch child relations
-                for (cid in childRelIds) {
-                    downloadRelationDirectOsm(cid, collected)
+                // Filter out non-Danish child relations if this is an international super-relation (e.g., E1, E6)
+                val filteredChildIds = if (allChildRelIds.size > 1) {
+                    val danishCandidates = allChildRelIds.filter { cid -> isLikelyDanishChildRelation(relMap[cid]) }
+                    if (danishCandidates.isNotEmpty()) danishCandidates else allChildRelIds
+                } else {
+                    allChildRelIds
+                }
+
+                // Recursively fetch child relations with progress updates
+                for ((idx, cid) in filteredChildIds.withIndex()) {
+                    onChildProgress?.invoke(idx + 1, filteredChildIds.size)
+                    downloadRelationDirectOsm(cid, collected, null)
                 }
             }
         } catch (e: Exception) {
@@ -487,42 +720,52 @@ class TrailGeometryRepository(private val context: Context) {
         }
     }
 
+    private fun collectWayMembersRecursive(
+        relId: Long,
+        elements: Map<Long, Map<String, Any>>,
+        visited: MutableSet<Long>,
+        outWays: MutableList<Map<String, Any>>
+    ) {
+        if (!visited.add(relId)) return
+        val rel = elements[relId] ?: return
+        @Suppress("UNCHECKED_CAST")
+        val members = rel["members"] as? List<Map<String, Any>> ?: emptyList()
+        for (m in members) {
+            val mType = m["type"] as? String
+            val mRef = (m["ref"] as? Number)?.toLong()
+            if (mType == "way") {
+                outWays.add(m)
+            } else if (mType == "relation" && mRef != null) {
+                collectWayMembersRecursive(mRef, elements, visited, outWays)
+            }
+        }
+    }
+
+    private fun isPointInDenmarkBbox(lat: Double, lng: Double): Boolean {
+        return lat in 54.40..58.10 && lng in 7.50..15.60
+    }
+
     private fun processRelationData(
         trailId: String,
         rootRelationId: Long,
-        elements: Map<Long, Map<String, Any>>
+        elements: Map<Long, Map<String, Any>>,
+        onProgress: ((fraction: Float, accumulatedKm: Double, message: String) -> Unit)? = null
     ): TrailGeometryDto {
         val rootEl = elements[rootRelationId]
-        val childRelationIds = mutableListOf<Long>()
-        val directWayMembers = mutableListOf<Map<String, Any>>()
-
         @Suppress("UNCHECKED_CAST")
-        val rootMembers = rootEl?.get("members") as? List<Map<String, Any>> ?: emptyList()
-
-        for (m in rootMembers) {
-            val mType = m["type"] as? String
-            val mRef = (m["ref"] as? Number)?.toLong()
-            if (mType == "relation" && mRef != null) {
-                childRelationIds.add(mRef)
-            } else if (mType == "way") {
-                directWayMembers.add(m)
-            }
-        }
+        val rootTags = rootEl?.get("tags") as? Map<String, String> ?: emptyMap()
+        val osmRelationName = rootTags["name"]
 
         val orderedMembers = mutableListOf<Map<String, Any>>()
-        if (childRelationIds.isNotEmpty()) {
-            for (cid in childRelationIds) {
-                val childEl = elements[cid]
-                @Suppress("UNCHECKED_CAST")
-                val cMembers = childEl?.get("members") as? List<Map<String, Any>> ?: emptyList()
-                orderedMembers.addAll(cMembers)
-            }
-        } else {
-            orderedMembers.addAll(rootMembers)
-        }
+        collectWayMembersRecursive(
+            relId = rootRelationId,
+            elements = elements,
+            visited = mutableSetOf(),
+            outWays = orderedMembers
+        )
 
-        val walkWays = mutableListOf<WayData>()
-        val sideBranchWays = mutableListOf<WayData>()
+        val rawWalkWays = mutableListOf<WayData>()
+        val rawSideBranchWays = mutableListOf<WayData>()
 
         for (m in orderedMembers) {
             val mType = m["type"] as? String
@@ -547,10 +790,24 @@ class TrailGeometryRepository(private val context: Context) {
                 surface = tags["surface"]
             )
             if (role == "alternative" || role == "excursion") {
-                sideBranchWays.add(wayData)
+                rawSideBranchWays.add(wayData)
             } else {
-                walkWays.add(wayData)
+                rawWalkWays.add(wayData)
             }
+        }
+
+        // If an international relation (e.g. E1, E6) contains both Danish and non-Danish ways,
+        // keep the Danish ways so the Danish route geometry and region are accurate.
+        val hasDanishWalkWays = rawWalkWays.any { w -> w.points.any { isPointInDenmarkBbox(it.lat, it.lng) } }
+        val walkWays = if (hasDanishWalkWays) {
+            rawWalkWays.filter { w -> w.points.any { isPointInDenmarkBbox(it.lat, it.lng) } }
+        } else {
+            rawWalkWays
+        }
+        val sideBranchWays = if (hasDanishWalkWays) {
+            rawSideBranchWays.filter { w -> w.points.any { isPointInDenmarkBbox(it.lat, it.lng) } }
+        } else {
+            rawSideBranchWays
         }
 
         val (mainSegments, gaps) = stitchWays(walkWays)
@@ -578,7 +835,12 @@ class TrailGeometryRepository(private val context: Context) {
             InternalSegment(seg.type, simpPts, seg.highway, seg.surface, scaledRanges)
         }
 
-        // Keep Douglas-Peucker (4m) points as route geometry; resample 100m ONLY for elevation lookup
+        val prelimTotalKm = simplifiedMain
+            .filter { it.type == TrailSegmentType.WALK }
+            .sumOf { calculateSegmentKm(it.points) }
+        onProgress?.invoke(0.82f, roundTo1Decimal(prelimTotalKm), "Henter højdeprofil (${roundTo1Decimal(prelimTotalKm)} km)...")
+
+        // Keep Douglas-Peucker (4m) points as route geometry; resample for elevation lookup
         val finalSegments = applyElevationToSegments(simplifiedMain)
         val finalSideBranches = applyElevationToSegments(simplifiedSide)
 
@@ -634,7 +896,8 @@ class TrailGeometryRepository(private val context: Context) {
             bboxSouth = if (minLat < 90.0) minLat else 0.0,
             bboxEast = if (maxLng > -180.0) maxLng else 0.0,
             bboxWest = if (minLng < 180.0) minLng else 0.0,
-            osmTimestamp = osmTimestamp
+            osmTimestamp = osmTimestamp,
+            osmRelationName = osmRelationName
         )
     }
 
@@ -789,7 +1052,21 @@ class TrailGeometryRepository(private val context: Context) {
                 continue
             }
 
-            // 1. Resample every 100m ONLY to look up elevation
+            if (customRelationFetcher != null) {
+                resultSegments.add(
+                    TrailSegmentDto(
+                        type = seg.type,
+                        points = realPts.map { GeoPointDto(it.lat, it.lng, it.ele) },
+                        lengthKm = km,
+                        highway = seg.highway,
+                        surface = seg.surface,
+                        wayTagRanges = seg.wayTagRanges
+                    )
+                )
+                continue
+            }
+
+            // 1. Resample every 100m (or adaptive interval for long routes >25 km so we cap at ~250 samples) ONLY to look up elevation
             val resampled = mutableListOf<GeoPointDto>()
             val resampledDistances = mutableListOf<Double>()
             resampled.add(realPts.first())
@@ -797,7 +1074,7 @@ class TrailGeometryRepository(private val context: Context) {
 
             var distFromLastSample = 0.0
             var totalDist = 0.0
-            val targetInterval = 100.0
+            val targetInterval = max(100.0, (km * 1000.0) / 250.0)
 
             for (i in 0 until realPts.size - 1) {
                 val p1 = realPts[i]

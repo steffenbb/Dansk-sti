@@ -101,10 +101,7 @@ import com.example.ui.components.OfflineStatusPill
 import com.example.ui.components.formatDanishElevationMeters
 import com.example.ui.components.formatDanishKm
 import com.example.ui.components.formatDownloadedDateDanish
-import com.example.ui.theme.AlertRed
 import com.example.ui.theme.CardShape
-import com.example.ui.theme.ForestGreenLight
-import com.example.ui.theme.ForestGreenPrimary
 import com.example.ui.theme.Spacing
 import com.example.ui.theme.TabularBodyStyle
 import com.example.ui.theme.TabularLabelStyle
@@ -192,8 +189,8 @@ fun SavedPlansScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = onCreateNewCustomRoute,
-                containerColor = ForestGreenPrimary,
-                contentColor = Color.White,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.testTag("fab_new_custom_route")
             ) {
                 Row(
@@ -259,10 +256,10 @@ fun SavedPlansScreen(
                     }
                     Surface(
                         shape = RoundedCornerShape(20.dp),
-                        color = if (isSelected) ForestGreenPrimary else MaterialTheme.colorScheme.surface,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
                         border = BorderStroke(
                             1.dp,
-                            if (isSelected) ForestGreenPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
                         ),
                         modifier = Modifier
                             .sizeIn(minHeight = 48.dp)
@@ -279,17 +276,17 @@ fun SavedPlansScreen(
                                 text = stringResource(seg.titleRes),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                             )
                             if (countBadge > 0) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = if (isSelected) Color.White.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant
                                 ) {
                                     Text(
                                         text = countBadge.toString(),
                                         style = TabularLabelStyle,
-                                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
@@ -531,7 +528,7 @@ fun SavedPlansScreen(
                                         Icon(
                                             imageVector = Icons.Default.CloudDownload,
                                             contentDescription = null,
-                                            tint = ForestGreenPrimary
+                                            tint = MaterialTheme.colorScheme.primary
                                         )
                                         Spacer(modifier = Modifier.width(Spacing.s3))
                                         Text(
@@ -551,7 +548,7 @@ fun SavedPlansScreen(
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                 border = BorderStroke(
                                     1.dp,
-                                    if (brouterState.isAllDownloaded) ForestGreenPrimary.copy(alpha = 0.5f)
+                                    if (brouterState.isAllDownloaded) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
                                     else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
                                 ),
                                 modifier = Modifier
@@ -565,14 +562,14 @@ fun SavedPlansScreen(
                                     ) {
                                         Surface(
                                             shape = CircleShape,
-                                            color = ForestGreenPrimary.copy(alpha = 0.14f),
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                                             modifier = Modifier.size(44.dp)
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 Icon(
                                                     imageVector = if (brouterState.isAllDownloaded) Icons.Default.CheckCircle else Icons.Default.Route,
                                                     contentDescription = null,
-                                                    tint = ForestGreenPrimary,
+                                                    tint = MaterialTheme.colorScheme.primary,
                                                     modifier = Modifier.size(24.dp)
                                                 )
                                             }
@@ -593,7 +590,7 @@ fun SavedPlansScreen(
                                                     "BRouter routing data (5 segmenter, ${BRouterSegments.TOTAL_SIZE_MB} MB)"
                                                 },
                                                 style = TabularLabelStyle,
-                                                color = if (brouterState.isAllDownloaded) ForestGreenPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                color = if (brouterState.isAllDownloaded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
@@ -616,7 +613,7 @@ fun SavedPlansScreen(
                                                     text = stringResource(R.string.ui_offlinetrailsscreen_fmt_86, brouterState.progressPercent),
                                                     style = TabularLabelStyle,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = ForestGreenPrimary
+                                                    color = MaterialTheme.colorScheme.primary
                                                 )
                                             }
                                             LinearProgressIndicator(
@@ -624,8 +621,8 @@ fun SavedPlansScreen(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .height(8.dp),
-                                                color = ForestGreenPrimary,
-                                                trackColor = ForestGreenLight.copy(alpha = 0.3f)
+                                                color = MaterialTheme.colorScheme.primary,
+                                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
                                             )
                                             OutlinedButton(
                                                 onClick = { viewModel.cancelBRouterDownload() },
@@ -648,13 +645,13 @@ fun SavedPlansScreen(
                                             Text(
                                                 text = if (isSegmentsExpanded) "Skjul dækning og filstørrelser" else "Vis dækning og filstørrelser (5 filer)",
                                                 style = MaterialTheme.typography.labelMedium,
-                                                color = ForestGreenPrimary,
+                                                color = MaterialTheme.colorScheme.primary,
                                                 fontWeight = FontWeight.SemiBold
                                             )
                                             Icon(
                                                 imageVector = if (isSegmentsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                                                 contentDescription = null,
-                                                tint = ForestGreenPrimary
+                                                tint = MaterialTheme.colorScheme.primary
                                             )
                                         }
 
@@ -709,7 +706,7 @@ fun SavedPlansScreen(
                                             Switch(
                                                 checked = brouterState.wifiOnly,
                                                 onCheckedChange = { viewModel.setBRouterWifiOnly(it) },
-                                                colors = SwitchDefaults.colors(checkedThumbColor = ForestGreenPrimary),
+                                                colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary),
                                                 modifier = Modifier.testTag("switch_brouter_wifi_only")
                                             )
                                         }
@@ -719,7 +716,7 @@ fun SavedPlansScreen(
                                         if (brouterState.isAllDownloaded) {
                                             Button(
                                                 onClick = { viewModel.updateBRouterData() },
-                                                colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                                 shape = RoundedCornerShape(12.dp),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
@@ -733,7 +730,7 @@ fun SavedPlansScreen(
                                         } else {
                                             Button(
                                                 onClick = { viewModel.downloadBRouterData() },
-                                                colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                                 shape = RoundedCornerShape(12.dp),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
@@ -818,14 +815,14 @@ private fun SwipeToDeleteWrapper(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CardShape)
-                    .background(AlertRed.copy(alpha = 0.85f))
+                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.85f))
                     .padding(horizontal = Spacing.s5),
                 contentAlignment = Alignment.CenterEnd
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = stringResource(R.string.cd_delete_item),
-                    tint = Color.White
+                    tint = MaterialTheme.colorScheme.onError
                 )
             }
         },
@@ -883,7 +880,7 @@ private fun TripPlanLibraryCard(
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = stringResource(R.string.ui_savedplansscreen_del_turplan_173),
-                            tint = ForestGreenPrimary
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                     IconButton(
@@ -895,7 +892,7 @@ private fun TripPlanLibraryCard(
                         Icon(
                             imageVector = Icons.Default.Delete,
                             contentDescription = stringResource(R.string.cd_delete_item),
-                            tint = AlertRed
+                            tint = MaterialTheme.colorScheme.error
                         )
                     }
                 }
@@ -906,7 +903,7 @@ private fun TripPlanLibraryCard(
             Text(
                 text = stringResource(R.string.ui_savedplansscreen_km_km_t_174, formatDanishKm(plan.totalDistanceKm, 1), plan.targetDays, if (plan.targetDays == 1) "dag" else "dage", formatDanishKm(plan.paceKmh, 1)),
                 style = TabularBodyStyle.copy(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
-                color = ForestGreenPrimary
+                color = MaterialTheme.colorScheme.primary
             )
 
             Spacer(modifier = Modifier.height(Spacing.s3))
@@ -930,7 +927,7 @@ private fun TripPlanLibraryCard(
 
                 Button(
                     onClick = onStartNavigation,
-                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .weight(1f)
@@ -969,14 +966,14 @@ private fun CustomRouteLibraryCard(
         ) {
             Surface(
                 shape = CircleShape,
-                color = ForestGreenPrimary.copy(alpha = 0.14f),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                 modifier = Modifier.size(44.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.Route,
                         contentDescription = null,
-                        tint = ForestGreenPrimary
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -990,7 +987,7 @@ private fun CustomRouteLibraryCard(
                 Text(
                     text = stringResource(R.string.ui_savedplansscreen_km_m_177, formatDanishKm(route.lengthKm, 1), formatDanishElevationMeters(route.ascentM.toInt())),
                     style = TabularBodyStyle.copy(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
-                    color = ForestGreenPrimary
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
             IconButton(
@@ -1002,7 +999,7 @@ private fun CustomRouteLibraryCard(
                 Icon(
                     imageVector = Icons.Default.Edit,
                     contentDescription = stringResource(R.string.ui_savedplansscreen_rediger_rute_178),
-                    tint = ForestGreenPrimary
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
             IconButton(
@@ -1014,7 +1011,7 @@ private fun CustomRouteLibraryCard(
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = stringResource(R.string.cd_delete_item),
-                    tint = AlertRed
+                    tint = MaterialTheme.colorScheme.error
                 )
             }
         }
@@ -1044,14 +1041,14 @@ private fun SavedTrailLibraryCard(
         ) {
             Surface(
                 shape = CircleShape,
-                color = ForestGreenPrimary.copy(alpha = 0.14f),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                 modifier = Modifier.size(44.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.Bookmark,
                         contentDescription = null,
-                        tint = ForestGreenPrimary
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -1077,7 +1074,7 @@ private fun SavedTrailLibraryCard(
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = stringResource(R.string.cd_delete_item),
-                    tint = AlertRed
+                    tint = MaterialTheme.colorScheme.error
                 )
             }
         }
@@ -1107,14 +1104,14 @@ private fun WaypointLibraryCard(
             ) {
                 Surface(
                     shape = CircleShape,
-                    color = ForestGreenPrimary.copy(alpha = 0.14f),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                     modifier = Modifier.size(44.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.Place,
                             contentDescription = null,
-                            tint = ForestGreenPrimary
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -1140,7 +1137,7 @@ private fun WaypointLibraryCard(
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = stringResource(R.string.cd_delete_item),
-                        tint = AlertRed
+                        tint = MaterialTheme.colorScheme.error
                     )
                 }
             }
@@ -1155,12 +1152,12 @@ private fun WaypointLibraryCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Fjern foto",
-                        tint = AlertRed,
+                        contentDescription = stringResource(R.string.saved_plans_remove_photo),
+                        tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Fjern foto", color = AlertRed, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.saved_plans_remove_photo), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -1194,14 +1191,14 @@ private fun RecordingLibraryCard(
         ) {
             Surface(
                 shape = CircleShape,
-                color = ForestGreenPrimary.copy(alpha = 0.14f),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                 modifier = Modifier.size(44.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.Map,
                         contentDescription = null,
-                        tint = ForestGreenPrimary
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -1215,7 +1212,7 @@ private fun RecordingLibraryCard(
                 Text(
                     text = stringResource(R.string.ui_savedplansscreen_km_m_t_m_180, formatDanishKm(recording.distanceKm, 1), recording.ascentMeters, hours, mins, dateStr),
                     style = TabularBodyStyle.copy(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
-                    color = ForestGreenPrimary
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
             IconButton(
@@ -1227,7 +1224,7 @@ private fun RecordingLibraryCard(
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = stringResource(R.string.cd_delete_item),
-                    tint = AlertRed
+                    tint = MaterialTheme.colorScheme.error
                 )
             }
         }
@@ -1260,14 +1257,14 @@ private fun OfflineTrailLibraryCard(
         ) {
             Surface(
                 shape = CircleShape,
-                color = ForestGreenPrimary.copy(alpha = 0.14f),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                 modifier = Modifier.size(44.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.CloudDone,
                         contentDescription = null,
-                        tint = ForestGreenPrimary
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -1296,7 +1293,7 @@ private fun OfflineTrailLibraryCard(
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = stringResource(R.string.cd_delete_item),
-                    tint = AlertRed
+                    tint = MaterialTheme.colorScheme.error
                 )
             }
         }

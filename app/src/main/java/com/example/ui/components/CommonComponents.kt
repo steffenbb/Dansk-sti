@@ -60,8 +60,7 @@ import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.model.GeoPointDto
 import com.example.ui.theme.CardShape
-import com.example.ui.theme.ErrorRed
-import com.example.ui.theme.ForestGreenPrimary
+import com.example.ui.theme.DanskStiTheme
 import com.example.ui.theme.MapButtonShadowElevation
 import com.example.ui.theme.MapButtonShape
 import com.example.ui.theme.MapButtonSize
@@ -109,15 +108,17 @@ fun OfflineStatusPill(
     modifier: Modifier = Modifier,
     testTag: String = "offline_pill"
 ) {
+    val offlineCd = androidx.compose.ui.res.stringResource(com.example.R.string.offline_pill_cd)
+    val warningColor = DanskStiTheme.colors.warning
     Surface(
         shape = RoundedCornerShape(50),
-        color = Color(0xFF263238).copy(alpha = 0.92f),
-        border = BorderStroke(1.dp, com.example.ui.theme.AccentAmber.copy(alpha = 0.7f)),
+        color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.92f),
+        border = BorderStroke(1.dp, warningColor.copy(alpha = 0.7f)),
         shadowElevation = 2.dp,
         modifier = modifier
             .testTag(testTag)
             .semantics(mergeDescendants = true) {
-                contentDescription = "Offline tilstand uden internetforbindelse"
+                contentDescription = offlineCd
             }
     ) {
          androidx.compose.foundation.layout.Row(
@@ -129,13 +130,13 @@ fun OfflineStatusPill(
                 modifier = Modifier
                     .size(8.dp)
                     .clip(CircleShape)
-                    .background(com.example.ui.theme.AccentAmber)
+                    .background(warningColor)
             )
             Text(
-                text = "Offline",
+                text = androidx.compose.ui.res.stringResource(com.example.R.string.offline_pill_label),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.inverseOnSurface
             )
         }
     }
@@ -180,13 +181,13 @@ fun MapCircleButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.surface,
-    contentColor: Color = ForestGreenPrimary,
+    contentColor: Color = MaterialTheme.colorScheme.primary,
     isActive: Boolean = false,
-    activeColor: Color = com.example.ui.theme.AccentAmber,
+    activeColor: Color = MaterialTheme.colorScheme.secondary,
     testTag: String? = null
 ) {
     val bgColor = if (isActive) activeColor else containerColor
-    val fgColor = if (isActive) Color(0xFF121614) else contentColor
+    val fgColor = if (isActive) MaterialTheme.colorScheme.onSecondary else contentColor
     Surface(
         shape = MapButtonShape,
         color = bgColor,
@@ -327,7 +328,7 @@ fun EmptyStateView(
         Button(
             onClick = resolvedAction,
             shape = CardShape,
-            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             modifier = Modifier
                 .heightIn(min = MinTouchTargetSize)
                 .testTag(actionTestTag)
@@ -335,7 +336,7 @@ fun EmptyStateView(
             Text(
                 text = actionLabel,
                 style = MaterialTheme.typography.labelLarge,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onPrimary
             )
         }
     }
@@ -352,10 +353,11 @@ fun ErrorStateView(
     testTag: String = "error_state_view",
     retryTestTag: String = "error_state_retry_button"
 ) {
+    val dangerColor = DanskStiTheme.colors.danger
     Card(
         shape = CardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, ErrorRed.copy(alpha = 0.5f)),
+        border = BorderStroke(1.dp, dangerColor.copy(alpha = 0.5f)),
         modifier = modifier
             .fillMaxWidth()
             .padding(Spacing.lg)
@@ -370,7 +372,7 @@ fun ErrorStateView(
             Icon(
                 imageVector = Icons.Default.ErrorOutline,
                 contentDescription = null,
-                tint = ErrorRed,
+                tint = dangerColor,
                 modifier = Modifier.size(36.dp)
             )
             Spacer(modifier = Modifier.height(Spacing.md))
@@ -385,7 +387,7 @@ fun ErrorStateView(
             Button(
                 onClick = onRetry,
                 shape = CardShape,
-                colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 modifier = Modifier
                     .heightIn(min = MinTouchTargetSize)
                     .testTag(retryTestTag)
@@ -399,7 +401,7 @@ fun ErrorStateView(
                 Text(
                     text = stringResource(R.string.btn_retry),
                     style = MaterialTheme.typography.labelLarge,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             }
         }
@@ -417,10 +419,13 @@ fun TrailGeometryThumbnail(
     fallbackCenterLat: Double = 56.0,
     fallbackCenterLng: Double = 10.5
 ) {
-    val bgColor = if (isDark) Color(0xFF17221B) else Color(0xFFE7F0E9)
-    val gridColor = if (isDark) Color(0xFF25352B) else Color(0xFFD0E1D4)
-    val routeColor = if (isDark) Color(0xFF66BB7E) else ForestGreenPrimary
-    val casingColor = if (isDark) Color(0xFF0E1511) else Color.White
+    val stiColors = DanskStiTheme.colors
+    val bgColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (isDark) 0.35f else 0.65f)
+    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val routeColor = MaterialTheme.colorScheme.primary
+    val casingColor = stiColors.routeCasing
+    val startPinColor = stiColors.success
+    val endPinColor = stiColors.danger
 
     Canvas(
         modifier = modifier
@@ -509,11 +514,11 @@ fun TrailGeometryThumbnail(
             // Start & End markers
             firstOffset?.let { start ->
                 drawCircle(color = casingColor, radius = 5.5.dp.toPx(), center = start)
-                drawCircle(color = ForestGreenPrimary, radius = 4.dp.toPx(), center = start)
+                drawCircle(color = startPinColor, radius = 4.dp.toPx(), center = start)
             }
             lastOffset?.let { end ->
                 drawCircle(color = casingColor, radius = 5.5.dp.toPx(), center = end)
-                drawCircle(color = ErrorRed, radius = 4.dp.toPx(), center = end)
+                drawCircle(color = endPinColor, radius = 4.dp.toPx(), center = end)
             }
         } else {
             // Single center marker when geometry is not yet synced

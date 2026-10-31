@@ -61,7 +61,7 @@ import com.example.data.model.access.AccessLandType
 import com.example.data.model.access.AccessPolygon
 import com.example.data.remote.WeatherApiService
 import com.example.data.repository.AccessLandRepository
-import com.example.ui.theme.ForestGreenPrimary
+import com.example.ui.theme.DanskStiTheme
 import com.example.util.GeoUtils
 import com.example.util.access.AccessGeometryUtils
 import com.example.util.routing.LatLng
@@ -215,11 +215,14 @@ fun DropPinBottomSheet(
     routeIdForSave: Long? = null,
     onDismiss: () -> Unit,
     onRouteHere: (lat: Double, lng: Double, label: String) -> Unit,
+    onAddToRoute: ((lat: Double, lng: Double, label: String) -> Unit)? = null,
     onPointSaved: ((UserCustomWaypointEntity) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val stiColors = DanskStiTheme.colors
 
     val lat = point.latitude
     val lng = point.longitude
@@ -230,12 +233,12 @@ fun DropPinBottomSheet(
         DropPinInspectorHelper.formatStraightLineDistance(userLocation, lat, lng)
     }
 
-    var elevationText by remember(lat, lng) { mutableStateOf("Henter...") }
-    var accessRuleText by remember(lat, lng) { mutableStateOf("Undersøger adgangsforhold...") }
+    var elevationText by remember(lat, lng) { mutableStateOf(context.getString(R.string.drop_pin_loading_elevation)) }
+    var accessRuleText by remember(lat, lng) { mutableStateOf(context.getString(R.string.drop_pin_loading_access)) }
     var ownerDetailText by remember(lat, lng) { mutableStateOf<String?>(null) }
 
     var showSaveForm by remember { mutableStateOf(false) }
-    var saveName by remember { mutableStateOf("Gemt punkt") }
+    var saveName by remember { mutableStateOf(context.getString(R.string.drop_pin_default_saved_name)) }
     var saveNote by remember { mutableStateOf("") }
     var savedConfirmation by remember { mutableStateOf(false) }
 
@@ -293,7 +296,7 @@ fun DropPinBottomSheet(
                     Icon(
                         imageVector = Icons.Default.Place,
                         contentDescription = null,
-                        tint = ForestGreenPrimary,
+                        tint = primaryColor,
                         modifier = Modifier.size(28.dp)
                     )
                     Column {
@@ -335,7 +338,7 @@ fun DropPinBottomSheet(
                         Icon(
                             imageVector = Icons.Default.MyLocation,
                             contentDescription = null,
-                            tint = ForestGreenPrimary,
+                            tint = primaryColor,
                             modifier = Modifier.size(18.dp)
                         )
                         Column {
@@ -370,7 +373,7 @@ fun DropPinBottomSheet(
                             Icon(
                                 imageVector = Icons.Default.Landscape,
                                 contentDescription = null,
-                                tint = ForestGreenPrimary,
+                                tint = primaryColor,
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
@@ -388,7 +391,7 @@ fun DropPinBottomSheet(
                             Icon(
                                 imageVector = Icons.Default.Straighten,
                                 contentDescription = null,
-                                tint = ForestGreenPrimary,
+                                tint = primaryColor,
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
@@ -408,8 +411,8 @@ fun DropPinBottomSheet(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val accessColor = when {
-                            accessRuleText.startsWith("Statsskov") -> Color(0xFF2E7D32)
-                            accessRuleText.startsWith("Privat skov") -> Color(0xFFEF6C00)
+                            accessRuleText.startsWith("Statsskov") -> stiColors.success
+                            accessRuleText.startsWith("Privat skov") -> stiColors.warning
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         }
                         Icon(
@@ -492,7 +495,7 @@ fun DropPinBottomSheet(
                                         showSaveForm = false
                                     }
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                                 modifier = Modifier.testTag("drop_pin_confirm_save_button")
                             ) {
                                 Text(stringResource(R.string.btn_save))
@@ -504,9 +507,31 @@ fun DropPinBottomSheet(
                 Text(
                     text = stringResource(R.string.ui_droppinbottomsheet_punktet_er_gemt_under_mine_p_13),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = ForestGreenPrimary,
+                    color = primaryColor,
                     fontWeight = FontWeight.SemiBold
                 )
+            }
+
+            if (onAddToRoute != null) {
+                Button(
+                    onClick = {
+                        val label = ownerDetailText?.takeIf { it.isNotBlank() }
+                            ?: context.getString(R.string.ui_droppinbottomsheet_valgt_punkt_p_kort_7)
+                        onAddToRoute(lat, lng, label)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("drop_pin_add_next_point_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Place,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(stringResource(R.string.drop_pin_add_next_point), maxLines = 1)
+                }
             }
 
             // Three standard actions: Rute hertil, Gem punkt, Del position
@@ -516,10 +541,11 @@ fun DropPinBottomSheet(
             ) {
                 Button(
                     onClick = {
-                        val label = ownerDetailText?.takeIf { it.isNotBlank() } ?: "Valgt punkt på kort"
+                        val label = ownerDetailText?.takeIf { it.isNotBlank() }
+                            ?: context.getString(R.string.ui_droppinbottomsheet_valgt_punkt_p_kort_7)
                         onRouteHere(lat, lng, label)
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                     modifier = Modifier
                         .weight(1f)
                         .testTag("confirm_route_here_button")

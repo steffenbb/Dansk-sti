@@ -57,6 +57,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -71,7 +72,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -83,10 +83,9 @@ import com.example.DanskStiApp
 import com.example.R
 import com.example.data.local.AppSettings
 import com.example.data.local.MapDarkMode
-import com.example.ui.theme.AccentAmber
+import com.example.data.local.MapThemeOverride
 import com.example.ui.theme.CardShape
-import com.example.ui.theme.ForestGreenLight
-import com.example.ui.theme.ForestGreenPrimary
+import com.example.ui.theme.DanskStiTheme
 import com.example.ui.theme.MinTouchTargetSize
 import com.example.ui.theme.Spacing
 import com.example.ui.theme.TabularBodyStyle
@@ -101,7 +100,7 @@ import kotlin.math.roundToInt
 
 /**
  * Requirement I: Profil
- * - Settings: Mit tempo, daily target, start time, "Kort i mørke", units,
+ * - Settings: Mit tempo, daily target, start time, "Udseende" + "Kortet følger appen", units,
  *   data and storage (offline maps size, routing data, clear cache),
  *   API keys, Om appen / data credits.
  * - Diagnostics only in debug builds or behind "Om appen" tapped 7 times.
@@ -201,7 +200,7 @@ fun ProfileScreen(
                         Icon(
                             imageVector = Icons.Default.Speed,
                             contentDescription = null,
-                            tint = ForestGreenPrimary,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(Spacing.s2))
@@ -216,7 +215,7 @@ fun ProfileScreen(
                         text = paceFormatted,
                         style = TabularBodyStyle,
                         fontWeight = FontWeight.Bold,
-                        color = ForestGreenPrimary,
+                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.testTag("profile_pace_value")
                     )
                 }
@@ -231,8 +230,8 @@ fun ProfileScreen(
                     valueRange = 2.0f..7.0f,
                     steps = 9,
                     colors = SliderDefaults.colors(
-                        thumbColor = ForestGreenPrimary,
-                        activeTrackColor = ForestGreenPrimary
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -258,7 +257,7 @@ fun ProfileScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
                             contentDescription = null,
-                            tint = ForestGreenPrimary,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(Spacing.s2))
@@ -273,7 +272,7 @@ fun ProfileScreen(
                         text = targetFormatted,
                         style = TabularBodyStyle,
                         fontWeight = FontWeight.Bold,
-                        color = ForestGreenPrimary,
+                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.testTag("profile_daily_target_value")
                     )
                 }
@@ -288,8 +287,8 @@ fun ProfileScreen(
                     valueRange = 5.0f..40.0f,
                     steps = 34,
                     colors = SliderDefaults.colors(
-                        thumbColor = ForestGreenPrimary,
-                        activeTrackColor = ForestGreenPrimary
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -314,7 +313,7 @@ fun ProfileScreen(
                         Icon(
                             imageVector = Icons.Default.Schedule,
                             contentDescription = null,
-                            tint = ForestGreenPrimary,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(Spacing.s2))
@@ -329,7 +328,7 @@ fun ProfileScreen(
                         text = stringResource(R.string.ui_profilescreen_kl_99, appSettings.startTime),
                         style = TabularBodyStyle,
                         fontWeight = FontWeight.Bold,
-                        color = ForestGreenPrimary,
+                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.testTag("profile_start_time_value")
                     )
                 }
@@ -369,20 +368,20 @@ fun ProfileScreen(
             }
         }
 
-        // Section 2: Kort & Visning ("Kort i mørke", Enheder)
+        // Section 2: Kort & Visning ("Udseende", "Kortet følger appen", Enheder)
         item {
             ProfileSectionCard(title = stringResource(R.string.profile_section_map_display)) {
-                // 2a. Kort i mørke
+                // 2a. Udseende (Følg telefonen / Lyst / Mørkt)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.DarkMode,
                         contentDescription = null,
-                        tint = ForestGreenPrimary,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(Spacing.s2))
                     Text(
-                        text = stringResource(R.string.setting_dark_map),
+                        text = stringResource(R.string.setting_appearance),
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -400,7 +399,7 @@ fun ProfileScreen(
                             selected = selected,
                             onClick = {
                                 coroutineScope.launch {
-                                    settingsRepository.setMapDarkMode(mode)
+                                    settingsRepository.setAppearanceMode(mode)
                                 }
                             },
                             label = {
@@ -421,6 +420,67 @@ fun ProfileScreen(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(Spacing.s2))
+
+                // 2a-2. Kortet følger appen (on by default) + Lyst / Mørkt override for map only
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.setting_map_follows_app),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = appSettings.mapFollowsApp,
+                        onCheckedChange = { checked ->
+                            coroutineScope.launch {
+                                settingsRepository.setMapFollowsApp(checked)
+                            }
+                        },
+                        modifier = Modifier.testTag("profile_map_follows_app_switch")
+                    )
+                }
+
+                if (!appSettings.mapFollowsApp) {
+                    Spacer(modifier = Modifier.height(Spacing.s1))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.s2),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.s1)
+                    ) {
+                        MapThemeOverride.entries.forEach { overrideMode ->
+                            val selected = appSettings.mapThemeOverride == overrideMode
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    coroutineScope.launch {
+                                        settingsRepository.setMapThemeOverride(overrideMode)
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        text = overrideMode.displayName,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                ),
+                                modifier = Modifier
+                                    .heightIn(min = MinTouchTargetSize)
+                                    .testTag("profile_map_override_chip_${overrideMode.name.lowercase()}")
+                            )
+                        }
+                    }
+                }
+
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = Spacing.s3),
                     color = MaterialTheme.colorScheme.outlineVariant
@@ -431,7 +491,7 @@ fun ProfileScreen(
                     Icon(
                         imageVector = Icons.Default.Straighten,
                         contentDescription = null,
-                        tint = ForestGreenPrimary,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(Spacing.s2))
@@ -498,7 +558,7 @@ fun ProfileScreen(
                         Icon(
                             imageVector = Icons.Default.Map,
                             contentDescription = null,
-                            tint = ForestGreenPrimary,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(Spacing.s2))
@@ -520,7 +580,7 @@ fun ProfileScreen(
                         text = String.format(Locale.forLanguageTag("da-DK"), "%.1f MB", totalOfflineMapsMb),
                         style = TabularBodyStyle,
                         fontWeight = FontWeight.Bold,
-                        color = ForestGreenPrimary,
+                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.testTag("profile_offline_maps_size")
                     )
                 }
@@ -540,7 +600,7 @@ fun ProfileScreen(
                         Icon(
                             imageVector = Icons.Default.Route,
                             contentDescription = null,
-                            tint = ForestGreenPrimary,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(Spacing.s2))
@@ -576,7 +636,7 @@ fun ProfileScreen(
                         ),
                         style = TabularLabelStyle,
                         fontWeight = FontWeight.Bold,
-                        color = ForestGreenPrimary,
+                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.testTag("profile_routing_data_size")
                     )
                 }
@@ -586,7 +646,7 @@ fun ProfileScreen(
                     LinearProgressIndicator(
                         progress = { (brouterState.progressPercent / 100f).coerceIn(0f, 1f) },
                         modifier = Modifier.fillMaxWidth(),
-                        color = ForestGreenPrimary
+                        color = MaterialTheme.colorScheme.primary
                     )
                 } else {
                     Spacer(modifier = Modifier.height(Spacing.s2))
@@ -644,7 +704,7 @@ fun ProfileScreen(
                     Text(
                         text = msg,
                         style = MaterialTheme.typography.labelLarge,
-                        color = ForestGreenPrimary,
+                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.testTag("profile_cache_cleared_text")
                     )
                 }
@@ -690,7 +750,7 @@ fun ProfileScreen(
                         Icon(
                             imageVector = Icons.Default.Info,
                             contentDescription = null,
-                            tint = ForestGreenPrimary,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(Spacing.s2))
@@ -757,7 +817,7 @@ fun ProfileScreen(
                         Icon(
                             imageVector = Icons.Default.PrivacyTip,
                             contentDescription = null,
-                            tint = ForestGreenPrimary,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(Spacing.s2))
@@ -794,7 +854,7 @@ fun ProfileScreen(
                             Icon(
                                 imageVector = Icons.Default.BugReport,
                                 contentDescription = null,
-                                tint = AccentAmber,
+                                tint = DanskStiTheme.colors.warning,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(Spacing.s2))
@@ -863,7 +923,7 @@ private fun ApiKeyStatusRow(
             Icon(
                 imageVector = Icons.Default.Key,
                 contentDescription = null,
-                tint = if (isConfigured) ForestGreenPrimary else AccentAmber,
+                tint = if (isConfigured) DanskStiTheme.colors.success else DanskStiTheme.colors.warning,
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(Spacing.s2))
@@ -881,7 +941,7 @@ private fun ApiKeyStatusRow(
                         stringResource(R.string.api_key_missing)
                     },
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (isConfigured) ForestGreenPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (isConfigured) DanskStiTheme.colors.success else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -889,7 +949,7 @@ private fun ApiKeyStatusRow(
             Icon(
                 imageVector = Icons.Default.CheckCircle,
                 contentDescription = stringResource(R.string.api_key_configured),
-                tint = ForestGreenPrimary,
+                tint = DanskStiTheme.colors.success,
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -961,7 +1021,7 @@ fun PrivacyScreen(
                 Card(
                     shape = CardShape,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, ForestGreenPrimary.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
                     modifier = Modifier.fillMaxWidth().testTag("privacy_no_tracking_card")
                 ) {
                     Column(
@@ -972,7 +1032,7 @@ fun PrivacyScreen(
                             Icon(
                                 imageVector = Icons.Default.PrivacyTip,
                                 contentDescription = null,
-                                tint = ForestGreenPrimary,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.width(Spacing.s2))
@@ -1026,7 +1086,7 @@ fun PrivacyScreen(
                             text = serviceName,
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Bold,
-                            color = ForestGreenPrimary
+                            color = MaterialTheme.colorScheme.primary
                         )
                         Text(
                             text = serviceDesc,

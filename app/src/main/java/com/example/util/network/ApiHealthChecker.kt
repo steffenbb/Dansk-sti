@@ -37,6 +37,7 @@ data class DiagnosticsReport(
     val results: List<ApiCheckResult>,
     val cachedTrailsCount: Int,
     val totalTrailsDiskBytes: Long,
+    val nameMismatches: List<com.example.data.model.TrailNameMismatchEntry> = emptyList(),
     val generatedAtMs: Long = System.currentTimeMillis()
 )
 
@@ -71,11 +72,13 @@ class ApiHealthChecker(
         val trailsDir = File(context.filesDir, "trails")
         val cachedFiles = trailsDir.listFiles() ?: emptyArray()
         val totalBytes = cachedFiles.sumOf { it.length() }
+        val mismatches = com.example.data.repository.TrailGeometryRepository(context).getNameMismatches()
 
         DiagnosticsReport(
             results = results,
             cachedTrailsCount = cachedFiles.size,
-            totalTrailsDiskBytes = totalBytes
+            totalTrailsDiskBytes = totalBytes,
+            nameMismatches = mismatches
         )
     }
 

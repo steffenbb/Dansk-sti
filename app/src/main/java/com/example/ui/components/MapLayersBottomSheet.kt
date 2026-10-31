@@ -67,15 +67,13 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.BaseMapType
 import com.example.data.local.MapDarkMode
 import com.example.data.local.MapLayersState
-import com.example.ui.theme.AmberAccent
-import com.example.ui.theme.ForestGreenLight
-import com.example.ui.theme.ForestGreenPrimary
-import com.example.ui.theme.NordicBlue
+import com.example.data.local.MapThemeOverride
+import com.example.ui.theme.DanskStiTheme
 
 /**
  * Comprehensive Layers Sheet for Dansk Sti:
  * - Base map selector: Topografisk (Skærmkortet), Udendørs (Thunderforest / OpenTopoMap), Luftfoto
- * - Dark map setting ("Kort i mørke"): Følg telefonen / Altid lyst / Altid mørkt
+ * - Appearance setting ("Udseende"): Følg telefonen / Lyst / Mørkt + "Kortet følger appen"
  * - Overlays: Terræn (DHM skyggekort + kurver), Vand (søer, vandløb, vådområder, kilder),
  *   Afmærkede ruter, Adgangsforhold, Shelters, Fri teltning, Drikkevand, Toiletter, Butikker, Transport, Mine punkter
  */
@@ -102,6 +100,8 @@ fun MapLayersBottomSheet(
         onToggleTerrain = { scope.launch { settingsRepository.setOverlayTerrain(it) } },
         onToggleWaterLayer = { scope.launch { settingsRepository.setOverlayWaterLayer(it) } },
         onMapDarkModeChanged = { scope.launch { settingsRepository.setMapDarkMode(it) } },
+        onMapFollowsAppChanged = { scope.launch { settingsRepository.setMapFollowsApp(it) } },
+        onMapThemeOverrideChanged = { scope.launch { settingsRepository.setMapThemeOverride(it) } },
         onDismiss = onDismiss
     )
 }
@@ -123,9 +123,13 @@ fun MapLayersBottomSheet(
     onDismiss: () -> Unit,
     onToggleTerrain: (Boolean) -> Unit = {},
     onToggleWaterLayer: (Boolean) -> Unit = {},
-    onMapDarkModeChanged: (MapDarkMode) -> Unit = {}
+    onMapDarkModeChanged: (MapDarkMode) -> Unit = {},
+    onMapFollowsAppChanged: (Boolean) -> Unit = {},
+    onMapThemeOverrideChanged: (MapThemeOverride) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val stiColors = DanskStiTheme.colors
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -154,7 +158,7 @@ fun MapLayersBottomSheet(
                     Icon(
                         imageVector = Icons.Default.Layers,
                         contentDescription = null,
-                        tint = ForestGreenPrimary,
+                        tint = primaryColor,
                         modifier = Modifier.size(24.dp)
                     )
                     Text(
@@ -184,13 +188,13 @@ fun MapLayersBottomSheet(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
-                color = ForestGreenPrimary
+                color = primaryColor
             )
             Spacer(modifier = Modifier.height(8.dp))
 
             BaseMapOptionCard(
-                title = "Topografisk",
-                subtitle = "Skærmkortet — Danmarks officielle topografiske kort (SDFI)",
+                title = stringResource(R.string.map_layer_base_topo_title),
+                subtitle = stringResource(R.string.map_layer_base_topo_subtitle),
                 icon = Icons.Default.Map,
                 isSelected = layersState.baseMap == BaseMapType.SKAERMKORT,
                 onClick = { onBaseMapChanged(BaseMapType.SKAERMKORT) },
@@ -200,8 +204,8 @@ fun MapLayersBottomSheet(
             Spacer(modifier = Modifier.height(8.dp))
 
             BaseMapOptionCard(
-                title = "Udendørs",
-                subtitle = "Thunderforest Outdoors / OpenTopoMap med stier & kurver",
+                title = stringResource(R.string.map_layer_base_outdoor_title),
+                subtitle = stringResource(R.string.map_layer_base_outdoor_subtitle),
                 icon = Icons.Default.Terrain,
                 isSelected = layersState.baseMap == BaseMapType.FRILUFTSKORT,
                 onClick = { onBaseMapChanged(BaseMapType.FRILUFTSKORT) },
@@ -211,8 +215,8 @@ fun MapLayersBottomSheet(
             Spacer(modifier = Modifier.height(8.dp))
 
             BaseMapOptionCard(
-                title = "Luftfoto",
-                subtitle = "GeoDanmark forårsortofoto i høj opløsning (EPSG:3857)",
+                title = stringResource(R.string.map_layer_base_aerial_title),
+                subtitle = stringResource(R.string.map_layer_base_aerial_subtitle),
                 icon = Icons.Default.PhotoCamera,
                 isSelected = layersState.baseMap == BaseMapType.LUFTFOTO,
                 onClick = { onBaseMapChanged(BaseMapType.LUFTFOTO) },
@@ -223,7 +227,7 @@ fun MapLayersBottomSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 1B. DARK MAP SETTING ("Kort i mørke")
+            // 1B. APPEARANCE & MAP THEME SETTING ("Udseende" + "Kortet følger appen")
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -231,11 +235,11 @@ fun MapLayersBottomSheet(
                 Icon(
                     imageVector = Icons.Default.DarkMode,
                     contentDescription = null,
-                    tint = ForestGreenPrimary,
+                    tint = primaryColor,
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = stringResource(R.string.setting_dark_map),
+                    text = stringResource(R.string.setting_appearance),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -261,16 +265,68 @@ fun MapLayersBottomSheet(
                             )
                         },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = ForestGreenPrimary.copy(alpha = 0.16f),
-                            selectedLabelColor = ForestGreenPrimary
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
                         ),
                         border = FilterChipDefaults.filterChipBorder(
                             enabled = true,
                             selected = selected,
-                            borderColor = if (selected) ForestGreenPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+                            borderColor = if (selected) primaryColor else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
                         ),
                         modifier = Modifier.testTag("map_dark_mode_${mode.name.lowercase()}")
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.setting_map_follows_app),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Switch(
+                    checked = layersState.mapFollowsApp,
+                    onCheckedChange = onMapFollowsAppChanged,
+                    modifier = Modifier.testTag("map_follows_app_switch")
+                )
+            }
+            if (!layersState.mapFollowsApp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("map_theme_override_selector"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    MapThemeOverride.entries.forEach { overrideMode ->
+                        val selected = layersState.mapThemeOverride == overrideMode
+                        FilterChip(
+                            selected = selected,
+                            onClick = { onMapThemeOverrideChanged(overrideMode) },
+                            label = {
+                                Text(
+                                    text = overrideMode.displayName,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = selected,
+                                borderColor = if (selected) primaryColor else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+                            ),
+                            modifier = Modifier.testTag("map_override_${overrideMode.name.lowercase()}")
+                        )
+                    }
                 }
             }
 
@@ -284,115 +340,115 @@ fun MapLayersBottomSheet(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
-                color = ForestGreenPrimary
+                color = primaryColor
             )
             Spacer(modifier = Modifier.height(8.dp))
 
             LayerToggleRow(
-                title = "Terræn",
-                subtitle = "DHM terræn-skyggekort og højdekurver (fra zoom 14)",
+                title = stringResource(R.string.map_layer_terrain_title),
+                subtitle = stringResource(R.string.map_layer_terrain_subtitle),
                 icon = Icons.Default.Landscape,
-                iconTint = ForestGreenPrimary,
+                iconTint = primaryColor,
                 checked = layersState.showTerrain,
                 onCheckedChange = onToggleTerrain,
                 testTag = "toggle_layer_terrain"
             )
 
             LayerToggleRow(
-                title = "Vand",
-                subtitle = "Søer, vådområder, åer, bække og kilder (fra zoom 12)",
+                title = stringResource(R.string.map_layer_water_bodies_title),
+                subtitle = stringResource(R.string.map_layer_water_bodies_subtitle),
                 icon = Icons.Default.Water,
-                iconTint = NordicBlue,
+                iconTint = stiColors.plannedRoute,
                 checked = layersState.showWaterLayer,
                 onCheckedChange = onToggleWaterLayer,
                 testTag = "toggle_layer_water_bodies"
             )
 
             LayerToggleRow(
-                title = "Afmærkede ruter",
-                subtitle = "OSM vandreruter og lokale stier ved zoom 10+",
+                title = stringResource(R.string.map_layer_marked_routes_title),
+                subtitle = stringResource(R.string.map_layer_marked_routes_subtitle),
                 icon = Icons.Default.Explore,
-                iconTint = ForestGreenPrimary,
+                iconTint = primaryColor,
                 checked = layersState.showMarkedRoutes,
                 onCheckedChange = onToggleMarkedRoutes,
                 testTag = "toggle_layer_marked_routes"
             )
 
             LayerToggleRow(
-                title = "Adgangsforhold",
-                subtitle = "Statsskove, private skove & naturbeskyttelse",
+                title = stringResource(R.string.map_layer_access_title),
+                subtitle = stringResource(R.string.map_layer_access_subtitle),
                 icon = Icons.Default.Security,
-                iconTint = ForestGreenLight,
+                iconTint = stiColors.success,
                 checked = layersState.showAccess,
                 onCheckedChange = onToggleAccess,
                 testTag = "toggle_layer_access"
             )
 
             LayerToggleRow(
-                title = "Shelters",
-                subtitle = "Over 1.000 GeoFA og OSM shelterpladser",
+                title = stringResource(R.string.map_layer_shelters_title),
+                subtitle = stringResource(R.string.map_layer_shelters_subtitle),
                 icon = Icons.Default.HolidayVillage,
-                iconTint = AmberAccent,
+                iconTint = stiColors.warning,
                 checked = layersState.showShelters,
                 onCheckedChange = onToggleShelters,
                 testTag = "toggle_layer_shelters"
             )
 
             LayerToggleRow(
-                title = "Fri teltning",
-                subtitle = "Naturstyrelsens 275+ skove med 1-2-3 reglen",
+                title = stringResource(R.string.map_layer_fri_teltning_title),
+                subtitle = stringResource(R.string.map_layer_fri_teltning_subtitle),
                 icon = Icons.Default.Forest,
-                iconTint = ForestGreenPrimary,
+                iconTint = primaryColor,
                 checked = layersState.showFriTeltning,
                 onCheckedChange = onToggleFriTeltning,
                 testTag = "toggle_layer_fri_teltning"
             )
 
             LayerToggleRow(
-                title = "Drikkevand",
-                subtitle = "Vandposter og kilder langs ruten",
+                title = stringResource(R.string.map_layer_drinking_water_title),
+                subtitle = stringResource(R.string.map_layer_drinking_water_subtitle),
                 icon = Icons.Default.WaterDrop,
-                iconTint = NordicBlue,
+                iconTint = stiColors.plannedRoute,
                 checked = layersState.showWater,
                 onCheckedChange = onToggleWater,
                 testTag = "toggle_layer_water"
             )
 
             LayerToggleRow(
-                title = "Toiletter",
-                subtitle = "Offentlige toiletter og faciliteter",
+                title = stringResource(R.string.map_layer_toilets_title),
+                subtitle = stringResource(R.string.map_layer_toilets_subtitle),
                 icon = Icons.Default.Wc,
-                iconTint = NordicBlue,
+                iconTint = stiColors.plannedRoute,
                 checked = layersState.showToilets,
                 onCheckedChange = onToggleToilets,
                 testTag = "toggle_layer_toilets"
             )
 
             LayerToggleRow(
-                title = "Butikker & proviant",
-                subtitle = "Supermarkeder, bagerier og gårdbutikker",
+                title = stringResource(R.string.map_layer_shops_title),
+                subtitle = stringResource(R.string.map_layer_shops_subtitle),
                 icon = Icons.Default.ShoppingBag,
-                iconTint = AmberAccent,
+                iconTint = stiColors.warning,
                 checked = layersState.showShops,
                 onCheckedChange = onToggleShops,
                 testTag = "toggle_layer_shops"
             )
 
             LayerToggleRow(
-                title = "Offentlig transport",
-                subtitle = "Togstationer, busstoppesteder og færger",
+                title = stringResource(R.string.map_layer_transport_title),
+                subtitle = stringResource(R.string.map_layer_transport_subtitle),
                 icon = Icons.Default.DirectionsBus,
-                iconTint = NordicBlue,
+                iconTint = stiColors.plannedRoute,
                 checked = layersState.showTransport,
                 onCheckedChange = onToggleTransport,
                 testTag = "toggle_layer_transport"
             )
 
             LayerToggleRow(
-                title = "Mine punkter",
-                subtitle = "Egne tilføjede waypoints og noter",
+                title = stringResource(R.string.map_layer_my_points_title),
+                subtitle = stringResource(R.string.map_layer_my_points_subtitle),
                 icon = Icons.Default.Bookmark,
-                iconTint = AmberAccent,
+                iconTint = stiColors.warning,
                 checked = layersState.showMyPoints,
                 onCheckedChange = onToggleMyPoints,
                 testTag = "toggle_layer_my_points"
@@ -412,18 +468,19 @@ private fun BaseMapOptionCard(
     onClick: () -> Unit,
     testTag: String
 ) {
+    val primaryColor = MaterialTheme.colorScheme.primary
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) {
-                ForestGreenPrimary.copy(alpha = 0.12f)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
             } else {
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
             }
         ),
         border = BorderStroke(
             1.dp,
-            if (isSelected) ForestGreenPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+            if (isSelected) primaryColor else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -436,13 +493,13 @@ private fun BaseMapOptionCard(
         ) {
             Surface(
                 shape = CircleShape,
-                color = if (isSelected) ForestGreenPrimary else MaterialTheme.colorScheme.surface,
+                color = if (isSelected) primaryColor else MaterialTheme.colorScheme.surface,
                 modifier = Modifier.size(38.dp)
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(9.dp)
                 )
             }
@@ -467,7 +524,7 @@ private fun BaseMapOptionCard(
             RadioButton(
                 selected = isSelected,
                 onClick = onClick,
-                colors = RadioButtonDefaults.colors(selectedColor = ForestGreenPrimary)
+                colors = RadioButtonDefaults.colors(selectedColor = primaryColor)
             )
         }
     }
@@ -525,8 +582,8 @@ private fun LayerToggleRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = ForestGreenPrimary
+                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                checkedTrackColor = MaterialTheme.colorScheme.primary
             )
         )
     }
@@ -558,17 +615,28 @@ fun MapAttributionPill(
         }
     }.distinct().joinToString(" · ")
 
+    val containerColor = if (isDarkMode) {
+        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.82f)
+    } else {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+    }
+    val contentColor = if (isDarkMode) {
+        MaterialTheme.colorScheme.inverseOnSurface
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = if (isDarkMode) Color(0xCC141A16) else Color(0xD9FFFFFF),
-        border = BorderStroke(0.5.dp, if (isDarkMode) Color(0x44FFFFFF) else Color(0x22000000)),
+        color = containerColor,
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
     ) {
         Text(
             text = activeCredits,
             fontSize = 9.sp,
             lineHeight = 11.sp,
-            color = if (isDarkMode) Color(0xFFD0DDD4) else Color(0xFF2B352E),
+            color = contentColor,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
         )
     }

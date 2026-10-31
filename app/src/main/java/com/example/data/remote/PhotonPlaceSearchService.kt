@@ -216,6 +216,9 @@ class PhotonPlaceSearchService(private val context: Context) {
         }
     }
 
+    val photonRequestCount = java.util.concurrent.atomic.AtomicInteger(0)
+    var customPhotonFetcher: (suspend (String) -> List<PlaceSearchResult>)? = null
+
     /**
      * Searches Photon OpenStreetMap API limited to Denmark when [isOnline] is true,
      * caching the last 50 results and falling back to cached places when offline.
@@ -226,6 +229,13 @@ class PhotonPlaceSearchService(private val context: Context) {
             if (q.length < 2) return@withContext emptyList()
 
             Log.i(TAG, PHOTON_USAGE_TERMS)
+            photonRequestCount.incrementAndGet()
+
+            customPhotonFetcher?.let { fetcher ->
+                val customRes = fetcher(q)
+                cachePlaces(customRes)
+                return@withContext customRes.take(10)
+            }
 
             val cachedMatches = searchCachedPlaces(q)
             if (!isOnline) {

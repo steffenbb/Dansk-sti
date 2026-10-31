@@ -4,7 +4,9 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.Paint
 import android.os.SystemClock
+import androidx.compose.ui.graphics.toArgb
 import com.example.data.local.DanskStiDatabase
+import com.example.ui.theme.LightDanskStiColors
 import com.example.data.local.MapLayersState
 import com.example.data.model.FriTeltningEntity
 import com.example.data.model.MarkedRouteDto
@@ -550,7 +552,7 @@ class MapLayersOverlayManager(
             val routeColor = try {
                 Color.parseColor(route.colorHex)
             } catch (_: Exception) {
-                0xFFD84315.toInt()
+                LightDanskStiColors.warning.toArgb()
             }
 
             for (segment in route.polylines) {
@@ -559,7 +561,7 @@ class MapLayersOverlayManager(
 
                 val casing = Polyline().apply {
                     setPoints(geoPoints)
-                    outlinePaint.color = Color.argb(170, 255, 255, 255)
+                    outlinePaint.color = LightDanskStiColors.routeCasing.copy(alpha = 0.67f).toArgb()
                     outlinePaint.strokeWidth = 5.5f * density
                     outlinePaint.strokeCap = Paint.Cap.ROUND
                     outlinePaint.strokeJoin = Paint.Join.ROUND

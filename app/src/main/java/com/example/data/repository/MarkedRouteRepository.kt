@@ -3,11 +3,14 @@ package com.example.data.repository
 import android.content.Context
 import android.util.Log
 import com.example.data.local.DanskStiDao
+import com.example.data.local.PreseededData
+import com.example.data.model.DiscoveredHikingRouteDto
 import com.example.data.model.GeoPointDto
 import com.example.data.model.MarkedRouteCacheBoxEntity
 import com.example.data.model.MarkedRouteDto
 import com.example.data.model.MarkedRouteEntity
 import com.example.data.model.SavedTrailEntity
+import com.example.data.model.TrailDownloadProgress
 import com.example.data.model.TrailEntity
 import com.example.data.model.TrailGeometryDto
 import com.example.data.model.TrailSegmentDto
@@ -20,6 +23,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -27,18 +31,15 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Phase 13 Requirement B:
- * Repository for marked hiking and foot routes ("Afmærkede ruter").
- * - Queries Overpass for relation[route=hiking] and relation[route=foot] inside visible map area when zoomed in to 10 or closer.
- * - Caches results per geographic area in Room for 7 days (168 hours).
- * - Transforms relations and way geometries into lightweight, high-contrast coloured polylines with names.
- * - Allows 1-tap saving as a full trail with the Phase 1 geometry download pipeline.
+ * Phase 13 Requirement B & Round 9 C Requirement 2:
+ * Repository for marked hiking and foot routes ("Afmærkede ruter" & "Flere afmærkede ruter").
  */
 class MarkedRouteRepository(
     private val context: Context,
@@ -48,6 +49,21 @@ class MarkedRouteRepository(
     companion object {
         private const val TAG = "MarkedRouteRepo"
         const val CACHE_TTL_MS = 7L * 24 * 60 * 60 * 1000L // 7 days in milliseconds
+        const val MORE_MARKED_ROUTES_CACHE_TTL_MS = 30L * 24 * 60 * 60 * 1000L // 30 days in milliseconds
+
+        /**
+         * Round 9 C Requirement 2 Overpass query:
+         * relation["route"="hiking"]["network"~"^(iwn|nwn|rwn)$"](area Denmark); out tags;
+         */
+        val MORE_MARKED_ROUTES_OVERPASS_QUERY = """
+            [out:json][timeout:30];
+            area["ISO3166-1"="DK"]->.denmark;
+            relation["route"="hiking"]["network"~"^(iwn|nwn|rwn)$"](area.denmark);
+            out tags;
+        """.trimIndent()
+
+        @Volatile
+        var customMoreMarkedRoutesFetcher: (() -> String?)? = null
 
         val PALETTE = listOf(
             "#D32F2F", // Red
@@ -83,6 +99,274 @@ class MarkedRouteRepository(
         "https://overpass-api.de/api/interpreter",
         "https://lz4.overpass-api.de/api/interpreter"
     )
+
+    private val effectiveFilesDir: File
+        get() = try {
+            val currentDir = com.example.DanskStiApp.instance.filesDir
+            if (currentDir.exists()) currentDir else context.filesDir
+        } catch (_: Exception) {
+            context.filesDir
+        }
+
+    fun getMoreMarkedRoutesCacheFile(): File {
+        return File(effectiveFilesDir, "more_marked_routes_cache.json")
+    }
+
+    /**
+     * Round 9 C Requirement 2:
+     * Fetches "Flere afmærkede ruter" from Overpass:
+     * relation["route"="hiking"]["network"~"^(iwn|nwn|rwn)$"](area Denmark); out tags;
+     * Cached for 30 days on disk, excluding relations already in the catalogue.
+     */
+    suspend fun getMoreMarkedHikingRoutes(
+        forceRefresh: Boolean = false
+    ): List<DiscoveredHikingRouteDto> = withContext(Dispatchers.IO) {
+        val catalogueRelationIds = buildSet<Long> {
+            PreseededData.getInitialTrails().forEach { t ->
+                t.osmRelationId?.let { add(it) }
+            }
+            try {
+                dao.getAllTrails().firstOrNull()?.forEach { t ->
+                    t.osmRelationId?.let { add(it) }
+                }
+            } catch (_: Exception) {}
+        }
+
+        val cacheFile = getMoreMarkedRoutesCacheFile()
+        val now = System.currentTimeMillis()
+
+        if (!forceRefresh && cacheFile.exists()) {
+            try {
+                val root = JSONObject(cacheFile.readText())
+                val fetchedAt = root.optLong("fetchedAt", 0L)
+                if (fetchedAt > 0L && (now - fetchedAt) < MORE_MARKED_ROUTES_CACHE_TTL_MS) {
+                    val cachedRoutes = parseDiscoveredRoutesArray(root.optJSONArray("routes"))
+                    return@withContext cachedRoutes
+                        .filter { it.osmRelationId !in catalogueRelationIds }
+                        .sortedBy { it.name.lowercase() }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed reading more_marked_routes_cache.json: ${e.message}")
+            }
+        }
+
+        val freshJson = fetchMoreMarkedRoutesOverpassJson()
+        if (freshJson != null) {
+            val parsed = parseOverpassTagsResponse(freshJson)
+            if (parsed.isNotEmpty()) {
+                saveDiscoveredRoutesCache(cacheFile, now, parsed)
+                return@withContext parsed
+                    .filter { it.osmRelationId !in catalogueRelationIds }
+                    .sortedBy { it.name.lowercase() }
+            }
+        }
+
+        // Fallback to expired cache if offline and cache exists
+        if (cacheFile.exists()) {
+            try {
+                val root = JSONObject(cacheFile.readText())
+                val cachedRoutes = parseDiscoveredRoutesArray(root.optJSONArray("routes"))
+                return@withContext cachedRoutes
+                    .filter { it.osmRelationId !in catalogueRelationIds }
+                    .sortedBy { it.name.lowercase() }
+            } catch (_: Exception) {}
+        }
+
+        emptyList()
+    }
+
+    private fun fetchMoreMarkedRoutesOverpassJson(): String? {
+        val customFetcher = customMoreMarkedRoutesFetcher
+        if (customFetcher != null) {
+            return customFetcher.invoke()
+        }
+
+        for (mirror in overpassMirrors) {
+            try {
+                val body = ("data=" + java.net.URLEncoder.encode(MORE_MARKED_ROUTES_OVERPASS_QUERY, "UTF-8"))
+                    .toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
+                val req = Request.Builder()
+                    .url(mirror)
+                    .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
+                    .post(body)
+                    .build()
+
+                client.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val str = resp.body?.string()
+                        if (!str.isNullOrBlank()) {
+                            return str
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Overpass mirror $mirror failed for Flere afmærkede ruter: ${e.message}")
+            }
+        }
+        return null
+    }
+
+    fun parseOverpassTagsResponse(jsonStr: String): List<DiscoveredHikingRouteDto> {
+        val result = LinkedHashMap<Long, DiscoveredHikingRouteDto>()
+        try {
+            val root = JSONObject(jsonStr)
+            val elements = root.optJSONArray("elements") ?: return emptyList()
+            for (i in 0 until elements.length()) {
+                val el = elements.optJSONObject(i) ?: continue
+                if (el.optString("type") != "relation") continue
+                val id = el.optLong("id", 0L)
+                if (id <= 0L) continue
+                val tags = el.optJSONObject("tags") ?: continue
+                val routeType = tags.optString("route", "")
+                if (routeType != "hiking" && routeType != "foot") continue
+                val network = tags.optString("network", "").lowercase()
+                if (network !in setOf("iwn", "nwn", "rwn")) continue
+
+                val rawName = tags.optString("name:da").ifBlank {
+                    tags.optString("name").ifBlank {
+                        tags.optString("ref")
+                    }
+                }.trim()
+                if (rawName.isBlank()) continue
+
+                val ref = tags.optString("ref").takeIf { it.isNotBlank() }
+                val operator = tags.optString("operator").takeIf { it.isNotBlank() }
+                val distStr = tags.optString("distance").replace(",", ".").replace(Regex("[^0-9.]"), "")
+                val distKm = distStr.toDoubleOrNull()
+
+                result[id] = DiscoveredHikingRouteDto(
+                    osmRelationId = id,
+                    name = rawName,
+                    ref = ref,
+                    network = network,
+                    operator = operator,
+                    distanceTagKm = distKm
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error parsing Overpass tags response: ${e.message}")
+        }
+        return result.values.toList()
+    }
+
+    private fun saveDiscoveredRoutesCache(
+        cacheFile: File,
+        fetchedAt: Long,
+        routes: List<DiscoveredHikingRouteDto>
+    ) {
+        try {
+            val arr = JSONArray()
+            for (r in routes) {
+                val obj = JSONObject()
+                obj.put("osmRelationId", r.osmRelationId)
+                obj.put("name", r.name)
+                if (r.ref != null) obj.put("ref", r.ref)
+                obj.put("network", r.network)
+                if (r.operator != null) obj.put("operator", r.operator)
+                if (r.distanceTagKm != null) obj.put("distanceTagKm", r.distanceTagKm)
+                arr.put(obj)
+            }
+            val root = JSONObject()
+            root.put("fetchedAt", fetchedAt)
+            root.put("routes", arr)
+            cacheFile.writeText(root.toString())
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed saving more_marked_routes_cache.json: ${e.message}")
+        }
+    }
+
+    private fun parseDiscoveredRoutesArray(arr: JSONArray?): List<DiscoveredHikingRouteDto> {
+        if (arr == null) return emptyList()
+        val list = mutableListOf<DiscoveredHikingRouteDto>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val id = obj.optLong("osmRelationId", 0L)
+            val name = obj.optString("name", "").trim()
+            if (id <= 0L || name.isBlank()) continue
+            list.add(
+                DiscoveredHikingRouteDto(
+                    osmRelationId = id,
+                    name = name,
+                    ref = obj.optString("ref").takeIf { it.isNotBlank() },
+                    network = obj.optString("network", "rwn"),
+                    operator = obj.optString("operator").takeIf { it.isNotBlank() },
+                    distanceTagKm = if (obj.has("distanceTagKm")) obj.optDouble("distanceTagKm") else null
+                )
+            )
+        }
+        return list
+    }
+
+    /**
+     * Round 9 C Requirement 2:
+     * Tapping one route in "Flere afmærkede ruter" saves it as a trail and downloads it with the existing pipeline.
+     */
+    suspend fun saveAndDownloadDiscoveredRoute(
+        route: DiscoveredHikingRouteDto,
+        onProgress: ((TrailDownloadProgress) -> Unit)? = null
+    ): Result<TrailEntity> = withContext(Dispatchers.IO) {
+        try {
+            val trailId = "trail_osm_${route.osmRelationId}"
+            val existing = dao.getTrailById(trailId)
+            if (existing != null && existing.isGeometryDownloaded && trailGeometryRepository.isGeometryCached(trailId)) {
+                dao.insertSavedTrail(SavedTrailEntity(trailId = trailId))
+                return@withContext Result.success(existing)
+            }
+
+            // 1. Insert initial catalogue trail entry without typed length/region/description
+            val initialTrail = TrailEntity(
+                id = trailId,
+                name = route.name,
+                description = "",
+                region = "",
+                parentRegion = "",
+                osmRelationId = route.osmRelationId,
+                computedWalkingKm = 0.0,
+                isGeometryDownloaded = false,
+                source = "Overpass (${route.network.uppercase()})"
+            )
+            dao.insertTrail(initialTrail)
+            dao.insertSavedTrail(SavedTrailEntity(trailId = trailId))
+
+            // 2. Download real geometry via existing TrailGeometryRepository pipeline
+            val processedGeometry = trailGeometryRepository.fetchAndProcessTrail(
+                trailId = trailId,
+                trailName = route.name,
+                osmRelationId = route.osmRelationId,
+                onProgress = onProgress
+            ) ?: return@withContext Result.failure(
+                IOException("Kunne ikke hente rutegeometri for ${route.name} (#${route.osmRelationId})")
+            )
+
+            trailGeometryRepository.saveGeometry(processedGeometry)
+
+            val computedRegion = GeoUtils.computeDanishRegionFromBbox(
+                south = processedGeometry.bboxSouth,
+                west = processedGeometry.bboxWest,
+                north = processedGeometry.bboxNorth,
+                east = processedGeometry.bboxEast
+            )
+
+            val downloadedTrail = initialTrail.copy(
+                region = computedRegion,
+                parentRegion = computedRegion,
+                computedWalkingKm = processedGeometry.totalWalkingKm,
+                gapsOver200m = processedGeometry.gapsOver200mCount,
+                osmTimestamp = processedGeometry.osmTimestamp,
+                bboxNorth = processedGeometry.bboxNorth,
+                bboxSouth = processedGeometry.bboxSouth,
+                bboxEast = processedGeometry.bboxEast,
+                bboxWest = processedGeometry.bboxWest,
+                isGeometryDownloaded = true,
+                lastUpdated = System.currentTimeMillis()
+            )
+            dao.insertTrail(downloadedTrail)
+            Result.success(downloadedTrail)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save and download discovered route ${route.name}: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
 
     /**
      * Retrieves marked hiking routes for the visible map area.
@@ -357,7 +641,7 @@ class MarkedRouteRepository(
         try {
             val trailId = "trail_osm_${markedRoute.osmRelationId}"
             val existing = dao.getTrailById(trailId)
-            if (existing != null) {
+            if (existing != null && existing.isGeometryDownloaded) {
                 dao.insertSavedTrail(SavedTrailEntity(trailId = trailId))
                 return@withContext Result.success(existing)
             }
@@ -368,6 +652,10 @@ class MarkedRouteRepository(
                 trailName = markedRoute.name,
                 osmRelationId = markedRoute.osmRelationId
             )
+
+            if (processedGeometry != null) {
+                trailGeometryRepository.saveGeometry(processedGeometry)
+            }
 
             val computedLength = if (processedGeometry != null && processedGeometry.totalWalkingKm > 0) {
                 processedGeometry.totalWalkingKm
@@ -399,21 +687,33 @@ class MarkedRouteRepository(
                 trailGeometryRepository.saveGeometry(fallbackGeom)
             }
 
+            val finalNorth = processedGeometry?.bboxNorth ?: markedRoute.maxLat
+            val finalSouth = processedGeometry?.bboxSouth ?: markedRoute.minLat
+            val finalEast = processedGeometry?.bboxEast ?: markedRoute.maxLng
+            val finalWest = processedGeometry?.bboxWest ?: markedRoute.minLng
+            val computedRegion = GeoUtils.computeDanishRegionFromBbox(
+                south = finalSouth,
+                west = finalWest,
+                north = finalNorth,
+                east = finalEast
+            )
+
             val trailEntity = TrailEntity(
                 id = trailId,
                 name = markedRoute.name,
-                description = "Afmærket ${markedRoute.networkDescription.lowercase()} (${markedRoute.displayOperator})",
-                region = "Danmark",
-                parentRegion = "Danmark",
+                description = "",
+                region = computedRegion,
+                parentRegion = computedRegion,
                 osmRelationId = markedRoute.osmRelationId,
                 computedWalkingKm = String.format(java.util.Locale.US, "%.1f", computedLength).toDouble(),
                 gapsOver200m = processedGeometry?.gaps?.size ?: 0,
-                bboxNorth = markedRoute.maxLat,
-                bboxSouth = markedRoute.minLat,
-                bboxEast = markedRoute.maxLng,
-                bboxWest = markedRoute.minLng,
+                bboxNorth = finalNorth,
+                bboxSouth = finalSouth,
+                bboxEast = finalEast,
+                bboxWest = finalWest,
                 isGeometryDownloaded = true,
-                lastUpdated = System.currentTimeMillis()
+                lastUpdated = System.currentTimeMillis(),
+                source = "Overpass (${markedRoute.network?.uppercase() ?: "RWN"})"
             )
 
             dao.insertTrail(trailEntity)

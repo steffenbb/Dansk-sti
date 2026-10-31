@@ -17,8 +17,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -52,7 +56,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.model.TrailSegmentType
 import com.example.ui.map.DanskStiMap
 import com.example.ui.navigation.MapLayersOverlayManager
-import com.example.ui.theme.ForestGreenPrimary
+import com.example.ui.theme.DanskStiTheme
 import com.example.ui.viewmodel.TrailViewModel
 import com.example.util.routing.RouteMarkerHelper
 import org.osmdroid.util.BoundingBox
@@ -68,7 +72,9 @@ fun FullscreenMapScreen(
     onOpenRouteBuilder: ((lat: Double, lng: Double, label: String) -> Unit)? = null,
     viewModel: TrailViewModel = viewModel()
 ) {
-    val systemDark = isSystemInDarkTheme()
+    val systemDark = DanskStiTheme.isDark
+    val danskStiColors = DanskStiTheme.colors
+    val colorScheme = MaterialTheme.colorScheme
 
     LaunchedEffect(trailId) {
         viewModel.loadTrail(trailId)
@@ -149,6 +155,7 @@ fun FullscreenMapScreen(
                 } else {
                     RouteMarkerHelper.COLOR_PLANNED_CASING_LIGHT
                 }
+                val ferryColor = colorScheme.outline.toArgb()
 
                 for (seg in segments) {
                     val geoPoints = seg.points.map { GeoPoint(it.lat, it.lng) }
@@ -167,7 +174,7 @@ fun FullscreenMapScreen(
                         val line = Polyline().apply {
                             setPoints(geoPoints)
                             if (seg.type == TrailSegmentType.FERRY) {
-                                outlinePaint.color = 0xFF607D8B.toInt()
+                                outlinePaint.color = ferryColor
                                 outlinePaint.strokeWidth = 3.5f * density
                                 outlinePaint.pathEffect = DashPathEffect(floatArrayOf(18f, 14f), 0f)
                             } else {
@@ -185,11 +192,15 @@ fun FullscreenMapScreen(
             }
         }
     ) { _, _ ->
-        // Top Header Overlay (Back button + Trail Title)
+        // Top Header Overlay (Back button + Trail Title) with system bar and keyboard insets
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 16.dp, start = 16.dp, end = 76.dp),
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(top = 16.dp, start = 16.dp, end = 76.dp)
+                .testTag("fullscreen_map_top_bar"),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -236,6 +247,9 @@ fun FullscreenMapScreen(
                 shadowElevation = 6.dp,
                 modifier = Modifier
                     .align(Alignment.Center)
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .imePadding()
                     .padding(24.dp)
             ) {
                 Row(
@@ -245,7 +259,7 @@ fun FullscreenMapScreen(
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
                         strokeWidth = 2.dp,
-                        color = ForestGreenPrimary
+                        color = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
@@ -296,7 +310,7 @@ fun FullscreenMapScreen(
                     Spacer(modifier = Modifier.height(14.dp))
                     Button(
                         onClick = { viewModel.loadTrail(trailId) },
-                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         shape = RoundedCornerShape(20.dp),
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                         modifier = Modifier.testTag("fullscreen_retry_osm_route_button")

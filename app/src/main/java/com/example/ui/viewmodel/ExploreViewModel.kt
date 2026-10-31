@@ -4,13 +4,16 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.DanskStiApp
+import com.example.data.model.DiscoveredHikingRouteDto
 import com.example.data.model.FriTeltningEntity
 import com.example.data.model.GeoPointDto
 import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
+import com.example.data.model.TrailDownloadProgress
 import com.example.data.model.TrailEntity
 import com.example.data.remote.PlaceSearchResult
 import com.example.data.repository.DanskStiRepository
+import com.example.data.repository.TrailGeometryRepository
 import com.example.util.GeoUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -18,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.map
@@ -49,8 +53,12 @@ data class TrailCardMetrics(
 @OptIn(FlowPreview::class)
 class ExploreViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: DanskStiRepository = (application as DanskStiApp).repository
-    val settingsRepository = com.example.data.local.SettingsRepository(getApplication())
+    private val app: DanskStiApp
+        get() = try { DanskStiApp.instance } catch (_: Exception) { getApplication() as DanskStiApp }
+    private val repository: DanskStiRepository
+        get() = app.repository
+    val settingsRepository
+        get() = com.example.data.local.SettingsRepository(app)
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -79,9 +87,34 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    val downloadProgress: StateFlow<Map<String, TrailDownloadProgress>> =
+        TrailGeometryRepository.globalDownloadProgress
+
+    private val _rawMoreMarkedRoutes = MutableStateFlow<List<DiscoveredHikingRouteDto>>(emptyList())
+    private val _isLoadingMoreMarkedRoutes = MutableStateFlow(false)
+    val isLoadingMoreMarkedRoutes: StateFlow<Boolean> = _isLoadingMoreMarkedRoutes.asStateFlow()
+
+    private val _downloadingDiscoveredRelationId = MutableStateFlow<Long?>(null)
+    val downloadingDiscoveredRelationId: StateFlow<Long?> = _downloadingDiscoveredRelationId.asStateFlow()
+
     val allTrails: StateFlow<List<TrailEntity>> = repository.getAllTrails().map { list ->
         if (list.isEmpty()) com.example.data.local.PreseededData.getInitialTrails() else list
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.local.PreseededData.getInitialTrails())
+
+    val moreMarkedRoutes: StateFlow<List<DiscoveredHikingRouteDto>> = combine(
+        _rawMoreMarkedRoutes,
+        allTrails,
+        _searchQuery
+    ) { discovered, catalogue, query ->
+        val catalogueIds = catalogue.mapNotNull { it.osmRelationId }.toSet()
+        discovered
+            .filter { it.osmRelationId !in catalogueIds }
+            .filter { route ->
+                query.isBlank() ||
+                    route.name.contains(query, ignoreCase = true) ||
+                    (route.ref?.contains(query, ignoreCase = true) == true)
+            }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val savedTrails: StateFlow<List<TrailEntity>> = repository.getSavedTrails()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -134,17 +167,54 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         loadMetadataAndCounts()
+        refreshMoreMarkedRoutes(forceRefresh = false)
 
         viewModelScope.launch {
-            _searchQuery.collect { query ->
-                if (query.trim().length >= 2) {
-                    val grouped = repository.searchGroupedInDenmark(query)
-                    _groupedSearchResults.value = grouped
-                    _placeSuggestions.value = repository.searchPlacesInDenmark(query)
-                } else {
-                    _groupedSearchResults.value = com.example.data.remote.GroupedSearchResults()
-                    _placeSuggestions.value = emptyList()
+            _searchQuery
+                .debounce(400L)
+                .collectLatest { query ->
+                    if (query.trim().length >= 2) {
+                        val grouped = repository.searchGroupedInDenmark(query)
+                        _groupedSearchResults.value = grouped
+                        _placeSuggestions.value = repository.searchPlacesInDenmark(query, grouped)
+                    } else {
+                        _groupedSearchResults.value = com.example.data.remote.GroupedSearchResults()
+                        _placeSuggestions.value = emptyList()
+                    }
                 }
+        }
+    }
+
+    fun refreshMoreMarkedRoutes(forceRefresh: Boolean = false) {
+        viewModelScope.launch {
+            _isLoadingMoreMarkedRoutes.value = true
+            try {
+                val routes = withContext(Dispatchers.IO) {
+                    repository.getMoreMarkedHikingRoutes(forceRefresh = forceRefresh)
+                }
+                _rawMoreMarkedRoutes.value = routes
+            } catch (_: Exception) {
+                // Keep existing list if offline
+            } finally {
+                _isLoadingMoreMarkedRoutes.value = false
+            }
+        }
+    }
+
+    fun saveAndDownloadDiscoveredRoute(
+        route: DiscoveredHikingRouteDto,
+        onSaved: (TrailEntity?) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            _downloadingDiscoveredRelationId.value = route.osmRelationId
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    repository.saveAndDownloadDiscoveredRoute(route)
+                }
+                val savedTrail = result.getOrNull()
+                onSaved(savedTrail)
+            } finally {
+                _downloadingDiscoveredRelationId.value = null
             }
         }
     }
@@ -168,13 +238,17 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                                 val sCount = repository.getShelterCountForTrail(t.id)
                                 sCounts[t.id] = sCount
 
+                                val computedReg = GeoUtils.computeDanishRegionForTrail(t)
                                 val fCount = if (t.bboxSouth != null && t.bboxNorth != null && t.bboxWest != null && t.bboxEast != null) {
                                     allFt.count { ft ->
                                         ft.centerLat in (t.bboxSouth - 0.04)..(t.bboxNorth + 0.04) &&
                                             ft.centerLng in (t.bboxWest - 0.06)..(t.bboxEast + 0.06)
                                     }
                                 } else {
-                                    allFt.count { ft -> ft.trailCorridorId == t.id || ft.name.contains(t.region, ignoreCase = true) }
+                                    allFt.count { ft ->
+                                        ft.trailCorridorId == t.id ||
+                                            (computedReg.isNotEmpty() && ft.name.contains(computedReg, ignoreCase = true))
+                                    }
                                 }
                                 fCounts[t.id] = fCount
 
@@ -184,8 +258,9 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                                     null
                                 }
                                 val pts = geom?.segments?.flatMap { it.points } ?: emptyList()
-                                val ascentM = geom?.totalAscentM ?: (t.lengthKm * 8.5).toInt()
-                                val estDays = kotlin.math.ceil(t.lengthKm / 20.0).toInt().coerceAtLeast(1)
+                                val computedKm = geom?.totalWalkingKm?.takeIf { it > 0.0 } ?: t.computedWalkingKm
+                                val ascentM = geom?.totalAscentM ?: (computedKm * 8.5).toInt()
+                                val estDays = kotlin.math.ceil(computedKm / 20.0).toInt().coerceAtLeast(1)
 
                                 metricsMap[t.id] = TrailCardMetrics(
                                     shelterCount = sCount,
@@ -232,26 +307,32 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
         val fCounts = args[9] as Map<String, Int>
 
         trails.filter { trail ->
+            val computedRegion = GeoUtils.computeDanishRegionForTrail(trail)
+            val computedKm = trail.computedWalkingKm
+
             val matchesQuery = query.isBlank() ||
                 trail.name.contains(query, ignoreCase = true) ||
-                trail.region.contains(query, ignoreCase = true) ||
+                computedRegion.contains(query, ignoreCase = true) ||
                 trail.description.contains(query, ignoreCase = true)
 
-            val matchesRegion = region == null ||
-                trail.region.equals(region, ignoreCase = true) ||
-                trail.parentRegion.equals(region, ignoreCase = true) ||
-                (region.startsWith("Fyn", ignoreCase = true) &&
-                    (trail.region.startsWith("Fyn", ignoreCase = true) ||
-                        trail.parentRegion.startsWith("Fyn", ignoreCase = true)))
+            val matchesRegion = if (region == null) {
+                true
+            } else if (computedRegion.isEmpty()) {
+                false
+            } else {
+                computedRegion.equals(region, ignoreCase = true) ||
+                    (region.startsWith("Fyn", ignoreCase = true) && computedRegion.startsWith("Fyn", ignoreCase = true)) ||
+                    (region.startsWith("Sjælland", ignoreCase = true) && computedRegion.startsWith("Sjælland", ignoreCase = true))
+            }
 
             val matchesLength = when (length) {
                 LengthFilter.ALL -> true
-                LengthFilter.SHORT -> trail.lengthKm < 50.0
-                LengthFilter.MEDIUM -> trail.lengthKm in 50.0..150.0
-                LengthFilter.LONG -> trail.lengthKm > 150.0
+                LengthFilter.SHORT -> computedKm > 0.0 && computedKm < 50.0
+                LengthFilter.MEDIUM -> computedKm in 50.0..150.0
+                LengthFilter.LONG -> computedKm > 150.0
             }
 
-            val matchesFlerdages = !flerdages || trail.lengthKm >= 25.0
+            val matchesFlerdages = !flerdages || computedKm >= 25.0
 
             val hasShelters = (sCounts[trail.id] ?: 0) > 0
             val hasFriTeltning = (fCounts[trail.id] ?: 0) > 0

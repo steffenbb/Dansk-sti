@@ -78,3 +78,25 @@ data class MarkedRouteDto(
             else -> "Afmærket rute"
         }
 }
+
+/**
+ * Round 9 C: Route discovered from Overpass query:
+ * relation["route"="hiking"]["network"~"^(iwn|nwn|rwn)$"](area Denmark); out tags;
+ */
+@JsonClass(generateAdapter = true)
+data class DiscoveredHikingRouteDto(
+    val osmRelationId: Long,
+    val name: String,
+    val ref: String? = null,
+    val network: String = "rwn",
+    val operator: String? = null,
+    val distanceTagKm: Double? = null
+) {
+    val networkLabel: String
+        get() = when (network.lowercase()) {
+            "iwn" -> "International vandrerute (IWN)"
+            "nwn" -> "National vandrerute (NWN)"
+            "rwn" -> "Regional vandrerute (RWN)"
+            else -> "Afmærket vandrerute"
+        }
+}

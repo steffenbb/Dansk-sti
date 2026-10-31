@@ -76,12 +76,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.DanskStiApp
+import com.example.data.local.AppAppearanceMode
+import com.example.data.local.MapThemeOverride
 import com.example.data.model.DownloadedTrailEntity
 import com.example.ui.components.OfflineStatusPill
 import com.example.ui.components.formatDownloadedDateDanish
-import com.example.ui.theme.AlertRed
-import com.example.ui.theme.ForestGreenLight
-import com.example.ui.theme.ForestGreenPrimary
+import com.example.ui.theme.DanskStiTheme
 import com.example.ui.theme.TabularBodyStyle
 import com.example.ui.viewmodel.OfflineViewModel
 import com.example.util.routing.BRouterSegments
@@ -99,6 +99,8 @@ fun OfflineTrailsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val colorScheme = MaterialTheme.colorScheme
+    val danskStiColors = DanskStiTheme.colors
     val isDeviceOnline = remember(context) {
         runCatching { (context.applicationContext as DanskStiApp).repository.isDeviceOnline() }.getOrDefault(true)
     }
@@ -143,7 +145,7 @@ fun OfflineTrailsScreen(
                         Text(
                             text = stringResource(R.string.ui_offlinetrailsscreen_ruter_mb_samlet_81, downloadedTrails.size, totalMbStr),
                             style = TabularBodyStyle.copy(fontSize = 13.sp),
-                            color = ForestGreenPrimary
+                            color = colorScheme.primary
                         )
                     }
                 },
@@ -170,7 +172,7 @@ fun OfflineTrailsScreen(
                         Icon(
                             imageVector = Icons.Default.Info,
                             contentDescription = stringResource(R.string.about_data_credits),
-                            tint = ForestGreenPrimary
+                            tint = colorScheme.primary
                         )
                     }
                 },
@@ -201,14 +203,14 @@ fun OfflineTrailsScreen(
                     ) {
                         Surface(
                             shape = CircleShape,
-                            color = ForestGreenPrimary.copy(alpha = 0.15f),
+                            color = colorScheme.primary.copy(alpha = 0.15f),
                             modifier = Modifier.size(48.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Storage,
                                     contentDescription = null,
-                                    tint = ForestGreenPrimary,
+                                    tint = colorScheme.primary,
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
@@ -238,16 +240,15 @@ fun OfflineTrailsScreen(
                 }
             }
 
-            // Requirement E: "Kort i mørke" setting (Følg telefonen / Altid lyst / Altid mørkt)
-            item(key = "dark_map_mode_card") {
-                val context = androidx.compose.ui.platform.LocalContext.current
+            // Round 9 B Item 1: "Udseende" (Følg telefonen / Lyst / Mørkt) + "Kortet følger appen"
+            item(key = "appearance_mode_card") {
                 val settingsRepository = remember { com.example.data.local.SettingsRepository(context) }
                 val layersState by settingsRepository.mapLayersFlow.collectAsState(initial = com.example.data.local.MapLayersState())
 
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("offline_dark_map_mode_card"),
+                        .testTag("offline_appearance_card"),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
@@ -257,7 +258,7 @@ fun OfflineTrailsScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = stringResource(R.string.setting_dark_map),
+                            text = stringResource(R.string.setting_appearance),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
@@ -267,23 +268,23 @@ fun OfflineTrailsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            com.example.data.local.DarkMapMode.entries.forEach { mode ->
-                                val isSelected = layersState.darkMapMode == mode
+                            AppAppearanceMode.entries.forEach { mode ->
+                                val isSelected = layersState.appearanceMode == mode
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
-                                    color = if (isSelected) ForestGreenPrimary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    color = if (isSelected) colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                     border = BorderStroke(
                                         if (isSelected) 1.5.dp else 1.dp,
-                                        if (isSelected) ForestGreenPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                                        if (isSelected) colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
                                     ),
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable {
                                             cardScope.launch {
-                                                settingsRepository.setDarkMapMode(mode)
+                                                settingsRepository.setAppearanceMode(mode)
                                             }
                                         }
-                                        .testTag("settings_dark_map_mode_${mode.name}")
+                                        .testTag("offline_appearance_mode_${mode.name}")
                                 ) {
                                     Box(
                                         modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
@@ -293,8 +294,69 @@ fun OfflineTrailsScreen(
                                             text = mode.title,
                                             fontSize = 11.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) ForestGreenPrimary else MaterialTheme.colorScheme.onSurface
+                                            color = if (isSelected) colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                         )
+                                    }
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = stringResource(R.string.setting_map_follows_app),
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Switch(
+                                checked = layersState.mapFollowsApp,
+                                onCheckedChange = { enabled ->
+                                    cardScope.launch {
+                                        settingsRepository.setMapFollowsApp(enabled)
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.primary),
+                                modifier = Modifier.testTag("offline_map_follows_app_switch")
+                            )
+                        }
+
+                        if (!layersState.mapFollowsApp) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                MapThemeOverride.entries.forEach { overrideMode ->
+                                    val isSelected = layersState.mapThemeOverride == overrideMode
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (isSelected) colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        border = BorderStroke(
+                                            if (isSelected) 1.5.dp else 1.dp,
+                                            if (isSelected) colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable {
+                                                cardScope.launch {
+                                                    settingsRepository.setMapThemeOverride(overrideMode)
+                                                }
+                                            }
+                                            .testTag("offline_map_override_${overrideMode.name}")
+                                    ) {
+                                        Box(
+                                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = overrideMode.title,
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -318,7 +380,7 @@ fun OfflineTrailsScreen(
                             Icon(
                                 imageVector = Icons.Default.CloudDownload,
                                 contentDescription = null,
-                                tint = ForestGreenPrimary,
+                                tint = colorScheme.primary,
                                 modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
@@ -340,7 +402,7 @@ fun OfflineTrailsScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(
                         1.dp,
-                        if (brouterState.isAllDownloaded) ForestGreenPrimary.copy(alpha = 0.5f)
+                        if (brouterState.isAllDownloaded) colorScheme.primary.copy(alpha = 0.5f)
                         else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
                     ),
                     modifier = Modifier
@@ -354,7 +416,7 @@ fun OfflineTrailsScreen(
                         ) {
                             Surface(
                                 shape = CircleShape,
-                                color = if (brouterState.isAllDownloaded) ForestGreenPrimary.copy(alpha = 0.15f)
+                                color = if (brouterState.isAllDownloaded) colorScheme.primary.copy(alpha = 0.15f)
                                 else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                                 modifier = Modifier.size(44.dp)
                             ) {
@@ -362,7 +424,7 @@ fun OfflineTrailsScreen(
                                     Icon(
                                         imageVector = if (brouterState.isAllDownloaded) Icons.Default.CheckCircle else Icons.Default.Route,
                                         contentDescription = null,
-                                        tint = if (brouterState.isAllDownloaded) ForestGreenPrimary else MaterialTheme.colorScheme.primary,
+                                        tint = if (brouterState.isAllDownloaded) colorScheme.primary else MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(24.dp)
                                     )
                                 }
@@ -385,7 +447,7 @@ fun OfflineTrailsScreen(
                                         "BRouter routing data (5 segmenter, ${BRouterSegments.TOTAL_SIZE_MB} MB)"
                                     },
                                     fontSize = 12.sp,
-                                    color = if (brouterState.isAllDownloaded) ForestGreenPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (brouterState.isAllDownloaded) colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -414,7 +476,7 @@ fun OfflineTrailsScreen(
                                         text = stringResource(R.string.ui_offlinetrailsscreen_fmt_86, brouterState.progressPercent),
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = ForestGreenPrimary
+                                        color = colorScheme.primary
                                     )
                                 }
 
@@ -424,8 +486,8 @@ fun OfflineTrailsScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(8.dp),
-                                    color = ForestGreenPrimary,
-                                    trackColor = ForestGreenLight.copy(alpha = 0.3f)
+                                    color = colorScheme.primary,
+                                    trackColor = colorScheme.primaryContainer
                                 )
 
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -455,13 +517,13 @@ fun OfflineTrailsScreen(
                                 Text(
                                     text = if (isSegmentsExpanded) "Skjul dækning og filstørrelser" else "Vis dækning og filstørrelser (5 filer)",
                                     fontSize = 12.sp,
-                                    color = ForestGreenPrimary,
+                                    color = colorScheme.primary,
                                     fontWeight = FontWeight.Medium
                                 )
                                 Icon(
                                     imageVector = if (isSegmentsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                                     contentDescription = null,
-                                    tint = ForestGreenPrimary,
+                                    tint = colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -486,7 +548,7 @@ fun OfflineTrailsScreen(
                                                 Icon(
                                                     imageVector = if (isSegDownloaded) Icons.Default.CheckCircle else Icons.Default.CloudDownload,
                                                     contentDescription = null,
-                                                    tint = if (isSegDownloaded) ForestGreenPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                    tint = if (isSegDownloaded) colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                                     modifier = Modifier.size(16.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
@@ -532,7 +594,7 @@ fun OfflineTrailsScreen(
                                 Switch(
                                     checked = brouterState.wifiOnly,
                                     onCheckedChange = { viewModel.setBRouterWifiOnly(it) },
-                                    colors = SwitchDefaults.colors(checkedThumbColor = ForestGreenPrimary),
+                                    colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.primary),
                                     modifier = Modifier.testTag("switch_brouter_wifi_only")
                                 )
                             }
@@ -554,7 +616,7 @@ fun OfflineTrailsScreen(
                                     )
                                     Button(
                                         onClick = { viewModel.updateBRouterData() },
-                                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
                                         shape = RoundedCornerShape(10.dp),
                                         modifier = Modifier.testTag("btn_brouter_update")
                                     ) {
@@ -570,7 +632,7 @@ fun OfflineTrailsScreen(
                             } else {
                                 Button(
                                     onClick = { viewModel.downloadBRouterData() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -659,14 +721,14 @@ fun OfflineTrailsScreen(
                         ) {
                             Surface(
                                 shape = CircleShape,
-                                color = ForestGreenPrimary.copy(alpha = 0.12f),
+                                color = colorScheme.primary.copy(alpha = 0.12f),
                                 modifier = Modifier.size(40.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         imageVector = Icons.Default.CloudDone,
                                         contentDescription = null,
-                                        tint = ForestGreenPrimary,
+                                        tint = colorScheme.primary,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
@@ -698,7 +760,7 @@ fun OfflineTrailsScreen(
                                 Icon(
                                     imageVector = Icons.Default.Delete,
                                     contentDescription = stringResource(R.string.ui_offlinetrailsscreen_slet_offline_kort_for_96, item.trailName),
-                                    tint = AlertRed.copy(alpha = 0.8f),
+                                    tint = danskStiColors.danger.copy(alpha = 0.8f),
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -738,7 +800,7 @@ fun OfflineTrailsScreen(
                     },
                     modifier = Modifier.testTag("confirm_delete_offline_button")
                 ) {
-                    Text(stringResource(R.string.btn_delete), color = AlertRed, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.btn_delete), color = danskStiColors.danger, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {

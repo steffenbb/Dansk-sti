@@ -65,8 +65,12 @@ data class DayProgressStopIcon(
 
 class NavigationViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: DanskStiRepository = (application as DanskStiApp).repository
-    private val plannedRouteRepo = PlannedRouteRepository(application)
+    private val app: DanskStiApp
+        get() = try { DanskStiApp.instance } catch (_: Exception) { getApplication() as DanskStiApp }
+    private val repository: DanskStiRepository
+        get() = app.repository
+    private val plannedRouteRepo
+        get() = PlannedRouteRepository(app)
 
     val liveState: StateFlow<NavigationLiveState> = NavigationTrackingService.liveState
 
@@ -159,8 +163,24 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private val _isRoutingBackToRoute = MutableStateFlow(false)
     val isRoutingBackToRoute: StateFlow<Boolean> = _isRoutingBackToRoute.asStateFlow()
 
-    // UI Round 3: Sunset time for daylight warning & next day card
-    private val _sunsetTime = MutableStateFlow("20:30")
+    private val _routeBackErrorMessage = MutableStateFlow<String?>(null)
+    val routeBackErrorMessage: StateFlow<String?> = _routeBackErrorMessage.asStateFlow()
+
+    var customBackToRouteRouter: (suspend (LatLng, LatLng) -> RouteLegResult?)? = null
+
+    private val _deviceHeadingDegrees = MutableStateFlow<Float?>(null)
+    val deviceHeadingDegrees: StateFlow<Float?> = _deviceHeadingDegrees.asStateFlow()
+
+    fun updateDeviceHeading(headingDegrees: Float?) {
+        _deviceHeadingDegrees.value = headingDegrees?.let { ((it % 360f) + 360f) % 360f }
+    }
+
+    fun clearRouteBackErrorMessage() {
+        _routeBackErrorMessage.value = null
+    }
+
+    // UI Round 3 & Round 9A: Sunset time calculated on-device via SunCalculator (NOAA algorithm)
+    private val _sunsetTime = MutableStateFlow(com.example.util.SunCalculator.calculateSunset())
     val sunsetTime: StateFlow<String> = _sunsetTime.asStateFlow()
 
     val isTripActive: StateFlow<Boolean> = MutableStateFlow(false)
@@ -230,8 +250,14 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                     remainingTodayKm = state.distanceRemainingTodayKm
                 )
 
-                if (state.isTracking && state.currentLat != null && state.currentLng != null && state.currentLat != 0.0) {
-                    _emergencyInfo.value = repository.getEmergencyInfo(state.currentLat, state.currentLng)
+                if (state.currentLat != null && state.currentLng != null && state.currentLat != 0.0) {
+                    _sunsetTime.value = com.example.util.SunCalculator.calculateSunset(
+                        lat = state.currentLat,
+                        lng = state.currentLng
+                    )
+                    if (state.isTracking) {
+                        _emergencyInfo.value = repository.getEmergencyInfo(state.currentLat, state.currentLng)
+                    }
                 }
             }
         }
@@ -374,6 +400,10 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
                 val midPt = route.points.getOrNull(route.points.size / 2)
                 if (midPt != null) {
+                    _sunsetTime.value = com.example.util.SunCalculator.calculateSunset(
+                        lat = midPt.lat,
+                        lng = midPt.lng
+                    )
                     val weather = runCatching { repository.getTrailWeather(midPt.lat, midPt.lng) }.getOrNull()
                     if (!weather?.sunset.isNullOrBlank()) {
                         _sunsetTime.value = weather!!.sunset
@@ -574,7 +604,8 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
             ?: route?.points?.firstOrNull()
             ?: return
 
-        // Immediately draw dashed line while BRouter refines it
+        _routeBackErrorMessage.value = null
+        // Temporary line while routing; removed immediately if routing fails
         _backToRoutePoints.value = listOf(
             RoutePoint3D(curLat, curLng),
             RoutePoint3D(targetPt.lat, targetPt.lng, targetPt.ele)
@@ -585,6 +616,17 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
             try {
                 val from = LatLng(curLat, curLng)
                 val to = LatLng(targetPt.lat, targetPt.lng)
+                val customRouter = customBackToRouteRouter
+                if (customRouter != null) {
+                    val customRes = customRouter(from, to)
+                    if (customRes is RouteLegResult.Success && customRes.points.size >= 2) {
+                        _backToRoutePoints.value = customRes.points
+                    } else {
+                        _backToRoutePoints.value = emptyList()
+                        _routeBackErrorMessage.value = "Kunne ikke beregne vej tilbage"
+                    }
+                    return@launch
+                }
                 val offlineEngine = BRouterOfflineEngine(getApplication<Application>())
                 val offlineRes = offlineEngine.routeLeg(from, to, RouteOptions())
                 if (offlineRes is RouteLegResult.Success && offlineRes.points.size >= 2) {
@@ -594,10 +636,14 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                     val onlineRes = onlineEngine.routeLeg(from, to, RouteOptions())
                     if (onlineRes is RouteLegResult.Success && onlineRes.points.size >= 2) {
                         _backToRoutePoints.value = onlineRes.points
+                    } else {
+                        _backToRoutePoints.value = emptyList()
+                        _routeBackErrorMessage.value = "Kunne ikke beregne vej tilbage"
                     }
                 }
             } catch (_: Exception) {
-                // Keep the 2-point dashed fallback line
+                _backToRoutePoints.value = emptyList()
+                _routeBackErrorMessage.value = "Kunne ikke beregne vej tilbage"
             } finally {
                 _isRoutingBackToRoute.value = false
             }

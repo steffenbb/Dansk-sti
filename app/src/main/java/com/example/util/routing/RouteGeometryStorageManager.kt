@@ -250,7 +250,13 @@ object RouteGeometryStorageManager {
     private const val DIR_NAME = "custom_routes"
 
     private fun getStorageDir(context: Context): File {
-        val dir = File(context.filesDir, DIR_NAME)
+        val baseDir = try {
+            val currentDir = com.example.DanskStiApp.instance.filesDir
+            if (currentDir.exists()) currentDir else context.filesDir
+        } catch (_: Exception) {
+            context.filesDir
+        }
+        val dir = File(baseDir, DIR_NAME)
         if (!dir.exists()) {
             dir.mkdirs()
         }
@@ -258,7 +264,11 @@ object RouteGeometryStorageManager {
     }
 
     fun getGeometryFile(context: Context, filename: String): File {
-        return File(getStorageDir(context), filename)
+        val primary = File(getStorageDir(context), filename)
+        if (primary.exists()) return primary
+        val fallback = File(File(context.filesDir, DIR_NAME), filename)
+        if (fallback.exists()) return fallback
+        return primary
     }
 
     /**

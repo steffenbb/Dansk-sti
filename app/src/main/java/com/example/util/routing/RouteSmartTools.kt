@@ -648,13 +648,13 @@ object RouteSmartTools {
                 val etaMin = totalMinutes % 60
                 val etaFormatted = String.format(Locale.US, "%02d:%02d", etaHour, etaMin)
 
-                // Fetch real Open-Meteo forecast
+                // Compute sunset on-device with SunCalculator; Open-Meteo weather is optional
                 var tempC: Double? = null
                 var precipMm: Double? = null
                 var windMs: Double? = null
                 var weatherIcon: String? = null
                 var weatherDesc: String? = null
-                var sunsetTime: String? = null
+                var sunsetTime: String? = com.example.util.SunCalculator.calculateSunset(lat = next.lat, lng = next.lng)
                 var isAfterSunset = false
                 var warningMessage: String? = null
 
@@ -669,23 +669,24 @@ object RouteSmartTools {
 
                     val rawSunset = resp.daily?.sunset?.firstOrNull()
                     if (!rawSunset.isNullOrBlank()) {
-                        // "2026-10-17T18:45" -> "18:45"
                         val timePart = rawSunset.substringAfter("T", "")
                         if (timePart.isNotBlank()) {
                             sunsetTime = timePart
-                            val sParts = timePart.split(":")
-                            val sHour = sParts.getOrNull(0)?.toIntOrNull() ?: 18
-                            val sMin = sParts.getOrNull(1)?.toIntOrNull() ?: 30
-                            val sunsetMinutes = sHour * 60 + sMin
-
-                            if (totalMinutes > sunsetMinutes) {
-                                isAfterSunset = true
-                                warningMessage = "⚠️ Ankomst efter solnedgang (ETA $etaFormatted, solnedgang $sunsetTime)"
-                            }
                         }
                     }
                 } catch (_: Exception) {
-                    // Honest empty state: no assumed sunset or invented weather
+                    // Open-Meteo is optional; SunCalculator provides on-device sunset
+                }
+
+                val effectiveSunset = sunsetTime ?: com.example.util.SunCalculator.calculateSunset(lat = next.lat, lng = next.lng)
+                sunsetTime = effectiveSunset
+                val sParts = effectiveSunset.split(":")
+                val sHour = sParts.getOrNull(0)?.toIntOrNull() ?: 18
+                val sMin = sParts.getOrNull(1)?.toIntOrNull() ?: 0
+                val sunsetMinutes = sHour * 60 + sMin
+                if (totalMinutes > sunsetMinutes) {
+                    isAfterSunset = true
+                    warningMessage = "⚠️ Ankomst efter solnedgang (ETA $etaFormatted, solnedgang $effectiveSunset)"
                 }
 
                 results.add(

@@ -2,12 +2,16 @@ package com.example
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -42,7 +47,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.service.NavigationTrackingService
 import com.example.ui.navigation.ActiveTripBannerState
+import com.example.ui.navigation.ActiveTripSlimBanner
 import com.example.ui.navigation.DanskStiBottomBar
+import com.example.ui.navigation.DanskStiNavigationRail
 import com.example.ui.navigation.Screen
 import com.example.ui.screens.ApiDiagnosticsScreen
 import com.example.ui.screens.DataCreditsScreen
@@ -56,6 +63,8 @@ import com.example.ui.screens.SavedPlansScreen
 import com.example.ui.screens.TrailBrowserScreen
 import com.example.ui.screens.TrailDetailScreen
 import com.example.ui.theme.DanskStiTheme
+import com.example.ui.theme.WindowSizeClass
+import com.example.ui.theme.currentWindowAdaptiveInfo
 import com.example.ui.viewmodel.NavigationViewModel
 import com.example.ui.viewmodel.RouteBuilderViewModel
 import java.net.URLDecoder
@@ -63,11 +72,29 @@ import java.net.URLDecoder
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         val app = application as DanskStiApp
+        val initialSystemDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val initialDark = app.settingsRepository.currentSettingsSnapshot().resolveIsDarkApp(initialSystemDark)
+        applySystemBarStyle(initialDark)
         setContent {
             val dbError by app.databaseError.collectAsState()
-            DanskStiTheme {
+            val appSettings by app.settingsRepository.settingsFlow.collectAsState(
+                initial = app.settingsRepository.currentSettingsSnapshot()
+            )
+            val systemDark = isSystemInDarkTheme()
+            val resolvedDarkTheme = appSettings.resolveIsDarkApp(systemDark)
+            val adaptiveInfo = currentWindowAdaptiveInfo()
+            val windowSizeClass = adaptiveInfo.windowSizeClass
+
+            LaunchedEffect(resolvedDarkTheme) {
+                applySystemBarStyle(resolvedDarkTheme)
+            }
+
+            DanskStiTheme(
+                darkTheme = resolvedDarkTheme,
+                windowSizeClass = windowSizeClass
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -105,16 +132,41 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     } else {
-                        DanskStiAppRoot()
+                        DanskStiAppRoot(windowSizeClass = windowSizeClass)
                     }
                 }
             }
         }
     }
+
+    fun applySystemBarStyle(isDark: Boolean) {
+        val statusBarStyle = if (isDark) {
+            SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        } else {
+            SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        }
+        val navigationBarStyle = if (isDark) {
+            SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        } else {
+            SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        }
+        enableEdgeToEdge(
+            statusBarStyle = statusBarStyle,
+            navigationBarStyle = navigationBarStyle
+        )
+    }
 }
 
 @Composable
-fun DanskStiAppRoot() {
+fun DanskStiAppRoot(
+    windowSizeClass: WindowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
+) {
     val context = LocalContext.current
     val app = context.applicationContext as DanskStiApp
     val navController = rememberNavController()
@@ -143,41 +195,66 @@ fun DanskStiAppRoot() {
         }
     }
 
-    // Show the 4-tab bottom bar on the 4 main tabs (Requirement B)
+    // Show the 4-tab navigation on the 4 main tabs (Requirement B & Round 9D Item 3)
     val showBottomBar = currentRoute == Screen.Explore.route ||
         currentRoute == Screen.Map.route ||
         currentRoute == Screen.Saved.route ||
         currentRoute == Screen.Profile.route
+    val useNavigationRail = windowSizeClass.useNavigationRail
+    val onNavigateTab: (String) -> Unit = { route ->
+        navController.navigate(route) {
+            popUpTo(Screen.Explore.route) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+    val onContinueTrip: () -> Unit = {
+        navController.navigate(Screen.Navigation.createRoute(activeTripBannerState.planId))
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
-            if (showBottomBar) {
+            if (showBottomBar && !useNavigationRail) {
                 DanskStiBottomBar(
                     currentRoute = currentRoute,
                     activeTripState = activeTripBannerState,
-                    onContinueActiveTrip = {
-                        navController.navigate(Screen.Navigation.createRoute(activeTripBannerState.planId))
-                    },
-                    onNavigate = { route ->
-                        navController.navigate(route) {
-                            popUpTo(Screen.Explore.route) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    }
+                    onContinueActiveTrip = onContinueTrip,
+                    onNavigate = onNavigateTab
                 )
             }
         }
     ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Explore.route,
+        Row(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            if (showBottomBar && useNavigationRail) {
+                DanskStiNavigationRail(
+                    currentRoute = currentRoute,
+                    onNavigate = onNavigateTab
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            ) {
+                if (showBottomBar && useNavigationRail && activeTripBannerState.isActive) {
+                    ActiveTripSlimBanner(
+                        state = activeTripBannerState,
+                        onClick = onContinueTrip
+                    )
+                }
+                NavHost(
+                    navController = navController,
+                    startDestination = Screen.Explore.route,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                ) {
             // Tab 1: Udforsk (Requirement C)
             composable(Screen.Explore.route) {
                 TrailBrowserScreen(
@@ -460,6 +537,8 @@ fun DanskStiAppRoot() {
                         navController.navigate(Screen.RouteBuilder.createRoute(baseTrailId = customTrailId))
                     }
                 )
+                }
+                }
             }
         }
     }

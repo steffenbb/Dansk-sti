@@ -51,5 +51,26 @@ data class TrailGeometryDto(
     val bboxEast: Double,
     val bboxWest: Double,
     val osmTimestamp: String? = null,
-    val fetchedAt: Long = System.currentTimeMillis()
+    val fetchedAt: Long = System.currentTimeMillis(),
+    val osmRelationName: String? = null
+)
+
+data class TrailDownloadProgress(
+    val trailId: String,
+    val fraction: Float,
+    val downloadedRelations: Int = 0,
+    val totalRelations: Int = 1,
+    val accumulatedKm: Double = 0.0,
+    val stageMessage: String = "Downloader rutegeometri..."
+) {
+    val message: String get() = stageMessage
+}
+
+@JsonClass(generateAdapter = true)
+data class TrailNameMismatchEntry(
+    val trailId: String,
+    val osmRelationId: Long,
+    val catalogueName: String,
+    val osmRelationName: String,
+    val detectedAtEpochMs: Long = System.currentTimeMillis()
 )

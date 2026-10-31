@@ -274,7 +274,7 @@ class FixRound8Test {
         }
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("nav_top_card").assertIsDisplayed()
-        composeTestRule.onNodeWithText("ankomst ca. 11:00", substring = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("ankomst ca. $expectedEtaClock", substring = true).assertIsDisplayed()
 
         // Verify 4.2 constant is removed from NavigationScreen.kt and NavigationTrackingService.kt
         val navScreenSrc = File("src/main/java/com/example/ui/screens/NavigationScreen.kt").readText()

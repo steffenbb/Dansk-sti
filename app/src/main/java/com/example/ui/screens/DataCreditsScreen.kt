@@ -53,12 +53,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.AmberAccent
-import com.example.ui.theme.ForestDarkBg
-import com.example.ui.theme.ForestGreenLight
-import com.example.ui.theme.ForestGreenPrimary
-import com.example.ui.theme.ForestSurface
-import com.example.ui.theme.NordicBlue
+import com.example.ui.theme.DanskStiTheme
 
 data class DataCreditItem(
     val title: String,
@@ -78,6 +73,8 @@ fun DataCreditsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val colorScheme = MaterialTheme.colorScheme
+    val danskStiColors = DanskStiTheme.colors
 
     BackHandler {
         onBack()
@@ -92,7 +89,7 @@ fun DataCreditsScreen(
             description = "Indeholder Danmarks officielle vandreruter (Hærvejen, Øhavsstien, Gendarmstien, Trækstien, Camønoen, m.fl.), stiklassifikationer (sti, grusvej, asfalt), rutespor og POI'er som vandposter, toiletter og togstationer.",
             url = "https://www.openstreetmap.org/copyright",
             icon = Icons.Default.Explore,
-            iconTint = ForestGreenPrimary
+            iconTint = colorScheme.primary
         ),
         DataCreditItem(
             title = "GeoFA / Naturstyrelsen",
@@ -102,7 +99,7 @@ fun DataCreditsScreen(
             description = "Officielle data for over 1.000 danske shelterpladser, bålpladser samt 275+ fri teltningszoner i statsskovene efter 1-2-3 reglen. Bookinghenvisninger åbnes via udbyderens link eller udinaturen.dk.",
             url = "https://udinaturen.dk",
             icon = Icons.Default.Forest,
-            iconTint = AmberAccent
+            iconTint = danskStiColors.warning
         ),
         DataCreditItem(
             title = "Copernicus DEM via Open-Meteo",
@@ -112,7 +109,7 @@ fun DataCreditsScreen(
             description = "Benyttes til beregning af samlet stigning, fald og højdekurver langs ruterne. Giver præcise højdeprofiler på alle danske vandreetaper uden behov for tunge sensorer.",
             url = "https://spacedata.copernicus.eu/",
             icon = Icons.Default.Landscape,
-            iconTint = ForestGreenLight
+            iconTint = danskStiColors.success
         ),
         DataCreditItem(
             title = "Open-Meteo Vejr",
@@ -122,7 +119,7 @@ fun DataCreditsScreen(
             description = "Time-for-time vejrudsigter specifikt for hver vandrerute og dags-etape i Danmark, inklusive temperatur, nedbørsmængder, vindhastighed, vindstød og beregning af solnedgangstidspunkt.",
             url = "https://open-meteo.com/",
             icon = Icons.Default.Cloud,
-            iconTint = NordicBlue
+            iconTint = danskStiColors.plannedRoute
         ),
         DataCreditItem(
             title = "Kortfliseudbydere (Dataforsyningen / OSM)",
@@ -132,7 +129,7 @@ fun DataCreditsScreen(
             description = "Højtopløselige topografiske danmarkskort fra Styrelsen for Dataforsyning og Infrastruktur (SDFI) samt OpenStreetMap. Gemmes lokalt i appens SQLite-cache for 100% offline navigation i felten.",
             url = "https://dataforsyningen.dk/",
             icon = Icons.Default.Map,
-            iconTint = ForestGreenPrimary
+            iconTint = colorScheme.primary
         ),
         DataCreditItem(
             title = "GeoDanmark Ortofoto (Luftfoto)",
@@ -142,7 +139,7 @@ fun DataCreditsScreen(
             description = "Officielle forårsortofotos dækkende hele Danmark fra GeoDanmark og Styrelsen for Dataforsyning og Infrastruktur. Giver et præcist luftfotobillede af skovlysninger, hegn og terræn.",
             url = "https://dataforsyningen.dk/",
             icon = Icons.Default.Landscape,
-            iconTint = NordicBlue
+            iconTint = danskStiColors.plannedRoute
         ),
         DataCreditItem(
             title = "Friluftskort (Thunderforest / OpenTopoMap)",
@@ -152,7 +149,7 @@ fun DataCreditsScreen(
             description = "Specialiseret friluftskort beregnet til vandring og trekking. Viser små skovstier, trampestier og højdekurver, der ikke altid optræder på officielle matrikel- og topokort.",
             url = "https://www.thunderforest.com/maps/outdoors/",
             icon = Icons.Default.Explore,
-            iconTint = ForestGreenLight
+            iconTint = danskStiColors.success
         ),
         DataCreditItem(
             title = "Afmærkede ruter (Overpass API)",
@@ -162,7 +159,7 @@ fun DataCreditsScreen(
             description = "Forespørger dynamisk på alle afmærkede ruter og stier i synsfeltet ved zoom 10 eller tættere. Rutedata kan gemmes med 1 klik som permanente vandreruter via appens Phase 1 geometri-pipeline.",
             url = "https://wiki.openstreetmap.org/wiki/Tag:route%3Dhiking",
             icon = Icons.Default.Explore,
-            iconTint = AmberAccent
+            iconTint = danskStiColors.warning
         ),
         DataCreditItem(
             title = "Danmarks Miljøportal",
@@ -172,7 +169,7 @@ fun DataCreditsScreen(
             description = "Officielle grænser for statsejede skove og naturarealer administreret af Naturstyrelsen. Anvendes til adgangsklassifikation (Naturbeskyttelsesloven kapitel 4) og supplerer OpenStreetMap med præcise statsskove.",
             url = "https://arealdata.miljoeportal.dk/",
             icon = Icons.Default.Forest,
-            iconTint = ForestGreenPrimary
+            iconTint = colorScheme.primary
         )
     )
 
@@ -303,7 +300,7 @@ fun DataCreditsScreen(
                             text = stringResource(R.string.ui_datacreditsscreen_licens_48, credit.license),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
-                            color = ForestGreenPrimary
+                            color = MaterialTheme.colorScheme.primary
                         )
 
                         // Description

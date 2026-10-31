@@ -53,6 +53,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,11 +64,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.ui.theme.AlertRed
-import com.example.ui.theme.AmberAccent
-import com.example.ui.theme.ForestGreenDark
-import com.example.ui.theme.ForestGreenLight
-import com.example.ui.theme.ForestGreenPrimary
+import com.example.ui.theme.DanskStiTheme
 import com.example.ui.viewmodel.DiagnosticsViewModel
 import com.example.util.network.ApiCheckResult
 import com.example.util.network.ApiCheckStatus
@@ -82,6 +79,7 @@ fun ApiDiagnosticsScreen(
     val report by viewModel.report.collectAsState()
     val isTesting by viewModel.isTesting.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
+    val danskStiColors = DanskStiTheme.colors
 
     BackHandler {
         onBack()
@@ -172,7 +170,7 @@ fun ApiDiagnosticsScreen(
                                 enabled = !isTesting,
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = ForestGreenPrimary
+                                    containerColor = MaterialTheme.colorScheme.primary
                                 ),
                                 modifier = Modifier.testTag("run_diagnostics_button")
                             ) {
@@ -180,7 +178,7 @@ fun ApiDiagnosticsScreen(
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(16.dp),
                                         strokeWidth = 2.dp,
-                                        color = Color.White
+                                        color = MaterialTheme.colorScheme.onPrimary
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(stringResource(R.string.ui_apidiagnosticsscreen_tester_33))
@@ -202,7 +200,7 @@ fun ApiDiagnosticsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(4.dp)),
-                                color = ForestGreenPrimary
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -254,7 +252,7 @@ fun ApiDiagnosticsScreen(
                                     text = if (wfsAnswered) "Svarede ($wfsCount statspolygoner)" else "Ikke svaret endnu",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = if (wfsAnswered) ForestGreenPrimary else AmberAccent
+                                    color = if (wfsAnswered) danskStiColors.success else danskStiColors.warning
                                 )
                             }
                             Spacer(modifier = Modifier.height(6.dp))
@@ -268,21 +266,80 @@ fun ApiDiagnosticsScreen(
                                     text = activeProfile,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = if (syntaxError != null) AlertRed else ForestGreenPrimary
+                                    color = if (syntaxError != null) danskStiColors.danger else danskStiColors.success
                                 )
                             }
                             if (syntaxError != null) {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = AlertRed.copy(alpha = 0.1f),
-                                    border = BorderStroke(1.dp, AlertRed.copy(alpha = 0.35f)),
+                                    color = danskStiColors.danger.copy(alpha = 0.1f),
+                                    border = BorderStroke(1.dp, danskStiColors.danger.copy(alpha = 0.35f)),
                                     modifier = Modifier.fillMaxWidth().testTag("brouter_profile_syntax_error_box")
                                 ) {
                                     Text(
                                         text = stringResource(R.string.ui_apidiagnosticsscreen_profil_syntaksfejl_fra_s_38, syntaxError),
                                         fontSize = 12.sp,
-                                        color = AlertRed,
+                                        color = danskStiColors.danger,
+                                        modifier = Modifier.padding(10.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Round 9 C Requirement 1: OSM relation name mismatches logged on first download
+            item {
+                val mismatches = remember(report) {
+                    val fromReport = report?.nameMismatches.orEmpty()
+                    val fromMemory = com.example.data.repository.TrailGeometryRepository.getRecordedNameMismatches()
+                    (fromReport + fromMemory).distinctBy { "${it.trailId}_${it.osmRelationId}" }
+                }
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("diagnostics_name_mismatches_card")
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = stringResource(R.string.diagnostics_name_mismatch_title),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (mismatches.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.diagnostics_name_mismatch_none),
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            mismatches.forEach { m ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = danskStiColors.warning.copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, danskStiColors.warning.copy(alpha = 0.35f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .testTag("name_mismatch_entry_${m.osmRelationId}")
+                                ) {
+                                    Text(
+                                        text = stringResource(
+                                            R.string.diagnostics_name_mismatch_item_format,
+                                            m.osmRelationId,
+                                            m.catalogueName,
+                                            m.osmRelationName
+                                        ),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.padding(10.dp)
                                     )
                                 }
@@ -306,28 +363,29 @@ fun ApiDiagnosticsScreen(
 
 @Composable
 private fun DiagnosticResultCard(checkResult: ApiCheckResult) {
+    val danskStiColors = DanskStiTheme.colors
     val (statusColor, statusBg, statusIcon, statusLabel) = when (checkResult.status) {
         ApiCheckStatus.SUCCESS -> Quad(
-            ForestGreenPrimary,
-            Color(0xFFE8F5E9),
+            danskStiColors.success,
+            danskStiColors.success.copy(alpha = 0.15f),
             Icons.Default.CheckCircle,
             "AKTIV"
         )
         ApiCheckStatus.WARNING -> Quad(
-            AmberAccent,
-            Color(0xFFFFF8E1),
+            danskStiColors.warning,
+            danskStiColors.warning.copy(alpha = 0.15f),
             Icons.Default.Warning,
             "SPEJL / ADVARSEL"
         )
         ApiCheckStatus.ERROR -> Quad(
-            AlertRed,
-            Color(0xFFFFEBEE),
+            danskStiColors.danger,
+            danskStiColors.danger.copy(alpha = 0.15f),
             Icons.Default.Error,
             "FEJL"
         )
         ApiCheckStatus.UNCONFIGURED -> Quad(
-            Color(0xFF7C3AED),
-            Color(0xFFF3E8FF),
+            danskStiColors.overnight,
+            danskStiColors.overnight.copy(alpha = 0.15f),
             Icons.Default.Key,
             "MANGLER NØGLE"
         )
@@ -476,7 +534,7 @@ private fun CacheInfoCard(
                     Icon(
                         imageVector = Icons.Default.Storage,
                         contentDescription = null,
-                        tint = ForestGreenPrimary,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))

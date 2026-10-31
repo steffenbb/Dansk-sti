@@ -11,6 +11,8 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import java.util.Locale
 import kotlin.math.max
+import androidx.compose.ui.graphics.toArgb
+import com.example.ui.theme.DanskStiColors
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
@@ -58,7 +60,8 @@ object RouteMarkerHelper {
         isSelected: Boolean = false,
         badgeLabel: String? = null,
         dayNumber: Int = 1,
-        isDimmed: Boolean = false
+        isDimmed: Boolean = false,
+        danskStiColors: DanskStiColors? = null
     ): Drawable {
         val density = context.resources.displayMetrics.density
         val minTouchPx = (48f * density).toInt().coerceAtLeast(48)
@@ -136,9 +139,9 @@ object RouteMarkerHelper {
         val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
             color = when (role) {
-                WaypointRole.START -> Color.rgb(46, 125, 50) // Green flag badge
+                WaypointRole.START -> danskStiColors?.success?.toArgb() ?: Color.rgb(46, 125, 50) // Green flag badge
                 WaypointRole.END -> Color.rgb(38, 50, 56) // Dark slate for chequered flag
-                WaypointRole.OVERNIGHT -> Color.rgb(230, 81, 0) // Warm camp orange for tent + D1
+                WaypointRole.OVERNIGHT -> danskStiColors?.overnight?.toArgb() ?: Color.rgb(230, 81, 0) // Warm camp orange for tent + D1
                 WaypointRole.VIA -> Color.WHITE // White numbered circle
             }
             this.alpha = alpha
@@ -574,11 +577,14 @@ object RouteMarkerHelper {
         isDarkMode: Boolean = false,
         isDark: Boolean = isDarkMode,
         isDimmed: Boolean = false,
-        isSelected: Boolean = false
+        isSelected: Boolean = false,
+        danskStiColors: DanskStiColors? = null
     ): Polyline {
-        val routeColor = if (isDark) COLOR_PLANNED_ROUTE_DARK else COLOR_PLANNED_ROUTE_LIGHT
+        val routeColor = danskStiColors?.plannedRoute?.toArgb()
+            ?: if (isDark) COLOR_PLANNED_ROUTE_DARK else COLOR_PLANNED_ROUTE_LIGHT
+        val warningColor = danskStiColors?.warning?.toArgb() ?: COLOR_ACCESS_WARNING
         val polyline = Polyline(mapView).apply {
-            outlinePaint.color = if (hasAccessWarning) COLOR_ACCESS_WARNING else routeColor
+            outlinePaint.color = if (hasAccessWarning) warningColor else routeColor
             outlinePaint.strokeWidth = if (isSelected) 18f else 14f
             outlinePaint.strokeCap = Paint.Cap.ROUND
             outlinePaint.strokeJoin = Paint.Join.ROUND
@@ -600,9 +606,11 @@ object RouteMarkerHelper {
         isDarkMode: Boolean = false,
         isDark: Boolean = isDarkMode,
         isDimmed: Boolean = false,
-        isSelected: Boolean = false
+        isSelected: Boolean = false,
+        danskStiColors: DanskStiColors? = null
     ): Polyline {
-        val casingColor = if (isDark) COLOR_PLANNED_CASING_DARK else COLOR_PLANNED_CASING_LIGHT
+        val casingColor = danskStiColors?.routeCasing?.toArgb()
+            ?: if (isDark) COLOR_PLANNED_CASING_DARK else COLOR_PLANNED_CASING_LIGHT
         val polyline = Polyline(mapView).apply {
             outlinePaint.color = casingColor
             outlinePaint.strokeWidth = if (isSelected) 26f else 22f
@@ -626,9 +634,11 @@ object RouteMarkerHelper {
         isDarkMode: Boolean = false,
         isDark: Boolean = isDarkMode,
         isDimmed: Boolean = false,
-        isSelected: Boolean = false
+        isSelected: Boolean = false,
+        danskStiColors: DanskStiColors? = null
     ): Polyline {
-        val straightColor = if (isDark) COLOR_PLANNED_ROUTE_DARK else COLOR_STRAIGHT_LEG
+        val straightColor = danskStiColors?.plannedRoute?.toArgb()
+            ?: if (isDark) COLOR_PLANNED_ROUTE_DARK else COLOR_STRAIGHT_LEG
         val polyline = Polyline(mapView).apply {
             outlinePaint.color = if (isLoading) COLOR_LOADING_LEG else straightColor
             outlinePaint.strokeWidth = when {
@@ -653,10 +663,12 @@ object RouteMarkerHelper {
     fun createFailedLegPolyline(
         mapView: MapView,
         points: List<GeoPoint>,
-        isDimmed: Boolean = false
+        isDimmed: Boolean = false,
+        danskStiColors: DanskStiColors? = null
     ): Polyline {
+        val failedColor = danskStiColors?.danger?.toArgb() ?: COLOR_FAILED_LEG
         return Polyline(mapView).apply {
-            outlinePaint.color = COLOR_FAILED_LEG
+            outlinePaint.color = failedColor
             outlinePaint.strokeWidth = 10f
             outlinePaint.strokeCap = Paint.Cap.ROUND
             outlinePaint.strokeJoin = Paint.Join.ROUND

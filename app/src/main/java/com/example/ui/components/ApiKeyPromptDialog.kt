@@ -22,7 +22,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.ForestGreenPrimary
 import com.example.util.DanskStiTileSource
 
 /**
@@ -44,7 +43,7 @@ fun ApiKeyPromptDialog(
             Icon(
                 imageVector = Icons.Default.VpnKey,
                 contentDescription = stringResource(R.string.ui_apikeypromptdialog_api_n_gle_1),
-                tint = ForestGreenPrimary,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(32.dp)
             )
         },
@@ -81,7 +80,7 @@ fun ApiKeyPromptDialog(
         confirmButton = {
             Button(
                 onClick = onUseOsmFallback,
-                colors = ButtonDefaults.buttonColors(containerColor = ForestGreenPrimary),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 modifier = Modifier.testTag("use_osm_button")
             ) {
                 Text(stringResource(R.string.ui_apikeypromptdialog_brug_openstreetmap_6))
