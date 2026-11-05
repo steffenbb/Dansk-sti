@@ -7,7 +7,6 @@ import android.graphics.DashPathEffect
 import android.graphics.Paint
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,7 +71,7 @@ fun FullscreenMapScreen(
     onOpenRouteBuilder: ((lat: Double, lng: Double, label: String) -> Unit)? = null,
     viewModel: TrailViewModel = viewModel()
 ) {
-    val systemDark = DanskStiTheme.isDark
+    val appIsDark = DanskStiTheme.isDark
     val danskStiColors = DanskStiTheme.colors
     val colorScheme = MaterialTheme.colorScheme
 
@@ -127,9 +126,12 @@ fun FullscreenMapScreen(
         mapTestTag = "fullscreen_osmdroid_map",
         initialCenter = GeoPoint(56.0, 10.2),
         initialZoom = 9.0,
-        isSystemDarkOverride = systemDark,
+        appIsDark = appIsDark,
         controlsTopPadding = 16.dp,
         layersButtonTestTag = "toggle_map_overlays_button",
+        onAddToRouteFromDropPin = { lat, lng, label ->
+            onOpenRouteBuilder?.invoke(lat, lng, label)
+        },
         onRouteHereFromDropPin = { lat, lng, label ->
             onOpenRouteBuilder?.invoke(lat, lng, label)
         },

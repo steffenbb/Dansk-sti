@@ -375,7 +375,7 @@ class TrailGeometryRepository(private val context: Context) {
         }
     }
 
-    private fun findRelationByName(name: String): Long? {
+    private suspend fun findRelationByName(name: String): Long? {
         val cleanName = name.replace(Regex("\\s*\\(.*\\)"), "").trim()
         val query = """
             [out:json][timeout:10];
@@ -383,51 +383,31 @@ class TrailGeometryRepository(private val context: Context) {
             out tags bb;
         """.trimIndent()
 
-        val mirrors = listOf(
-            "https://overpass-api.de/api/interpreter",
-            "https://lz4.overpass-api.de/api/interpreter",
-            "https://overpass.kumi.systems/api/interpreter"
-        )
+        return try {
+            val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
+                query = query,
+                label = "FindRelation($cleanName)"
+            )
+            val root = moshi.adapter(Map::class.java).fromJson(jsonStr)
+            @Suppress("UNCHECKED_CAST")
+            val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
 
-        for (url in mirrors) {
-            try {
-                val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
-                val request = Request.Builder().url(url).post(body).header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT).build()
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@use
-                    val jsonStr = response.body?.string() ?: return@use
-                    val root = moshi.adapter(Map::class.java).fromJson(jsonStr)
-                    @Suppress("UNCHECKED_CAST")
-                    val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
-
-                    Log.i("TrailGeometry", "=== Overpass search matches for \"$name\" (${elements.size} found on $url) ===")
-                    for (el in elements) {
-                        val id = (el["id"] as? Number)?.toLong()
-                        @Suppress("UNCHECKED_CAST")
-                        val tags = el["tags"] as? Map<String, String> ?: emptyMap()
-                        val matchName = tags["name"] ?: ""
-                        val type = tags["type"] ?: ""
-                        val route = tags["route"] ?: ""
-                        val dist = tags["distance"] ?: ""
-                        Log.i("TrailGeometry", "  ID: $id, name: \"$matchName\", type: \"$type\", route: \"$route\", dist: \"$dist\"")
-                    }
-                    if (elements.size == 1) {
-                        return (elements[0]["id"] as? Number)?.toLong()
-                    } else {
-                        if (elements.size > 1) {
-                            Log.w("TrailGeometry", "Multiple relation matches (${elements.size}) for \"$name\". Returning null.")
-                        }
-                        return null
-                    }
+            Log.i("TrailGeometry", "=== Overpass search matches for \"$name\" (${elements.size} found) ===")
+            if (elements.size == 1) {
+                (elements[0]["id"] as? Number)?.toLong()
+            } else {
+                if (elements.size > 1) {
+                    Log.w("TrailGeometry", "Multiple relation matches (${elements.size}) for \"$name\". Returning null.")
                 }
-            } catch (e: Exception) {
-                Log.w("TrailGeometry", "Error searching relation for $name on $url: ${e.message}")
+                null
             }
+        } catch (e: Exception) {
+            Log.w("TrailGeometry", "Error searching relation for $name: ${e.message}")
+            null
         }
-        return null
     }
 
-    private fun downloadRelationRecursive(relationId: Long, collected: MutableMap<Long, Map<String, Any>>) {
+    private suspend fun downloadRelationRecursive(relationId: Long, collected: MutableMap<Long, Map<String, Any>>) {
         if (collected.containsKey(relationId)) return
         val query = """
             [out:json][timeout:60];
@@ -435,64 +415,52 @@ class TrailGeometryRepository(private val context: Context) {
             out geom;
         """.trimIndent()
 
-        val overpassMirrors = listOf(
-            "https://overpass-api.de/api/interpreter",
-            "https://lz4.overpass-api.de/api/interpreter",
-            "https://overpass.kumi.systems/api/interpreter"
-        )
-
-        for (url in overpassMirrors) {
-            try {
-                val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
-                val request = Request.Builder().url(url).post(body).header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT).build()
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val jsonStr = response.body?.string() ?: return@use
+        try {
+            val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
+                query = query,
+                label = "RelationGeom($relationId)"
+            )
+            @Suppress("UNCHECKED_CAST")
+            val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
+            @Suppress("UNCHECKED_CAST")
+            val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
+            if (elements.isNotEmpty()) {
+                // Requirement 22: After downloading a relation, fetch its member way tags (way(r); out tags;)
+                // so ways with route=ferry are marked as FERRY segments.
+                val wayTagsMap = fetchMemberWayTags(relationId)
+                for (el in elements) {
+                    val id = (el["id"] as? Number)?.toLong()
+                    val type = el["type"] as? String
+                    if (id != null && type == "relation") {
+                        val mutableEl = el.toMutableMap()
                         @Suppress("UNCHECKED_CAST")
-                        val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
-                        @Suppress("UNCHECKED_CAST")
-                        val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
-                        if (elements.isNotEmpty()) {
-                            // Requirement 22: After downloading a relation, fetch its member way tags (way(r); out tags;)
-                            // so ways with route=ferry are marked as FERRY segments.
-                            val wayTagsMap = fetchMemberWayTags(relationId)
-                            for (el in elements) {
-                                val id = (el["id"] as? Number)?.toLong()
-                                val type = el["type"] as? String
-                                if (id != null && type == "relation") {
-                                    val mutableEl = el.toMutableMap()
-                                    @Suppress("UNCHECKED_CAST")
-                                    val members = el["members"] as? List<Map<String, Any>> ?: emptyList()
-                                    val enrichedMembers = members.map { m ->
-                                        val mType = m["type"] as? String
-                                        val mRef = (m["ref"] as? Number)?.toLong()
-                                        if (mType == "way" && mRef != null) {
-                                            val wTags = wayTagsMap[mRef]
-                                            if (wTags != null) {
-                                                val mCopy = m.toMutableMap()
-                                                mCopy["tags"] = wTags
-                                                mCopy
-                                            } else m
-                                        } else m
-                                    }
-                                    mutableEl["members"] = enrichedMembers
-                                    collected[id] = mutableEl
-                                    for (m in enrichedMembers) {
-                                        val mType = m["type"] as? String
-                                        val mRef = (m["ref"] as? Number)?.toLong()
-                                        if (mType == "relation" && mRef != null) {
-                                            downloadRelationRecursive(mRef, collected)
-                                        }
-                                    }
-                                }
+                        val members = el["members"] as? List<Map<String, Any>> ?: emptyList()
+                        val enrichedMembers = members.map { m ->
+                            val mType = m["type"] as? String
+                            val mRef = (m["ref"] as? Number)?.toLong()
+                            if (mType == "way" && mRef != null) {
+                                val wTags = wayTagsMap[mRef]
+                                if (wTags != null) {
+                                    val mCopy = m.toMutableMap()
+                                    mCopy["tags"] = wTags
+                                    mCopy
+                                } else m
+                            } else m
+                        }
+                        mutableEl["members"] = enrichedMembers
+                        collected[id] = mutableEl
+                        for (m in enrichedMembers) {
+                            val mType = m["type"] as? String
+                            val mRef = (m["ref"] as? Number)?.toLong()
+                            if (mType == "relation" && mRef != null) {
+                                downloadRelationRecursive(mRef, collected)
                             }
-                            return
                         }
                     }
                 }
-            } catch (e: Exception) {
-                Log.w("TrailGeometry", "Overpass mirror $url failed for relation $relationId: ${e.message}")
             }
+        } catch (e: Exception) {
+            Log.w("TrailGeometry", "Overpass failed for relation $relationId: ${e.message}")
         }
     }
 
@@ -500,7 +468,7 @@ class TrailGeometryRepository(private val context: Context) {
      * Requirement 22: Fetches member way tags for a relation using `relation($relationId); way(r); out tags;`
      * so ways with `route=ferry` are detected and marked as FERRY segments.
      */
-    private fun fetchMemberWayTags(relationId: Long): Map<Long, Map<String, String>> {
+    private suspend fun fetchMemberWayTags(relationId: Long): Map<Long, Map<String, String>> {
         val query = """
             [out:json][timeout:30];
             relation($relationId);
@@ -508,41 +476,30 @@ class TrailGeometryRepository(private val context: Context) {
             out tags;
         """.trimIndent()
 
-        val overpassMirrors = listOf(
-            "https://overpass-api.de/api/interpreter",
-            "https://lz4.overpass-api.de/api/interpreter",
-            "https://overpass.kumi.systems/api/interpreter"
-        )
-
-        for (url in overpassMirrors) {
-            try {
-                val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
-                val request = Request.Builder().url(url).post(body).header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT).build()
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val jsonStr = response.body?.string() ?: return@use
-                        @Suppress("UNCHECKED_CAST")
-                        val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
-                        @Suppress("UNCHECKED_CAST")
-                        val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
-                        val result = mutableMapOf<Long, Map<String, String>>()
-                        for (el in elements) {
-                            val id = (el["id"] as? Number)?.toLong() ?: continue
-                            val type = el["type"] as? String
-                            if (type == "way") {
-                                @Suppress("UNCHECKED_CAST")
-                                val tags = el["tags"] as? Map<String, String> ?: emptyMap()
-                                result[id] = tags
-                            }
-                        }
-                        return result
-                    }
+        return try {
+            val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
+                query = query,
+                label = "MemberWayTags($relationId)"
+            )
+            @Suppress("UNCHECKED_CAST")
+            val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
+            @Suppress("UNCHECKED_CAST")
+            val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
+            val result = mutableMapOf<Long, Map<String, String>>()
+            for (el in elements) {
+                val id = (el["id"] as? Number)?.toLong() ?: continue
+                val type = el["type"] as? String
+                if (type == "way") {
+                    @Suppress("UNCHECKED_CAST")
+                    val tags = el["tags"] as? Map<String, String> ?: emptyMap()
+                    result[id] = tags
                 }
-            } catch (e: Exception) {
-                Log.w("TrailGeometry", "Way tags fetch failed on $url for relation $relationId: ${e.message}")
             }
+            result
+        } catch (e: Exception) {
+            Log.w("TrailGeometry", "Way tags fetch failed for relation $relationId: ${e.message}")
+            emptyMap()
         }
-        return emptyMap()
     }
 
     /**
@@ -897,7 +854,8 @@ class TrailGeometryRepository(private val context: Context) {
             bboxEast = if (maxLng > -180.0) maxLng else 0.0,
             bboxWest = if (minLng < 180.0) minLng else 0.0,
             osmTimestamp = osmTimestamp,
-            osmRelationName = osmRelationName
+            osmRelationName = osmRelationName,
+            osmTags = rootTags
         )
     }
 

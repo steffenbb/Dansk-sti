@@ -2,14 +2,16 @@ package com.example.ui.screens
 
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,7 +53,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.DanskStiApp
 import com.example.R
-import com.example.data.local.MapLayersState
 import com.example.data.local.SettingsRepository
 import com.example.data.model.MarkedRouteDto
 import com.example.ui.components.HapticFeedbackHelper
@@ -61,11 +62,9 @@ import com.example.ui.map.DanskStiMap
 import com.example.ui.navigation.MapLayersOverlayManager
 import com.example.ui.screens.planner.CrosshairPlacementOverlay
 import com.example.ui.screens.planner.KigTegnSegmentedToggle
-import com.example.ui.screens.planner.PinSelectionActionBar
 import com.example.ui.screens.planner.PlannerBottomSheet
 import com.example.ui.screens.planner.PlannerCoachMarksOverlay
 import com.example.ui.screens.planner.RouteBuilderPinDragOverlay
-import com.example.ui.screens.planner.SelectedLegCard
 import com.example.ui.screens.planner.TalkBackRouteSemanticsOverlay
 import com.example.ui.theme.DanskStiTheme
 import com.example.ui.viewmodel.*
@@ -99,10 +98,10 @@ fun RouteBuilderScreen(
     val downloadProgressMap by viewModel.downloadProgress.collectAsState()
     val activeDownloadProgress = uiState.baseTrailId?.let { downloadProgressMap[it] }
     val coroutineScope = rememberCoroutineScope()
-    val isDark = isSystemInDarkTheme()
+    val isDark = DanskStiTheme.isDark
     val windowSizeClass = DanskStiTheme.windowSizeClass
-    val settingsRepository = remember { SettingsRepository(context) }
-    val layersState by settingsRepository.mapLayersFlow.collectAsState(initial = MapLayersState())
+    val settingsRepository = remember(context) { com.example.DanskStiApp.getSettingsRepository(context) }
+    val layersState by settingsRepository.mapLayersFlow.collectAsState(initial = settingsRepository.currentSettingsSnapshot().mapLayers)
     var selectedMarkedRoute by remember { mutableStateOf<MarkedRouteDto?>(null) }
 
     var showClearDialog by remember { mutableStateOf(false) }
@@ -139,21 +138,24 @@ fun RouteBuilderScreen(
     var customWpName by remember { mutableStateOf("") }
     var customWpNote by remember { mutableStateOf("") }
     var customWpPhotoPath by remember { mutableStateOf<String?>(null) }
+    var pendingCameraPhotoPath by remember { mutableStateOf<String?>(null) }
 
     val cameraPhotoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bmp ->
-        if (bmp != null) {
+        contract = ActivityResultContracts.TakePicture()
+    ) { saved ->
+        val path = pendingCameraPhotoPath
+        pendingCameraPhotoPath = null
+        if (saved && !path.isNullOrBlank()) {
             try {
-                val photosDir = File(context.filesDir, "photos").apply { if (!exists()) mkdirs() }
-                val photoFile = File(photosDir, "wp_photo_${System.currentTimeMillis()}.jpg")
-                FileOutputStream(photoFile).use { out ->
-                    bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                val photoFile = File(path)
+                if (com.example.util.WaypointPhotoHelper.compressCapturedPhotoFile(photoFile)) {
+                    customWpPhotoPath = photoFile.absolutePath
                 }
-                customWpPhotoPath = photoFile.absolutePath
             } catch (e: Exception) {
                 Toast.makeText(context, "Kunne ikke gemme foto: ${e.message}", Toast.LENGTH_SHORT).show()
             }
+        } else if (!path.isNullOrBlank()) {
+            runCatching { File(path).delete() }
         }
     }
 
@@ -163,11 +165,11 @@ fun RouteBuilderScreen(
         uri?.let {
             try {
                 context.contentResolver.openInputStream(it)?.use { input ->
-                    val photosDir = File(context.filesDir, "photos").apply { if (!exists()) mkdirs() }
-                    val photoFile = File(photosDir, "wp_photo_${System.currentTimeMillis()}.jpg")
+                    val photoFile = com.example.util.WaypointPhotoHelper.createPhotoFile(context)
                     FileOutputStream(photoFile).use { out ->
                         input.copyTo(out)
                     }
+                    com.example.util.WaypointPhotoHelper.compressCapturedPhotoFile(photoFile)
                     customWpPhotoPath = photoFile.absolutePath
                 }
             } catch (e: Exception) {
@@ -308,7 +310,27 @@ fun RouteBuilderScreen(
         showSaveDialog = true
     }
 
+    val handleBackPress = {
+        when {
+            uiState.isCrosshairMode -> viewModel.cancelCrosshairMode()
+            uiState.selectedWaypointId != null || uiState.selectedLegKey != null -> {
+                viewModel.selectWaypoint(null)
+                viewModel.selectLeg(null)
+            }
+            !windowSizeClass.usePlannerSidePanel && uiState.sheetHeightState != SheetHeightState.PEEK -> {
+                viewModel.setSheetHeightState(SheetHeightState.PEEK)
+            }
+            uiState.hasUnsavedChanges -> {
+                viewModel.setShowUnsavedChangesDialog(true)
+            }
+            else -> onBack()
+        }
+    }
+
+    BackHandler(onBack = handleBackPress)
+
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             RouteBuilderTopAppBar(
                 uiState = uiState,
@@ -321,7 +343,7 @@ fun RouteBuilderScreen(
                     }
                     showRenameDialog = true
                 },
-                onBack = onBack,
+                onBack = handleBackPress,
                 onOpenTripSettings = { viewModel.openTripSettingsSheet() },
                 onOpenLayersSheet = { showLayersSheet = true },
                 onLaunchGpxImport = {
@@ -336,10 +358,11 @@ fun RouteBuilderScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .consumeWindowInsets(paddingValues)
                 .imePadding()
         ) {
             val availableHeightDp = maxHeight.value
-            val useSidePanel = windowSizeClass.usePlannerSidePanel || maxHeight < 480.dp || maxWidth > 840.dp
+            val useSidePanel = windowSizeClass.usePlannerSidePanel || (maxHeight < 480.dp && maxWidth > maxHeight) || maxWidth > 840.dp
 
             val plannerSheetComposable: @Composable (Modifier, Boolean) -> Unit = { sheetModifier, isSidePanelMode ->
                 PlannerBottomSheet(
@@ -390,7 +413,7 @@ fun RouteBuilderScreen(
                         modifier = Modifier.fillMaxSize(),
                         mapTestTag = "route_builder_map",
                         initialZoom = 7.5,
-                        isSystemDarkOverride = isDark,
+                        appIsDark = isDark,
                         customWaypoints = uiState.customUserWaypoints,
                         routeIdForDropPinSave = uiState.routeId,
                         controlsTopPadding = 16.dp,
@@ -446,25 +469,15 @@ fun RouteBuilderScreen(
                                 viewModel.insertViaPointOnLine(lat, lng)
                             }
                         },
-                        onPoiTapped = { poiItem ->
-                            val mappedType = when (poiItem.type.lowercase()) {
-                                "shelter" -> "SHELTER"
-                                "tent", "fri_teltning" -> "FRI_TELTNING"
-                                "water" -> "WATER"
-                                "toilet" -> "TOILET"
-                                "shop" -> "SHOP"
-                                else -> poiItem.type.uppercase()
-                            }
-                            viewModel.onPoiTapped(
-                                id = poiItem.id,
-                                name = poiItem.name,
-                                type = mappedType,
-                                lat = poiItem.lat,
-                                lng = poiItem.lng
+                        onOvernightInPlannerFromPoiSheet = { poiData ->
+                            viewModel.addDetourPoiToRoute(
+                                lat = poiData.lat,
+                                lng = poiData.lng,
+                                name = poiData.name,
+                                role = WaypointRole.OVERNIGHT,
+                                poiId = poiData.id,
+                                poiType = poiData.rawType
                             )
-                        },
-                        onAccessPolygonTapped = { poly ->
-                            viewModel.selectAccessPolygon(poly)
                         },
                         onCameraChanged = { _, zoom, bbox ->
                             if (bbox != null) {
@@ -527,6 +540,7 @@ fun RouteBuilderScreen(
 
                     RouteBuilderPinDragOverlay(
                         mapView = mapViewInstance,
+                        overlayManager = overlayManagerInstance,
                         uiState = uiState,
                         viewModel = viewModel
                     )
@@ -727,41 +741,43 @@ fun RouteBuilderScreen(
                 availableHeightDp = availableHeightDp
             )
 
+            PlannerUnsavedChangesDialog(
+                show = uiState.showUnsavedChangesDialog,
+                onSave = {
+                    viewModel.setShowUnsavedChangesDialog(false)
+                    if (uiState.waypoints.size >= 2) viewModel.saveRoute(onSuccess = { onSavedSuccessfully() }) else openSaveDialogLambda()
+                },
+                onDiscard = { viewModel.discardDraft(); onBack() },
+                onContinueEditing = { viewModel.setShowUnsavedChangesDialog(false) }
+            )
             RouteBuilderFeatureDialogsHost(
-                uiState = uiState,
-                viewModel = viewModel,
-                context = context,
-                mapViewInstance = mapViewInstance,
-                customWpName = customWpName,
-                onCustomWpNameChange = { customWpName = it },
-                customWpNote = customWpNote,
-                onCustomWpNoteChange = { customWpNote = it },
-                customWpPhotoPath = customWpPhotoPath,
-                onCustomWpPhotoPathChange = { customWpPhotoPath = it },
-                onLaunchCamera = { cameraPhotoLauncher.launch(null) },
-                onLaunchGallery = { galleryPhotoLauncher.launch("image/*") },
+                uiState = uiState, viewModel = viewModel, context = context, mapViewInstance = mapViewInstance,
+                customWpName = customWpName, onCustomWpNameChange = { customWpName = it },
+                customWpNote = customWpNote, onCustomWpNoteChange = { customWpNote = it },
+                customWpPhotoPath = customWpPhotoPath, onCustomWpPhotoPathChange = { customWpPhotoPath = it },
+                onLaunchCamera = {
+                    try {
+                        val (photoFile, photoUri) = com.example.util.WaypointPhotoHelper.createPhotoCaptureTarget(context)
+                        pendingCameraPhotoPath = photoFile.absolutePath
+                        cameraPhotoLauncher.launch(photoUri)
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Kunne ikke åbne kamera: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }, onLaunchGallery = { galleryPhotoLauncher.launch("image/*") },
                 availableHeightDp = availableHeightDp
             )
         }
     }
-
     if (showLayersSheet) {
-        MapLayersBottomSheet(
-            state = layersState,
-            settingsRepository = settingsRepository,
-            onDismiss = { showLayersSheet = false }
-        )
+        MapLayersBottomSheet(state = layersState, settingsRepository = settingsRepository, onDismiss = { showLayersSheet = false })
     }
-
     selectedMarkedRoute?.let { markedRoute ->
         val app = context.applicationContext as DanskStiApp
         MarkedRouteDetailSheet(
             route = markedRoute,
             onDismiss = { selectedMarkedRoute = null },
             onUseAsBaseInRouteBuilder = { r ->
-                coroutineScope.launch {
-                    app.repository.saveMarkedRouteAsTrail(r)
-                }
+                coroutineScope.launch { app.repository.saveMarkedRouteAsTrail(r) }
                 selectedMarkedRoute = null
             }
         )

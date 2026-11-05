@@ -415,7 +415,7 @@ fun ErrorStateView(
 fun TrailGeometryThumbnail(
     points: List<GeoPointDto>,
     modifier: Modifier = Modifier,
-    isDark: Boolean = isSystemInDarkTheme(),
+    isDark: Boolean = DanskStiTheme.isDark,
     fallbackCenterLat: Double = 56.0,
     fallbackCenterLng: Double = 10.5
 ) {

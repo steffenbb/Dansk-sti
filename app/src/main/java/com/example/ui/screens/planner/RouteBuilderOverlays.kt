@@ -3,19 +3,10 @@ package com.example.ui.screens.planner
 import android.graphics.Point
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,35 +15,13 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.AltRoute
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.LinearScale
-import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.NightShelter
-import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -63,7 +32,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -71,8 +39,6 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
@@ -82,13 +48,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.ui.theme.DanskStiTheme
 import com.example.ui.viewmodel.*
-import com.example.util.routing.LegGeometryData
-import com.example.util.routing.LegMode
-import com.example.util.routing.RouteMarkerHelper
 import com.example.util.routing.RouteWaypoint
 import com.example.util.routing.WaypointRole
 import java.util.Locale
@@ -276,7 +238,7 @@ class PlannerDragGestureSession(
     }
 }
 
-private data class ActivePinDragState(
+data class ActivePinDragState(
     val waypointId: String,
     val role: WaypointRole,
     val waypointIndex: Int,
@@ -293,212 +255,310 @@ private data class ActivePinDragState(
 )
 
 /**
- * UI Round 1 Item 4 & 5:
- * Custom touch overlay for immediate press-and-move dragging of pins and ghost handles (no long-press).
+ * Round 10A Item 3:
+ * osmdroid [org.osmdroid.views.overlay.Overlay] that handles pin and ghost-handle dragging.
+ * Its [onTouchEvent] returns `true` ONLY when a visible waypoint pin or ghost handle is hit,
+ * allowing all other touches (pan, fling, pinch-zoom, double-tap zoom in Kig and Tegn mode)
+ * to pass directly to [MapView].
+ */
+class PlannerPinDragMapOverlay(
+    var viewModel: RouteBuilderViewModel,
+    var uiStateProvider: () -> RouteBuilderState = { viewModel.uiState.value },
+    var onActiveDragChanged: (ActivePinDragState?) -> Unit = {},
+    var onHapticMove: () -> Unit = {},
+    var onHapticTrash: () -> Unit = {}
+) : org.osmdroid.views.overlay.Overlay() {
+
+    private var activeSession: PlannerDragGestureSession? = null
+    private var currentActiveDrag: ActivePinDragState? = null
+    private var hitWaypointOnDown: RouteWaypoint? = null
+    private var downX: Float = 0f
+    private var downY: Float = 0f
+    private var activePointerId: Int = android.view.MotionEvent.INVALID_POINTER_ID
+    private var lastSnappedState: Boolean = false
+
+    val isDraggingPinOrHandle: Boolean
+        get() = activeSession?.isDragging == true
+
+    val hasActiveHitSession: Boolean
+        get() = activeSession != null
+
+    private fun updateDragState(newState: ActivePinDragState?) {
+        currentActiveDrag = newState
+        onActiveDragChanged(newState)
+    }
+
+    override fun draw(c: android.graphics.Canvas?, osmv: MapView?, shadow: Boolean) {
+        // Visual feedback (magnifier, dashed lines, trash zone) is drawn by the non-touch Compose layer.
+    }
+
+    override fun onTouchEvent(event: android.view.MotionEvent?, mapView: MapView?): Boolean {
+        if (event == null || mapView == null || !isEnabled) return false
+        val stateSnapshot = uiStateProvider()
+        if (stateSnapshot.isCrosshairMode) {
+            if (activeSession != null) {
+                activeSession?.onSecondFingerDownOrCancel()
+                activeSession = null
+                hitWaypointOnDown = null
+                activePointerId = android.view.MotionEvent.INVALID_POINTER_ID
+                updateDragState(null)
+            }
+            return false
+        }
+
+        val density = mapView.context.resources.displayMetrics.density
+        val touchRadiusPx = 26f * density
+        val pinAboveFingerPx = 48f * density
+        val trashZoneHeightPx = 96f * density
+        val touchSlopPx = android.view.ViewConfiguration.get(mapView.context).scaledTouchSlop.toFloat()
+
+        when (event.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                if (event.pointerCount > 1) return false
+                val proj = mapView.projection ?: return false
+                val x = event.x
+                val y = event.y
+                val screenPt = Point()
+
+                // 1. Check if press is within 26dp of any visible waypoint pin
+                val visibleWps = stateSnapshot.visibleWaypoints
+                var hitWaypoint: RouteWaypoint? = null
+                var hitWaypointIdx = -1
+                var bestPinDist = touchRadiusPx
+
+                for ((idx, wp) in visibleWps.withIndex()) {
+                    proj.toPixels(GeoPoint(wp.lat, wp.lng), screenPt)
+                    val d = hypot(x - screenPt.x.toFloat(), y - screenPt.y.toFloat())
+                    if (d <= bestPinDist) {
+                        bestPinDist = d
+                        hitWaypoint = wp
+                        hitWaypointIdx = idx
+                    }
+                }
+
+                // 2. If no pin hit and zoom >= 13, check ghost handles at leg midpoints
+                var hitGhostHandle: LegMidpointHandle? = null
+                if (hitWaypoint == null && mapView.zoomLevelDouble >= 13.0) {
+                    val handles = viewModel.getLegMidpointHandles()
+                    var bestGhostDist = touchRadiusPx
+                    for (h in handles) {
+                        proj.toPixels(GeoPoint(h.lat, h.lng), screenPt)
+                        val d = hypot(x - screenPt.x.toFloat(), y - screenPt.y.toFloat())
+                        if (d <= bestGhostDist) {
+                            bestGhostDist = d
+                            hitGhostHandle = h
+                        }
+                    }
+                }
+
+                // Return false when neither a pin nor a ghost handle is hit so MapView pans/zooms freely!
+                if (hitWaypoint == null && hitGhostHandle == null) {
+                    return false
+                }
+
+                hitWaypointOnDown = hitWaypoint
+                activeSession = PlannerDragGestureSession(
+                    viewModel = viewModel,
+                    touchSlopPx = touchSlopPx,
+                    hitWaypoint = hitWaypoint,
+                    hitWaypointIdx = hitWaypointIdx,
+                    hitGhostHandle = hitGhostHandle
+                )
+                downX = x
+                downY = y
+                activePointerId = event.getPointerId(0)
+                lastSnappedState = false
+                mapView.parent?.requestDisallowInterceptTouchEvent(true)
+                return true
+            }
+
+            android.view.MotionEvent.ACTION_POINTER_DOWN -> {
+                // If a second finger goes down during a pin drag, cancel the drag and let MapView pinch-zoom
+                val session = activeSession
+                if (session != null) {
+                    session.onSecondFingerDownOrCancel()
+                    activeSession = null
+                    hitWaypointOnDown = null
+                    activePointerId = android.view.MotionEvent.INVALID_POINTER_ID
+                    updateDragState(null)
+                }
+                return false
+            }
+
+            android.view.MotionEvent.ACTION_MOVE -> {
+                val session = activeSession ?: return false
+                if (event.pointerCount > 1) {
+                    session.onSecondFingerDownOrCancel()
+                    activeSession = null
+                    hitWaypointOnDown = null
+                    activePointerId = android.view.MotionEvent.INVALID_POINTER_ID
+                    updateDragState(null)
+                    return false
+                }
+                val ptrIdx = event.findPointerIndex(activePointerId).let { if (it >= 0) it else 0 }
+                val x = event.getX(ptrIdx)
+                val y = event.getY(ptrIdx)
+                val moveDist = hypot(x - downX, y - downY)
+
+                if (!session.isDragging) {
+                    val started = session.onMoveDistance(moveDist)
+                    if (started) {
+                        onHapticMove()
+                    }
+                }
+
+                if (session.isDragging) {
+                    val wpId = session.draggedWpId ?: return true
+                    val fingerPos = Offset(x, y)
+                    val pinPos = Offset(fingerPos.x, (fingerPos.y - pinAboveFingerPx).coerceAtLeast(16f))
+                    val activeProj = mapView.projection ?: return true
+                    val geo = activeProj.fromPixels(pinPos.x.toInt(), pinPos.y.toInt())
+                    val rawLat = geo.latitude
+                    val rawLng = geo.longitude
+
+                    val snapRes = viewModel.snapCoordinateWithin25m(rawLat, rawLng)
+                    if (snapRes.snapped && !lastSnappedState) {
+                        onHapticMove()
+                    }
+                    lastSnappedState = snapRes.snapped
+
+                    val effectivePinPos = if (snapRes.snapped) {
+                        val snappedPt = Point()
+                        activeProj.toPixels(GeoPoint(snapRes.lat, snapRes.lng), snappedPt)
+                        Offset(snappedPt.x.toFloat(), snappedPt.y.toFloat())
+                    } else {
+                        pinPos
+                    }
+
+                    val allWps = viewModel.uiState.value.visibleWaypoints
+                    val idxInAll = allWps.indexOfFirst { it.id == wpId }
+                    val prevScreen = if (idxInAll > 0) {
+                        val pt = Point()
+                        activeProj.toPixels(GeoPoint(allWps[idxInAll - 1].lat, allWps[idxInAll - 1].lng), pt)
+                        Offset(pt.x.toFloat(), pt.y.toFloat())
+                    } else null
+                    val nextScreen = if (idxInAll >= 0 && idxInAll < allWps.lastIndex) {
+                        val pt = Point()
+                        activeProj.toPixels(GeoPoint(allWps[idxInAll + 1].lat, allWps[idxInAll + 1].lng), pt)
+                        Offset(pt.x.toFloat(), pt.y.toFloat())
+                    } else null
+
+                    val deltaKm = viewModel.computeDragLengthDeltaKm(wpId, snapRes.lat, snapRes.lng)
+                    val viewHeight = mapView.height.takeIf { it > 0 } ?: 1000
+                    val overTrash = fingerPos.y >= (viewHeight - trashZoneHeightPx)
+
+                    updateDragState(
+                        ActivePinDragState(
+                            waypointId = wpId,
+                            role = session.draggedRole,
+                            waypointIndex = if (idxInAll >= 0) idxInAll else session.draggedIdx,
+                            fingerOffset = fingerPos,
+                            pinOffset = effectivePinPos,
+                            currentLat = snapRes.lat,
+                            currentLng = snapRes.lng,
+                            isSnapped = snapRes.snapped,
+                            snapLabel = snapRes.snapLabel,
+                            deltaKm = deltaKm,
+                            prevScreenOffset = prevScreen,
+                            nextScreenOffset = nextScreen,
+                            isOverTrashZone = overTrash
+                        )
+                    )
+                }
+                return true
+            }
+
+            android.view.MotionEvent.ACTION_UP -> {
+                val session = activeSession ?: return false
+                val finalDrag = currentActiveDrag
+                val tappedWp = hitWaypointOnDown
+                activeSession = null
+                hitWaypointOnDown = null
+                activePointerId = android.view.MotionEvent.INVALID_POINTER_ID
+                updateDragState(null)
+
+                if (session.isDragging && finalDrag != null) {
+                    session.onRelease(
+                        finalLat = finalDrag.currentLat,
+                        finalLng = finalDrag.currentLng,
+                        isOverTrashZone = finalDrag.isOverTrashZone,
+                        onTrashHaptic = onHapticTrash
+                    )
+                } else if (tappedWp != null) {
+                    viewModel.selectWaypoint(tappedWp.id)
+                }
+                return true
+            }
+
+            android.view.MotionEvent.ACTION_CANCEL -> {
+                val session = activeSession ?: return false
+                session.onSecondFingerDownOrCancel()
+                activeSession = null
+                hitWaypointOnDown = null
+                activePointerId = android.view.MotionEvent.INVALID_POINTER_ID
+                updateDragState(null)
+                return true
+            }
+
+            else -> return activeSession != null
+        }
+    }
+}
+
+/**
+ * Round 10A Item 3:
+ * Non-touch drawing layer for pin/ghost-handle drag feedback:
  * - Draws the pin 48 dp above the finger
  * - Shows a 64 dp magnifier circle
  * - Draws dashed straight lines to the neighbouring pins
  * - Shows the length change ("+0,8 km")
- * - Snaps within 25 m to the trail line, a shelter or a fri teltning area with a haptic tick
- * - Shows a trash zone at the bottom while dragging; dropping there deletes the pin with a "Punkt slettet · Fortryd" snackbar
- * - Calls moveWaypoint once on release
+ * - Shows a trash zone at the bottom while dragging
+ * Touch handling lives in [PlannerPinDragMapOverlay] registered on the [MapView] so the map pans/zooms freely.
  */
 @Composable
 fun RouteBuilderPinDragOverlay(
     mapView: MapView?,
     uiState: RouteBuilderState,
     viewModel: RouteBuilderViewModel,
+    overlayManager: com.example.ui.navigation.MapLayersOverlayManager? = null,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
-    val currentMapView by rememberUpdatedState(mapView)
     val currentUiState by rememberUpdatedState(uiState)
 
-    val touchRadiusPx = with(density) { 26.dp.toPx() }
-    val pinAboveFingerPx = with(density) { 48.dp.toPx() }
-    val magnifierSizeDp = 64.dp
     val magnifierRadiusPx = with(density) { 32.dp.toPx() }
-    val trashZoneHeightPx = with(density) { 96.dp.toPx() }
-
     var activeDrag by remember { mutableStateOf<ActivePinDragState?>(null) }
+
+    val pinDragOverlay = remember(viewModel) {
+        PlannerPinDragMapOverlay(
+            viewModel = viewModel,
+            uiStateProvider = { currentUiState },
+            onActiveDragChanged = { dragState -> activeDrag = dragState },
+            onHapticMove = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) },
+            onHapticTrash = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
+        )
+    }
+    pinDragOverlay.viewModel = viewModel
+    pinDragOverlay.uiStateProvider = { currentUiState }
+    pinDragOverlay.onActiveDragChanged = { dragState -> activeDrag = dragState }
+
+    androidx.compose.runtime.LaunchedEffect(mapView, overlayManager, pinDragOverlay, uiState.waypoints) {
+        val mv = mapView ?: return@LaunchedEffect
+        if (overlayManager != null) {
+            overlayManager.registerOverlay(
+                com.example.ui.navigation.MapLayersOverlayManager.KEY_PLANNER_PIN_DRAG,
+                pinDragOverlay
+            )
+        } else if (!mv.overlays.contains(pinDragOverlay)) {
+            mv.overlays.add(pinDragOverlay)
+        }
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .testTag("pin_drag_touch_overlay")
-            .pointerInput(Unit) {
-                val touchSlop = viewConfiguration.touchSlop
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    val mv = currentMapView ?: return@awaitEachGesture
-                    val stateSnapshot = currentUiState
-                    if (stateSnapshot.isCrosshairMode) return@awaitEachGesture
-
-                    val proj = mv.projection ?: return@awaitEachGesture
-                    val downPos = down.position
-                    val screenPt = Point()
-
-                    // 1. Check if press is within 24dp (48dp diameter) of any visible waypoint pin
-                    val visibleWps = stateSnapshot.visibleWaypoints
-                    var hitWaypoint: RouteWaypoint? = null
-                    var hitWaypointIdx = -1
-                    var bestPinDist = touchRadiusPx
-
-                    for ((idx, wp) in visibleWps.withIndex()) {
-                        proj.toPixels(GeoPoint(wp.lat, wp.lng), screenPt)
-                        val d = hypot(downPos.x - screenPt.x.toFloat(), downPos.y - screenPt.y.toFloat())
-                        if (d <= bestPinDist) {
-                            bestPinDist = d
-                            hitWaypoint = wp
-                            hitWaypointIdx = idx
-                        }
-                    }
-
-                    // 2. If no pin hit and zoom >= 13, check ghost handles at leg midpoints
-                    var hitGhostHandle: LegMidpointHandle? = null
-                    if (hitWaypoint == null && mv.zoomLevelDouble >= 13.0) {
-                        val handles = viewModel.getLegMidpointHandles()
-                        var bestGhostDist = touchRadiusPx
-                        for (h in handles) {
-                            proj.toPixels(GeoPoint(h.lat, h.lng), screenPt)
-                            val d = hypot(downPos.x - screenPt.x.toFloat(), downPos.y - screenPt.y.toFloat())
-                            if (d <= bestGhostDist) {
-                                bestGhostDist = d
-                                hitGhostHandle = h
-                            }
-                        }
-                    }
-
-                    if (hitWaypoint == null && hitGhostHandle == null) {
-                        return@awaitEachGesture
-                    }
-
-                    val gestureSession = PlannerDragGestureSession(
-                        viewModel = viewModel,
-                        touchSlopPx = touchSlop,
-                        hitWaypoint = hitWaypoint,
-                        hitWaypointIdx = hitWaypointIdx,
-                        hitGhostHandle = hitGhostHandle
-                    )
-                    var lastSnappedState = false
-                    var completedOrCancelled = false
-
-                    try {
-                        while (true) {
-                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-
-                            // Round 9A Item 8: If a second finger goes down during a pin drag,
-                            // cancel the drag (pin returns to its old place) and let the map zoom (do not consume).
-                            val pressedCount = event.changes.count { it.pressed }
-                            if (pressedCount > 1 || event.changes.size > 1) {
-                                gestureSession.onSecondFingerDownOrCancel()
-                                activeDrag = null
-                                completedOrCancelled = true
-                                break
-                            }
-
-                            val change = event.changes.firstOrNull { it.id == down.id }
-                            if (change == null || change.isConsumed) {
-                                // Round 9A Item 7 & 8: Gesture cancelled externally
-                                gestureSession.onSecondFingerDownOrCancel()
-                                activeDrag = null
-                                completedOrCancelled = true
-                                break
-                            }
-
-                            if (!change.pressed) {
-                                if (gestureSession.isDragging) {
-                                    change.consume()
-                                    val finalDrag = activeDrag
-                                    activeDrag = null
-                                    if (finalDrag != null) {
-                                        gestureSession.onRelease(
-                                            finalLat = finalDrag.currentLat,
-                                            finalLng = finalDrag.currentLng,
-                                            isOverTrashZone = finalDrag.isOverTrashZone,
-                                            onTrashHaptic = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
-                                        )
-                                    }
-                                }
-                                completedOrCancelled = true
-                                break
-                            }
-
-                            val moveDist = (change.position - downPos).getDistance()
-                            if (!gestureSession.isDragging) {
-                                val started = gestureSession.onMoveDistance(moveDist)
-                                if (started) {
-                                    change.consume()
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                }
-                            }
-
-                            if (gestureSession.isDragging) {
-                                change.consume()
-                                val wpId = gestureSession.draggedWpId ?: continue
-                                val fingerPos = change.position
-                                val pinPos = Offset(fingerPos.x, (fingerPos.y - pinAboveFingerPx).coerceAtLeast(16f))
-                                val activeProj = mv.projection ?: continue
-                                val geo = activeProj.fromPixels(pinPos.x.toInt(), pinPos.y.toInt())
-                                val rawLat = geo.latitude
-                                val rawLng = geo.longitude
-
-                                val snapRes = viewModel.snapCoordinateWithin25m(rawLat, rawLng)
-                                if (snapRes.snapped && !lastSnappedState) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                }
-                                lastSnappedState = snapRes.snapped
-
-                                val effectivePinPos = if (snapRes.snapped) {
-                                    val snappedPt = Point()
-                                    activeProj.toPixels(GeoPoint(snapRes.lat, snapRes.lng), snappedPt)
-                                    Offset(snappedPt.x.toFloat(), snappedPt.y.toFloat())
-                                } else {
-                                    pinPos
-                                }
-
-                                val allWps = viewModel.uiState.value.visibleWaypoints
-                                val idxInAll = allWps.indexOfFirst { it.id == wpId }
-                                val prevScreen = if (idxInAll > 0) {
-                                    val pt = Point()
-                                    activeProj.toPixels(GeoPoint(allWps[idxInAll - 1].lat, allWps[idxInAll - 1].lng), pt)
-                                    Offset(pt.x.toFloat(), pt.y.toFloat())
-                                } else null
-                                val nextScreen = if (idxInAll >= 0 && idxInAll < allWps.lastIndex) {
-                                    val pt = Point()
-                                    activeProj.toPixels(GeoPoint(allWps[idxInAll + 1].lat, allWps[idxInAll + 1].lng), pt)
-                                    Offset(pt.x.toFloat(), pt.y.toFloat())
-                                } else null
-
-                                val deltaKm = viewModel.computeDragLengthDeltaKm(wpId, snapRes.lat, snapRes.lng)
-                                val overTrash = fingerPos.y >= (size.height - trashZoneHeightPx)
-
-                                activeDrag = ActivePinDragState(
-                                    waypointId = wpId,
-                                    role = gestureSession.draggedRole,
-                                    waypointIndex = if (idxInAll >= 0) idxInAll else gestureSession.draggedIdx,
-                                    fingerOffset = fingerPos,
-                                    pinOffset = effectivePinPos,
-                                    currentLat = snapRes.lat,
-                                    currentLng = snapRes.lng,
-                                    isSnapped = snapRes.snapped,
-                                    snapLabel = snapRes.snapLabel,
-                                    deltaKm = deltaKm,
-                                    prevScreenOffset = prevScreen,
-                                    nextScreenOffset = nextScreen,
-                                    isOverTrashZone = overTrash
-                                )
-                            }
-                        }
-                    } finally {
-                        if (!completedOrCancelled && gestureSession.isDragging) {
-                            gestureSession.onSecondFingerDownOrCancel()
-                            activeDrag = null
-                        }
-                    }
-                }
-            }
     ) {
         val drag = activeDrag
         if (drag != null) {
@@ -640,654 +700,3 @@ fun RouteBuilderPinDragOverlay(
         }
     }
 }
-
-/**
- * UI Round 1 Item 6:
- * Crosshair placement: a "+" button shows a fixed crosshair in the map centre and a "Tilføj her" button;
- * it adds a point exactly at the centre (snapping as in 4). "Annuller" closes it.
- */
-@Composable
-fun CrosshairPlacementOverlay(
-    isCrosshairMode: Boolean,
-    onOpenCrosshair: () -> Unit,
-    onConfirmHere: () -> Unit,
-    onCancel: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val crosshairCd = stringResource(R.string.planner_crosshair_open_cd)
-    Box(modifier = modifier.fillMaxSize()) {
-        if (!isCrosshairMode) {
-            // "+" button to enter crosshair placement mode (placed on left side below search bar so it never overlaps right-side map controls)
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 16.dp, top = 136.dp)
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .clickable { onOpenCrosshair() }
-                    .semantics { contentDescription = crosshairCd }
-                    .testTag("open_crosshair_button"),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                tonalElevation = 6.dp,
-                shadowElevation = 6.dp
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = crosshairCd,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-        } else {
-            val danskStiColors = DanskStiTheme.colors
-            // Fixed crosshair in the exact map centre
-            Canvas(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(64.dp)
-                    .testTag("map_center_crosshair")
-            ) {
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val ringRadius = 18.dp.toPx()
-                val lineHalf = 28.dp.toPx()
-
-                // Halo for contrast
-                drawCircle(
-                    color = danskStiColors.routeCasing,
-                    radius = ringRadius,
-                    center = Offset(cx, cy),
-                    style = Stroke(width = 4.dp.toPx())
-                )
-                drawLine(
-                    color = danskStiColors.routeCasing,
-                    start = Offset(cx - lineHalf, cy),
-                    end = Offset(cx + lineHalf, cy),
-                    strokeWidth = 4.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-                drawLine(
-                    color = danskStiColors.routeCasing,
-                    start = Offset(cx, cy - lineHalf),
-                    end = Offset(cx, cy + lineHalf),
-                    strokeWidth = 4.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-
-                // Inner precision crosshair
-                drawCircle(
-                    color = danskStiColors.plannedRoute,
-                    radius = ringRadius,
-                    center = Offset(cx, cy),
-                    style = Stroke(width = 2.dp.toPx())
-                )
-                drawLine(
-                    color = danskStiColors.plannedRoute,
-                    start = Offset(cx - lineHalf, cy),
-                    end = Offset(cx + lineHalf, cy),
-                    strokeWidth = 2.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-                drawLine(
-                    color = danskStiColors.plannedRoute,
-                    start = Offset(cx, cy - lineHalf),
-                    end = Offset(cx, cy + lineHalf),
-                    strokeWidth = 2.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-                drawCircle(
-                    color = danskStiColors.danger,
-                    radius = 3.dp.toPx(),
-                    center = Offset(cx, cy)
-                )
-            }
-
-            // "Tilføj her" and "Annuller" pill bar below the crosshair
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(top = 128.dp)
-                    .testTag("crosshair_actions_bar"),
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-                tonalElevation = 6.dp,
-                shadowElevation = 6.dp
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = onConfirmHere,
-                        modifier = Modifier
-                            .heightIn(min = 48.dp)
-                            .testTag("crosshair_add_here_button"),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.planner_crosshair_add_here), fontWeight = FontWeight.Bold)
-                    }
-
-                    OutlinedButton(
-                        onClick = onCancel,
-                        modifier = Modifier
-                            .heightIn(min = 48.dp)
-                            .testTag("crosshair_cancel_button"),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        Text(stringResource(R.string.btn_cancel))
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * UI Round 1 Item 7:
- * Pin selection: tapping a pin selects it (larger icon with ring, rest of the route at 60 % opacity)
- * and shows a slim action bar above the planner sheet:
- * Slet, Overnat her / Almindeligt punkt, Følg stier / Lige linje, Flyt til nærmeste sti, Navngiv.
- * Replace the modal waypoint sheet with this bar. Tapping empty map closes it.
- */
-@Composable
-fun PinSelectionActionBar(
-    waypoint: RouteWaypoint,
-    waypointIndex: Int,
-    onDelete: () -> Unit,
-    onToggleOvernight: () -> Unit,
-    onToggleLegMode: () -> Unit,
-    onSnapToNearestTrail: () -> Unit,
-    onRenameClick: () -> Unit,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val isOvernight = waypoint.role == WaypointRole.OVERNIGHT
-    val isStraight = waypoint.legModeToNext == LegMode.STRAIGHT
-
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .testTag("pin_selection_action_bar"),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 6.dp,
-        shadowElevation = 6.dp
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                val title = waypoint.name?.takeIf { it.isNotBlank() }
-                    ?: "Punkt ${waypointIndex + 1}"
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .testTag("pin_action_bar_close")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.planner_pin_bar_close_cd),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 1. Slet
-                AssistChip(
-                    onClick = onDelete,
-                    label = { Text(stringResource(R.string.btn_delete)) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    },
-                    colors = AssistChipDefaults.assistChipColors(
-                        labelColor = MaterialTheme.colorScheme.error
-                    ),
-                    modifier = Modifier.testTag("pin_bar_delete")
-                )
-
-                // 2. Overnat her / Almindeligt punkt
-                val overnightText = if (isOvernight) stringResource(R.string.planner_pin_bar_normal_point) else stringResource(R.string.planner_pin_bar_overnight_here)
-                AssistChip(
-                    onClick = onToggleOvernight,
-                    label = { Text(overnightText) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.NightShelter,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    },
-                    modifier = Modifier.testTag("pin_bar_toggle_overnight")
-                )
-
-                // 3. Følg stier / Lige linje
-                val legModeText = if (isStraight) stringResource(R.string.planner_leg_mode_follow_trails) else stringResource(R.string.planner_leg_mode_straight_line)
-                AssistChip(
-                    onClick = onToggleLegMode,
-                    label = { Text(legModeText) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = if (isStraight) Icons.Default.Route else Icons.Default.LinearScale,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    },
-                    modifier = Modifier.testTag("pin_bar_toggle_leg_mode")
-                )
-
-                // 4. Flyt til nærmeste sti
-                AssistChip(
-                    onClick = onSnapToNearestTrail,
-                    label = { Text(stringResource(R.string.planner_pin_bar_snap_nearest_trail)) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.MyLocation,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    },
-                    modifier = Modifier.testTag("pin_bar_snap_nearest_trail")
-                )
-
-                // 5. Navngiv
-                AssistChip(
-                    onClick = onRenameClick,
-                    label = { Text(stringResource(R.string.planner_pin_bar_rename)) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    },
-                    modifier = Modifier.testTag("pin_bar_rename")
-                )
-            }
-        }
-    }
-}
-
-/**
- * UI Round 1 Item 9:
- * Tapping the route line selects that leg and shows a leg card:
- * length, ascent, mode (Følg stier / Lige linje), "Vis alternativer" (alternatives 1-3 for that leg only).
- */
-@Composable
-fun SelectedLegCard(
-    legKey: String,
-    legIndex: Int,
-    leg: LegGeometryData?,
-    fromWaypoint: RouteWaypoint,
-    alternatives: List<RouteAlternativeInfo>,
-    isFetchingAlternatives: Boolean,
-    onToggleMode: () -> Unit,
-    onFetchAlternatives: () -> Unit,
-    onSelectAlternative: (RouteAlternativeInfo) -> Unit,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val lengthKm = leg?.lengthKm ?: 0.0
-    val ascentM = leg?.ascentM ?: 0.0
-    val currentMode = leg?.legMode ?: fromWaypoint.legModeToNext
-    val modeLabel = if (currentMode == LegMode.STRAIGHT) stringResource(R.string.planner_leg_mode_straight_line) else stringResource(R.string.planner_leg_mode_follow_trails)
-    val toggleTargetLabel = if (currentMode == LegMode.STRAIGHT) stringResource(R.string.planner_leg_mode_follow_trails) else stringResource(R.string.planner_leg_mode_straight_line)
-
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .testTag("selected_leg_card"),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = stringResource(R.string.planner_leg_card_title_format, legIndex + 1, modeLabel),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = String.format(Locale.GERMAN, "%.1f km · +%d m stigning", lengthKm, ascentM.roundToInt()),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .testTag("selected_leg_card_close")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.planner_leg_card_close_cd),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedButton(
-                    onClick = onToggleMode,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("leg_card_toggle_mode_button"),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Icon(
-                        imageVector = if (currentMode == LegMode.STRAIGHT) Icons.Default.Route else Icons.Default.LinearScale,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(toggleTargetLabel, fontSize = 12.sp)
-                }
-
-                FilledTonalButton(
-                    onClick = onFetchAlternatives,
-                    enabled = !isFetchingAlternatives,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("leg_card_show_alternatives_button"),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    if (isFetchingAlternatives) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.AltRoute,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(stringResource(R.string.planner_leg_card_show_alternatives), fontSize = 12.sp)
-                }
-            }
-
-            if (alternatives.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    alternatives.forEach { alt ->
-                        FilterChip(
-                            selected = false,
-                            onClick = { onSelectAlternative(alt) },
-                            label = {
-                                Text(
-                                    String.format(
-                                        Locale.GERMAN,
-                                        "Alt %d: %.1f km (+%d m)",
-                                        alt.index,
-                                        alt.lengthKm,
-                                        alt.ascentM.roundToInt()
-                                    ),
-                                    fontSize = 12.sp
-                                )
-                            },
-                            modifier = Modifier.testTag("leg_alt_chip_${alt.index}")
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * UI Round 1 Item 11:
- * TalkBack: every pin and leg has a contentDescription like
- * "Punkt 3, overnatning, Shelter Skovbo, km 32,1".
- * Exposes accessible semantic nodes in the Compose tree for screen readers and UI tests.
- */
-@Composable
-fun TalkBackRouteSemanticsOverlay(
-    uiState: RouteBuilderState,
-    onSelectWaypoint: (String) -> Unit,
-    onSelectLeg: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val visibleWps = uiState.visibleWaypoints
-    if (visibleWps.isEmpty()) return
-
-    var runningKm = 0.0
-    Box(modifier = modifier) {
-        visibleWps.forEachIndexed { idx, wp ->
-            if (idx > 0) {
-                val prevWp = visibleWps[idx - 1]
-                val legKey = "${prevWp.id}_to_${wp.id}"
-                val leg = uiState.legs[legKey]
-                val legKm = leg?.lengthKm ?: 0.0
-                val legAsc = leg?.ascentM ?: 0.0
-                val legMode = leg?.legMode ?: prevWp.legModeToNext
-                val legDesc = RouteMarkerHelper.formatLegTalkBackDescription(
-                    legIndex = idx - 1,
-                    lengthKm = legKm,
-                    ascentM = legAsc,
-                    legMode = legMode
-                )
-                Box(
-                    modifier = Modifier
-                        .size(1.dp)
-                        .semantics { contentDescription = legDesc }
-                        .clickable { onSelectLeg(legKey) }
-                        .testTag("talkback_leg_${idx - 1}")
-                )
-                runningKm += legKm
-            }
-
-            val pinKm = wp.trailKm ?: runningKm
-            val pinDesc = RouteMarkerHelper.formatPinTalkBackDescription(
-                index = idx,
-                waypoint = wp,
-                cumulativeKm = pinKm
-            )
-            Box(
-                modifier = Modifier
-                    .size(1.dp)
-                    .semantics { contentDescription = pinDesc }
-                    .clickable { onSelectWaypoint(wp.id) }
-                    .testTag("talkback_pin_$idx")
-            )
-        }
-    }
-}
-
-/**
- * UI Round 4 Item 1:
- * First-run coach marks in the planner (3 tips: tap to add, drag a point, drag the middle of a leg),
- * stored as seen in DataStore.
- */
-@Composable
-fun PlannerCoachMarksOverlay(
-    uiState: RouteBuilderState,
-    onNextStep: () -> Unit,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    if (!uiState.showCoachMarks || uiState.waypoints.isNotEmpty() || uiState.mode != com.example.ui.viewmodel.PlannerMode.FREE || uiState.sheetHeightState != com.example.ui.viewmodel.SheetHeightState.PEEK) return
-
-    val tips = listOf(
-        stringResource(R.string.planner_coach_tip1_title) to stringResource(R.string.planner_coach_tip1_subtitle),
-        stringResource(R.string.planner_coach_tip2_title) to stringResource(R.string.planner_coach_tip2_subtitle),
-        stringResource(R.string.planner_coach_tip3_title) to stringResource(R.string.planner_coach_tip3_subtitle)
-    )
-    val stepIndex = uiState.coachMarkStep.coerceIn(0, tips.lastIndex)
-    val coachIntroCd = stringResource(R.string.planner_coach_intro_cd)
-
-    Box(
-        modifier = modifier
-            .zIndex(20f)
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 4.dp)
-            .testTag("planner_coach_marks"),
-        contentAlignment = Alignment.TopCenter
-    ) {
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                .semantics { contentDescription = coachIntroCd }
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stringResource(R.string.planner_coach_header_format, stepIndex + 1),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("coach_marks_step_header")
-                    )
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .size(32.dp)
-                            .testTag("coach_marks_close_icon")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = stringResource(R.string.planner_coach_close_cd),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
-                tips.forEachIndexed { idx, (title, subtitle) ->
-                    val isCurrent = idx == stepIndex
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isCurrent) {
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("coach_mark_tip_$idx")
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            verticalArrangement = Arrangement.spacedBy(1.dp)
-                        ) {
-                            Text(
-                                text = "${idx + 1}. $title",
-                                fontSize = 12.sp,
-                                lineHeight = 14.sp,
-                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            if (isCurrent) {
-                                Text(
-                                    text = subtitle,
-                                    fontSize = 11.sp,
-                                    lineHeight = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 38.dp)
-                            .testTag("coach_marks_dismiss_button")
-                    ) {
-                        Text(stringResource(R.string.planner_coach_understood), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                    Button(
-                        onClick = onNextStep,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 38.dp)
-                            .testTag("coach_marks_next_button")
-                    ) {
-                        Text(
-                            text = if (stepIndex < tips.lastIndex) stringResource(R.string.planner_coach_next_tip) else stringResource(R.string.planner_coach_start_planning),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-

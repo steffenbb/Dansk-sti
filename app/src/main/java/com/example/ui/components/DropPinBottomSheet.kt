@@ -87,7 +87,7 @@ object DropPinInspectorHelper {
 
     const val ACCESS_PUBLIC_FOREST = "Statsskov - fri færdsel"
     const val ACCESS_PRIVATE_FOREST = "Privat skov - kun veje og stier, kl. 6 til solnedgang"
-    const val ACCESS_UNKNOWN_OWNER = "Ukendt ejer"
+    const val ACCESS_UNKNOWN_OWNER = "Ejerforhold ukendt - følg skilte på stedet"
 
     fun formatDecimalCoordinates(lat: Double, lng: Double): String {
         val latHemi = if (lat >= 0) "N" else "S"
@@ -149,8 +149,13 @@ object DropPinInspectorHelper {
         }
     }
 
-    fun formatStraightLineDistance(userLocation: GeoPoint?, targetLat: Double, targetLng: Double): String {
-        if (userLocation == null) return "Ukendt (ingen GPS-position)"
+    fun formatStraightLineDistance(
+        userLocation: GeoPoint?,
+        targetLat: Double,
+        targetLng: Double,
+        isFixFresh: Boolean = true
+    ): String {
+        if (userLocation == null || !isFixFresh) return "ukendt"
         val meters = GeoUtils.distanceMeters(
             userLocation.latitude,
             userLocation.longitude,
@@ -163,6 +168,19 @@ object DropPinInspectorHelper {
             String.format(Locale.GERMANY, "%.2f km", meters / 1000.0)
         }
     }
+
+    fun formatStraightLineDistance(
+        userLocation: GeoPoint?,
+        targetLat: Double,
+        targetLng: Double,
+        fixTimestampMs: Long,
+        nowMs: Long = com.example.ui.map.LiveMapLocationState.currentTimeMillis()
+    ): String = formatStraightLineDistance(
+        userLocation = userLocation,
+        targetLat = targetLat,
+        targetLng = targetLng,
+        isFixFresh = com.example.ui.map.LiveMapLocationState.isFixFresh(fixTimestampMs, nowMs)
+    )
 
     suspend fun fetchElevationText(
         lat: Double,
@@ -212,6 +230,7 @@ object DropPinInspectorHelper {
 fun DropPinBottomSheet(
     point: GeoPoint,
     userLocation: GeoPoint?,
+    isLocationFresh: Boolean = true,
     routeIdForSave: Long? = null,
     onDismiss: () -> Unit,
     onRouteHere: (lat: Double, lng: Double, label: String) -> Unit,
@@ -229,8 +248,8 @@ fun DropPinBottomSheet(
 
     val decimalCoords = remember(lat, lng) { DropPinInspectorHelper.formatDecimalCoordinates(lat, lng) }
     val ddmCoords = remember(lat, lng) { DropPinInspectorHelper.formatDegreesMinutesCoordinates(lat, lng) }
-    val distanceText = remember(userLocation, lat, lng) {
-        DropPinInspectorHelper.formatStraightLineDistance(userLocation, lat, lng)
+    val distanceText = remember(userLocation, isLocationFresh, lat, lng) {
+        DropPinInspectorHelper.formatStraightLineDistance(userLocation, lat, lng, isLocationFresh)
     }
 
     var elevationText by remember(lat, lng) { mutableStateOf(context.getString(R.string.drop_pin_loading_elevation)) }
@@ -624,5 +643,9 @@ private fun shareDropPinPosition(
     }
     try {
         context.startActivity(Intent.createChooser(intent, "Del position").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    } catch (_: Exception) {}
+    } catch (_: android.content.ActivityNotFoundException) {
+        android.widget.Toast.makeText(context, "Ingen app fundet til at dele positionen", android.widget.Toast.LENGTH_SHORT).show()
+    } catch (_: Exception) {
+        android.widget.Toast.makeText(context, "Kunne ikke dele positionen", android.widget.Toast.LENGTH_SHORT).show()
+    }
 }

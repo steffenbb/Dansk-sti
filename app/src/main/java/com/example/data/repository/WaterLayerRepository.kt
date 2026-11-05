@@ -35,7 +35,9 @@ class WaterLayerRepository(
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     private val pointsListType = Types.newParameterizedType(List::class.java, GeoPointDto::class.java)
     private val pointsAdapter = moshi.adapter<List<GeoPointDto>>(pointsListType)
-    private val fetchMutex = Mutex()
+    @Volatile
+    var lastFetchFailed: Boolean = false
+        private set
 
     companion object {
         private const val TAG = "WaterLayerRepo"
@@ -116,13 +118,17 @@ class WaterLayerRepository(
             dLat * dLat + dLng * dLng
         }.take(MAX_TILES_PER_VIEWPORT)
 
+        var anyTileFailed = false
         for ((latIdx, lngIdx) in prioritizedTiles) {
             currentCoroutineContext().ensureActive()
             val tileId = tileIdForIndices(latIdx, lngIdx)
             val cachedTile = dao.getWaterTileCache(tileId)
             val isFresh = cachedTile != null && (now - cachedTile.fetchedAt) < CACHE_TTL_MS
             if (!isFresh) {
-                fetchAndCacheTile(latIdx, lngIdx, tileId, now)
+                val ok = fetchAndCacheTile(latIdx, lngIdx, tileId, now)
+                if (!ok) {
+                    anyTileFailed = true
+                }
             }
         }
 
@@ -143,6 +149,7 @@ class WaterLayerRepository(
                 entityToDto(entity)?.let { result.add(it) }
             }
         }
+        lastFetchFailed = anyTileFailed && result.isEmpty()
         result
     }
 
@@ -151,7 +158,7 @@ class WaterLayerRepository(
         lngIdx: Int,
         tileId: String,
         now: Long
-    ) {
+    ): Boolean {
         val bounds = tileBoundsForIndices(latIdx, lngIdx)
         val south = bounds[0]
         val west = bounds[1]
@@ -159,38 +166,37 @@ class WaterLayerRepository(
         val east = bounds[3]
 
         val query = buildOverpassQuery(south, west, north, east)
-        try {
-            fetchMutex.withLock {
-                currentCoroutineContext().ensureActive()
-                // Double-check cache inside lock
-                val existing = dao.getWaterTileCache(tileId)
-                if (existing != null && (now - existing.fetchedAt) < CACHE_TTL_MS) {
-                    return
-                }
-
-                val response = overpassService.queryOverpass(query)
-                currentCoroutineContext().ensureActive()
-
-                val parsedEntities = parseOverpassElements(response.elements, tileId, now)
-                dao.deleteWaterFeaturesByTileId(tileId)
-                if (parsedEntities.isNotEmpty()) {
-                    dao.insertWaterFeatures(parsedEntities)
-                }
-                dao.insertWaterTileCache(
-                    WaterTileCacheEntity(
-                        tileId = tileId,
-                        minLat = south,
-                        maxLat = north,
-                        minLng = west,
-                        maxLng = east,
-                        fetchedAt = now
-                    )
-                )
+        return try {
+            currentCoroutineContext().ensureActive()
+            val existing = dao.getWaterTileCache(tileId)
+            if (existing != null && (now - existing.fetchedAt) < CACHE_TTL_MS) {
+                return true
             }
+
+            val response = overpassService.queryOverpass(query)
+            currentCoroutineContext().ensureActive()
+
+            val parsedEntities = parseOverpassElements(response.elements, tileId, now)
+            dao.deleteWaterFeaturesByTileId(tileId)
+            if (parsedEntities.isNotEmpty()) {
+                dao.insertWaterFeatures(parsedEntities)
+            }
+            dao.insertWaterTileCache(
+                WaterTileCacheEntity(
+                    tileId = tileId,
+                    minLat = south,
+                    maxLat = north,
+                    minLng = west,
+                    maxLng = east,
+                    fetchedAt = now
+                )
+            )
+            true
         } catch (ce: CancellationException) {
             throw ce
         } catch (e: Exception) {
             Log.w(TAG, "Overpass water tile fetch failed for $tileId: ${e.message}")
+            false
         }
     }
 

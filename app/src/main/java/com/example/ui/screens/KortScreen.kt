@@ -5,8 +5,8 @@ import android.graphics.Paint
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -164,10 +164,11 @@ fun KortScreen(
             mapTestTag = "kort_osmdroid_map",
             initialCenter = GeoPoint(56.0, 10.2),
             initialZoom = 8.0,
-            isSystemDarkOverride = isDark,
+            appIsDark = isDark,
             controlsTopPadding = 16.dp,
             controlsEndPadding = 16.dp,
-            attributionBottomPadding = 88.dp,
+            attributionBottomPadding = 82.dp,
+            scaleBarBottomOffsetDp = 116f,
             layersButtonTestTag = "kort_layers_button",
             compassButtonTestTag = "kort_compass_button",
             myLocationButtonTestTag = "kort_my_location_button",
@@ -444,7 +445,8 @@ fun KortScreen(
                     }
                 }
 
-                // Floating tool row at the bottom: "Planlæg rute", "Gem punkt", "Mål afstand", "Offline-kort" (Requirement E)
+                // Floating tool row at the bottom: "Planlæg rute", "Gem punkt", "Mål afstand", "Offline-kort" (Requirement E & Round 10A Item 9)
+                val toolScrollState = rememberScrollState()
                 Surface(
                     shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
@@ -454,56 +456,78 @@ fun KortScreen(
                         .fillMaxWidth()
                         .testTag("kort_floating_tool_row")
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = Spacing.s2, vertical = Spacing.s2),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.s2),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        KortFloatingToolButton(
-                            icon = Icons.Default.Route,
-                            label = stringResource(R.string.map_tool_plan_route),
-                            isSelected = false,
-                            onClick = { onOpenPlanner(null, null, null) },
-                            testTag = "kort_tool_plan_route"
-                        )
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(toolScrollState)
+                                .padding(horizontal = 6.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            KortFloatingToolButton(
+                                icon = Icons.Default.Route,
+                                label = stringResource(R.string.map_tool_plan_route),
+                                isSelected = false,
+                                onClick = { onOpenPlanner(null, null, null) },
+                                testTag = "kort_tool_plan_route"
+                            )
 
-                        KortFloatingToolButton(
-                            icon = Icons.Default.AddLocationAlt,
-                            label = stringResource(R.string.map_tool_save_point),
-                            isSelected = showSavePointDialog,
-                            onClick = {
-                                HapticFeedbackHelper.performPinHapticTick(view, "save_point_tool")
-                                val center = mapViewRef?.mapCenter
-                                if (center != null && (center.latitude != 0.0 || center.longitude != 0.0)) {
-                                    savePointLat = center.latitude
-                                    savePointLng = center.longitude
-                                    savePointName = ""
-                                    showSavePointDialog = true
-                                }
-                            },
-                            testTag = "kort_tool_save_point"
-                        )
+                            KortFloatingToolButton(
+                                icon = Icons.Default.AddLocationAlt,
+                                label = stringResource(R.string.map_tool_save_point),
+                                isSelected = showSavePointDialog,
+                                onClick = {
+                                    HapticFeedbackHelper.performPinHapticTick(view, "save_point_tool")
+                                    val center = mapViewRef?.mapCenter
+                                    if (center != null && (center.latitude != 0.0 || center.longitude != 0.0)) {
+                                        savePointLat = center.latitude
+                                        savePointLng = center.longitude
+                                        savePointName = ""
+                                        showSavePointDialog = true
+                                    }
+                                },
+                                testTag = "kort_tool_save_point"
+                            )
 
-                        KortFloatingToolButton(
-                            icon = Icons.Default.Straighten,
-                            label = stringResource(R.string.map_tool_measure_distance),
-                            isSelected = isMeasuringDistance,
-                            onClick = {
-                                isMeasuringDistance = !isMeasuringDistance
-                            },
-                            testTag = "kort_tool_measure_distance"
-                        )
+                            KortFloatingToolButton(
+                                icon = Icons.Default.Straighten,
+                                label = stringResource(R.string.map_tool_measure_distance),
+                                isSelected = isMeasuringDistance,
+                                onClick = {
+                                    isMeasuringDistance = !isMeasuringDistance
+                                },
+                                testTag = "kort_tool_measure_distance"
+                            )
 
-                        KortFloatingToolButton(
-                            icon = Icons.Default.CloudDownload,
-                            label = stringResource(R.string.map_tool_offline_maps),
-                            isSelected = false,
-                            onClick = onOpenOfflineMaps,
-                            testTag = "kort_tool_offline_maps"
-                        )
+                            KortFloatingToolButton(
+                                icon = Icons.Default.CloudDownload,
+                                label = stringResource(R.string.map_tool_offline_maps),
+                                isSelected = false,
+                                onClick = onOpenOfflineMaps,
+                                testTag = "kort_tool_offline_maps"
+                            )
+                        }
+
+                        if (toolScrollState.canScrollForward) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                                shadowElevation = 2.dp,
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .padding(end = 4.dp)
+                                    .size(24.dp)
+                                    .testTag("kort_tool_row_scroll_indicator")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(2.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -628,21 +652,22 @@ private fun KortFloatingToolButton(
             .testTag(testTag)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
                 tint = if (isSelected) colorScheme.onSecondary else colorScheme.primary,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(16.dp)
             )
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelMedium,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                color = contentColor
+                color = contentColor,
+                maxLines = 1
             )
         }
     }

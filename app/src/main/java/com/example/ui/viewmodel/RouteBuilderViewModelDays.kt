@@ -107,7 +107,7 @@ fun RouteBuilderViewModel.suggestOvernightStops() {
             val targetKm = currentState.dailyTargetKm.coerceAtLeast(5.0)
             val autoNumDays = max(2, kotlin.math.ceil(basePlannedRoute.totalWalkKm / targetKm).toInt())
 
-            val suggestedStages = StagePlanner.calculateStages(
+            val suggestedStages = StagePlanner.planStages(
                 plannedRoute = basePlannedRoute,
                 routeName = currentState.routeName.ifBlank { "Tur" },
                 waypoints = cleanWps,
@@ -121,7 +121,8 @@ fun RouteBuilderViewModel.suggestOvernightStops() {
                 shelters = shelters,
                 friTeltnings = friTeltning,
                 pois = pois,
-                sunsetTime = sunsetTimeStr
+                sunsetTime = null,
+                startDateEpochMs = currentState.startDateMillis
             )
 
             _uiState.update {
@@ -573,7 +574,8 @@ internal fun RouteBuilderViewModel.updateStagesAndNearbyPois() {
                 shelters = corridorShelters,
                 friTeltnings = corridorFriTeltning,
                 pois = corridorPois,
-                sunsetTime = sunsetTimeStr
+                sunsetTime = null,
+                startDateEpochMs = state.startDateMillis
             )
 
             val initialDaySummaries = buildDaySummariesSync(
@@ -670,6 +672,12 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
 
         val campLat = toWp?.lat ?: stage.stopLat.takeIf { it != 0.0 } ?: visibleWps.last().lat
         val campLng = toWp?.lng ?: stage.stopLng.takeIf { it != 0.0 } ?: visibleWps.last().lng
+        val daySunsetTime = StagePlanner.computeSunsetForStageDay(
+            dayNumber = stage.dayNumber,
+            stopLat = campLat,
+            stopLng = campLng,
+            startDateEpochMs = state.startDateMillis
+        )
 
         val dayWarnings = mutableListOf<String>()
         stage.warningMessage?.takeIf { it.isNotBlank() }?.let { dayWarnings.add(it) }
@@ -682,7 +690,7 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
         } else "kl. --:--"
 
         if (stage.isAfterSunset) {
-            val sunsetMsg = "Ankomst ($arrivalTimeStr) er efter solnedgang ($sunsetTimeStr)"
+            val sunsetMsg = "Ankomst ($arrivalTimeStr) er efter solnedgang ($daySunsetTime)"
             if (dayWarnings.none { it.contains("solnedgang", ignoreCase = true) }) {
                 dayWarnings.add(sunsetMsg)
             }
@@ -717,7 +725,7 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
                 detourKm = detourKm,
                 detourAscentM = detourAscent,
                 bookingLabel = bookingLabel,
-                sunsetTime = sunsetTimeStr,
+                sunsetTime = daySunsetTime,
                 arrivalTime = arrivalTimeStr,
                 isAfterSunset = stage.isAfterSunset,
                 warnings = dayWarnings,

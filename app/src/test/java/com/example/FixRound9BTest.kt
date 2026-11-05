@@ -419,14 +419,14 @@ class FixRound9BTest {
                 abs(Color.blue(waterPx2) - 0x6E) <= 8
         )
 
-        // 2. Light land (#F2EFE9) -> dark neutral grey (#24282B = RGB(36, 40, 43))
+        // 2. Light land (#F2EFE9) -> dark neutral grey gradient (#24282B..#4A5056 = RGB(36..74, 40..80, 43..86))
         val landPx = bmp1.getPixel(32, 192)
         assertTrue(
-            "Light land must map to dark neutral grey, got ${String.format("#%06X", 0xFFFFFF and landPx)}",
-            Color.red(landPx) in 25..55 &&
-                Color.green(landPx) in 28..58 &&
-                Color.blue(landPx) in 30..62 &&
-                abs(Color.red(landPx) - Color.blue(landPx)) <= 12
+            "Light land must map to dark neutral grey (#24282B..#4A5056), got ${String.format("#%06X", 0xFFFFFF and landPx)}",
+            Color.red(landPx) in 34..76 &&
+                Color.green(landPx) in 38..82 &&
+                Color.blue(landPx) in 41..88 &&
+                abs(Color.red(landPx) - Color.blue(landPx)) <= 16
         )
 
         // 3. Dark text and lines (#2B2F32) -> light grey (#DCE0E3 = RGB(220, 224, 227))

@@ -175,7 +175,8 @@ internal fun RouteBuilderViewModel.saveRouteInternal(
                     shelters = currentState.nearbyShelters,
                     friTeltnings = currentState.nearbyFriTeltning,
                     pois = currentState.nearbyPois,
-                    sunsetTime = sunsetTimeStr
+                    sunsetTime = null,
+                    startDateEpochMs = currentState.startDateMillis
                 )
             }
 
@@ -199,6 +200,11 @@ internal fun RouteBuilderViewModel.saveRouteInternal(
                 builtPlannedRoute.copy(planId = savedPlanId, stages = stages)
             )
 
+            draftAutosaveJob?.cancel()
+            try {
+                app.database.danskStiDao().clearPlannerDraft()
+            } catch (_: Exception) {}
+
             val stageEntities = stages.map { it.toEntity(planId = savedPlanId) }
             var updatedStateForSig: RouteBuilderState? = null
             _uiState.update {
@@ -206,6 +212,9 @@ internal fun RouteBuilderViewModel.saveRouteInternal(
                     isSaving = false,
                     isStarting = false,
                     showResetProgressDialog = false,
+                    showUnsavedChangesDialog = false,
+                    hasUnsavedChanges = false,
+                    pendingDraftToRestore = null,
                     routeId = savedId,
                     existingPlanId = savedPlanId,
                     plannedStages = stageEntities
@@ -233,6 +242,104 @@ internal fun RouteBuilderViewModel.saveRouteInternal(
                 _userMessage.emit(errMsg)
             }
         }
+    }
+}
+
+fun RouteBuilderViewModel.setShowUnsavedChangesDialog(show: Boolean) {
+    _uiState.update { it.copy(showUnsavedChangesDialog = show) }
+}
+
+fun RouteBuilderViewModel.scheduleDraftAutosave(debounceMs: Long = 2000L) {
+    draftAutosaveJob?.cancel()
+    draftAutosaveJob = viewModelScope.launch(Dispatchers.IO) {
+        if (debounceMs > 0L) {
+            kotlinx.coroutines.delay(debounceMs)
+        }
+        saveDraftToRoomNow()
+    }
+}
+
+suspend fun RouteBuilderViewModel.saveDraftToRoomNow() {
+    val state = _uiState.value
+    if (state.waypoints.isEmpty()) return
+    try {
+        val optionsJson = JSONObject().apply {
+            put("avoidRoads", state.options.avoidRoads)
+            put("preferNature", state.options.preferNature)
+            put("allowFerries", state.options.allowFerries)
+        }.toString()
+        val draft = com.example.data.model.PlannerDraftEntity(
+            id = "active_planner_draft",
+            routeId = state.routeId,
+            baseTrailId = state.baseTrailId,
+            routeName = state.routeName,
+            mode = state.mode.name,
+            waypointsJson = RouteWaypoint.listToJson(state.waypoints),
+            optionsJson = optionsJson,
+            isReverse = state.isReverse,
+            updatedAt = System.currentTimeMillis()
+        )
+        app.database.danskStiDao().upsertPlannerDraft(draft)
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to autosave planner draft: ${e.message}")
+    }
+}
+
+internal fun RouteBuilderViewModel.checkForExistingDraft() {
+    viewModelScope.launch(Dispatchers.IO) {
+        try {
+            val draft = app.database.danskStiDao().getPlannerDraft()
+            if (draft != null && RouteWaypoint.listFromJson(draft.waypointsJson).isNotEmpty()) {
+                _uiState.update { it.copy(pendingDraftToRestore = draft) }
+            }
+        } catch (_: Exception) {}
+    }
+}
+
+fun RouteBuilderViewModel.continueDraft() {
+    val draft = _uiState.value.pendingDraftToRestore ?: return
+    val restoredWps = RouteWaypoint.listFromJson(draft.waypointsJson)
+    val restoredOptions = parseOptionsJson(draft.optionsJson)
+    val restoredMode = try {
+        PlannerMode.valueOf(draft.mode)
+    } catch (_: Exception) {
+        PlannerMode.FREE
+    }
+    _uiState.update {
+        it.copy(
+            mode = restoredMode,
+            routeName = draft.routeName,
+            baseTrailId = draft.baseTrailId,
+            routeId = draft.routeId,
+            waypoints = restoredWps,
+            options = restoredOptions,
+            isReverse = draft.isReverse,
+            pendingDraftToRestore = null,
+            hasUnsavedChanges = true,
+            waitingForStartPointTap = false,
+            errorMessage = null
+        )
+    }
+    if (restoredWps.size >= 2) {
+        recomputeAllLegs()
+    } else {
+        updateRouteStats()
+    }
+}
+
+fun RouteBuilderViewModel.discardDraft() {
+    draftAutosaveJob?.cancel()
+    _uiState.update {
+        it.copy(
+            pendingDraftToRestore = null,
+            showUnsavedChangesDialog = false,
+            hasUnsavedChanges = false
+        )
+    }
+    viewModelScope.launch(Dispatchers.IO) {
+        try {
+            app.database.danskStiDao().clearPlannerDraft()
+        } catch (_: Exception) {}
     }
 }
 
@@ -298,6 +405,10 @@ fun RouteBuilderViewModel.deleteCustomWaypoint(id: String) {
         if (lastDeletedCustomWaypoint == null) {
             lastDeletedCustomWaypoint = repository.getAllCustomWaypoints().find { it.id == id }
         }
+        val photoPath = lastDeletedCustomWaypoint?.photoPath
+        lastDeletedWaypointPhotoBytes = if (!photoPath.isNullOrBlank()) {
+            runCatching { java.io.File(photoPath).takeIf { it.exists() }?.readBytes() }.getOrNull()
+        } else null
         repository.deleteCustomWaypoint(id)
         val updated = repository.getCustomWaypointsForRoute(_uiState.value.routeId ?: 0L)
         _uiState.update {
@@ -316,8 +427,15 @@ fun RouteBuilderViewModel.deleteCustomWaypointPhoto(id: String) {
         ?: _uiState.value.selectedCustomWaypointForDetails?.takeIf { it.id == id }
     viewModelScope.launch(Dispatchers.IO) {
         val resolved = target ?: repository.getAllCustomWaypoints().find { it.id == id } ?: return@launch
-        if (resolved.photoPath.isNullOrBlank()) return@launch
+        val photoPath = resolved.photoPath
+        if (photoPath.isNullOrBlank()) return@launch
         lastDeletedWaypointPhotoEntity = resolved
+        lastDeletedWaypointPhotoBytes = runCatching {
+            val f = java.io.File(photoPath)
+            val bytes = if (f.exists()) f.readBytes() else null
+            if (f.exists()) f.delete()
+            bytes
+        }.getOrNull()
         lastDeleteType = RouteBuilderViewModel.LastDeleteType.WAYPOINT_PHOTO
         val withoutPhoto = resolved.copy(photoPath = null)
         repository.saveCustomWaypoint(withoutPhoto)
@@ -385,7 +503,7 @@ fun RouteBuilderViewModel.shareRoute(context: Context) {
         context = context,
         fileName = "${name.replace(" ", "_")}.gpx",
         gpxContent = gpxStr,
-        shareTitle = "Del rute: $name",
+        shareTitle = context.getString(com.example.R.string.share_route_title, name),
         textSummary = summary
     )
 }

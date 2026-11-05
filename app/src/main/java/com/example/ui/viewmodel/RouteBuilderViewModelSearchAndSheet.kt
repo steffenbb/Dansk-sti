@@ -201,7 +201,8 @@ fun RouteBuilderViewModel.setScrubbedPoint(point: RoutePoint3D?) {
 }
 
 fun RouteBuilderViewModel.updateRouteName(name: String) {
-    _uiState.update { it.copy(routeName = name) }
+    _uiState.update { it.copy(routeName = name, hasUnsavedChanges = true) }
+    scheduleDraftAutosave()
 }
 
 fun RouteBuilderViewModel.updateOptions(newOptions: RouteOptions) {

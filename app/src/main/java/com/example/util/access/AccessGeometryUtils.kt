@@ -129,7 +129,7 @@ object AccessGeometryUtils {
         legs: Map<String, LegGeometryData>,
         accessPolygons: List<AccessPolygon>,
         startTimeStr: String = "09:00",
-        pacingSpeedKmh: Double = 4.5,
+        pacingSpeedKmh: Double = com.example.data.local.SettingsRepository.cachedMitTempoKmh,
         sunsetTimeStr: String = com.example.util.SunCalculator.calculateSunset(
             lat = waypoints.firstOrNull()?.lat ?: com.example.util.SunCalculator.DEFAULT_COPENHAGEN_LAT,
             lng = waypoints.firstOrNull()?.lng ?: com.example.util.SunCalculator.DEFAULT_COPENHAGEN_LNG
@@ -141,7 +141,11 @@ object AccessGeometryUtils {
         val startMinutes = parseTimeToMinutes(startTimeStr)
         val sunsetMinutes = parseTimeToMinutes(sunsetTimeStr)
         val morningAllowedMinutes = 6 * 60 // 06:00
-        val speed = if (pacingSpeedKmh > 0.5) pacingSpeedKmh else 4.5
+        val speed = if (pacingSpeedKmh > 0.5) {
+            pacingSpeedKmh
+        } else {
+            com.example.data.local.SettingsRepository.cachedMitTempoKmh.coerceAtLeast(1.0)
+        }
 
         var cumulativeDistKm = 0.0
         var cumulativeAscentM = 0.0
@@ -181,8 +185,12 @@ object AccessGeometryUtils {
                     val curr = points[pIdx]
                     val dM = haversineM(prev.lat, prev.lng, curr.lat, curr.lng)
                     cumulativeDistKm += dM / 1000.0
-                    val eleDiff = (curr.ele ?: 0.0) - (prev.ele ?: 0.0)
-                    if (eleDiff > 0) cumulativeAscentM += eleDiff
+                    val prevEle = prev.ele
+                    val currEle = curr.ele
+                    if (prevEle != null && currEle != null) {
+                        val eleDiff = currEle - prevEle
+                        if (eleDiff > 0.0) cumulativeAscentM += eleDiff
+                    }
                 }
 
                 val travelHours = (cumulativeDistKm / speed) + (cumulativeAscentM / 10.0 / 60.0)

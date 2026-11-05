@@ -55,6 +55,9 @@ class DanskStiApp : Application() {
 
         migrateLegacyWaypointPhotosFiles()
 
+        settingsRepository = com.example.data.local.SettingsRepository(this)
+        settingsRepository.ensureLoadedBeforeFirstFrame()
+
         if (BuildConfig.DEBUG) {
             StrictMode.setThreadPolicy(
                 StrictMode.ThreadPolicy.Builder()
@@ -66,8 +69,6 @@ class DanskStiApp : Application() {
                     .build()
             )
         }
-
-        settingsRepository = com.example.data.local.SettingsRepository(this)
 
         // Configure osmdroid user agent & internal directories safely
         // Keep the browsing cache in cacheDir
@@ -209,5 +210,38 @@ class DanskStiApp : Application() {
 
         lateinit var instance: DanskStiApp
             private set
+
+        @Volatile
+        private var fallbackSettingsRepository: com.example.data.local.SettingsRepository? = null
+
+        fun getSettingsRepository(context: android.content.Context): com.example.data.local.SettingsRepository {
+            val app = (context.applicationContext as? DanskStiApp)
+                ?: (context as? DanskStiApp)
+                ?: runCatching { instance }.getOrNull()
+            if (app != null && app::settingsRepository.isInitialized) {
+                app.settingsRepository.ensureLoadedBeforeFirstFrame()
+                return app.settingsRepository
+            }
+            return synchronized(this) {
+                if (app != null) {
+                    if (!app::settingsRepository.isInitialized) {
+                        app.settingsRepository = com.example.data.local.SettingsRepository(app)
+                    }
+                    app.settingsRepository.ensureLoadedBeforeFirstFrame()
+                    app.settingsRepository
+                } else {
+                    val existing = fallbackSettingsRepository
+                    if (existing != null) {
+                        existing.ensureLoadedBeforeFirstFrame()
+                        existing
+                    } else {
+                        com.example.data.local.SettingsRepository(context.applicationContext ?: context).also {
+                            it.ensureLoadedBeforeFirstFrame()
+                            fallbackSettingsRepository = it
+                        }
+                    }
+                }
+            }
+        }
     }
 }

@@ -142,7 +142,7 @@ class DanskStiTileSource(
                 } else if (!isDarkMode) {
                     ReusableBitmapDrawable(decoded)
                 } else {
-                    val recolored = DanskStiTileSourceHelper.recolorBitmapForDarkMap(decoded)
+                    val recolored = DanskStiTileSourceHelper.recolorBitmapForDarkMap(decoded, BaseMapType.SKAERMKORT)
                     if (recolored !== decoded) {
                         DanskStiTileSourceHelper.recycleBitmapToPool(decoded)
                     }
@@ -277,7 +277,7 @@ class DanskStiFriluftskortTileSource(
                 if (decoded == null) null
                 else if (!isDarkMode) ReusableBitmapDrawable(decoded)
                 else {
-                    val recolored = DanskStiTileSourceHelper.recolorBitmapForDarkMap(decoded)
+                    val recolored = DanskStiTileSourceHelper.recolorBitmapForDarkMap(decoded, BaseMapType.FRILUFTSKORT)
                     if (recolored !== decoded) DanskStiTileSourceHelper.recycleBitmapToPool(decoded)
                     ReusableBitmapDrawable(recolored)
                 }
@@ -470,10 +470,11 @@ object DanskStiTileSourceHelper {
     private const val TAG = "DanskStiTileSource"
     const val ATTRIBUTION_TEXT = "Klimadatastyrelsen / Skærmkortet • © OpenStreetMap-bidragydere"
 
-    /** Theme water colours (Round 9B Items 3, 5, 6) */
+    /** Theme water colours (Round 9B Items 3, 5, 6 & Round 10B Item 1) */
     const val LIGHT_WATER_COLOR_INT: Int = 0xFFA3CDE3.toInt() // #A3CDE3
     const val DARK_WATER_COLOR_INT: Int = 0xFF1F4E6E.toInt()  // #1F4E6E
-    const val DARK_LAND_COLOR_INT: Int = 0xFF24282B.toInt()   // #24282B dark neutral grey
+    const val DARK_LAND_COLOR_INT: Int = 0xFF24282B.toInt()   // #24282B dark neutral grey (lum 165)
+    const val DARK_LAND_MAX_COLOR_INT: Int = 0xFF4A5056.toInt() // #4A5056 lighter dark grey (lum 255)
     const val DARK_TEXT_COLOR_INT: Int = 0xFFDCE0E3.toInt()   // #DCE0E3 light grey for text & lines
     const val DARK_FOREST_COLOR_INT: Int = 0xFF1F3628.toInt() // #1F3628 dark forest green-grey
 
@@ -522,14 +523,21 @@ object DanskStiTileSourceHelper {
     }
 
     /**
-     * Round 9B Item 5:
-     * Recolours a single ARGB pixel for the dark map:
+     * Round 10B Item 1:
+     * Recolours a single ARGB pixel for the dark map with base-map-specific rules:
      * - Colours close to the map's water colour -> dark-mode water blue (`#1F4E6E`)
-     * - Forest / green areas -> dark forest green-grey (`#1F3628`, keeping `G > R && G > B`)
-     * - Light land -> dark neutral grey (`#24282B`)
-     * - Dark text and lines -> light grey (`#DCE0E3`)
+     * - Forest / green areas -> only when clearly green (saturation above threshold per base map),
+     *   so towns on "Udendørs" (`BaseMapType.FRILUFTSKORT`) are never painted as forest.
+     * - Saturated colours (roads, coloured areas) -> darker version of the same hue
+     *   (brightness ~45%, saturation ~80%).
+     * - Light land (`lum 165..255`) -> mapped linearly to `#24282B..#4A5056`, keeping strict order
+     *   so road fills stand out against surrounding land.
+     * - Dark text and lines -> light grey (`#DCE0E3`).
      */
-    fun recolorPixelForDarkMap(color: Int): Int {
+    fun recolorPixelForDarkMap(
+        color: Int,
+        baseMap: BaseMapType = BaseMapType.SKAERMKORT
+    ): Int {
         val a = (color ushr 24) and 0xFF
         if (a == 0) return 0
         val r = (color ushr 16) and 0xFF
@@ -537,8 +545,7 @@ object DanskStiTileSourceHelper {
         val b = color and 0xFF
 
         // 1. Water detection:
-        // In Skærmkortet (dtk_skaermkort & dtk_skaermkort_daempet) and OpenTopoMap/OSM,
-        // sea, fjords, lakes, and streams have blue dominance (B > R and B >= G - 3) with B >= 110.
+        // Sea, fjords, lakes, and streams have blue dominance (B > R and B >= G - 3) with B >= 110.
         val isWater = (b >= 110 && b > r + 4 && b >= g - 3 && (b - r) >= 6) ||
             (r in 140..225 && g in 185..242 && b in 210..255 && b > r + 4 && b >= g - 2)
         if (isWater) {
@@ -546,23 +553,80 @@ object DanskStiTileSourceHelper {
         }
 
         val lum = (r * 77 + g * 150 + b * 29) shr 8
+        val maxC = maxOf(r, g, b)
+        val minC = minOf(r, g, b)
+        val delta = maxC - minC
+        val sat = if (maxC == 0) 0f else delta.toFloat() / maxC.toFloat()
 
-        // 2. Forest / green vegetation areas (G > R + 6 and G > B + 6):
-        if (g > r + 6 && g > b + 6 && lum > 65) {
+        // 2. Separate rules per base map for forest detection:
+        // Only treat a pixel as forest when it is clearly green (saturation above a threshold),
+        // so lightly tinted towns/residential areas on "Udendørs" (FRILUFTSKORT) are not painted as forest.
+        val isClearlyForest = when (baseMap) {
+            BaseMapType.SKAERMKORT -> {
+                g > r + 10 && g > b + 12 && sat >= 0.09f && lum > 65
+            }
+            BaseMapType.FRILUFTSKORT -> {
+                // On OpenTopoMap / Thunderforest Outdoors, towns have warm/yellow-grey tints;
+                // require true green dominance (g > r + 18, g > b + 16) and higher saturation (sat >= 0.18f).
+                g > r + 18 && g > b + 16 && sat >= 0.18f && lum > 65
+            }
+            BaseMapType.LUFTFOTO -> false
+        }
+        if (isClearlyForest) {
             return (a shl 24) or (DARK_FOREST_COLOR_INT and 0x00FFFFFF)
         }
 
-        // 3. Light land -> dark neutral grey (#24282B)
-        if (lum >= 165) {
-            return (a shl 24) or (DARK_LAND_COLOR_INT and 0x00FFFFFF)
+        // 3. Keep saturated colours (roads, coloured areas) as a darker version of the same hue
+        // (brightness about 45%, saturation about 80%):
+        val minRoadSat = if (baseMap == BaseMapType.FRILUFTSKORT) 0.24f else 0.22f
+        if (sat >= minRoadSat && lum >= 65 && delta > 0) {
+            val h = when (maxC) {
+                r -> {
+                    val raw = (g - b).toFloat() / delta.toFloat()
+                    if (raw < 0f) raw + 6f else raw
+                }
+                g -> ((b - r).toFloat() / delta.toFloat()) + 2f
+                else -> ((r - g).toFloat() / delta.toFloat()) + 4f
+            }
+            val targetVal = 0.45f
+            val targetSat = 0.80f
+            val c = targetVal * targetSat
+            val x = c * (1f - kotlin.math.abs((h % 2f) - 1f))
+            val m = targetVal - c
+            val sector = h.toInt().coerceIn(0, 5)
+            val r1: Float
+            val g1: Float
+            val b1: Float
+            when (sector) {
+                0 -> { r1 = c; g1 = x; b1 = 0f }
+                1 -> { r1 = x; g1 = c; b1 = 0f }
+                2 -> { r1 = 0f; g1 = c; b1 = x }
+                3 -> { r1 = 0f; g1 = x; b1 = c }
+                4 -> { r1 = x; g1 = 0f; b1 = c }
+                else -> { r1 = c; g1 = 0f; b1 = x }
+            }
+            val outR = ((r1 + m) * 255f).roundToInt().coerceIn(0, 255)
+            val outG = ((g1 + m) * 255f).roundToInt().coerceIn(0, 255)
+            val outB = ((b1 + m) * 255f).roundToInt().coerceIn(0, 255)
+            return (a shl 24) or (outR shl 16) or (outG shl 8) or outB
         }
 
-        // 4. Dark text and lines -> light grey (#DCE0E3)
+        // 4. Light land (lum 165..255) -> map to #24282B..#4A5056, keeping order so road fills stand out
+        if (lum >= 165) {
+            val offset = (lum - 165).coerceIn(0, 90)
+            // #24282B = (36, 40, 43), #4A5056 = (74, 80, 86)
+            val outR = 36 + (offset * (74 - 36)) / 90
+            val outG = 40 + (offset * (80 - 40)) / 90
+            val outB = 43 + (offset * (86 - 43)) / 90
+            return (a shl 24) or (outR shl 16) or (outG shl 8) or outB
+        }
+
+        // 5. Dark text and lines -> light grey (#DCE0E3)
         if (lum <= 120) {
             return (a shl 24) or (DARK_TEXT_COLOR_INT and 0x00FFFFFF)
         }
 
-        // 5. Anti-aliased transition pixels (120 < lum < 165): interpolate smoothly between
+        // 6. Anti-aliased transition pixels (120 < lum < 165): interpolate smoothly between
         // light grey (#DCE0E3: 220,224,227) and dark neutral grey (#24282B: 36,40,43)
         val t = (lum - 120) // 1..44 out of 45
         val outR = 220 - (t * (220 - 36)) / 45
@@ -574,12 +638,18 @@ object DanskStiTileSourceHelper {
     /**
      * Backwards-compatible alias used by tests.
      */
-    fun transformColorForDarkMap(color: Int): Int = recolorPixelForDarkMap(color)
+    fun transformColorForDarkMap(
+        color: Int,
+        baseMap: BaseMapType = BaseMapType.SKAERMKORT
+    ): Int = recolorPixelForDarkMap(color, baseMap)
 
     /**
      * Recolours an entire tile Bitmap for dark mode using the reusable bitmap pool and thread-local pixel buffer.
      */
-    fun recolorBitmapForDarkMap(source: Bitmap): Bitmap {
+    fun recolorBitmapForDarkMap(
+        source: Bitmap,
+        baseMap: BaseMapType = BaseMapType.SKAERMKORT
+    ): Bitmap {
         val width = source.width
         val height = source.height
         val count = width * height
@@ -590,7 +660,7 @@ object DanskStiTileSourceHelper {
         }
         source.getPixels(pixels, 0, width, 0, 0, width, height)
         for (i in 0 until count) {
-            pixels[i] = recolorPixelForDarkMap(pixels[i])
+            pixels[i] = recolorPixelForDarkMap(pixels[i], baseMap)
         }
         val out = acquireReusableBitmap(width, height)
         out.setPixels(pixels, 0, width, 0, 0, width, height)
@@ -1040,8 +1110,8 @@ object DanskStiTileSourceHelper {
             }
         }
 
-        // Requirement 18: Add downloaded SQLite tile archives in filesDir/offline/<id>.sqlite
-        // to the map's tile provider ahead of the online source.
+        // Requirement 18 & Round 10C Item 5: Register open MapView and attach downloaded SQLite tile archives
+        registerOpenMapView(mapView)
         attachOfflineSqliteArchives(mapView.context, mapView.tileProvider)
 
         // Maintain copyright attribution overlay
@@ -1130,47 +1200,214 @@ object DanskStiTileSourceHelper {
         }
     }
 
+    private val archiveLock = Any()
+    private val openMapViews = java.util.Collections.newSetFromMap(java.util.WeakHashMap<MapView, Boolean>())
+    private val openTileProviders = java.util.Collections.newSetFromMap(java.util.WeakHashMap<MapTileProviderArray, Boolean>())
+
+    fun registerOpenMapView(mapView: MapView) {
+        synchronized(archiveLock) {
+            openMapViews.add(mapView)
+            (mapView.tileProvider as? MapTileProviderArray)?.let { openTileProviders.add(it) }
+        }
+    }
+
     @Suppress("UNCHECKED_CAST")
     fun attachOfflineSqliteArchives(context: Context, tileProvider: MapTileProviderBase?) {
-        try {
-            val providerArray = tileProvider as? MapTileProviderArray ?: return
-            val tileSource = providerArray.tileSource ?: return
-            val offlineDir = File(context.filesDir, "offline")
-            val sqliteFiles = offlineDir.listFiles { file ->
-                file.isFile && file.name.endsWith(".sqlite", ignoreCase = true) && file.length() > 0L
-            } ?: emptyArray()
+        synchronized(archiveLock) {
+            try {
+                val providerArray = tileProvider as? MapTileProviderArray ?: return
+                openTileProviders.add(providerArray)
+                val tileSource = providerArray.tileSource ?: return
+                val offlineDir = File(context.filesDir, "offline")
+                val sqliteFiles = offlineDir.listFiles { file ->
+                    file.isFile && file.name.endsWith(".sqlite", ignoreCase = true) && file.length() > 0L
+                } ?: emptyArray()
 
-            val field = MapTileProviderArray::class.java.getDeclaredField("mTileProviderList")
-            field.isAccessible = true
-            val providerList = field.get(providerArray) as? MutableList<MapTileModuleProviderBase> ?: return
+                val field = MapTileProviderArray::class.java.getDeclaredField("mTileProviderList")
+                field.isAccessible = true
+                val providerList = field.get(providerArray) as? MutableList<MapTileModuleProviderBase> ?: return
 
-            providerList.removeAll { it is MapTileFileArchiveProvider }
-
-            if (sqliteFiles.isNotEmpty()) {
-                val archives = sqliteFiles.mapNotNull { file ->
-                    try {
-                        DatabaseFileArchive.getDatabaseFileArchive(file)?.apply {
-                            setIgnoreTileSource(false)
-                        }?.let { dbArchive ->
-                            FallbackSkaermkortArchiveFile(dbArchive)
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Could not open offline archive ${file.name}: ${e.message}")
-                        null
-                    }
-                }.toTypedArray<IArchiveFile>()
-
-                if (archives.isNotEmpty()) {
-                    val archiveProvider = MapTileFileArchiveProvider(
-                        SimpleRegisterReceiver(context.applicationContext),
-                        tileSource,
-                        archives
-                    )
-                    providerList.add(0, archiveProvider)
+                // Close any existing archive providers before replacing
+                val existingProviders = providerList.filterIsInstance<MapTileFileArchiveProvider>()
+                for (existing in existingProviders) {
+                    closeArchivesInProvider(existing, targetFile = null)
                 }
+                providerList.removeAll { it is MapTileFileArchiveProvider }
+
+                if (sqliteFiles.isNotEmpty()) {
+                    val archives = sqliteFiles.mapNotNull { file ->
+                        try {
+                            DatabaseFileArchive.getDatabaseFileArchive(file)?.apply {
+                                setIgnoreTileSource(false)
+                            }?.let { dbArchive ->
+                                FallbackSkaermkortArchiveFile(file, dbArchive)
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Could not open offline archive ${file.name}: ${e.message}")
+                            null
+                        }
+                    }.toTypedArray<IArchiveFile>()
+
+                    if (archives.isNotEmpty()) {
+                        val archiveProvider = MapTileFileArchiveProvider(
+                            SimpleRegisterReceiver(context.applicationContext),
+                            tileSource,
+                            archives
+                        )
+                        providerList.add(0, archiveProvider)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed attaching offline SQLite archives: ${e.message}")
+            }
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun closeArchivesInProvider(
+        archiveProvider: MapTileFileArchiveProvider,
+        targetFile: File?
+    ): Boolean {
+        val targetPath = runCatching { targetFile?.canonicalPath }.getOrNull() ?: targetFile?.absolutePath
+        var remainingCount = 0
+        try {
+            val archivesField = MapTileFileArchiveProvider::class.java.getDeclaredField("mArchiveFiles")
+            archivesField.isAccessible = true
+            val archiveList = archivesField.get(archiveProvider) as? MutableList<IArchiveFile>
+            if (archiveList != null) {
+                val iterator = archiveList.iterator()
+                while (iterator.hasNext()) {
+                    val item = iterator.next()
+                    val matches = if (targetPath == null) {
+                        true
+                    } else if (item is FallbackSkaermkortArchiveFile) {
+                        val itemPath = runCatching { item.archiveFile.canonicalPath }.getOrNull() ?: item.archiveFile.absolutePath
+                        itemPath == targetPath || item.archiveFile.name.equals(targetFile?.name, ignoreCase = true)
+                    } else {
+                        true
+                    }
+                    if (matches) {
+                        try {
+                            item.close()
+                        } catch (_: Exception) {}
+                        iterator.remove()
+                    }
+                }
+                remainingCount = archiveList.size
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed attaching offline SQLite archives: ${e.message}")
+            Log.w(TAG, "Failed inspecting mArchiveFiles: ${e.message}")
+        }
+        return remainingCount == 0
+    }
+
+    /**
+     * Round 10C Item 5:
+     * Detaches [archiveFile] from every open map's tile provider (closing its SQLite handle)
+     * BEFORE deleting the file on disk.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun detachOfflineArchiveFromAllOpenMaps(archiveFile: File) {
+        synchronized(archiveLock) {
+            val allProviders = LinkedHashSet<MapTileProviderArray>()
+            allProviders.addAll(openTileProviders.filterNotNull())
+            for (mv in openMapViews.filterNotNull()) {
+                (mv.tileProvider as? MapTileProviderArray)?.let { allProviders.add(it) }
+                for (ov in mv.overlays) {
+                    if (ov is TilesOverlay) {
+                        runCatching {
+                            val tpField = TilesOverlay::class.java.getDeclaredField("mTileProvider")
+                            tpField.isAccessible = true
+                            (tpField.get(ov) as? MapTileProviderArray)?.let { allProviders.add(it) }
+                        }
+                    }
+                }
+            }
+
+            for (providerArray in allProviders) {
+                try {
+                    val field = MapTileProviderArray::class.java.getDeclaredField("mTileProviderList")
+                    field.isAccessible = true
+                    val providerList = field.get(providerArray) as? MutableList<MapTileModuleProviderBase> ?: continue
+                    val iterator = providerList.iterator()
+                    while (iterator.hasNext()) {
+                        val mod = iterator.next()
+                        if (mod is MapTileFileArchiveProvider) {
+                            val isEmptyNow = closeArchivesInProvider(mod, archiveFile)
+                            if (isEmptyNow) {
+                                try {
+                                    mod.detach()
+                                } catch (_: Exception) {}
+                                iterator.remove()
+                            }
+                        }
+                    }
+                    try {
+                        providerArray.clearTileCache()
+                    } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed detaching archive ${archiveFile.name} from provider: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Round 10C Item 5: Refreshes every open map after an offline archive has been detached and deleted.
+     */
+    fun refreshAllOpenMaps() {
+        val mapsSnapshot = synchronized(archiveLock) {
+            openMapViews.filterNotNull().toList()
+        }
+        for (mv in mapsSnapshot) {
+            try {
+                mv.tileProvider?.clearTileCache()
+                mv.invalidate()
+                mv.postInvalidate()
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Round 10C Item 5: Detaches [archiveFile] from all open map tile providers, deletes the file,
+     * and refreshes all open maps.
+     */
+    fun detachOfflineArchiveAndDeleteFile(archiveFile: File): Boolean {
+        detachOfflineArchiveFromAllOpenMaps(archiveFile)
+        val deleted = if (archiveFile.exists()) archiveFile.delete() else true
+        refreshAllOpenMaps()
+        return deleted
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun isArchiveAttachedToMap(mapView: MapView, archiveFile: File): Boolean {
+        val providerArray = mapView.tileProvider as? MapTileProviderArray ?: return false
+        return isArchiveAttachedToProvider(providerArray, archiveFile)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun isArchiveAttachedToProvider(providerArray: MapTileProviderArray, archiveFile: File): Boolean {
+        synchronized(archiveLock) {
+            return try {
+                val targetPath = runCatching { archiveFile.canonicalPath }.getOrNull() ?: archiveFile.absolutePath
+                val field = MapTileProviderArray::class.java.getDeclaredField("mTileProviderList")
+                field.isAccessible = true
+                val providerList = field.get(providerArray) as? List<MapTileModuleProviderBase> ?: return false
+                val archivesField = MapTileFileArchiveProvider::class.java.getDeclaredField("mArchiveFiles").apply {
+                    isAccessible = true
+                }
+                providerList.filterIsInstance<MapTileFileArchiveProvider>().any { mod ->
+                    val list = archivesField.get(mod) as? List<IArchiveFile> ?: emptyList()
+                    list.any { item ->
+                        item is FallbackSkaermkortArchiveFile && (
+                            (runCatching { item.archiveFile.canonicalPath }.getOrNull() ?: item.archiveFile.absolutePath) == targetPath ||
+                                item.archiveFile.name.equals(archiveFile.name, ignoreCase = true)
+                            )
+                    }
+                }
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 
@@ -1181,6 +1418,7 @@ object DanskStiTileSourceHelper {
      * `DanskStiTileSource.getDrawable(InputStream)` can recolour them in memory.
      */
     private class FallbackSkaermkortArchiveFile(
+        val archiveFile: File,
         private val delegate: DatabaseFileArchive
     ) : IArchiveFile by delegate {
         override fun getInputStream(
@@ -1194,6 +1432,12 @@ object DanskStiTileSourceHelper {
                 return delegate.getInputStream(skaermkortInstance, pMapTileIndex)
             }
             return null
+        }
+
+        override fun close() {
+            try {
+                delegate.close()
+            } catch (_: Exception) {}
         }
     }
 

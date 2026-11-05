@@ -19,6 +19,7 @@ import kotlin.math.tan
  * Returns local times in Europe/Copenhagen (DST aware) without requiring network access.
  * Also provides the shared arrivalClock calculation for NavigationScreen and NavigationTrackingService.
  */
+@android.annotation.SuppressLint("NewApi")
 object SunCalculator {
 
     val COPENHAGEN_ZONE: ZoneId = ZoneId.of("Europe/Copenhagen")

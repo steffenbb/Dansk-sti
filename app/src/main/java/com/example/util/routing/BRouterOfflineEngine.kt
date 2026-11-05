@@ -39,6 +39,29 @@ class BRouterOfflineEngine(
     companion object {
         private const val TAG = "BRouterOfflineEngine"
         private const val MAX_RUNNING_TIME_MS = 15000L
+        const val VERSION_MISMATCH_MESSAGE = "Rutedata skal opdateres"
+
+        @Volatile
+        var simulateVersionMismatchForTests: Boolean = false
+
+        fun isDataOrLookupVersionMismatch(message: String?, throwable: Throwable? = null): Boolean {
+            val combined = buildString {
+                if (!message.isNullOrBlank()) append(message).append(' ')
+                var cur = throwable
+                while (cur != null) {
+                    cur.message?.let { append(it).append(' ') }
+                    cur = cur.cause
+                }
+            }.lowercase(Locale.ROOT)
+            if (combined.isBlank()) return false
+            return combined.contains("version") ||
+                combined.contains("lookup") ||
+                combined.contains("lookups.dat") ||
+                combined.contains("datafile") ||
+                combined.contains("data file") ||
+                combined.contains("incompatible") ||
+                combined.contains("rutedata skal opdateres")
+        }
     }
 
     override suspend fun routeLeg(
@@ -47,10 +70,18 @@ class BRouterOfflineEngine(
         options: RouteOptions,
         alternative: Int
     ): RouteLegResult = withContext(Dispatchers.IO) {
+        if (simulateVersionMismatchForTests) {
+            storageManager.reportVersionMismatch(true)
+            return@withContext RouteLegResult.Failure(
+                VERSION_MISMATCH_MESSAGE,
+                IllegalStateException("BRouter data/lookup version mismatch")
+            )
+        }
+
         val cacheKey = BRouterGeoJsonParser.generateCacheKey(from, to, options, alternative)
 
         // 1. Check local Room database cache first
-        if (dao != null) {
+        if (dao != null && !storageManager.hasVersionMismatch()) {
             try {
                 val cached = dao.getCachedRouteLeg(cacheKey)
                 if (cached != null && cached.expiresAt > System.currentTimeMillis()) {
@@ -77,7 +108,7 @@ class BRouterOfflineEngine(
         // 2. Concurrency guard: CoreRoutingEngine runs search sequentially
         routingMutex.withLock {
             // Re-check cache inside lock
-            if (dao != null) {
+            if (dao != null && !storageManager.hasVersionMismatch()) {
                 try {
                     val cached = dao.getCachedRouteLeg(cacheKey)
                     if (cached != null && cached.expiresAt > System.currentTimeMillis()) {
@@ -165,6 +196,13 @@ class BRouterOfflineEngine(
                 if (track == null || track.nodes.isNullOrEmpty()) {
                     val errMsg = engine.errorMessage
                     Log.w(TAG, "No offline route found: $errMsg")
+                    if (isDataOrLookupVersionMismatch(errMsg)) {
+                        storageManager.reportVersionMismatch(true)
+                        return@withLock RouteLegResult.Failure(
+                            VERSION_MISMATCH_MESSAGE,
+                            IllegalStateException(errMsg ?: VERSION_MISMATCH_MESSAGE)
+                        )
+                    }
                     return@withLock RouteLegResult.NoRoute(BRouterOnlineEngine.translateBRouterError(errMsg))
                 }
 
@@ -185,6 +223,10 @@ class BRouterOfflineEngine(
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Exception during offline routing", e)
+                if (isDataOrLookupVersionMismatch(e.message, e)) {
+                    storageManager.reportVersionMismatch(true)
+                    return@withLock RouteLegResult.Failure(VERSION_MISMATCH_MESSAGE, e)
+                }
                 val isTimeout = e.message?.lowercase(Locale.ROOT)?.contains("timeout") == true ||
                     e.message?.lowercase(Locale.ROOT)?.contains("killed") == true
                 RouteLegResult.Failure(BRouterOnlineEngine.translateBRouterError(e.message, isTimeoutException = isTimeout), e)

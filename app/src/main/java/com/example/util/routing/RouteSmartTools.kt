@@ -611,15 +611,16 @@ object RouteSmartTools {
     }
 
     /**
-     * Phase 12 Feature 3: Vejr og dagslys.
-     * Computes Open-Meteo forecast at ETA and checks sunset warning for OVERNIGHT waypoints and the END point.
+     * Phase 12 Feature 3 & Round 10B Item 3: Vejr og dagslys.
+     * Every day uses its own date (trip start date + day index) and that night's overnight coordinates.
      */
     suspend fun calculateWaypointWeatherEtas(
         waypoints: List<RouteWaypoint>,
         orderedLegs: List<LegGeometryData>,
         startTimeStr: String = "09:00",
-        pacingSpeedKmh: Double = 4.0,
-        weatherService: WeatherApiService
+        pacingSpeedKmh: Double = com.example.data.local.SettingsRepository.cachedMitTempoKmh,
+        weatherService: WeatherApiService,
+        startDateEpochMs: Long? = null
     ): List<WaypointWeatherEta> {
         val targets = waypoints.filterIndexed { idx, wp ->
             wp.role == WaypointRole.OVERNIGHT || (idx == waypoints.lastIndex && waypoints.size >= 2)
@@ -630,31 +631,50 @@ object RouteSmartTools {
         val startHour = startParts.getOrNull(0)?.toIntOrNull() ?: 9
         val startMin = startParts.getOrNull(1)?.toIntOrNull() ?: 0
         val startTotalMinutes = startHour * 60 + startMin
+        val effectivePace = if (pacingSpeedKmh > 0.5) {
+            pacingSpeedKmh
+        } else {
+            com.example.data.local.SettingsRepository.cachedMitTempoKmh.coerceAtLeast(1.0)
+        }
 
         val results = mutableListOf<WaypointWeatherEta>()
-        val legDistances = orderedLegs.associate { it.legKey to it.lengthKm }
+        val legsByKey = orderedLegs.associateBy { it.legKey }
 
         var accumulatedKm = 0.0
+        var accumulatedAscentM = 0.0
+        var dayIndex = 0
+        val baseStartEpochMs = startDateEpochMs ?: System.currentTimeMillis()
+
         for (i in 0 until waypoints.size - 1) {
             val curr = waypoints[i]
             val next = waypoints[i + 1]
-            val legDist = legDistances["${curr.id}_to_${next.id}"] ?: 0.0
+            val leg = legsByKey["${curr.id}_to_${next.id}"]
+            val legDist = leg?.lengthKm ?: 0.0
             accumulatedKm += legDist
+            if (leg != null) {
+                accumulatedAscentM += BRouterGeoJsonParser.calculateAscent(leg.points)
+            }
 
             if (next.role == WaypointRole.OVERNIGHT || i + 1 == waypoints.lastIndex) {
-                val walkMinutes = ((accumulatedKm / pacingSpeedKmh) * 60.0).toInt()
+                val walkMinutes = ((accumulatedKm / effectivePace) * 60.0).toInt()
                 val totalMinutes = startTotalMinutes + walkMinutes
                 val etaHour = (totalMinutes / 60) % 24
                 val etaMin = totalMinutes % 60
                 val etaFormatted = String.format(Locale.US, "%02d:%02d", etaHour, etaMin)
 
-                // Compute sunset on-device with SunCalculator; Open-Meteo weather is optional
+                val dayEpochMs = baseStartEpochMs + dayIndex.toLong() * 86_400_000L
+                val onDeviceSunset = com.example.util.SunCalculator.calculateSunset(
+                    epochMillis = dayEpochMs,
+                    lat = next.lat,
+                    lng = next.lng
+                )
+
                 var tempC: Double? = null
                 var precipMm: Double? = null
                 var windMs: Double? = null
                 var weatherIcon: String? = null
                 var weatherDesc: String? = null
-                var sunsetTime: String? = com.example.util.SunCalculator.calculateSunset(lat = next.lat, lng = next.lng)
+                var sunsetTime: String? = onDeviceSunset
                 var isAfterSunset = false
                 var warningMessage: String? = null
 
@@ -667,18 +687,21 @@ object RouteSmartTools {
                     weatherIcon = parsed.weatherIcon
                     weatherDesc = parsed.conditionDescription
 
-                    val rawSunset = resp.daily?.sunset?.firstOrNull()
-                    if (!rawSunset.isNullOrBlank()) {
-                        val timePart = rawSunset.substringAfter("T", "")
-                        if (timePart.isNotBlank()) {
-                            sunsetTime = timePart
+                    if (startDateEpochMs == null) {
+                        val rawSunset = resp.daily?.sunset?.getOrNull(dayIndex)
+                            ?: resp.daily?.sunset?.firstOrNull()
+                        if (!rawSunset.isNullOrBlank()) {
+                            val timePart = rawSunset.substringAfter("T", "")
+                            if (timePart.isNotBlank()) {
+                                sunsetTime = timePart
+                            }
                         }
                     }
                 } catch (_: Exception) {
                     // Open-Meteo is optional; SunCalculator provides on-device sunset
                 }
 
-                val effectiveSunset = sunsetTime ?: com.example.util.SunCalculator.calculateSunset(lat = next.lat, lng = next.lng)
+                val effectiveSunset = sunsetTime ?: onDeviceSunset
                 sunsetTime = effectiveSunset
                 val sParts = effectiveSunset.split(":")
                 val sHour = sParts.getOrNull(0)?.toIntOrNull() ?: 18
@@ -708,6 +731,10 @@ object RouteSmartTools {
                         warningMessage = warningMessage
                     )
                 )
+
+                if (next.role == WaypointRole.OVERNIGHT) {
+                    dayIndex++
+                }
             }
         }
 

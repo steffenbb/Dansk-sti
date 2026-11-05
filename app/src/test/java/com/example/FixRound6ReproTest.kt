@@ -190,9 +190,17 @@ class FixRound6ReproTest {
             composeTestRule.onAllNodesWithTag("route_bottom_sheet").fetchSemanticsNodes().isNotEmpty()
         )
 
-        // Øhavsstien in TRAIL mode
+        // Øhavsstien in TRAIL mode (Round 10A Item 7: back first collapses expanded sheet, then prompts Gem ruten?)
         composeTestRule.onNodeWithTag("btn_back_route_builder").performClick()
         composeTestRule.waitForIdle()
+        if (composeTestRule.onAllNodesWithTag("btn_back_route_builder").fetchSemanticsNodes().isNotEmpty()) {
+            composeTestRule.onNodeWithTag("btn_back_route_builder").performClick()
+            composeTestRule.waitForIdle()
+        }
+        if (composeTestRule.onAllNodesWithTag("btn_unsaved_discard").fetchSemanticsNodes().isNotEmpty()) {
+            composeTestRule.onNodeWithTag("btn_unsaved_discard").performClick()
+            composeTestRule.waitForIdle()
+        }
         composeTestRule.onNodeWithTag("nav_explore_tab").performClick()
         composeTestRule.waitForIdle()
 

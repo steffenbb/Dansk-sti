@@ -14,9 +14,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -109,6 +113,8 @@ fun OfflineTrailsScreen(
     val isDownloading by viewModel.isDownloading.collectAsState()
     val downloadProgressText by viewModel.downloadProgressText.collectAsState()
     val brouterState by viewModel.brouterDataState.collectAsState()
+    val mapTilesWifiOnly by viewModel.mapTilesWifiOnly.collectAsState()
+    val downloadRefuseError by viewModel.downloadRefuseError.collectAsState()
     var isSegmentsExpanded by remember { mutableStateOf(false) }
     var trailToDelete by remember { mutableStateOf<DownloadedTrailEntity?>(null) }
 
@@ -122,6 +128,7 @@ fun OfflineTrailsScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         modifier = modifier
             .fillMaxSize()
             .testTag("offline_screen"),
@@ -185,7 +192,10 @@ fun OfflineTrailsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues),
+                .padding(paddingValues)
+                .consumeWindowInsets(paddingValues)
+                .navigationBarsPadding()
+                .imePadding(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -242,8 +252,10 @@ fun OfflineTrailsScreen(
 
             // Round 9 B Item 1: "Udseende" (Følg telefonen / Lyst / Mørkt) + "Kortet følger appen"
             item(key = "appearance_mode_card") {
-                val settingsRepository = remember { com.example.data.local.SettingsRepository(context) }
-                val layersState by settingsRepository.mapLayersFlow.collectAsState(initial = com.example.data.local.MapLayersState())
+                val settingsRepository = remember(context) { com.example.DanskStiApp.getSettingsRepository(context) }
+                val layersState by settingsRepository.mapLayersFlow.collectAsState(
+                    initial = remember(settingsRepository) { settingsRepository.currentSettingsSnapshot().mapLayers }
+                )
 
                 Card(
                     modifier = Modifier
@@ -444,11 +456,28 @@ fun OfflineTrailsScreen(
                                         val date = brouterState.lastUpdatedDate ?: "Opdateret"
                                         "Klar til brug uden mobildækning • $date"
                                     } else {
-                                        "BRouter routing data (5 segmenter, ${BRouterSegments.TOTAL_SIZE_MB} MB)"
+                                        "BRouter routing data (5 segmenter, ${brouterState.totalSizeMb} MB)"
                                     },
                                     fontSize = 12.sp,
                                     color = if (brouterState.isAllDownloaded) colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                if (brouterState.hasVersionMismatch) {
+                                    Text(
+                                        text = stringResource(R.string.brouter_version_mismatch_update_needed),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = danskStiColors.danger,
+                                        modifier = Modifier.testTag("brouter_version_mismatch_badge")
+                                    )
+                                } else if (brouterState.isUpdateAvailable) {
+                                    Text(
+                                        text = stringResource(R.string.brouter_update_available),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colorScheme.primary,
+                                        modifier = Modifier.testTag("brouter_update_available_badge")
+                                    )
+                                }
                             }
                         }
 
@@ -644,7 +673,7 @@ fun OfflineTrailsScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(stringResource(R.string.ui_offlinetrailsscreen_hent_rutedata_mb_91, BRouterSegments.TOTAL_SIZE_MB))
+                                    Text(stringResource(R.string.ui_offlinetrailsscreen_hent_rutedata_mb_91, brouterState.totalSizeMb))
                                 }
                             }
                         }
@@ -652,15 +681,87 @@ fun OfflineTrailsScreen(
                 }
             }
 
-            // Section Header: Saved trails and maps
+            // Refusal error banner (e.g. insufficient free storage or missing network/Wi-Fi)
+            downloadRefuseError?.let { errorMsg ->
+                item(key = "download_refuse_error") {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("offline_refuse_error_banner"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = danskStiColors.danger.copy(alpha = 0.14f)),
+                        border = BorderStroke(1.dp, danskStiColors.danger.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = errorMsg,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("offline_refuse_error_text")
+                            )
+                            TextButton(onClick = { viewModel.clearDownloadRefuseError() }) {
+                                Text("OK", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Section Header: Saved trails and maps + "Kun på Wi-Fi" toggle
             item(key = "section_header_trails") {
-                Text(
-                    text = stringResource(R.string.ui_offlinetrailsscreen_gemte_ruter_og_kortfliser_92),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.ui_offlinetrailsscreen_gemte_ruter_og_kortfliser_92),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Wifi,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Kun på Wi-Fi (kortfliser)",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Switch(
+                                checked = mapTilesWifiOnly,
+                                onCheckedChange = { viewModel.setMapTilesWifiOnly(it) },
+                                colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.primary),
+                                modifier = Modifier.testTag("switch_map_tiles_wifi_only")
+                            )
+                        }
+                    }
+                }
             }
 
             // List of downloaded trails
@@ -795,6 +896,8 @@ fun OfflineTrailsScreen(
                             )
                             if (result == SnackbarResult.ActionPerformed) {
                                 viewModel.undoLastDeletedTrail()
+                            } else {
+                                viewModel.commitPendingDeletedTrail()
                             }
                         }
                     },

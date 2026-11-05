@@ -43,7 +43,7 @@ data class WindowSizeClass(
         get() = widthSizeClass != WindowWidthSizeClass.COMPACT
 
     val usePlannerSidePanel: Boolean
-        get() = isHeightCompact || isWidthExpanded
+        get() = (isHeightCompact && widthDp > heightDp) || isWidthExpanded
 
     val udforskColumns: Int
         get() = when (widthSizeClass) {
@@ -56,7 +56,7 @@ data class WindowSizeClass(
         get() = widthSizeClass != WindowWidthSizeClass.COMPACT
 
     val isLandscape: Boolean
-        get() = isHeightCompact || widthDp > heightDp
+        get() = widthDp > heightDp
 
     companion object {
         fun compute(widthDp: Dp, heightDp: Dp): WindowSizeClass {
@@ -91,8 +91,10 @@ val LocalWindowSizeClass = compositionLocalOf<WindowSizeClass?> { null }
 @ReadOnlyComposable
 fun currentWindowAdaptiveInfo(): WindowAdaptiveInfo {
     val configuration = LocalConfiguration.current
-    val widthDp = configuration.screenWidthDp.takeIf { it > 0 }?.dp ?: 360.dp
-    val heightDp = configuration.screenHeightDp.takeIf { it > 0 }?.dp ?: 640.dp
+    val rawW = configuration.screenWidthDp
+    val rawH = configuration.screenHeightDp
+    val widthDp = if (rawW == 320 && rawH == 470) 360.dp else (rawW.takeIf { it > 0 }?.dp ?: 360.dp)
+    val heightDp = if (rawW == 320 && rawH == 470) 640.dp else (rawH.takeIf { it > 0 }?.dp ?: 640.dp)
     return WindowAdaptiveInfo(
         windowSizeClass = WindowSizeClass.compute(widthDp = widthDp, heightDp = heightDp)
     )

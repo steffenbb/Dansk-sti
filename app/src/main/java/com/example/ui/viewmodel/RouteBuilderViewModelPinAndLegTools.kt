@@ -587,10 +587,20 @@ fun RouteBuilderViewModel.undoLastDelete() {
         }
         RouteBuilderViewModel.LastDeleteType.CUSTOM_WAYPOINT -> {
             val deleted = lastDeletedCustomWaypoint
+            val photoBytes = lastDeletedWaypointPhotoBytes
             lastDeletedCustomWaypoint = null
+            lastDeletedWaypointPhotoBytes = null
             clearDeletedPinSnackbar()
             if (deleted != null) {
                 viewModelScope.launch(Dispatchers.IO) {
+                    val photoPath = deleted.photoPath
+                    if (!photoPath.isNullOrBlank() && photoBytes != null) {
+                        runCatching {
+                            val f = java.io.File(photoPath)
+                            f.parentFile?.mkdirs()
+                            f.writeBytes(photoBytes)
+                        }
+                    }
                     repository.saveCustomWaypoint(deleted)
                     val updated = repository.getCustomWaypointsForRoute(_uiState.value.routeId ?: 0L)
                     _uiState.update { it.copy(customUserWaypoints = updated) }
@@ -600,10 +610,20 @@ fun RouteBuilderViewModel.undoLastDelete() {
         }
         RouteBuilderViewModel.LastDeleteType.WAYPOINT_PHOTO -> {
             val originalEntity = lastDeletedWaypointPhotoEntity
+            val photoBytes = lastDeletedWaypointPhotoBytes
             lastDeletedWaypointPhotoEntity = null
+            lastDeletedWaypointPhotoBytes = null
             clearDeletedPinSnackbar()
             if (originalEntity != null) {
                 viewModelScope.launch(Dispatchers.IO) {
+                    val photoPath = originalEntity.photoPath
+                    if (!photoPath.isNullOrBlank() && photoBytes != null) {
+                        runCatching {
+                            val f = java.io.File(photoPath)
+                            f.parentFile?.mkdirs()
+                            f.writeBytes(photoBytes)
+                        }
+                    }
                     repository.saveCustomWaypoint(originalEntity)
                     val updated = repository.getCustomWaypointsForRoute(_uiState.value.routeId ?: 0L)
                     _uiState.update { state ->
@@ -667,8 +687,8 @@ fun RouteBuilderViewModel.cancelGhostHandleDrag(insertedWaypointId: String) {
     if (_uiState.value.waypoints.none { it.id == insertedWaypointId }) return
     deleteWaypoint(insertedWaypointId, showUndoSnackbar = false)
     if (undoStack.size >= 2) {
-        undoStack.removeLast()
-        undoStack.removeLast()
+        undoStack.removeAt(undoStack.lastIndex)
+        undoStack.removeAt(undoStack.lastIndex)
         _uiState.update { it.copy(canUndo = undoStack.isNotEmpty()) }
     }
 }

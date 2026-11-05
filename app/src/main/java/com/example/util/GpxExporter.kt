@@ -262,6 +262,12 @@ object GpxExporter {
                 addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(chooser)
+        } catch (_: android.content.ActivityNotFoundException) {
+            android.widget.Toast.makeText(
+                context,
+                context.getString(com.example.R.string.toast_no_app_to_share_gpx),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
         } catch (e: Exception) {
             android.util.Log.e("GpxExporter", "Failed to export and share GPX file: ${e.message}", e)
         }
@@ -297,6 +303,12 @@ object GpxExporter {
                 addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(chooser)
+        } catch (_: android.content.ActivityNotFoundException) {
+            android.widget.Toast.makeText(
+                context,
+                context.getString(com.example.R.string.toast_no_app_to_share_gpx),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
         } catch (e: Exception) {
             android.util.Log.e("GpxExporter", "Failed to export and share GPX with summary: ${e.message}", e)
         }

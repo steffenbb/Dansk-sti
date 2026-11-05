@@ -69,6 +69,9 @@ fun NavigationBatterySaverScreen(
     currentDayStat: RecordedDayStatEntity?,
     hasGpsFix: Boolean,
     emergencyInfo: DanishEmergencyInfo?,
+    liveState: NavigationLiveState = NavigationLiveState(),
+    onRerouteBack: () -> Unit = {},
+    onTakeDetour: () -> Unit = {},
     onExitBatterySaver: () -> Unit,
     onOpenSos: () -> Unit,
     onShareLocation: () -> Unit
@@ -151,8 +154,71 @@ fun NavigationBatterySaverScreen(
                     text = cueBannerPrimaryText,
                     color = danskStiColors.warning,
                     fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.testTag("battery_mode_cue_text")
                 )
+
+                if (liveState.isOffTrailWarning && !liveState.isDetourMuted) {
+                    val offMeters = kotlin.math.round(liveState.offTrailDistanceMeters).toInt().coerceAtLeast(1)
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = danskStiColors.offRoute,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .testTag("battery_mode_off_route_banner")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.nav_off_route_banner_format, offMeters),
+                                color = MaterialTheme.colorScheme.onError,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.testTag("battery_mode_off_route_text")
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = onRerouteBack,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.onError,
+                                        contentColor = danskStiColors.offRoute
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                        .testTag("battery_mode_reroute_back_button")
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.nav_reroute_back),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = onTakeDetour,
+                                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.onError),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onError),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                        .testTag("battery_mode_take_detour_button")
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.nav_taking_detour),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
 
                 Text(
                     text = stringResource(R.string.ui_markedroutedetailsheet_km_19, formatDanishKm(distanceRemainingToday, 1)),
@@ -417,7 +483,21 @@ fun NavigationSosBottomSheet(
                     val dialIntent = Intent(Intent.ACTION_DIAL).apply {
                         data = Uri.parse("tel:112")
                     }
-                    context.startActivity(dialIntent)
+                    try {
+                        context.startActivity(dialIntent)
+                    } catch (_: android.content.ActivityNotFoundException) {
+                        android.widget.Toast.makeText(
+                            context,
+                            "Ingen telefon-app fundet på enheden",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    } catch (_: Exception) {
+                        android.widget.Toast.makeText(
+                            context,
+                            "Kunne ikke åbne telefon-appen",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 },
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = danskStiColors.danger),
@@ -582,4 +662,118 @@ fun NavigationCampAndContinuePrompts(
         }
     }
 }
+
+/**
+ * Round 10B Item 9:
+ * Trip completion summary dialog displaying distance, time, ascent, and days when RouteTracker reports completed.
+ */
+@Composable
+fun NavigationTripCompletedSummaryDialog(
+    trailName: String,
+    totalDistanceKm: Double,
+    totalMovingSeconds: Long,
+    totalAscentMeters: Int,
+    totalDays: Int,
+    onDismiss: () -> Unit,
+    onFinishAndBack: () -> Unit
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("nav_trip_completed_summary_dialog"),
+        title = {
+            Text(
+                text = "Turen er gennemført!",
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 20.sp
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (trailName.isNotBlank()) {
+                    Text(
+                        text = trailName,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Distance", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                            Text(
+                                text = "${formatDanishKm(totalDistanceKm, 1)} km",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                modifier = Modifier.testTag("nav_completed_distance_text")
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Aktiv tid", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                            Text(
+                                text = formatMovingTime(totalMovingSeconds),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                modifier = Modifier.testTag("nav_completed_time_text")
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Stigning", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                            Text(
+                                text = "+$totalAscentMeters m",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                modifier = Modifier.testTag("nav_completed_ascent_text")
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Dage", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                            Text(
+                                text = "$totalDays ${if (totalDays == 1) "dag" else "dage"}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                modifier = Modifier.testTag("nav_completed_days_text")
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = "GPS-sporing er stoppet, og planen er markeret som gennemført i Mine ture.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onFinishAndBack,
+                modifier = Modifier
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .testTag("nav_trip_completed_close_button")
+            ) {
+                Text("Afslut tur", fontWeight = FontWeight.Bold)
+            }
+        }
+    )
+}
+
 

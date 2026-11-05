@@ -53,16 +53,6 @@ internal fun RouteBuilderViewModel.fetchSunsetForRoute(lat: Double, lng: Double)
         lng = lng
     )
     evaluateAccessRules()
-    viewModelScope.launch {
-        try {
-            val weather = repository.getTrailWeather(lat, lng)
-            val sunset = weather.sunset
-            if (!sunset.isNullOrBlank()) {
-                sunsetTimeStr = sunset
-                evaluateAccessRules()
-            }
-        } catch (_: Exception) {}
-    }
 }
 
 fun RouteBuilderViewModel.evaluateAccessRules() {
@@ -365,7 +355,8 @@ fun RouteBuilderViewModel.fetchWeatherAndSunset() {
                 orderedLegs = orderedLegs,
                 startTimeStr = startTimeStr,
                 pacingSpeedKmh = pacingSpeedKmh,
-                weatherService = weatherService
+                weatherService = weatherService,
+                startDateEpochMs = _uiState.value.startDateMillis
             )
             _uiState.update {
                 it.copy(

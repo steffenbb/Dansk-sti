@@ -327,93 +327,28 @@ internal fun RouteBuilderBasicDialogs(
     }
 
     uiState.selectedNearbyPoiForSheet?.let { poi ->
-        AlertDialog(
-            onDismissRequest = { viewModel.selectNearbyPoiForSheet(null) },
-            title = {
-                Text(
-                    text = poi.name,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
-                )
+        val sheetData = remember(poi) {
+            com.example.ui.components.PoiInfoSheetData.fromPlannerPoi(poi)
+        }
+        val liveGeoPoint = remember(uiState.currentGpsPosition) {
+            uiState.currentGpsPosition?.let { org.osmdroid.util.GeoPoint(it.lat, it.lng) }
+        }
+        com.example.ui.components.PoiInfoSheet(
+            poiData = sheetData,
+            liveUserLocation = liveGeoPoint,
+            isLocationFresh = uiState.currentGpsPosition != null,
+            onDismiss = { viewModel.selectNearbyPoiForSheet(null) },
+            onRouteHere = { lat, lng, label ->
+                viewModel.selectNearbyPoiForSheet(null)
+                viewModel.addDetourPoiToRoute(lat = lat, lng = lng, name = label, role = WaypointRole.VIA, poiId = poi.id, poiType = poi.type)
             },
-            text = {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.testTag("nearby_poi_sheet")
-                ) {
-                    val typeLabel = when (poi.type) {
-                        "SHELTER" -> "Shelter / lejrplads"
-                        "FRI_TELTNING" -> "Fri teltning skov"
-                        "WATER" -> "Vandpost"
-                        "TOILET" -> "Toilet"
-                        "SHOP" -> "Indkøb / butik"
-                        else -> poi.type
-                    }
-                    Text(
-                        text = stringResource(R.string.ui_routebuilderscreen_ca_m_fra_ruten_128, typeLabel, poi.distanceToRouteMeters.toInt()),
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (poi.type == "SHELTER" || poi.type == "FRI_TELTNING") {
-                        Text(
-                            text = if (poi.bookingRequired) "📅 Kræver booking" else "✓ Gratis / fri afbenyttelse",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (poi.bookingRequired) danskStiColors.warning else MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    Button(
-                        onClick = {
-                            viewModel.addDetourPoiToRoute(
-                                lat = poi.lat,
-                                lng = poi.lng,
-                                name = poi.name,
-                                role = WaypointRole.OVERNIGHT,
-                                poiId = poi.id,
-                                poiType = poi.type
-                            )
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = danskStiColors.overnight),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 40.dp)
-                            .testTag("btn_poi_overnat_her")
-                    ) {
-                        Icon(Icons.Default.NightShelter, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.ui_routebuilderscreen_overnat_her_126), fontWeight = FontWeight.Bold)
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            viewModel.addDetourPoiToRoute(
-                                lat = poi.lat,
-                                lng = poi.lng,
-                                name = poi.name,
-                                role = WaypointRole.VIA,
-                                poiId = poi.id,
-                                poiType = poi.type
-                            )
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 40.dp)
-                            .testTag("btn_poi_tilfoej_som_stop")
-                    ) {
-                        Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.ui_routebuilderscreen_tilf_j_som_stop_129), fontWeight = FontWeight.Bold)
-                    }
-                }
+            onAddToRoute = { lat, lng, label ->
+                viewModel.selectNearbyPoiForSheet(null)
+                viewModel.addDetourPoiToRoute(lat = lat, lng = lng, name = label, role = WaypointRole.VIA, poiId = poi.id, poiType = poi.type)
             },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { viewModel.selectNearbyPoiForSheet(null) }) {
-                    Text(stringResource(R.string.btn_close))
-                }
+            onOvernightHereInPlanner = {
+                viewModel.selectNearbyPoiForSheet(null)
+                viewModel.addDetourPoiToRoute(lat = poi.lat, lng = poi.lng, name = poi.name, role = WaypointRole.OVERNIGHT, poiId = poi.id, poiType = poi.type)
             }
         )
     }
@@ -496,53 +431,79 @@ internal fun RouteBuilderBasicDialogs(
     }
 
     uiState.selectedAccessPolygonForDetails?.let { poly ->
-        AlertDialog(
-            onDismissRequest = { viewModel.selectAccessPolygon(null) },
-            icon = {
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .background(Color(poly.type.fillColorArgb), CircleShape)
-                        .border(2.dp, Color(poly.type.strokeColorArgb), CircleShape)
-                )
-            },
-            title = {
-                Text(
-                    text = poly.name ?: poly.type.title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = stringResource(R.string.ui_routebuilderscreen_kilde_133, poly.source),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    Text(
-                        text = poly.type.fullRulesDanish,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { viewModel.selectAccessPolygon(null) }) {
-                    Text(stringResource(R.string.btn_close))
-                }
-            }
+        com.example.ui.components.AccessPolygonRulesDialog(
+            polygon = poly,
+            onDismiss = { viewModel.selectAccessPolygon(null) }
         )
     }
+
+    uiState.pendingDraftToRestore?.let { draft ->
+        AlertDialog(
+            onDismissRequest = { viewModel.discardDraft() },
+            title = { Text("Fortsæt kladde", fontWeight = FontWeight.Bold) },
+            text = {
+                val label = draft.routeName.ifBlank { "Ugemt rute" }
+                Text("Der findes en ugemt kladde ($label). Vil du fortsætte redigeringen eller kassere den?")
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.continueDraft() },
+                    modifier = Modifier.testTag("btn_draft_continue")
+                ) {
+                    Text("Fortsæt kladde")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { viewModel.discardDraft() },
+                    modifier = Modifier.testTag("btn_draft_discard")
+                ) {
+                    Text("Kassér")
+                }
+            },
+            modifier = Modifier.testTag("planner_draft_restore_dialog")
+        )
+    }
+}
+
+@Composable
+internal fun PlannerUnsavedChangesDialog(
+    show: Boolean,
+    onSave: () -> Unit,
+    onDiscard: () -> Unit,
+    onContinueEditing: () -> Unit
+) {
+    if (!show) return
+    AlertDialog(
+        onDismissRequest = onContinueEditing,
+        title = { Text("Gem ruten?", fontWeight = FontWeight.Bold) },
+        text = { Text("Du har ugemte ændringer. Vil du gemme ruten, før du forlader planlæggeren?") },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = onDiscard,
+                    modifier = Modifier.testTag("btn_unsaved_discard")
+                ) {
+                    Text("Kassér", color = MaterialTheme.colorScheme.error)
+                }
+                Button(
+                    onClick = onSave,
+                    modifier = Modifier.testTag("btn_unsaved_save")
+                ) {
+                    Text("Gem")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onContinueEditing,
+                modifier = Modifier.testTag("btn_unsaved_continue")
+            ) {
+                Text("Fortsæt redigering")
+            }
+        },
+        modifier = Modifier.testTag("planner_unsaved_changes_dialog")
+    )
 }
 
 @Composable

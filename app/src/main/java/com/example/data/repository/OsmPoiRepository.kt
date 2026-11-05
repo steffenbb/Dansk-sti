@@ -47,29 +47,19 @@ class OsmPoiRepository(private val context: Context) {
     ): OsmPoiResult = withContext(Dispatchers.IO) {
         val cacheFile = File(cacheDir, "$trailId.json")
 
-        // 1. Try Overpass API if relationId > 0
+        // 1. Try Overpass API if relationId > 0 via shared OverpassClient
         if (relationId > 0L) {
             try {
                 val query = buildOverpassQuery(relationId, childRelationIds)
-                val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
-                val request = Request.Builder()
-                    .url("https://overpass-api.de/api/interpreter")
-                    .post(body)
-                    .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
-                    .build()
-
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val jsonStr = response.body?.string()
-                        if (!jsonStr.isNullOrBlank()) {
-                            cacheFile.writeText(jsonStr)
-                            val parsed = parseOverpassJson(jsonStr)
-                            if (parsed.shelters.isNotEmpty() || parsed.pois.isNotEmpty()) {
-                                return@withContext parsed
-                            }
-                        }
-                    } else {
-                        Log.w("OsmPoiRepo", "Overpass returned code ${response.code} for trail $trailId")
+                val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
+                    query = query,
+                    label = "OsmPoiTrail($trailId)"
+                )
+                if (jsonStr.isNotBlank()) {
+                    cacheFile.writeText(jsonStr)
+                    val parsed = parseOverpassJson(jsonStr)
+                    if (parsed.shelters.isNotEmpty() || parsed.pois.isNotEmpty()) {
+                        return@withContext parsed
                     }
                 }
             } catch (e: Exception) {
@@ -126,27 +116,17 @@ class OsmPoiRepository(private val context: Context) {
         val simplified = simplifyPointsForCorridor(points, minDistanceMeters = 200.0)
         val query = buildOverpassPolylineQuery(simplified)
 
-        for (endpoint in OVERPASS_ENDPOINTS) {
-            try {
-                val requestBody = query.toRequestBody("text/plain".toMediaType())
-                val request = Request.Builder()
-                    .url(endpoint)
-                    .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
-                    .post(requestBody)
-                    .build()
-
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val body = response.body?.string() ?: return@use
-                        val parsed = parseOverpassJson(body)
-                        if (parsed.shelters.isNotEmpty() || parsed.pois.isNotEmpty()) {
-                            return@withContext parsed
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w("OsmPoiRepo", "Overpass polyline corridor query failed on $endpoint: ${e.message}")
+        try {
+            val body = com.example.data.remote.OverpassClient.queryRawJson(
+                query = query,
+                label = "OsmPoiPolyline(${simplified.size})"
+            )
+            val parsed = parseOverpassJson(body)
+            if (parsed.shelters.isNotEmpty() || parsed.pois.isNotEmpty()) {
+                return@withContext parsed
             }
+        } catch (e: Exception) {
+            Log.w("OsmPoiRepo", "Overpass polyline corridor query failed: ${e.message}")
         }
 
         OsmPoiResult()

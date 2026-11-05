@@ -52,11 +52,11 @@ class RouteBuilderViewModel(
     internal val repository: DanskStiRepository
         get() = app.repository
     internal val settingsRepository: SettingsRepository
-        get() = try { app.settingsRepository } catch (_: Exception) { SettingsRepository(getApplication()) }
+        get() = com.example.DanskStiApp.getSettingsRepository(getApplication())
     internal val brouterStorageManager: BRouterStorageManager = BRouterStorageManager.getInstance(application)
     internal val onlineEngine: BRouterOnlineEngine = BRouterOnlineEngine(application)
     internal val offlineEngine: BRouterOfflineEngine = BRouterOfflineEngine(application)
-    internal val routingEngine: RoutingEngine = HybridRoutingEngine(
+    internal var routingEngine: RoutingEngine = HybridRoutingEngine(
         context = application,
         onlineEngine = onlineEngine,
         offlineEngine = offlineEngine,
@@ -88,6 +88,8 @@ class RouteBuilderViewModel(
     internal var corridorAccessJob: Job? = null
     internal var supplyGapsJob: Job? = null
     internal var stagesAndPoisJob: Job? = null
+    internal var draftAutosaveJob: Job? = null
+    internal var gpxRoutingJob: Job? = null
     internal var nightWeatherCache: MutableMap<String, String> = mutableMapOf()
     internal var pendingSaveCallback: ((Long) -> Unit)? = null
     internal var pendingSaveIsStarting: Boolean = false
@@ -101,9 +103,10 @@ class RouteBuilderViewModel(
     internal var lastDeleteType: LastDeleteType = LastDeleteType.ROUTE_WAYPOINT
     internal var lastDeletedCustomWaypoint: UserCustomWaypointEntity? = null
     internal var lastDeletedWaypointPhotoEntity: UserCustomWaypointEntity? = null
+    internal var lastDeletedWaypointPhotoBytes: ByteArray? = null
 
     internal var geometryFileName: String = "route_${UUID.randomUUID()}.json"
-    internal var pacingSpeedKmh: Double = 4.5
+    internal var pacingSpeedKmh: Double = settingsRepository.currentSettingsSnapshot().mitTempoKmh
     internal var startTimeStr: String = "09:00"
     internal var sunsetTimeStr: String = com.example.util.SunCalculator.calculateSunset()
     internal val plannerSearchQueryFlow = MutableStateFlow("")
@@ -117,7 +120,7 @@ class RouteBuilderViewModel(
             val leg = state.legs[key]
             "$key:${leg?.points?.size ?: 0}:${String.format(Locale.US, "%.3f", leg?.lengthKm ?: 0.0)}"
         }.joinToString("|")
-        return "$wpSig#$legSig#${state.paceKmh}#${state.dailyTargetKm}#${state.maxDetourKm}#${state.overnightPreference}#${state.startTimeStr}#${state.isReverse}"
+        return "$wpSig#$legSig#${state.paceKmh}#${state.dailyTargetKm}#${state.maxDetourKm}#${state.overnightPreference}#${state.startTimeStr}#${state.startDateMillis}#${state.isReverse}"
     }
 
     internal fun TripStageEntity.toModel(): com.example.data.model.TripStage = com.example.data.model.TripStage(
@@ -180,6 +183,7 @@ class RouteBuilderViewModel(
                 )
             }
         }
+        checkForExistingDraft()
     }
 
     fun nextCoachMarkStep() {
@@ -236,6 +240,7 @@ class RouteBuilderViewModel(
         trailId: String? = null,
         existingPlanId: Long? = null
     ) {
+        checkForExistingDraft()
         val effTrailId = baseTrailId?.takeIf { it.isNotBlank() } ?: trailId?.takeIf { it.isNotBlank() }
         val routeIdFromTrail = effTrailId?.takeIf { it.startsWith("route_") }?.removePrefix("route_")?.toLongOrNull()
         val effectiveRouteId = routeId?.takeIf { it > 0 }
@@ -610,7 +615,9 @@ class RouteBuilderViewModel(
             undoStack.removeAt(0)
         }
         redoStack.clear()
+        _uiState.update { it.copy(hasUnsavedChanges = true) }
         updateUndoRedoAvailability()
+        scheduleDraftAutosave()
     }
 
     internal fun updateUndoRedoAvailability() {
@@ -642,11 +649,13 @@ class RouteBuilderViewModel(
                 legs = previous.legs,
                 failedLegs = emptyMap(),
                 options = previous.options,
-                isReverse = previous.isReverse
+                isReverse = previous.isReverse,
+                hasUnsavedChanges = undoStack.isNotEmpty() || previous.waypoints.isNotEmpty()
             )
         }
         updateUndoRedoAvailability()
         updateRouteStats()
+        scheduleDraftAutosave()
     }
 
     fun redo() {
@@ -666,10 +675,12 @@ class RouteBuilderViewModel(
                 legs = next.legs,
                 failedLegs = emptyMap(),
                 options = next.options,
-                isReverse = next.isReverse
+                isReverse = next.isReverse,
+                hasUnsavedChanges = true
             )
         }
         updateUndoRedoAvailability()
         updateRouteStats()
+        scheduleDraftAutosave()
     }
 }

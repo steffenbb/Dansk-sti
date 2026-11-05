@@ -126,6 +126,9 @@ interface DanskStiDao {
     @Query("SELECT * FROM trip_progress WHERE planId = :planId")
     suspend fun getTripProgressSync(planId: Long): TripProgressEntity?
 
+    @Query("SELECT * FROM trip_progress WHERE isCompleted = 1")
+    fun getCompletedTripProgressFlow(): Flow<List<TripProgressEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveTripProgress(progress: TripProgressEntity)
 
@@ -180,6 +183,30 @@ interface DanskStiDao {
         ORDER BY tp.kmOnRoute ASC
     """)
     suspend fun getPoisForRoute(routeId: String, maxDetour: Double = 3000.0): List<PoiEntity>
+
+    @Query("""
+        SELECT s.* FROM shelters s
+        INNER JOIN trail_pois tp ON s.id = tp.poiId
+        WHERE (tp.trailId = :trailId OR tp.routeId = :trailId OR tp.routeId = :cleanRouteId OR tp.trailId = :prefixedRouteId) AND tp.detourMeters <= 3000
+        ORDER BY tp.kmOnRoute ASC
+    """)
+    fun observeSheltersForTrailOrRoute(
+        trailId: String,
+        cleanRouteId: String = trailId.removePrefix("route_"),
+        prefixedRouteId: String = "route_${trailId.removePrefix("route_")}"
+    ): Flow<List<ShelterEntity>>
+
+    @Query("""
+        SELECT p.* FROM pois p
+        INNER JOIN trail_pois tp ON p.id = tp.poiId
+        WHERE (tp.trailId = :trailId OR tp.routeId = :trailId OR tp.routeId = :cleanRouteId OR tp.trailId = :prefixedRouteId) AND tp.detourMeters <= 3000
+        ORDER BY tp.kmOnRoute ASC
+    """)
+    fun observePoisForTrailOrRoute(
+        trailId: String,
+        cleanRouteId: String = trailId.removePrefix("route_"),
+        prefixedRouteId: String = "route_${trailId.removePrefix("route_")}"
+    ): Flow<List<PoiEntity>>
 
     @Query("DELETE FROM trail_pois WHERE routeId = :routeId OR trailId = :routeId")
     suspend fun deletePoisForRoute(routeId: String)
@@ -257,6 +284,9 @@ interface DanskStiDao {
     @Query("DELETE FROM recorded_track_points WHERE planId = :planId")
     suspend fun deleteRecordedTrackPoints(planId: Long)
 
+    @Query("DELETE FROM recorded_track_points WHERE planId = :planId AND dayNumber = :dayNumber")
+    suspend fun deleteRecordedTrackPointsForDay(planId: Long, dayNumber: Int)
+
     @Query("DELETE FROM recorded_day_stats WHERE planId = :planId")
     suspend fun deleteRecordedDayStats(planId: Long)
 
@@ -321,6 +351,9 @@ interface DanskStiDao {
     @Query("SELECT * FROM user_custom_waypoints ORDER BY createdAt ASC")
     suspend fun getAllCustomWaypointsList(): List<com.example.data.model.UserCustomWaypointEntity>
 
+    @Query("SELECT * FROM user_custom_waypoints WHERE id = :id LIMIT 1")
+    suspend fun getCustomWaypointById(id: String): com.example.data.model.UserCustomWaypointEntity?
+
     @Query("DELETE FROM user_custom_waypoints WHERE id = :id")
     suspend fun deleteCustomWaypointById(id: String)
 
@@ -380,5 +413,16 @@ interface DanskStiDao {
     suspend fun insertOrUpdateRecordedDayStat(stat: com.example.data.model.RecordedDayStatEntity) = saveRecordedDayStat(stat)
 
     suspend fun insertUserCustomWaypoint(waypoint: com.example.data.model.UserCustomWaypointEntity) = insertCustomWaypoint(waypoint)
+
+    // Round 10A Item 7: Planner Drafts in Room
+    @Query("SELECT * FROM planner_drafts WHERE id = 'active_planner_draft' LIMIT 1")
+    suspend fun getPlannerDraft(): com.example.data.model.PlannerDraftEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPlannerDraft(draft: com.example.data.model.PlannerDraftEntity)
+
+    @Query("DELETE FROM planner_drafts")
+    suspend fun clearPlannerDraft()
 }
+
 

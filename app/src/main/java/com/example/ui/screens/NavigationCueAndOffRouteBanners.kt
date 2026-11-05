@@ -1,5 +1,11 @@
 package com.example.ui.screens
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.os.Build
+import android.view.Window
+import android.view.WindowManager
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +42,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -499,6 +506,80 @@ internal fun TurnCueDirectionIcon(
 }
 
 /**
+ * Round 10B Item 2:
+ * Remaps the rotation matrix from the rotation vector sensor using [android.hardware.SensorManager.remapCoordinateSystem]
+ * according to the current display rotation (`ROTATION_0`, `ROTATION_90`, `ROTATION_180`, `ROTATION_270`)
+ * and returns the compass azimuth in `[0, 360)`.
+ */
+fun computeRemappedCompassAzimuthDegrees(
+    rotationVectorValues: FloatArray,
+    displayRotation: Int
+): Float? {
+    if (rotationVectorValues.size < 3) return null
+    val rotationMatrix = FloatArray(9)
+    try {
+        android.hardware.SensorManager.getRotationMatrixFromVector(rotationMatrix, rotationVectorValues)
+    } catch (_: Exception) {
+        return null
+    }
+    return computeRemappedCompassAzimuthFromMatrix(rotationMatrix, displayRotation)
+}
+
+/**
+ * Computes the remapped compass azimuth in `[0, 360)` from a 3x3 rotation matrix and display rotation
+ * using [android.hardware.SensorManager.remapCoordinateSystem].
+ */
+fun computeRemappedCompassAzimuthFromMatrix(
+    rotationMatrix: FloatArray,
+    displayRotation: Int
+): Float? {
+    if (rotationMatrix.size < 9) return null
+    val (axisX, axisY) = when (displayRotation) {
+        android.view.Surface.ROTATION_90 ->
+            android.hardware.SensorManager.AXIS_Y to android.hardware.SensorManager.AXIS_MINUS_X
+        android.view.Surface.ROTATION_180 ->
+            android.hardware.SensorManager.AXIS_MINUS_X to android.hardware.SensorManager.AXIS_MINUS_Y
+        android.view.Surface.ROTATION_270 ->
+            android.hardware.SensorManager.AXIS_MINUS_Y to android.hardware.SensorManager.AXIS_X
+        else ->
+            android.hardware.SensorManager.AXIS_X to android.hardware.SensorManager.AXIS_Y
+    }
+    val remappedMatrix = FloatArray(9)
+    val remappedOk = android.hardware.SensorManager.remapCoordinateSystem(
+        rotationMatrix,
+        axisX,
+        axisY,
+        remappedMatrix
+    )
+    val matrixToUse = if (remappedOk) remappedMatrix else rotationMatrix
+    val orientation = FloatArray(3)
+    android.hardware.SensorManager.getOrientation(matrixToUse, orientation)
+    val azimuthRad = orientation[0].toDouble()
+    if (azimuthRad.isNaN()) return null
+    return ((Math.toDegrees(azimuthRad).toFloat() % 360f) + 360f) % 360f
+}
+
+/**
+ * Round 10B Item 2:
+ * Single heading source shared by the heading-up map and the off-route arrow:
+ * - Uses the compass below 1.5 km/h or when there is no GPS course.
+ * - Uses the GPS course otherwise (at >= 1.5 km/h with a valid GPS course).
+ */
+fun resolveNavigationHeadingDegrees(
+    speedKmh: Double,
+    gpsCourseDegrees: Float?,
+    hasGpsCourse: Boolean,
+    compassHeadingDegrees: Float?
+): Float? {
+    val validGpsCourse = hasGpsCourse && gpsCourseDegrees != null && !gpsCourseDegrees.isNaN()
+    return if (speedKmh < 1.5 || !validGpsCourse) {
+        compassHeadingDegrees?.takeIf { !it.isNaN() }?.let { ((it % 360f) + 360f) % 360f }
+    } else {
+        ((gpsCourseDegrees!! % 360f) + 360f) % 360f
+    }
+}
+
+/**
  * Round 9A Item 4:
  * Computes the off-route arrow rotation (or null if device heading is unavailable)
  * and the Danish compass direction text (e.g., "mod NØ").
@@ -521,3 +602,80 @@ fun computeOffRouteDirectionOrArrow(
     }
     return arrowRotation to textDirection
 }
+
+fun updateKeepScreenOnWindowFlag(
+    window: Window?,
+    isNavigating: Boolean,
+    keepScreenOnEnabled: Boolean
+) {
+    if (window == null) return
+    if (isNavigating && keepScreenOnEnabled) {
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    } else {
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        val params = window.attributes
+        if (params != null && params.screenBrightness != WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
+            params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            window.attributes = params
+        }
+    }
+}
+
+fun Context.findActivity(): Activity? {
+    var ctx: Context? = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
+@Composable
+internal fun ObserveCompassSensorHeading(
+    context: Context,
+    activity: Activity?,
+    onHeadingDegrees: (Float) -> Unit
+) {
+    DisposableEffect(context, activity) {
+        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+        val rotationSensor = sensorManager?.getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR)
+        val listener = object : android.hardware.SensorEventListener {
+            override fun onSensorChanged(event: android.hardware.SensorEvent?) {
+                if (event?.sensor?.type == android.hardware.Sensor.TYPE_ROTATION_VECTOR && event.values != null) {
+                    val displayRotation = try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            activity?.display?.rotation
+                                ?: (context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager)?.defaultDisplay?.rotation
+                                ?: android.view.Surface.ROTATION_0
+                        } else {
+                            @Suppress("DEPRECATION")
+                            (activity?.windowManager?.defaultDisplay?.rotation
+                                ?: (context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager)?.defaultDisplay?.rotation
+                                ?: android.view.Surface.ROTATION_0)
+                        }
+                    } catch (_: Exception) {
+                        android.view.Surface.ROTATION_0
+                    }
+                    val azimuthDeg = computeRemappedCompassAzimuthDegrees(event.values, displayRotation)
+                    if (azimuthDeg != null) {
+                        onHeadingDegrees(azimuthDeg)
+                    }
+                }
+            }
+
+            override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
+        }
+        if (rotationSensor != null) {
+            try {
+                sensorManager.registerListener(listener, rotationSensor, android.hardware.SensorManager.SENSOR_DELAY_UI)
+            } catch (_: Exception) {}
+        }
+        onDispose {
+            try {
+                sensorManager?.unregisterListener(listener)
+            } catch (_: Exception) {}
+        }
+    }
+}
+
+

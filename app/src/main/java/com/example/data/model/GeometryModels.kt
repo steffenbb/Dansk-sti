@@ -52,7 +52,24 @@ data class TrailGeometryDto(
     val bboxWest: Double,
     val osmTimestamp: String? = null,
     val fetchedAt: Long = System.currentTimeMillis(),
-    val osmRelationName: String? = null
+    val osmRelationName: String? = null,
+    val osmTags: Map<String, String> = emptyMap()
+)
+
+@JsonClass(generateAdapter = true)
+data class CatalogueRelationMetaDto(
+    val relationId: Long,
+    val bboxSouth: Double? = null,
+    val bboxWest: Double? = null,
+    val bboxNorth: Double? = null,
+    val bboxEast: Double? = null,
+    val tags: Map<String, String> = emptyMap()
+)
+
+@JsonClass(generateAdapter = true)
+data class CatalogueRelationsMetaCacheDto(
+    val fetchedAtEpochMs: Long,
+    val relations: Map<String, CatalogueRelationMetaDto> = emptyMap()
 )
 
 data class TrailDownloadProgress(

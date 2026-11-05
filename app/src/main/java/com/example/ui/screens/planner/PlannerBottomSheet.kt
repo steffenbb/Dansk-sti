@@ -11,6 +11,8 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -63,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -85,6 +88,7 @@ import com.example.util.routing.RouteWaypoint
 import java.util.Locale
 import kotlin.math.abs
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PlannerBottomSheet(
     uiState: RouteBuilderState,
@@ -119,20 +123,24 @@ fun PlannerBottomSheet(
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     // Compute heights from the real available height (no 700 dp floor); the map always keeps at least 40 %
-    val realAvailableHeightDp = (availableHeightDp ?: configuration.screenHeightDp.takeIf { it > 0 }?.toFloat() ?: 640f)
+    val realAvailableHeightDp = (availableHeightDp ?: configuration.screenHeightDp.takeIf { it >= 640 }?.toFloat() ?: 700f)
         .coerceAtLeast(180f)
+    var measuredPeekContentHeightDp by remember { mutableFloatStateOf(0f) }
     val maxFullSheetDp = realAvailableHeightDp * 0.60f
-    val halfSheetDp = (realAvailableHeightDp * 0.42f).coerceAtMost(maxFullSheetDp)
-    val peekSheetDp = (realAvailableHeightDp * 0.22f).coerceIn(minOf(110f, maxFullSheetDp), maxFullSheetDp)
+    val fallbackPeekDp = (realAvailableHeightDp * 0.22f).coerceIn(minOf(110f, maxFullSheetDp), maxFullSheetDp)
+    val peekSheetDp = if (measuredPeekContentHeightDp > 0f) measuredPeekContentHeightDp else fallbackPeekDp
+    val halfSheetDp = (realAvailableHeightDp * 0.52f).coerceAtMost(maxFullSheetDp)
 
     var dragDeltaDp by remember(uiState.sheetHeightState) { mutableFloatStateOf(0f) }
 
     val baseTargetDp = when (uiState.sheetHeightState) {
         SheetHeightState.PEEK -> peekSheetDp
-        SheetHeightState.HALF -> halfSheetDp
+        SheetHeightState.HALF -> maxOf(halfSheetDp, minOf(peekSheetDp, maxFullSheetDp))
         SheetHeightState.FULL -> maxFullSheetDp
     }
-    val currentMaxSheetDp = (baseTargetDp - dragDeltaDp).coerceIn(peekSheetDp, maxFullSheetDp)
+    val minSheetDp = minOf(peekSheetDp, maxFullSheetDp)
+    val maxSheetDp = if (uiState.sheetHeightState == SheetHeightState.PEEK) maxOf(peekSheetDp, maxFullSheetDp) else maxFullSheetDp
+    val currentMaxSheetDp = (baseTargetDp - dragDeltaDp).coerceIn(minOf(minSheetDp, maxSheetDp), maxSheetDp)
     val animatedMaxHeightDp by animateDpAsState(
         targetValue = currentMaxSheetDp.dp,
         label = "sheetMaxHeightDp"
@@ -142,14 +150,14 @@ fun PlannerBottomSheet(
         val deltaDp = with(density) { deltaPx.toDp().value }
         dragDeltaDp = (dragDeltaDp + deltaDp).coerceIn(
             baseTargetDp - maxFullSheetDp,
-            baseTargetDp - peekSheetDp
+            baseTargetDp - minSheetDp
         )
-        val newHeightDp = (baseTargetDp - dragDeltaDp).coerceIn(peekSheetDp, maxFullSheetDp)
+        val newHeightDp = (baseTargetDp - dragDeltaDp).coerceIn(minSheetDp, maxFullSheetDp)
         onSheetHeightFractionChanged((newHeightDp / realAvailableHeightDp).coerceIn(0.18f, 0.60f))
     }
 
     fun settleSheetDrag(velocityPxPerSec: Float) {
-        val currentHeightDp = (baseTargetDp - dragDeltaDp).coerceIn(peekSheetDp, maxFullSheetDp)
+        val currentHeightDp = (baseTargetDp - dragDeltaDp).coerceIn(minSheetDp, maxFullSheetDp)
         val targetState = when {
             velocityPxPerSec < -600f -> {
                 when (uiState.sheetHeightState) {
@@ -166,7 +174,7 @@ fun PlannerBottomSheet(
                 }
             }
             else -> {
-                val distPeek = abs(currentHeightDp - peekSheetDp)
+                val distPeek = abs(currentHeightDp - minSheetDp)
                 val distHalf = abs(currentHeightDp - halfSheetDp)
                 val distFull = abs(currentHeightDp - maxFullSheetDp)
                 when {
@@ -191,9 +199,15 @@ fun PlannerBottomSheet(
             .fillMaxHeight()
             .testTag("route_bottom_sheet")
     } else {
+        val sizeModifier = if (uiState.sheetHeightState == SheetHeightState.PEEK && dragDeltaDp == 0f) {
+            Modifier.fillMaxWidth()
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = currentMaxSheetDp.dp)
+        }
         modifier
-            .fillMaxWidth()
-            .heightIn(max = animatedMaxHeightDp)
+            .then(sizeModifier)
             .draggable(
                 state = sheetDraggableState,
                 orientation = Orientation.Vertical,
@@ -201,6 +215,8 @@ fun PlannerBottomSheet(
             )
             .testTag("route_bottom_sheet")
     }
+
+    val sheetScrollState = rememberScrollState()
 
     Card(
         shape = cardShape,
@@ -217,20 +233,35 @@ fun PlannerBottomSheet(
                     if (isSidePanel) {
                         Modifier
                             .fillMaxHeight()
+                            .verticalScroll(sheetScrollState)
                             .statusBarsPadding()
                             .navigationBarsPadding()
                             .imePadding()
+                    } else if (uiState.sheetHeightState != SheetHeightState.PEEK) {
+                        Modifier
+                            .verticalScroll(sheetScrollState)
+                            .navigationBarsPadding()
                     } else {
-                        Modifier.navigationBarsPadding()
+                        Modifier
+                            .navigationBarsPadding()
+                            .onSizeChanged { size ->
+                                if (uiState.sheetHeightState == SheetHeightState.PEEK && dragDeltaDp == 0f) {
+                                    val measuredDp = with(density) { size.height.toDp().value }
+                                    if (measuredDp > 0f && abs(measuredDp - measuredPeekContentHeightDp) > 1f) {
+                                        measuredPeekContentHeightDp = measuredDp
+                                        onSheetHeightFractionChanged((measuredDp / realAvailableHeightDp).coerceIn(0.15f, 0.60f))
+                                    }
+                                }
+                            }
                     }
                 )
-                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
             if (!isSidePanel) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 6.dp)
+                        .padding(bottom = 2.dp)
                         .testTag("planner_sheet_drag_handle"),
                     contentAlignment = Alignment.Center
                 ) {
@@ -268,66 +299,68 @@ fun PlannerBottomSheet(
                 pathShareLabel
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
+            Text(
+                text = peekSummaryText,
+                style = com.example.ui.theme.TabularStatsTextStyle,
+                fontSize = 12.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("route_summary_text")
+            )
+
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 1.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = peekSummaryText,
-                        style = com.example.ui.theme.TabularStatsTextStyle,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.testTag("route_summary_text")
-                    )
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 3.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (uiState.isOfflineRoute) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                        modifier = Modifier.testTag("route_engine_mode_badge")
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = if (uiState.isOfflineRoute) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                            modifier = Modifier.testTag("route_engine_mode_badge")
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (uiState.isOfflineRoute) Icons.Default.CloudOff else Icons.Default.CloudDone,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = uiState.routeEngineModeLabel,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.testTag("route_engine_mode_label")
-                                )
-                            }
-                        }
-
-                        if (uiState.loadingLegKeys.isNotEmpty()) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            CircularProgressIndicator(
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(12.dp),
-                                color = MaterialTheme.colorScheme.primary
+                            Icon(
+                                imageVector = if (uiState.isOfflineRoute) Icons.Default.CloudOff else Icons.Default.CloudDone,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(12.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = stringResource(R.string.planner_calculating_route),
+                                text = uiState.routeEngineModeLabel,
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.testTag("route_engine_mode_label")
                             )
                         }
+                    }
+
+                    if (uiState.loadingLegKeys.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(12.dp),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = stringResource(R.string.planner_calculating_route),
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
 
@@ -385,8 +418,8 @@ fun PlannerBottomSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .padding(top = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -547,7 +580,7 @@ fun PlannerBottomSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp)
+                        .padding(top = 4.dp)
                 ) {
                     Row(
                         modifier = Modifier
@@ -556,7 +589,7 @@ fun PlannerBottomSheet(
                                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                 RoundedCornerShape(10.dp)
                             )
-                            .padding(3.dp),
+                            .padding(2.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         PlannerTabButton(
@@ -585,9 +618,8 @@ fun PlannerBottomSheet(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
-                            .padding(top = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                            .padding(top = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         when (uiState.selectedSheetTab) {
                             PlannerSheetTab.RUTE -> {

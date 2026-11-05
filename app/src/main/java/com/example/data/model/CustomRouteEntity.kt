@@ -36,3 +36,23 @@ data class CustomRouteEntity(
     val lengthKm: Double
         get() = totalKm
 }
+
+/**
+ * Round 10A Item 7:
+ * Autosaved planner draft in Room (debounced 2 s after every change).
+ * When the planner opens and a draft exists, offers "Fortsæt kladde" / "Kassér".
+ */
+@Entity(tableName = "planner_drafts")
+data class PlannerDraftEntity(
+    @PrimaryKey
+    val id: String = "active_planner_draft",
+    val routeId: Long? = null,
+    val baseTrailId: String? = null,
+    val routeName: String = "",
+    val mode: String = "FREE",
+    val waypointsJson: String = "[]",
+    val optionsJson: String = "{}",
+    val isReverse: Boolean = false,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+

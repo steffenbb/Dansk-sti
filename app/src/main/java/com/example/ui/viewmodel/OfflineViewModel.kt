@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.example.DanskStiApp
+import com.example.data.local.SettingsRepository
 import com.example.data.model.DownloadedTrailEntity
 import com.example.data.repository.DanskStiRepository
 import com.example.service.BRouterSegmentDownloadWorker
@@ -36,18 +37,23 @@ data class BRouterDataState(
     val currentSegmentName: String = "",
     val totalDownloadedBytes: Long = 0L,
     val totalBytes: Long = BRouterSegments.TOTAL_SIZE_BYTES,
+    val totalSizeMb: Int = BRouterSegments.TOTAL_SIZE_MB,
     val lastUpdatedDate: String? = null,
-    val wifiOnly: Boolean = true
+    val wifiOnly: Boolean = true,
+    val isUpdateAvailable: Boolean = false,
+    val hasVersionMismatch: Boolean = false,
+    val statusNotice: String? = null
 )
 
 class OfflineViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: DanskStiRepository = (application as DanskStiApp).repository
+    private val settingsRepository: SettingsRepository = DanskStiApp.getSettingsRepository(application)
     private val storageManager: BRouterStorageManager = BRouterStorageManager.getInstance(application)
     private val workManager: WorkManager? = runCatching { WorkManager.getInstance(application) }.getOrNull()
 
     val downloadedTrails: StateFlow<List<DownloadedTrailEntity>> = repository.getAllDownloadedTrails()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _isDownloading = MutableStateFlow(false)
     val isDownloading: StateFlow<Boolean> = _isDownloading.asStateFlow()
@@ -58,16 +64,38 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
     private val _currentEstimate = MutableStateFlow<OfflineEstimateResult?>(null)
     val currentEstimate: StateFlow<OfflineEstimateResult?> = _currentEstimate.asStateFlow()
 
+    private val _downloadRefuseError = MutableStateFlow<String?>(null)
+    val downloadRefuseError: StateFlow<String?> = _downloadRefuseError.asStateFlow()
+
+    fun clearDownloadRefuseError() {
+        _downloadRefuseError.value = null
+    }
+
+    val mapTilesWifiOnly: StateFlow<Boolean> = settingsRepository.offlineDownloadsWifiOnlyFlow
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            settingsRepository.currentSettingsSnapshot().offlineDownloadsWifiOnly
+        )
+
+    fun setMapTilesWifiOnly(wifiOnly: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setOfflineDownloadsWifiOnly(wifiOnly)
+        }
+    }
+
     // BRouter offline data state
     private val _brouterWifiOnly = MutableStateFlow(storageManager.isWifiOnlyDefault())
     private val _brouterDiskStateTrigger = MutableStateFlow(System.currentTimeMillis())
 
-    val brouterDataState: StateFlow<BRouterDataState> = combine(
-        workManager?.getWorkInfosForUniqueWorkFlow(BRouterSegmentDownloadWorker.UNIQUE_WORK_NAME)
-            ?: MutableStateFlow(emptyList()),
-        _brouterWifiOnly,
-        _brouterDiskStateTrigger
-    ) { workInfos, wifiOnly, _ ->
+    init {
+        checkForBRouterUpdates()
+    }
+
+    private fun buildCurrentBRouterDataState(
+        workInfos: List<WorkInfo> = emptyList(),
+        wifiOnly: Boolean = _brouterWifiOnly.value
+    ): BRouterDataState {
         val latestWork = workInfos.firstOrNull()
         val isWorkRunning = latestWork != null && latestWork.state == WorkInfo.State.RUNNING
 
@@ -88,45 +116,88 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
         val downloadedSegments = storageManager.getDownloadedSegments()
         val isAllDownloaded = storageManager.areAllDenmarkSegmentsDownloaded()
         val lastUpdatedDate = storageManager.getFormattedLastUpdatedDate()
+        val realSegments = storageManager.getSegmentsWithRealSizes()
+        val totalBytes = storageManager.getTotalExpectedSizeBytes()
+        val totalSizeMb = storageManager.getTotalExpectedSizeMb()
+        val isUpdateAvailable = storageManager.isUpdateAvailable()
+        val hasVersionMismatch = storageManager.hasVersionMismatch()
+        val notice = when {
+            hasVersionMismatch -> BRouterStorageManager.VERSION_MISMATCH_LABEL
+            isUpdateAvailable -> BRouterStorageManager.UPDATE_AVAILABLE_LABEL
+            else -> null
+        }
 
-        BRouterDataState(
-            segments = BRouterSegments.DENMARK_SEGMENTS,
+        return BRouterDataState(
+            segments = realSegments,
             downloadedSegments = downloadedSegments,
             isAllDownloaded = isAllDownloaded,
             isDownloading = isWorkRunning,
             progressPercent = progressPct,
             currentSegmentName = currentSeg,
             totalDownloadedBytes = downloadedBytes,
-            totalBytes = BRouterSegments.TOTAL_SIZE_BYTES,
+            totalBytes = totalBytes,
+            totalSizeMb = totalSizeMb,
             lastUpdatedDate = lastUpdatedDate,
-            wifiOnly = wifiOnly
+            wifiOnly = wifiOnly,
+            isUpdateAvailable = isUpdateAvailable,
+            hasVersionMismatch = hasVersionMismatch,
+            statusNotice = notice
         )
+    }
+
+    val brouterDataState: StateFlow<BRouterDataState> = combine(
+        (workManager?.getWorkInfosForUniqueWorkFlow(BRouterSegmentDownloadWorker.UNIQUE_WORK_NAME)
+            ?: MutableStateFlow(emptyList())).let { flow ->
+            kotlinx.coroutines.flow.flow {
+                emit(emptyList())
+                flow.collect { emit(it) }
+            }
+        },
+        _brouterWifiOnly,
+        _brouterDiskStateTrigger,
+        storageManager.remoteMetadataUpdatedTrigger,
+        storageManager.versionMismatchFlow
+    ) { workInfos, wifiOnly, _, _, _ ->
+        buildCurrentBRouterDataState(workInfos, wifiOnly)
     }.stateIn(
         viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        BRouterDataState(
-            segments = BRouterSegments.DENMARK_SEGMENTS,
-            downloadedSegments = storageManager.getDownloadedSegments(),
-            isAllDownloaded = storageManager.areAllDenmarkSegmentsDownloaded(),
-            totalDownloadedBytes = storageManager.getDownloadedSizeBytes(),
-            lastUpdatedDate = storageManager.getFormattedLastUpdatedDate(),
-            wifiOnly = storageManager.isWifiOnlyDefault()
-        )
+        SharingStarted.Eagerly,
+        buildCurrentBRouterDataState()
     )
+
+    fun checkForBRouterUpdates() {
+        viewModelScope.launch(Dispatchers.IO) {
+            storageManager.fetchRemoteSegmentsMetadata()
+            _brouterDiskStateTrigger.value = System.currentTimeMillis()
+        }
+    }
 
     fun setBRouterWifiOnly(wifiOnly: Boolean) {
         _brouterWifiOnly.value = wifiOnly
         storageManager.setWifiOnlyDefault(wifiOnly)
     }
 
-    fun downloadBRouterData(wifiOnly: Boolean = _brouterWifiOnly.value) {
+    fun downloadBRouterData(wifiOnly: Boolean = _brouterWifiOnly.value, forceUpdate: Boolean = false) {
         setBRouterWifiOnly(wifiOnly)
-        BRouterSegmentDownloadWorker.enqueue(getApplication(), wifiOnly = wifiOnly, replace = true)
-        _brouterDiskStateTrigger.value = System.currentTimeMillis()
+        viewModelScope.launch(Dispatchers.IO) {
+            storageManager.fetchRemoteSegmentsMetadata()
+            val storageCheck = BRouterSegmentDownloadWorker.enqueue(
+                getApplication(),
+                wifiOnly = wifiOnly,
+                replace = true,
+                forceUpdate = forceUpdate
+            )
+            if (!storageCheck.hasEnoughSpace) {
+                _downloadRefuseError.value = storageCheck.message
+            } else {
+                _downloadRefuseError.value = null
+            }
+            _brouterDiskStateTrigger.value = System.currentTimeMillis()
+        }
     }
 
     fun updateBRouterData() {
-        downloadBRouterData(wifiOnly = _brouterWifiOnly.value)
+        downloadBRouterData(wifiOnly = _brouterWifiOnly.value, forceUpdate = true)
     }
 
     fun cancelBRouterDownload() {
@@ -136,6 +207,7 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
 
     fun refreshBRouterState() {
         _brouterDiskStateTrigger.value = System.currentTimeMillis()
+        checkForBRouterUpdates()
     }
 
     fun estimateSize(trailId: String, corridorKm: Double) {
@@ -143,8 +215,16 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
             withContext(Dispatchers.IO) {
                 val trail = repository.getTrailById(trailId) ?: return@withContext
                 val points = repository.getTrailPoints(trail).flatMap { it.points }
-                val est = OfflineDownloadManager.estimateDownload(points, corridorKm)
+                val est = OfflineDownloadManager.estimateDownload(
+                    points = points,
+                    corridorKm = corridorKm,
+                    context = getApplication(),
+                    wifiOnly = mapTilesWifiOnly.value
+                )
                 _currentEstimate.value = est
+                if (!est.isAllowed && !est.refuseReason.isNullOrBlank()) {
+                    _downloadRefuseError.value = est.refuseReason
+                }
             }
         }
     }
@@ -157,14 +237,32 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
                 try {
                     val trail = repository.getTrailById(trailId) ?: return@withContext
                     val points = repository.getTrailPoints(trail).flatMap { it.points }
-                    val est = OfflineDownloadManager.estimateDownload(points, corridorKm)
+                    val wifiOnly = mapTilesWifiOnly.value
+                    val est = OfflineDownloadManager.estimateDownload(
+                        points = points,
+                        corridorKm = corridorKm,
+                        context = getApplication(),
+                        wifiOnly = wifiOnly
+                    )
+                    _currentEstimate.value = est
+                    if (!est.isAllowed) {
+                        _downloadRefuseError.value = est.refuseReason
+                        return@withContext
+                    }
 
-                    OfflineDownloadManager.enqueueDownload(
+                    val enqueueRes = OfflineDownloadManager.enqueueDownload(
                         context = getApplication(),
                         trailId = trailId,
                         trailName = trail.name,
-                        corridorKm = corridorKm
+                        corridorKm = corridorKm,
+                        wifiOnly = wifiOnly,
+                        requiredBytes = est.estimatedSizeBytes
                     )
+                    if (!enqueueRes.isAllowed) {
+                        _downloadRefuseError.value = enqueueRes.refuseReason
+                    } else {
+                        _downloadRefuseError.value = null
+                    }
                 } catch (e: Exception) {
                     android.util.Log.e("OfflineViewModel", "Download failed: ${e.message}", e)
                 }
@@ -178,35 +276,40 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
     val lastDeletedTrail: StateFlow<DownloadedTrailEntity?> = _lastDeletedTrail.asStateFlow()
 
     fun deleteDownloadedTrail(trailId: String) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val existing = downloadedTrails.value.firstOrNull { it.trailId == trailId }
-                if (existing != null) {
-                    _lastDeletedTrail.value = existing
-                }
-                OfflineDownloadManager.deleteOfflineTrail(getApplication(), trailId)
-                repository.deleteDownloadedTrail(trailId)
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = downloadedTrails.value.firstOrNull { it.trailId == trailId }
+            if (existing != null) {
+                _lastDeletedTrail.value = existing
             }
+            repository.deleteDownloadedTrail(trailId)
         }
     }
 
     fun deleteDownloadedTrailWithUndo(trail: DownloadedTrailEntity) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                _lastDeletedTrail.value = trail
-                OfflineDownloadManager.deleteOfflineTrail(getApplication(), trail.trailId)
-                repository.deleteDownloadedTrail(trail.trailId)
+        viewModelScope.launch(Dispatchers.IO) {
+            val previous = _lastDeletedTrail.value
+            if (previous != null && previous.trailId != trail.trailId) {
+                repository.commitDownloadedTrailPermanentDelete(previous.trailId)
             }
+            _lastDeletedTrail.value = trail
+            // Round 10C Item 1: Hide in DB first; delete archive only after snackbar closes without Fortryd
+            repository.hideDownloadedTrailInDb(trail.trailId)
+        }
+    }
+
+    fun commitPendingDeletedTrail() {
+        val item = _lastDeletedTrail.value ?: return
+        _lastDeletedTrail.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.commitDownloadedTrailPermanentDelete(item.trailId)
         }
     }
 
     fun undoLastDeletedTrail() {
         val item = _lastDeletedTrail.value ?: return
         _lastDeletedTrail.value = null
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                (getApplication<Application>() as DanskStiApp).database.dao().insertDownloadedTrail(item)
-            }
+        viewModelScope.launch(Dispatchers.IO) {
+            (getApplication<Application>() as DanskStiApp).database.dao().insertDownloadedTrail(item)
         }
     }
 }

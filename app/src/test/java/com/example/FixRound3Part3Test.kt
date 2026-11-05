@@ -287,10 +287,10 @@ class FixRound3Part3Test {
             Color.blue(darkWater) > Color.red(darkWater) && Color.blue(darkWater) >= Color.green(darkWater)
         )
 
-        // 3. White background must become dark (< 70 brightness)
+        // 3. White background must become dark (< 90 brightness, mapping lum 165-255 to #24282B..#4A5056)
         assertTrue(
             "White background must become dark in dark mode: R=${Color.red(darkBg)}",
-            Color.red(darkBg) < 70 && Color.green(darkBg) < 70 && Color.blue(darkBg) < 70
+            Color.red(darkBg) < 90 && Color.green(darkBg) < 90 && Color.blue(darkBg) < 90
         )
 
         // 4. Verify Requirement E route colors:
@@ -329,6 +329,6 @@ class FixRound3Part3Test {
         assertEquals("Statsskov - fri færdsel", rulePublic)
 
         val ruleUnknown = DropPinInspectorHelper.resolveAccessRuleAtPoint(55.00, 10.00, listOf(roldSkovPoly))
-        assertEquals("Ukendt ejer", ruleUnknown)
+        assertEquals("Ejerforhold ukendt - følg skilte på stedet", ruleUnknown)
     }
 }

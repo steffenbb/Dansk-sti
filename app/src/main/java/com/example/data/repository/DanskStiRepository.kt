@@ -26,8 +26,11 @@ import com.example.util.GeoUtils
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -54,6 +57,39 @@ class DanskStiRepository(
 
     private val initMutex = kotlinx.coroutines.sync.Mutex()
 
+    private val routePoiSyncScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + Dispatchers.IO
+    )
+    private val routePoiSyncJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+    private val routePoiSyncMutexes = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
+
+    fun getRoutePoiSyncMutex(routeId: String): kotlinx.coroutines.sync.Mutex =
+        routePoiSyncMutexes.computeIfAbsent(routeId.removePrefix("route_")) { kotlinx.coroutines.sync.Mutex() }
+
+    fun getActiveRoutePoiSyncJob(routeId: String): kotlinx.coroutines.Job? =
+        routePoiSyncJobs[routeId.removePrefix("route_")]
+
+    /**
+     * Round 10C Item 4: Run the corridor POI sync for a route as one cancellable job per route
+     * (with a per-route Mutex); a new save cancels the previous sync.
+     */
+    fun enqueueRouteCorridorPoiSync(
+        routeId: String,
+        points: List<GeoPointDto>
+    ): kotlinx.coroutines.Job {
+        val cleanId = routeId.removePrefix("route_")
+        routePoiSyncJobs.remove(cleanId)?.cancel()
+        val job = routePoiSyncScope.launch {
+            val mutex = getRoutePoiSyncMutex(cleanId)
+            mutex.withLock {
+                ensureActive()
+                syncCorridorPoisForRouteInternal(cleanId, points)
+            }
+        }
+        routePoiSyncJobs[cleanId] = job
+        return job
+    }
+
     var isOnlineOverrideForTests: Boolean? = null
 
     fun isDeviceOnline(): Boolean {
@@ -67,6 +103,174 @@ class DanskStiRepository(
         } catch (_: Exception) {
             false
         }
+    }
+
+    private val catalogueMetaAdapter = moshi.adapter(com.example.data.model.CatalogueRelationsMetaCacheDto::class.java)
+    private val inMemoryCatalogueMeta = java.util.concurrent.ConcurrentHashMap<Long, com.example.data.model.CatalogueRelationMetaDto>()
+
+    companion object {
+        const val CATALOGUE_META_TTL_MS = 30L * 24L * 3600L * 1000L
+        const val CATALOGUE_META_FILE_NAME = "catalogue_relations_meta_cache.json"
+    }
+
+    private fun getCatalogueMetaCacheFile(): java.io.File {
+        return java.io.File(context.filesDir, CATALOGUE_META_FILE_NAME)
+    }
+
+    /**
+     * Round 10B Item 4: Fetch tags and bounding boxes for all catalogue relations in one Overpass request
+     * (`relation(id:...); out tags bb;`), cached 30 days; compute the region from the bounding box centre.
+     */
+    suspend fun fetchOrLoadCatalogueRelationsMetadata(
+        forceRefresh: Boolean = false,
+        nowEpochMs: Long = System.currentTimeMillis()
+    ): Map<Long, com.example.data.model.CatalogueRelationMetaDto> = withContext(Dispatchers.IO) {
+        val cacheFile = getCatalogueMetaCacheFile()
+        if (!forceRefresh && cacheFile.exists()) {
+            try {
+                val cached = catalogueMetaAdapter.fromJson(cacheFile.readText())
+                if (cached != null &&
+                    cached.relations.isNotEmpty() &&
+                    (nowEpochMs - cached.fetchedAtEpochMs) in 0..CATALOGUE_META_TTL_MS
+                ) {
+                    val result = cached.relations.mapNotNull { (k, v) ->
+                        k.toLongOrNull()?.let { it to v }
+                    }.toMap()
+                    inMemoryCatalogueMeta.putAll(result)
+                    applyCatalogueMetadataToTrails(result)
+                    return@withContext result
+                }
+            } catch (e: Exception) {
+                Log.w("DanskStiRepo", "Failed to read catalogue relation metadata cache: ${e.message}")
+            }
+        }
+
+        val initialTrails = PreseededData.getInitialTrails()
+        val relationIds = initialTrails.mapNotNull { it.osmRelationId }.distinct()
+        if (relationIds.isEmpty()) return@withContext emptyMap()
+
+        if (!isDeviceOnline() && com.example.data.remote.OverpassClient.customTransport == null) {
+            return@withContext inMemoryCatalogueMeta.toMap()
+        }
+
+        val idsCsv = relationIds.joinToString(",")
+        val query = "[out:json][timeout:25];relation(id:$idsCsv); out tags bb;"
+        val rawJson = com.example.data.remote.OverpassClient.queryRawJson(query)
+        if (rawJson.isNullOrBlank()) {
+            return@withContext inMemoryCatalogueMeta.toMap()
+        }
+
+        val parsed = parseCatalogueRelationsMetaJson(rawJson)
+        if (parsed.isNotEmpty()) {
+            inMemoryCatalogueMeta.putAll(parsed)
+            try {
+                val dto = com.example.data.model.CatalogueRelationsMetaCacheDto(
+                    fetchedAtEpochMs = nowEpochMs,
+                    relations = parsed.mapKeys { it.key.toString() }
+                )
+                cacheFile.writeText(catalogueMetaAdapter.toJson(dto))
+            } catch (e: Exception) {
+                Log.w("DanskStiRepo", "Failed to write catalogue relation metadata cache: ${e.message}")
+            }
+            applyCatalogueMetadataToTrails(parsed)
+        }
+        parsed
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun parseCatalogueRelationsMetaJson(rawJson: String): Map<Long, com.example.data.model.CatalogueRelationMetaDto> {
+        return try {
+            val root = moshi.adapter(Map::class.java).fromJson(rawJson) as? Map<String, Any> ?: return emptyMap()
+            val elements = root["elements"] as? List<Map<String, Any>> ?: return emptyMap()
+            val map = LinkedHashMap<Long, com.example.data.model.CatalogueRelationMetaDto>()
+            for (el in elements) {
+                if ((el["type"] as? String) != "relation") continue
+                val id = (el["id"] as? Number)?.toLong() ?: continue
+                val bounds = el["bounds"] as? Map<String, Any>
+                val minLat = (bounds?.get("minlat") as? Number)?.toDouble()
+                val minLon = (bounds?.get("minlon") as? Number)?.toDouble()
+                val maxLat = (bounds?.get("maxlat") as? Number)?.toDouble()
+                val maxLon = (bounds?.get("maxlon") as? Number)?.toDouble()
+                val rawTags = el["tags"] as? Map<String, Any> ?: emptyMap()
+                val tags = rawTags.mapValues { it.value?.toString() ?: "" }.filterValues { it.isNotBlank() }
+                map[id] = com.example.data.model.CatalogueRelationMetaDto(
+                    relationId = id,
+                    bboxSouth = minLat,
+                    bboxWest = minLon,
+                    bboxNorth = maxLat,
+                    bboxEast = maxLon,
+                    tags = tags
+                )
+            }
+            map
+        } catch (e: Exception) {
+            Log.w("DanskStiRepo", "Failed to parse catalogue relations metadata JSON: ${e.message}")
+            emptyMap()
+        }
+    }
+
+    private suspend fun applyCatalogueMetadataToTrails(
+        metaMap: Map<Long, com.example.data.model.CatalogueRelationMetaDto>
+    ) {
+        if (metaMap.isEmpty()) return
+        for (preTrail in PreseededData.getInitialTrails()) {
+            val relId = preTrail.osmRelationId ?: continue
+            val meta = metaMap[relId] ?: continue
+            val existing = dao.getTrailById(preTrail.id) ?: continue
+            if (!existing.isGeometryDownloaded) {
+                val s = meta.bboxSouth ?: existing.bboxSouth
+                val w = meta.bboxWest ?: existing.bboxWest
+                val n = meta.bboxNorth ?: existing.bboxNorth
+                val e = meta.bboxEast ?: existing.bboxEast
+                val computedReg = GeoUtils.computeDanishRegionFromBbox(s, w, n, e)
+                if (existing.bboxSouth != s || existing.bboxWest != w ||
+                    existing.bboxNorth != n || existing.bboxEast != e ||
+                    existing.region != computedReg
+                ) {
+                    dao.insertTrail(
+                        existing.copy(
+                            region = computedReg,
+                            parentRegion = computedReg,
+                            bboxSouth = s,
+                            bboxWest = w,
+                            bboxNorth = n,
+                            bboxEast = e
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    suspend fun getRelationOsmTags(trailId: String, osmRelationId: Long?): Map<String, String> = withContext(Dispatchers.IO) {
+        val merged = LinkedHashMap<String, String>()
+        if (osmRelationId != null) {
+            val cachedMeta = inMemoryCatalogueMeta[osmRelationId] ?: run {
+                val file = getCatalogueMetaCacheFile()
+                if (file.exists()) {
+                    try {
+                        catalogueMetaAdapter.fromJson(file.readText())
+                            ?.relations
+                            ?.get(osmRelationId.toString())
+                            ?.also { inMemoryCatalogueMeta[osmRelationId] = it }
+                    } catch (_: Exception) {
+                        null
+                    }
+                } else null
+            }
+            if (cachedMeta != null) {
+                merged.putAll(cachedMeta.tags)
+            }
+        }
+        val geomTags = try {
+            geometryRepository.loadGeometry(trailId)?.osmTags
+        } catch (_: Exception) {
+            null
+        }
+        if (!geomTags.isNullOrEmpty()) {
+            merged.putAll(geomTags)
+        }
+        merged
     }
 
     suspend fun initializePreseededDataIfEmpty() = withContext(Dispatchers.IO) {
@@ -83,20 +287,26 @@ class DanskStiRepository(
                         if (existing == null) {
                             dao.insertTrail(preTrail)
                         } else if (!geometryRepository.isGeometryCached(existing.id)) {
+                            val meta = preTrail.osmRelationId?.let { inMemoryCatalogueMeta[it] }
+                            val metaRegion = if (meta != null) {
+                                GeoUtils.computeDanishRegionFromBbox(meta.bboxSouth, meta.bboxWest, meta.bboxNorth, meta.bboxEast)
+                            } else {
+                                GeoUtils.computeDanishRegionFromBbox(existing.bboxSouth, existing.bboxWest, existing.bboxNorth, existing.bboxEast)
+                            }
                             if (existing.isGeometryDownloaded || existing.computedWalkingKm > 0.0 ||
-                                existing.bboxSouth != null || existing.description.isNotEmpty() || existing.region.isNotEmpty()
+                                existing.description.isNotEmpty()
                             ) {
                                 dao.insertTrail(
                                     existing.copy(
                                         description = "",
-                                        region = "",
-                                        parentRegion = "",
+                                        region = metaRegion,
+                                        parentRegion = metaRegion,
                                         isGeometryDownloaded = false,
                                         computedWalkingKm = 0.0,
-                                        bboxNorth = null,
-                                        bboxSouth = null,
-                                        bboxEast = null,
-                                        bboxWest = null,
+                                        bboxNorth = meta?.bboxNorth ?: existing.bboxNorth,
+                                        bboxSouth = meta?.bboxSouth ?: existing.bboxSouth,
+                                        bboxEast = meta?.bboxEast ?: existing.bboxEast,
+                                        bboxWest = meta?.bboxWest ?: existing.bboxWest,
                                         source = preTrail.source
                                     )
                                 )
@@ -135,6 +345,13 @@ class DanskStiRepository(
                             }
                         }
                     }
+                }
+
+                // Round 10B Item 4: Fetch or load 30-day cached tags & bounding boxes for catalogue relations
+                try {
+                    fetchOrLoadCatalogueRelationsMetadata(forceRefresh = false)
+                } catch (e: Exception) {
+                    Log.w("DanskStiRepo", "Catalogue relations metadata sync skipped: ${e.message}")
                 }
 
                 // Ensure GeoFA + bundled Øhavsstien OSM data is loaded into Room
@@ -584,12 +801,29 @@ class DanskStiRepository(
      * Requirement B & Fix Round 5 Item 5: Sync POIs along a custom route polyline using GeoFA and Overpass around corridor.
      * Always fetches OSM corridor POIs when online; skips only when offline.
      */
+    /**
+     * Requirement B, Fix Round 5 Item 5 & Round 10C Item 4:
+     * Sync POIs along a custom route polyline using GeoFA and Overpass around corridor.
+     * Protected by per-route Mutex and supports coroutine cancellation when a newer save supersedes it.
+     */
     suspend fun syncCorridorPoisForRoute(
+        routeId: String,
+        points: List<GeoPointDto>
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val cleanId = routeId.removePrefix("route_")
+        val mutex = getRoutePoiSyncMutex(cleanId)
+        mutex.withLock {
+            syncCorridorPoisForRouteInternal(cleanId, points)
+        }
+    }
+
+    private suspend fun syncCorridorPoisForRouteInternal(
         routeId: String,
         points: List<GeoPointDto>
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             if (points.isEmpty()) return@withContext Result.success(Unit)
+            kotlinx.coroutines.yield()
 
             val online = isDeviceOnline()
 
@@ -609,9 +843,15 @@ class DanskStiRepository(
             val existingShelters = dao.getAllSheltersList().toMutableList()
             val existingPois = dao.getAllPoisList().toMutableList()
 
+            // Immediately index existing local shelters & POIs so navigation started right after save has them immediately
+            persistProjectedRoutePois(routeId, points, existingShelters, existingPois)
+
+            kotlinx.coroutines.yield()
+
             // 2. Always fetch OSM POIs along route polyline when online; skip only when offline
             if (online) {
                 val osmResult = osmPoiRepository.fetchPoisForPolyline(points)
+                kotlinx.coroutines.yield()
 
                 val updatedShelters = mutableListOf<ShelterEntity>()
                 val newShelters = mutableListOf<ShelterEntity>()
@@ -665,6 +905,8 @@ class DanskStiRepository(
                 if (newPois.isNotEmpty()) dao.insertPois(newPois)
             }
 
+            kotlinx.coroutines.yield()
+
             // 3. Compute hasWaterNearby / hasToiletNearby on shelters within 500m
             val allWaterPois = existingPois.filter { it.type == "water" }
             val allToiletPois = existingPois.filter { it.type == "toilet" }
@@ -682,55 +924,109 @@ class DanskStiRepository(
             }
 
             // 4. Store in TrailPoiEntity with routeId
-            val trailPoiEntities = mutableListOf<com.example.data.model.TrailPoiEntity>()
-
-            for (sh in existingShelters) {
-                val (kmOnRoute, detourMeters) = GeoUtils.projectPointOnPolyline(GeoPointDto(sh.lat, sh.lng), points)
-                if (detourMeters <= 3000.0) {
-                    trailPoiEntities.add(
-                        com.example.data.model.TrailPoiEntity(
-                            trailId = "route_$routeId",
-                            poiId = sh.id,
-                            kmOnRoute = kmOnRoute,
-                            detourMeters = detourMeters,
-                            routeId = routeId
-                        )
-                    )
-                }
-            }
-
-            for (poi in existingPois) {
-                val (kmOnRoute, detourMeters) = GeoUtils.projectPointOnPolyline(GeoPointDto(poi.lat, poi.lng), points)
-                if (detourMeters <= 3000.0) {
-                    trailPoiEntities.add(
-                        com.example.data.model.TrailPoiEntity(
-                            trailId = "route_$routeId",
-                            poiId = poi.id,
-                            kmOnRoute = kmOnRoute,
-                            detourMeters = detourMeters,
-                            routeId = routeId
-                        )
-                    )
-                }
-            }
-
-            if (trailPoiEntities.isNotEmpty()) {
-                dao.deletePoisForRoute(routeId)
-                dao.insertTrailPois(trailPoiEntities)
-            }
+            persistProjectedRoutePois(routeId, points, existingShelters, existingPois)
 
             if (!online) {
                 Result.failure(IllegalStateException("Offline: henter ikke interessepunkter fra OpenStreetMap"))
             } else {
                 Result.success(Unit)
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("DanskStiRepo", "Error syncing corridor POIs for route $routeId: ${e.message}", e)
             Result.failure(e)
         }
     }
 
+    private suspend fun persistProjectedRoutePois(
+        routeId: String,
+        points: List<GeoPointDto>,
+        shelters: List<ShelterEntity>,
+        pois: List<PoiEntity>
+    ) {
+        kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]?.let {
+            if (!it.isActive) return
+        }
+        val trailPoiEntities = mutableListOf<com.example.data.model.TrailPoiEntity>()
+
+        for (sh in shelters) {
+            val (kmOnRoute, detourMeters) = GeoUtils.projectPointOnPolyline(GeoPointDto(sh.lat, sh.lng), points)
+            if (detourMeters <= 3000.0) {
+                trailPoiEntities.add(
+                    com.example.data.model.TrailPoiEntity(
+                        trailId = "route_$routeId",
+                        poiId = sh.id,
+                        kmOnRoute = kmOnRoute,
+                        detourMeters = detourMeters,
+                        routeId = routeId
+                    )
+                )
+            }
+        }
+
+        for (poi in pois) {
+            val (kmOnRoute, detourMeters) = GeoUtils.projectPointOnPolyline(GeoPointDto(poi.lat, poi.lng), points)
+            if (detourMeters <= 3000.0) {
+                trailPoiEntities.add(
+                    com.example.data.model.TrailPoiEntity(
+                        trailId = "route_$routeId",
+                        poiId = poi.id,
+                        kmOnRoute = kmOnRoute,
+                        detourMeters = detourMeters,
+                        routeId = routeId
+                    )
+                )
+            }
+        }
+
+        if (trailPoiEntities.isNotEmpty()) {
+            dao.deletePoisForRoute(routeId)
+            dao.insertTrailPois(trailPoiEntities)
+        }
+    }
+
     // --- Shelters, Fri Teltning, and POIs for Trail Corridor ---
+    fun observeSheltersForTrail(trailId: String): Flow<List<ShelterEntity>> {
+        val cleanRouteId = trailId.removePrefix("route_").removePrefix("custom_")
+        val prefixedRouteId = "route_$cleanRouteId"
+        return dao.observeSheltersForTrailOrRoute(trailId, cleanRouteId, prefixedRouteId).map { joined ->
+            if (joined.isNotEmpty() || trailId.startsWith("route_") || trailId.startsWith("custom_")) {
+                joined
+            } else {
+                val trail = dao.getTrailById(trailId)
+                if (trail?.bboxSouth != null && trail.bboxNorth != null && trail.bboxWest != null && trail.bboxEast != null) {
+                    dao.getAllSheltersList().filter { s ->
+                        s.lat in (trail.bboxSouth - 0.03)..(trail.bboxNorth + 0.03) &&
+                            s.lng in (trail.bboxWest - 0.05)..(trail.bboxEast + 0.05)
+                    }
+                } else {
+                    emptyList()
+                }
+            }
+        }
+    }
+
+    fun observePoisForTrail(trailId: String): Flow<List<PoiEntity>> {
+        val cleanRouteId = trailId.removePrefix("route_").removePrefix("custom_")
+        val prefixedRouteId = "route_$cleanRouteId"
+        return dao.observePoisForTrailOrRoute(trailId, cleanRouteId, prefixedRouteId).map { joined ->
+            if (joined.isNotEmpty() || trailId.startsWith("route_") || trailId.startsWith("custom_")) {
+                joined
+            } else {
+                val trail = dao.getTrailById(trailId)
+                if (trail?.bboxSouth != null && trail.bboxNorth != null && trail.bboxWest != null && trail.bboxEast != null) {
+                    dao.getAllPoisList().filter { p ->
+                        p.lat in (trail.bboxSouth - 0.03)..(trail.bboxNorth + 0.03) &&
+                            p.lng in (trail.bboxWest - 0.05)..(trail.bboxEast + 0.05)
+                    }
+                } else {
+                    emptyList()
+                }
+            }
+        }
+    }
+
     suspend fun getSheltersForTrail(trailId: String): List<ShelterEntity> = withContext(Dispatchers.IO) {
         if (dao.getShelterCount() == 0) {
             initializePreseededDataIfEmpty()
@@ -999,13 +1295,7 @@ class DanskStiRepository(
             geometryRepository.saveRouteGeometry(route.id.toString(), geom)
             val points = geom.segments.flatMap { it.points }
             if (points.isNotEmpty()) {
-                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        syncCorridorPoisForRoute(route.id.toString(), points)
-                    } catch (e: Exception) {
-                        Log.w("DanskStiRepo", "Background corridor POI sync failed for route ${route.id}: ${e.message}")
-                    }
-                }
+                enqueueRouteCorridorPoiSync(route.id.toString(), points)
             }
         }
 
@@ -1079,10 +1369,43 @@ class DanskStiRepository(
         }
     }
 
-    suspend fun deleteTripPlan(id: Long) = withContext(Dispatchers.IO) {
+    suspend fun stopNavigationIfActiveForPlan(id: Long) {
+        val live = com.example.service.NavigationTrackingService.liveState.value
+        if (live.planId == id && live.isTracking) {
+            try {
+                com.example.service.NavigationTrackingService.stop(context)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /**
+     * Round 10C Item 1: Hide trip plan in DB view only (keep files, stages, progress, recorded stats/tracks intact until undo snackbar closes).
+     */
+    suspend fun hideTripPlanInDb(id: Long) = withContext(Dispatchers.IO) {
+        stopNavigationIfActiveForPlan(id)
         dao.deleteTripPlan(id)
-        dao.deleteTripStages(id)
+    }
+
+    /**
+     * Round 10C Item 1: Permanently delete trip plan files, progress, stages, and recorded stats/tracks after undo snackbar closes.
+     */
+    suspend fun commitTripPlanPermanentDelete(id: Long) = withContext(Dispatchers.IO) {
+        stopNavigationIfActiveForPlan(id)
+        try {
+            PlannedRouteRepository(context).getPlanFile(id).takeIf { it.exists() }?.delete()
+            java.io.File(java.io.File(context.filesDir, "plans"), "plan_${id}.json").takeIf { it.exists() }?.delete()
+        } catch (_: Exception) {
+        }
+        dao.deleteRecordedTrackPoints(id)
+        dao.deleteRecordedDayStats(id)
         dao.deleteTripProgress(id)
+        dao.deleteTripStages(id)
+        dao.deleteTripPlan(id)
+    }
+
+    suspend fun deleteTripPlan(id: Long) = withContext(Dispatchers.IO) {
+        commitTripPlanPermanentDelete(id)
     }
 
     // --- Offline Downloaded Trails ---
@@ -1092,12 +1415,24 @@ class DanskStiRepository(
         dao.getDownloadedTrail(trailId)
     }
 
-    suspend fun deleteDownloadedTrail(trailId: String) = withContext(Dispatchers.IO) {
-        val archiveFile = com.example.util.OfflineDownloadManager.getOfflineArchiveFile(context, trailId)
-        if (archiveFile.exists()) {
-            archiveFile.delete()
-        }
+    /**
+     * Round 10C Item 1: Hide offline downloaded trail in DB view only (keep .sqlite archive intact until undo snackbar closes).
+     */
+    suspend fun hideDownloadedTrailInDb(trailId: String) = withContext(Dispatchers.IO) {
         dao.deleteDownloadedTrail(trailId)
+    }
+
+    /**
+     * Round 10C Item 1 & Item 5: Detach offline archive from every open map's tile provider before deleting the file, then refresh the map.
+     */
+    suspend fun commitDownloadedTrailPermanentDelete(trailId: String) = withContext(Dispatchers.IO) {
+        val archiveFile = com.example.util.OfflineDownloadManager.getOfflineArchiveFile(context, trailId)
+        com.example.util.DanskStiTileSourceHelper.detachOfflineArchiveAndDeleteFile(archiveFile)
+        dao.deleteDownloadedTrail(trailId)
+    }
+
+    suspend fun deleteDownloadedTrail(trailId: String) = withContext(Dispatchers.IO) {
+        commitDownloadedTrailPermanentDelete(trailId)
     }
 
     // --- Saved Trails (Phase 6) ---
@@ -1688,14 +2023,8 @@ class DanskStiRepository(
                 geometryRepository.saveRouteGeometry(savedId.toString(), geom)
                 val points = geom.segments.flatMap { it.points }
                 if (points.isNotEmpty()) {
-                    // Sync corridor POIs in background so saveCustomRoute never blocks
-                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                        try {
-                            syncCorridorPoisForRoute(savedId.toString(), points)
-                        } catch (e: Exception) {
-                            Log.w("DanskStiRepo", "Background corridor POI sync failed for route $savedId: ${e.message}")
-                        }
-                    }
+                    // Sync corridor POIs in background via cancellable per-route job
+                    enqueueRouteCorridorPoiSync(savedId.toString(), points)
                 }
             }
         } catch (e: Exception) {
@@ -1720,13 +2049,7 @@ class DanskStiRepository(
                 geometryRepository.saveRouteGeometry(route.id.toString(), geom)
                 val points = geom.segments.flatMap { it.points }
                 if (points.isNotEmpty()) {
-                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                        try {
-                            syncCorridorPoisForRoute(route.id.toString(), points)
-                        } catch (e: Exception) {
-                            Log.w("DanskStiRepo", "Background corridor POI sync failed for route ${route.id}: ${e.message}")
-                        }
-                    }
+                    enqueueRouteCorridorPoiSync(route.id.toString(), points)
                 }
             }
         } catch (e: Exception) {
@@ -1734,11 +2057,53 @@ class DanskStiRepository(
         }
     }
 
-    suspend fun deleteCustomRoute(id: Long) = withContext(Dispatchers.IO) {
+    /**
+     * Round 10C Item 1: Hide custom route and its associated plans in DB view only
+     * (keep geometry files, route files, POIs, progress, stages, and recorded tracks intact until undo snackbar closes).
+     */
+    suspend fun hideCustomRouteInDb(id: Long, associatedPlanIds: List<Long>) = withContext(Dispatchers.IO) {
+        for (planId in associatedPlanIds) {
+            hideTripPlanInDb(planId)
+        }
         dao.deleteCustomRouteById(id)
-        dao.deletePoisForRoute(id.toString())
-        val routeFile = geometryRepository.getRouteGeometryFile(id.toString())
+    }
+
+    /**
+     * Round 10C Item 1: Permanently delete custom route files, POIs, and associated plans' files/progress after undo snackbar closes.
+     */
+    suspend fun commitCustomRoutePermanentDelete(
+        route: com.example.data.model.CustomRouteEntity,
+        associatedPlanIds: List<Long>
+    ) = withContext(Dispatchers.IO) {
+        routePoiSyncJobs.remove(route.id.toString())?.cancel()
+        for (planId in associatedPlanIds) {
+            commitTripPlanPermanentDelete(planId)
+        }
+        if (route.geometryFile.isNotBlank()) {
+            com.example.util.routing.RouteGeometryStorageManager.deleteGeometryFile(context, route.geometryFile)
+        }
+        dao.deleteCustomRouteById(route.id)
+        dao.deletePoisForRoute(route.id.toString())
+        val routeFile = geometryRepository.getRouteGeometryFile(route.id.toString())
         if (routeFile.exists()) routeFile.delete()
+    }
+
+    suspend fun deleteCustomRoute(id: Long) = withContext(Dispatchers.IO) {
+        val currentRoute = dao.getCustomRouteById(id)
+        val associatedPlans = dao.getAllTripPlansList().filter {
+            it.customRouteId == id || it.trailId == "route_$id" || it.trailId == id.toString()
+        }
+        if (currentRoute != null) {
+            commitCustomRoutePermanentDelete(currentRoute, associatedPlans.map { it.id })
+        } else {
+            for (plan in associatedPlans) {
+                commitTripPlanPermanentDelete(plan.id)
+            }
+            dao.deleteCustomRouteById(id)
+            dao.deletePoisForRoute(id.toString())
+            val routeFile = geometryRepository.getRouteGeometryFile(id.toString())
+            if (routeFile.exists()) routeFile.delete()
+        }
     }
 
     // Access Land (Phase 10 - Naturbeskyttelsesloven)
@@ -1763,8 +2128,26 @@ class DanskStiRepository(
         dao.getAllCustomWaypointsList()
     }
 
-    suspend fun deleteCustomWaypoint(id: String) = withContext(Dispatchers.IO) {
+    suspend fun hideCustomWaypointInDb(id: String) = withContext(Dispatchers.IO) {
         dao.deleteCustomWaypointById(id)
+    }
+
+    suspend fun commitCustomWaypointPermanentDelete(id: String, photoPath: String?) = withContext(Dispatchers.IO) {
+        if (!photoPath.isNullOrBlank()) {
+            try {
+                val photoFile = java.io.File(photoPath)
+                if (photoFile.exists()) {
+                    photoFile.delete()
+                }
+            } catch (_: Exception) {
+            }
+        }
+        dao.deleteCustomWaypointById(id)
+    }
+
+    suspend fun deleteCustomWaypoint(id: String) = withContext(Dispatchers.IO) {
+        val wp = dao.getCustomWaypointById(id)
+        commitCustomWaypointPermanentDelete(id, wp?.photoPath)
     }
 
     // Phase 13 Requirement B: Afmærkede ruter

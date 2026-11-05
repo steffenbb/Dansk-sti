@@ -191,7 +191,7 @@ internal fun RouteBuilderViewModel.computeSingleLeg(from: RouteWaypoint, to: Rou
                             failedLegs = updatedFailed,
                             loadingLegKeys = doneLoading,
                             isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse(),
-                            errorMessage = if (updatedFailed.isEmpty()) null else current.errorMessage
+                            errorMessage = result.warningMessage ?: if (updatedFailed.isEmpty()) null else current.errorMessage
                         )
                     }
 
@@ -273,7 +273,7 @@ internal fun RouteBuilderViewModel.updateRouteStats(transform: ((RouteBuilderSta
 
     val stats = RouteGeometryStorageManager.calculateStats(orderedLegs)
 
-    val speed = if (pacingSpeedKmh > 0.5) pacingSpeedKmh else 4.5
+    val speed = if (pacingSpeedKmh > 0.5) pacingSpeedKmh else settingsRepository.currentSettingsSnapshot().mitTempoKmh.coerceAtLeast(1.0)
     val travelHours = (stats.totalKm / speed) + (stats.ascentM / 10.0 / 60.0)
     val totalMinutes = (travelHours * 60).roundToInt()
 
@@ -331,7 +331,8 @@ internal fun RouteBuilderViewModel.updateRouteStats(transform: ((RouteBuilderSta
             shelters = currentState.nearbyShelters,
             friTeltnings = currentState.nearbyFriTeltning,
             pois = currentState.nearbyPois,
-            sunsetTime = sunsetTimeStr
+            sunsetTime = null,
+            startDateEpochMs = currentState.startDateMillis
         )
         val summaries = buildDaySummariesSync(
             state = currentState,
@@ -516,10 +517,15 @@ fun RouteBuilderViewModel.selectAlternative(alt: RouteAlternativeInfo) {
 }
 
 fun RouteBuilderViewModel.importGpx(inputStream: InputStream) {
+    gpxRoutingJob?.cancel()
     viewModelScope.launch {
         try {
             val result = withContext(Dispatchers.IO) {
-                GpxImporter.parseAndSimplifyGpx(inputStream, targetSpacingMeters = 500.0)
+                GpxImporter.parseAndSimplifyGpx(
+                    inputStream = inputStream,
+                    targetSpacingMeters = 500.0,
+                    maxViaPoints = GpxImporter.MAX_VIA_POINTS
+                )
             }
 
             if (result.waypoints.size < 2) {
@@ -529,22 +535,157 @@ fun RouteBuilderViewModel.importGpx(inputStream: InputStream) {
 
             pushHistory()
             val suggestedName = result.name ?: "Importeret rute (${String.format(Locale.US, "%.1f", result.totalOriginalKm)} km)"
+            val initialGpxLegs = GpxImporter.buildOriginalGpxLegs(
+                waypoints = result.waypoints,
+                originalPoints = result.originalPoints,
+                waypointSourceIndices = result.waypointSourceIndices
+            )
+            val totalLegs = (result.waypoints.size - 1).coerceAtLeast(1)
 
             _uiState.update {
                 it.copy(
                     routeName = suggestedName,
                     waypoints = result.waypoints,
-                    legs = emptyMap(),
+                    legs = initialGpxLegs,
                     failedLegs = emptyMap(),
-                    gpxOriginalPoints = result.originalPoints
+                    loadingLegKeys = emptySet(),
+                    gpxOriginalPoints = result.originalPoints,
+                    gpxOriginalIndices = result.waypointSourceIndices,
+                    isRoutingGpxLegs = true,
+                    gpxLegsCompletedCount = 0,
+                    gpxLegsTotalCount = totalLegs,
+                    isUsingOriginalGpxGeometry = false,
+                    hasUnsavedChanges = true
                 )
             }
+            withContext(Dispatchers.IO) {
+                RouteGeometryStorageManager.saveAllLegs(getApplication(), geometryFileName, initialGpxLegs)
+            }
+            updateRouteStats()
+            scheduleDraftAutosave()
 
             _userMessage.emit("GPX indlæst: ${result.waypoints.size} ruteelementer. Beregner stier...")
-            recomputeAllLegs()
+
+            gpxRoutingJob = viewModelScope.launch {
+                val wps = result.waypoints
+                val canRouteOfflineOrOnline = repository.isDeviceOnline() ||
+                    brouterStorageManager.areAllDenmarkSegmentsDownloaded()
+                if (!canRouteOfflineOrOnline) {
+                    _uiState.update {
+                        it.copy(
+                            isRoutingGpxLegs = false,
+                            gpxLegsCompletedCount = totalLegs
+                        )
+                    }
+                    return@launch
+                }
+
+                for (i in 0 until wps.size - 1) {
+                    if (_uiState.value.isUsingOriginalGpxGeometry) break
+                    val from = wps[i]
+                    val to = wps[i + 1]
+                    val legKey = "${from.id}_to_${to.id}"
+                    try {
+                        val res = routingEngine.routeLeg(
+                            LatLng(from.lat, from.lng),
+                            LatLng(to.lat, to.lng),
+                            _uiState.value.options,
+                            alternative = 0
+                        )
+                        if (res is RouteLegResult.Success && !_uiState.value.isUsingOriginalGpxGeometry) {
+                            val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(
+                                res.points,
+                                res.perPointWayInfo
+                            )
+                            val legData = LegGeometryData(
+                                fromWaypointId = from.id,
+                                toWaypointId = to.id,
+                                legMode = LegMode.SNAP,
+                                points = res.points,
+                                lengthKm = res.lengthKm,
+                                ascentM = res.ascentM,
+                                descentM = res.descentM,
+                                pathSharePct = pathShare,
+                                roadKm = roadKm,
+                                hasAccessWarning = false,
+                                sourceName = res.sourceName,
+                                fetchedAt = res.fetchedAt,
+                                wayInfo = res.perPointWayInfo,
+                                turnCues = res.turnCues
+                            )
+                            _uiState.update { current ->
+                                val updatedLegs = current.legs.toMutableMap().apply { put(legKey, legData) }
+                                current.copy(
+                                    legs = updatedLegs,
+                                    gpxLegsCompletedCount = i + 1
+                                )
+                            }
+                            withContext(Dispatchers.IO) {
+                                RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, legData)
+                            }
+                        } else {
+                            _uiState.update { current ->
+                                current.copy(gpxLegsCompletedCount = i + 1)
+                            }
+                        }
+                    } catch (_: Exception) {
+                        _uiState.update { current ->
+                            current.copy(gpxLegsCompletedCount = i + 1)
+                        }
+                    }
+                }
+                if (!_uiState.value.isUsingOriginalGpxGeometry) {
+                    _uiState.update {
+                        it.copy(
+                            isRoutingGpxLegs = false,
+                            gpxLegsCompletedCount = totalLegs
+                        )
+                    }
+                    updateRouteStats()
+                    scheduleDraftAutosave()
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error importing GPX: ${e.message}")
             _userMessage.emit("Fejl ved GPX-import: ${e.message}")
         }
     }
 }
+
+/**
+ * Round 10B Item 13:
+ * "Behold GPX-linjen" — uses the original GPX geometry directly without routing legs.
+ */
+fun RouteBuilderViewModel.keepOriginalGpxGeometry() {
+    gpxRoutingJob?.cancel()
+    gpxRoutingJob = null
+    val current = _uiState.value
+    val wps = current.waypoints
+    val origPts = current.gpxOriginalPoints
+    if (wps.size < 2 || origPts.size < 2) return
+
+    val gpxLegs = GpxImporter.buildOriginalGpxLegs(
+        waypoints = wps,
+        originalPoints = origPts,
+        waypointSourceIndices = current.gpxOriginalIndices
+    )
+    _uiState.update {
+        it.copy(
+            legs = gpxLegs,
+            loadingLegKeys = emptySet(),
+            failedLegs = emptyMap(),
+            isRoutingGpxLegs = false,
+            gpxLegsCompletedCount = gpxLegs.size,
+            gpxLegsTotalCount = gpxLegs.size,
+            isUsingOriginalGpxGeometry = true,
+            errorMessage = null,
+            hasUnsavedChanges = true
+        )
+    }
+    viewModelScope.launch(Dispatchers.IO) {
+        RouteGeometryStorageManager.saveAllLegs(getApplication(), geometryFileName, gpxLegs)
+    }
+    updateRouteStats()
+    scheduleDraftAutosave()
+}
+

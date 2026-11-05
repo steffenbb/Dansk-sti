@@ -37,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -81,10 +82,13 @@ import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
 import com.example.data.model.UserCustomWaypointEntity
 import com.example.data.model.access.AccessPolygon
+import com.example.ui.components.AccessPolygonRulesDialog
 import com.example.ui.components.DropPinBottomSheet
 import com.example.ui.components.MapAttributionPill
 import com.example.ui.components.MapLayersBottomSheet
 import com.example.ui.components.MarkedRouteDetailSheet
+import com.example.ui.components.PoiInfoSheet
+import com.example.ui.components.PoiInfoSheetData
 import androidx.compose.ui.graphics.toArgb
 import com.example.ui.navigation.MapLayersOverlayManager
 import com.example.ui.navigation.PoiClusterOverlay
@@ -111,26 +115,13 @@ import org.osmdroid.views.overlay.ScaleBarOverlay
 import kotlin.math.cos
 
 /**
- * Fix Round 3, Part 3 — Requirement A:
- * Single shared osmdroid composable (`ui/map/DanskStiMap.kt`) used by all 5 map screens:
- * 1. Udforsk (`TrailBrowserScreen`)
- * 2. Trail page header (`TrailDetailScreen`)
- * 3. Ruteplanlægger (`RouteBuilderScreen`)
- * 4. Navigation (`NavigationScreen`)
- * 5. Full-screen map (`FullscreenMapScreen`)
- *
- * Responsibilities owned by `DanskStiMap`:
- * - Tile source and layers (Topografisk Skærmkortet + dæmpet dark variant, Udendørs, Luftfoto,
- *   DHM Terræn hillshade + contours, Overpass Vand water overlay, Adgang, Afmærkede ruter, 7 POI layers)
- * - Dark mode following "Udseende" + "Kortet følger appen"
- * - Lifecycle (`onResume` / `onPause` / `onDetach`)
- * - Location dot with heading cone and accuracy circle (registered under stable key `"location"`)
- * - Scale bar at bottom-left (registered under stable key `"scale_bar"`)
- * - Attribution for every active layer (bottom-left pill)
- * - Standard map buttons: Lag, Kompas/nord op, Min position
- * - Stable overlay registration (`"route"`, `"pois"`, `"access"`, `"water"`, etc.) updated in place;
- *   never calls `overlays.clear()`
- * - Long-press anywhere on any map opens the onX-style `DropPinBottomSheet`
+ * Shared osmdroid composable (`ui/map/DanskStiMap.kt`) used by all map screens:
+ * 1. Kort (`KortScreen`)
+ * 2. Udforsk (`TrailBrowserScreen`)
+ * 3. Trail page header (`TrailDetailScreen`)
+ * 4. Ruteplanlægger (`RouteBuilderScreen`)
+ * 5. Navigation (`NavigationScreen`)
+ * 6. Full-screen map (`FullscreenMapScreen`)
  */
 @Composable
 fun DanskStiMap(
@@ -141,7 +132,7 @@ fun DanskStiMap(
     initialBoundingBox: BoundingBox? = null,
     isInteractive: Boolean = true,
     interceptParentTouchScroll: Boolean = false,
-    isSystemDarkOverride: Boolean? = null,
+    appIsDark: Boolean? = DanskStiTheme.isDark,
     userLocation: GeoPoint? = null,
     userHeadingDegrees: Float? = null,
     userAccuracyMeters: Float? = null,
@@ -156,6 +147,7 @@ fun DanskStiMap(
     controlsEndPadding: Dp = 16.dp,
     attributionBottomPadding: Dp = 8.dp,
     attributionStartPadding: Dp = 10.dp,
+    scaleBarBottomOffsetDp: Float = 38f,
     layersButtonTestTag: String = "layers_fab",
     compassButtonTestTag: String = "compass_reset_button",
     myLocationButtonTestTag: String = "my_location_fab",
@@ -166,6 +158,7 @@ fun DanskStiMap(
     onMapLongPressInterceptor: ((GeoPoint) -> Boolean)? = null,
     onAddToRouteFromDropPin: ((lat: Double, lng: Double, label: String) -> Unit)? = null,
     onRouteHereFromDropPin: ((lat: Double, lng: Double, label: String) -> Unit)? = null,
+    onOvernightInPlannerFromPoiSheet: ((PoiInfoSheetData) -> Unit)? = null,
     onUseMarkedRouteInPlanner: ((MarkedRouteDto) -> Unit)? = null,
     onPoiTapped: ((PoiItem) -> Unit)? = null,
     onAccessPolygonTapped: ((AccessPolygon) -> Unit)? = null,
@@ -181,21 +174,22 @@ fun DanskStiMap(
     val density = LocalDensity.current.density
     val colorScheme = MaterialTheme.colorScheme
 
-    val settingsRepository = remember { SettingsRepository(context) }
-    val mapLayersState by settingsRepository.mapLayersFlow.collectAsState(initial = MapLayersState())
+    val settingsRepository = remember(context) { com.example.DanskStiApp.getSettingsRepository(context) }
+    val initialLayers = remember(settingsRepository) { settingsRepository.currentSettingsSnapshot().mapLayers }
+    val mapLayersState by settingsRepository.mapLayersFlow.collectAsState(initial = initialLayers)
 
     val configuration = LocalConfiguration.current
-    val systemDark = isSystemDarkOverride
+    val systemDark = appIsDark
         ?: ((configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES)
-    val appDark = isSystemDarkOverride ?: mapLayersState.resolveIsDarkApp(systemDark)
+    val resolvedAppDark = appIsDark ?: mapLayersState.resolveIsDarkApp(systemDark)
     val effectiveIsDark = remember(
         mapLayersState.mapDarkMode,
         mapLayersState.mapFollowsApp,
         mapLayersState.mapThemeOverride,
         systemDark,
-        appDark
+        resolvedAppDark
     ) {
-        mapLayersState.resolveIsDarkMap(isSystemDark = systemDark, isAppDark = appDark)
+        mapLayersState.resolveIsDarkMap(isSystemDark = systemDark, isAppDark = resolvedAppDark)
     }
     val themeWaterColorInt = if (effectiveIsDark) {
         DanskStiTileSource.DARK_WATER_COLOR_INT
@@ -236,52 +230,22 @@ fun DanskStiMap(
     val effectivePois = pois ?: dbPois
     val effectiveCustomWaypoints = customWaypoints ?: dbCustomWaypoints
 
-    // Fallback device location when screen does not pass live location
-    var fallbackDeviceLocation by remember { mutableStateOf<GeoPoint?>(null) }
-    var fallbackDeviceAccuracy by remember { mutableStateOf<Float?>(null) }
-    var fallbackDeviceHeading by remember { mutableStateOf<Float?>(null) }
+    // Live location updates (FusedLocationProviderClient, balanced accuracy, every 5 s while visible)
+    val liveLocationState = rememberLiveMapLocationState(context)
 
-    val refreshDeviceLocation: () -> GeoPoint? = remember(context) {
-        {
-            val hasPerm = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-            if (hasPerm) {
-                try {
-                    val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                    val loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                        ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                    if (loc != null) {
-                        val gp = GeoPoint(loc.latitude, loc.longitude)
-                        fallbackDeviceLocation = gp
-                        fallbackDeviceAccuracy = if (loc.hasAccuracy()) loc.accuracy else 20f
-                        if (loc.hasBearing()) fallbackDeviceHeading = loc.bearing
-                        gp
-                    } else null
-                } catch (_: SecurityException) {
-                    null
-                }
-            } else null
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        refreshDeviceLocation()
-    }
-
-    val effectiveUserLocation = userLocation ?: fallbackDeviceLocation
-    val effectiveAccuracy = userAccuracyMeters ?: fallbackDeviceAccuracy ?: 20f
-    val effectiveHeading = userHeadingDegrees ?: fallbackDeviceHeading
+    val effectiveUserLocation: GeoPoint? = userLocation ?: liveLocationState.geoPoint
+    val effectiveAccuracy = userAccuracyMeters ?: liveLocationState.accuracyMeters ?: 20f
+    val effectiveHeading = userHeadingDegrees ?: liveLocationState.headingDegrees
+    val effectiveIsLocationStale = if (userLocation != null) false else liveLocationState.isStale
+    val effectiveIsLocationFresh = if (userLocation != null) true else liveLocationState.isFresh
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
     var currentBearing by remember { mutableFloatStateOf(mapOrientationDegrees ?: 0f) }
     var showLayersSheet by remember { mutableStateOf(false) }
     var selectedMarkedRoute by remember { mutableStateOf<MarkedRouteDto?>(null) }
     var droppedPinLocation by remember { mutableStateOf<GeoPoint?>(null) }
+    var selectedPoiForInfoSheet by remember { mutableStateOf<PoiInfoSheetData?>(null) }
+    var selectedAccessPolygonForRules by remember { mutableStateOf<AccessPolygon?>(null) }
 
     val latestOnMapTap by rememberUpdatedState(onMapTap)
     val latestOnLongPressInterceptor by rememberUpdatedState(onMapLongPressInterceptor)
@@ -289,14 +253,28 @@ fun DanskStiMap(
     val latestOnAccessTapped by rememberUpdatedState(onAccessPolygonTapped)
     val latestOnCameraChanged by rememberUpdatedState(onCameraChanged)
     val latestOnUpdateOverlays by rememberUpdatedState(onUpdateOverlays)
+    val latestEffectiveShelters by rememberUpdatedState(effectiveShelters)
+    val latestEffectiveFriTeltning by rememberUpdatedState(effectiveFriTeltning)
+    val latestEffectivePois by rememberUpdatedState(effectivePois)
 
     val overlayManager = remember(context) {
         MapLayersOverlayManager(
             context = context,
             scope = scope,
             onMarkedRouteTapped = { route -> selectedMarkedRoute = route },
-            onPoiTapped = { item -> latestOnPoiTapped?.invoke(item) },
-            onAccessPolygonTapped = { poly -> latestOnAccessTapped?.invoke(poly) }
+            onPoiTapped = { item ->
+                selectedPoiForInfoSheet = PoiInfoSheetData.fromPoiItem(
+                    item = item,
+                    shelters = latestEffectiveShelters,
+                    friTeltning = latestEffectiveFriTeltning,
+                    pois = latestEffectivePois
+                )
+                latestOnPoiTapped?.invoke(item)
+            },
+            onAccessPolygonTapped = { poly ->
+                selectedAccessPolygonForRules = poly
+                latestOnAccessTapped?.invoke(poly)
+            }
         )
     }
 
@@ -310,11 +288,14 @@ fun DanskStiMap(
         val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (granted) {
-            val loc = refreshDeviceLocation()
-            if (loc != null) {
-                mapViewRef?.controller?.animateTo(loc, 14.5, 600L)
+            liveLocationState.startLocationUpdates()
+            liveLocationState.requestFreshCurrentLocation { freshLoc ->
+                val freshGeo = freshLoc?.let { GeoPoint(it.latitude, it.longitude) }
+                if (freshGeo != null) {
+                    mapViewRef?.controller?.animateTo(freshGeo, 14.5, 600L)
+                }
+                onMyLocationClick?.invoke(freshGeo)
             }
-            onMyLocationClick?.invoke(loc)
         }
     }
 
@@ -364,13 +345,14 @@ fun DanskStiMap(
         latestOnUpdateOverlays?.invoke(map, overlayManager, effectiveIsDark)
     }
 
-    // Update user location dot + heading + accuracy circle in place
-    LaunchedEffect(mapViewRef, effectiveUserLocation, effectiveHeading, effectiveAccuracy) {
+    // Update user location dot + heading + accuracy circle + stale state in place
+    LaunchedEffect(mapViewRef, effectiveUserLocation, effectiveHeading, effectiveAccuracy, effectiveIsLocationStale) {
         val map = mapViewRef ?: return@LaunchedEffect
         locationDotOverlay.updateLocation(
             location = effectiveUserLocation,
             headingDegrees = effectiveHeading,
-            accuracyMeters = effectiveAccuracy
+            accuracyMeters = effectiveAccuracy,
+            isStale = effectiveIsLocationStale
         )
         overlayManager.registerOverlay(MapLayersOverlayManager.KEY_LOCATION, locationDotOverlay)
         map.postInvalidate()
@@ -449,6 +431,20 @@ fun DanskStiMap(
 
                         override fun longPressHelper(p: GeoPoint?): Boolean {
                             if (p != null) {
+                                // Round 10A Item 2: If a shelter, fri teltning area, water, toilet, or shop is
+                                // within 30 m (or finger is on its marker), open its PoiInfoSheet!
+                                val hitPoi = overlayManager.findLongPressPoi(p, maxDistanceMeters = 30.0)
+                                if (hitPoi != null) {
+                                    com.example.ui.components.HapticFeedbackHelper.performPinHapticTick(this@apply, "poi_long_press")
+                                    selectedPoiForInfoSheet = PoiInfoSheetData.fromPoiItem(
+                                        item = hitPoi,
+                                        shelters = latestEffectiveShelters,
+                                        friTeltning = latestEffectiveFriTeltning,
+                                        pois = latestEffectivePois
+                                    )
+                                    latestOnPoiTapped?.invoke(hitPoi)
+                                    return true
+                                }
                                 val intercepted = latestOnLongPressInterceptor?.invoke(p) ?: false
                                 if (!intercepted) {
                                     com.example.ui.components.HapticFeedbackHelper.performPinHapticTick(this@apply, "drop_pin")
@@ -466,7 +462,8 @@ fun DanskStiMap(
                     locationDotOverlay.updateLocation(
                         location = effectiveUserLocation,
                         headingDegrees = effectiveHeading,
-                        accuracyMeters = effectiveAccuracy
+                        accuracyMeters = effectiveAccuracy,
+                        isStale = effectiveIsLocationStale
                     )
                     overlayManager.registerOverlay(MapLayersOverlayManager.KEY_LOCATION, locationDotOverlay)
 
@@ -478,7 +475,7 @@ fun DanskStiMap(
                         setAlignRight(false)
                         setScaleBarOffset(
                             (12f * density).toInt(),
-                            (34f * density).toInt()
+                            (scaleBarBottomOffsetDp * density).toInt()
                         )
                         textPaint.color = scaleBarFg
                         barPaint.color = scaleBarFg
@@ -530,12 +527,16 @@ fun DanskStiMap(
                 mapView.setBackgroundColor(themeWaterColorInt)
                 mapView.overlayManager.tilesOverlay.loadingBackgroundColor = themeWaterColorInt
                 mapView.overlayManager.tilesOverlay.loadingLineColor = themeWaterColorInt
-                // Keep scale bar readable in dark/light mode
+                // Keep scale bar readable in dark/light mode and positioned above tool row if specified
                 val sb = overlayManager.getOverlay(MapLayersOverlayManager.KEY_SCALE_BAR) as? ScaleBarOverlay
                 if (sb != null) {
                     val fg = colorScheme.onSurface.toArgb()
                     sb.textPaint.color = fg
                     sb.barPaint.color = fg
+                    sb.setScaleBarOffset(
+                        (12f * density).toInt(),
+                        (scaleBarBottomOffsetDp * density).toInt()
+                    )
                 }
             }
         )
@@ -543,8 +544,9 @@ fun DanskStiMap(
         val isDeviceOnline = remember(context) {
             (context.applicationContext as? com.example.DanskStiApp)?.repository?.isDeviceOnline() ?: true
         }
+        val layerErrorMessages by overlayManager.layerErrorMessages.collectAsState()
 
-        // Bottom-left: Offline pill (when offline), Scale indicator & active layer attribution
+        // Bottom-left: Offline pill (when offline), Stale location badge (> 2 min), layer error messages, & active layer attribution
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -555,6 +557,54 @@ fun DanskStiMap(
         ) {
             if (!isDeviceOnline) {
                 com.example.ui.components.OfflineStatusPill()
+            }
+            for (errMsg in layerErrorMessages) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.94f),
+                    modifier = Modifier.testTag("map_layer_error_banner")
+                ) {
+                    Text(
+                        text = errMsg,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+            val staleText = if (userLocation != null) null else liveLocationState.staleBadgeText
+            if (staleText != null) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
+                    modifier = Modifier.testTag("map_stale_location_badge")
+                ) {
+                    Text(
+                        text = staleText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+            val locErr = liveLocationState.locationErrorMessage
+            if (locErr != null) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    modifier = Modifier
+                        .clickable { liveLocationState.clearErrorMessage() }
+                        .testTag("map_location_error_banner")
+                ) {
+                    Text(
+                        text = locErr,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
             }
             MapAttributionPill(
                 layersState = mapLayersState,
@@ -617,23 +667,22 @@ fun DanskStiMap(
                     )
                 }
 
-                // 3. Min position
+                // 3. Min position (requests fresh fix via getCurrentLocation with spinner & 15s timeout)
                 SmallFloatingActionButton(
                     onClick = {
-                        val hasPerm = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.ACCESS_FINE_LOCATION
-                        ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                        ) == PackageManager.PERMISSION_GRANTED
-
-                        if (hasPerm) {
-                            val target = effectiveUserLocation ?: refreshDeviceLocation()
-                            if (target != null) {
-                                mapViewRef?.controller?.animateTo(target, 14.5, 600L)
+                        if (liveLocationState.hasLocationPermission()) {
+                            // If we already have a known location, pan immediately while requesting a fresh fix
+                            effectiveUserLocation?.let { known ->
+                                mapViewRef?.controller?.animateTo(known, 14.5, 450L)
                             }
-                            onMyLocationClick?.invoke(target)
+                            liveLocationState.requestFreshCurrentLocation { freshLoc ->
+                                val freshGeo = freshLoc?.let { GeoPoint(it.latitude, it.longitude) }
+                                val target = freshGeo ?: effectiveUserLocation
+                                if (freshGeo != null) {
+                                    mapViewRef?.controller?.animateTo(freshGeo, 14.5, 600L)
+                                }
+                                onMyLocationClick?.invoke(target)
+                            }
                         } else {
                             locationPermissionLauncher.launch(
                                 arrayOf(
@@ -651,10 +700,20 @@ fun DanskStiMap(
                         .size(48.dp)
                         .testTag(myLocationButtonTestTag)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MyLocation,
-                        contentDescription = stringResource(R.string.map_btn_my_location)
-                    )
+                    if (liveLocationState.isRequestingCurrentLocation) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .testTag("my_location_spinner"),
+                            strokeWidth = 2.5.dp,
+                            color = primaryColor
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.MyLocation,
+                            contentDescription = stringResource(R.string.map_btn_my_location)
+                        )
+                    }
                 }
             }
         }
@@ -684,11 +743,47 @@ fun DanskStiMap(
         )
     }
 
+    // Shared PoiInfoSheet for all maps (Round 10A Item 1 & Item 2)
+    selectedPoiForInfoSheet?.let { poiData ->
+        PoiInfoSheet(
+            poiData = poiData,
+            liveUserLocation = effectiveUserLocation,
+            isLocationFresh = effectiveIsLocationFresh,
+            onDismiss = { selectedPoiForInfoSheet = null },
+            onRouteHere = { lat, lng, name ->
+                selectedPoiForInfoSheet = null
+                (onRouteHereFromDropPin ?: onAddToRouteFromDropPin)?.invoke(lat, lng, name)
+            },
+            onAddToRoute = { lat, lng, name ->
+                selectedPoiForInfoSheet = null
+                (onAddToRouteFromDropPin ?: onRouteHereFromDropPin)?.invoke(lat, lng, name)
+            },
+            onOvernightHereInPlanner = onOvernightInPlannerFromPoiSheet?.let { cb ->
+                {
+                    selectedPoiForInfoSheet = null
+                    cb(poiData)
+                }
+            },
+            onSavedPoint = { savedWp ->
+                dbCustomWaypoints = dbCustomWaypoints + savedWp
+            }
+        )
+    }
+
+    // Shared AccessPolygonRulesDialog for all maps (Round 10A Item 1)
+    selectedAccessPolygonForRules?.let { poly ->
+        AccessPolygonRulesDialog(
+            polygon = poly,
+            onDismiss = { selectedAccessPolygonForRules = null }
+        )
+    }
+
     // Requirement F: Long-press anywhere on any map (onX-style "drop pin")
     droppedPinLocation?.let { pin ->
         DropPinBottomSheet(
             point = pin,
             userLocation = effectiveUserLocation,
+            isLocationFresh = effectiveIsLocationFresh,
             routeIdForSave = routeIdForDropPinSave,
             onDismiss = { droppedPinLocation = null },
             onAddToRoute = onAddToRouteFromDropPin?.let { cb ->
@@ -710,12 +805,15 @@ fun DanskStiMap(
 
 /**
  * Renders the user's GPS position dot with a translucent accuracy circle and directional heading cone.
+ * Greys out the dot when the fix is stale (> 2 minutes old).
  */
 class UserLocationHeadingOverlay : Overlay() {
 
     private var location: GeoPoint? = null
     private var headingDegrees: Float? = null
     private var accuracyMeters: Float = 15f
+    var isStale: Boolean = false
+        private set
 
     private val accuracyFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -745,11 +843,24 @@ class UserLocationHeadingOverlay : Overlay() {
     fun updateLocation(
         location: GeoPoint?,
         headingDegrees: Float?,
-        accuracyMeters: Float
+        accuracyMeters: Float,
+        isStale: Boolean = false
     ) {
         this.location = location
         this.headingDegrees = headingDegrees
         this.accuracyMeters = accuracyMeters.coerceAtLeast(3f)
+        this.isStale = isStale
+        if (isStale) {
+            accuracyFillPaint.color = Color.argb(30, 140, 140, 140)
+            accuracyStrokePaint.color = Color.argb(90, 130, 130, 130)
+            headingConePaint.color = Color.argb(65, 140, 140, 140)
+            dotPaint.color = Color.rgb(142, 142, 147)
+        } else {
+            accuracyFillPaint.color = Color.argb(42, 30, 136, 229)
+            accuracyStrokePaint.color = Color.argb(115, 30, 136, 229)
+            headingConePaint.color = Color.argb(95, 30, 136, 229)
+            dotPaint.color = Color.rgb(25, 118, 210)
+        }
     }
 
     override fun draw(canvas: Canvas?, mapView: MapView?, shadow: Boolean) {
@@ -771,7 +882,7 @@ class UserLocationHeadingOverlay : Overlay() {
 
         // 2. Heading cone if bearing is available
         val heading = headingDegrees
-        if (heading != null && !heading.isNaN()) {
+        if (heading != null && !heading.isNaN() && !isStale) {
             val coneLen = 26f * density
             val halfSpread = 13f * density
             canvas.save()
@@ -785,8 +896,9 @@ class UserLocationHeadingOverlay : Overlay() {
             canvas.restore()
         }
 
-        // 3. White halo + blue location dot
+        // 3. White halo + blue (or grey when stale) location dot
         canvas.drawCircle(cx, cy, 8.5f * density, haloPaint)
         canvas.drawCircle(cx, cy, 6.2f * density, dotPaint)
     }
 }
+

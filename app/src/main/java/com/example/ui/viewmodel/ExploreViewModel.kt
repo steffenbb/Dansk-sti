@@ -58,7 +58,7 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
     private val repository: DanskStiRepository
         get() = app.repository
     val settingsRepository
-        get() = com.example.data.local.SettingsRepository(app)
+        get() = com.example.DanskStiApp.getSettingsRepository(app)
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -325,9 +325,10 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                     (region.startsWith("Sjælland", ignoreCase = true) && computedRegion.startsWith("Sjælland", ignoreCase = true))
             }
 
-            val matchesLength = when (length) {
+            val hasUnknownLength = computedKm <= 0.0
+            val matchesLength = hasUnknownLength || when (length) {
                 LengthFilter.ALL -> true
-                LengthFilter.SHORT -> computedKm > 0.0 && computedKm < 50.0
+                LengthFilter.SHORT -> computedKm < 50.0
                 LengthFilter.MEDIUM -> computedKm in 50.0..150.0
                 LengthFilter.LONG -> computedKm > 150.0
             }
@@ -464,7 +465,11 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
 
     // --- Phase 13: Map Layers & Marked Routes ---
     val mapLayersState: StateFlow<com.example.data.local.MapLayersState> = settingsRepository.mapLayersFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.local.MapLayersState())
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            settingsRepository.currentSettingsSnapshot().mapLayers
+        )
 
     private val _showLayersSheet = MutableStateFlow(false)
     val showLayersSheet: StateFlow<Boolean> = _showLayersSheet.asStateFlow()

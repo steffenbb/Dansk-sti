@@ -93,69 +93,78 @@ internal fun RouteBuilderTopAppBar(
 ) {
     TopAppBar(
         title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Column(
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .weight(1f, fill = false)
+                        .fillMaxWidth()
                         .clickable(onClick = onOpenRenameDialog)
                         .testTag("planner_top_rename_chip")
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.testTag("route_title_header")
+                    Text(
+                        text = uiState.routeName.ifBlank {
+                            if (uiState.mode == PlannerMode.TRAIL) uiState.baseTrail?.name ?: "Ruteplanlægger" else "Ny rute"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .testTag("planner_top_full_route_name")
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = stringResource(R.string.ui_routebuilderscreen_omd_b_rute_101),
+                        modifier = Modifier
+                            .size(15.dp)
+                            .testTag("route_title_header")
+                    )
+                }
+
+                val topTotalDays = maxOf(1, uiState.daySummaries.size)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                        modifier = Modifier
+                            .clickable(onClick = onOpenRenameDialog)
+                            .testTag("planner_top_stats_chip")
                     ) {
                         Text(
-                            text = uiState.routeName.ifBlank {
-                                if (uiState.mode == PlannerMode.TRAIL) uiState.baseTrail?.name ?: "Ruteplanlægger" else "Ny rute"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
+                            text = String.format(
+                                Locale("da", "DK"),
+                                "%.1f km · +%.0f m · %d d",
+                                uiState.stats.totalKm,
+                                uiState.stats.ascentM,
+                                topTotalDays
+                            ),
+                            style = com.example.ui.theme.TabularLabelStyle.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = stringResource(R.string.ui_routebuilderscreen_omd_b_rute_101),
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .testTag("route_top_stats_chip")
                         )
                     }
                     Text(
                         text = buildString {
                             append(if (uiState.mode == PlannerMode.TRAIL) "Vandrerute" else "Fri rute")
-                            if (uiState.isReverse) append(" · Omvendt retning")
+                            if (uiState.isReverse) append(" · Omvendt")
                         },
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                val topTotalDays = maxOf(1, uiState.daySummaries.size)
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-                    modifier = Modifier.testTag("planner_top_stats_chip")
-                ) {
-                    Text(
-                        text = String.format(
-                            Locale("da", "DK"),
-                            "%.1f km · +%.0f m · %d d",
-                            uiState.stats.totalKm,
-                            uiState.stats.ascentM,
-                            topTotalDays
-                        ),
-                        style = com.example.ui.theme.TabularLabelStyle.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        maxLines = 1,
-                        modifier = Modifier
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                            .testTag("route_top_stats_chip")
                     )
                 }
             }
@@ -167,13 +176,6 @@ internal fun RouteBuilderTopAppBar(
         },
         actions = {
             IconButton(
-                onClick = onOpenTripSettings,
-                modifier = Modifier.testTag("btn_open_trip_settings")
-            ) {
-                Icon(Icons.Default.Tune, contentDescription = stringResource(R.string.ui_routebuilderscreen_indstillinger_for_turen_102))
-            }
-
-            IconButton(
                 onClick = onOpenLayersSheet,
                 modifier = Modifier.testTag("btn_toggle_access_layer")
             ) {
@@ -182,15 +184,6 @@ internal fun RouteBuilderTopAppBar(
                     contentDescription = stringResource(R.string.ui_danskstimap_kortlag_29),
                     tint = if (uiState.isAccessLayerVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                 )
-            }
-
-            if (uiState.mode == PlannerMode.FREE) {
-                IconButton(
-                    onClick = onLaunchGpxImport,
-                    modifier = Modifier.testTag("btn_import_gpx")
-                ) {
-                    Icon(Icons.Default.UploadFile, contentDescription = stringResource(R.string.ui_routebuilderscreen_importer_gpx_103))
-                }
             }
 
             Box {
@@ -207,6 +200,28 @@ internal fun RouteBuilderTopAppBar(
                     expanded = showPlannerMenu,
                     onDismissRequest = { onSetShowPlannerMenu(false) }
                 ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.ui_routebuilderscreen_indstillinger_for_turen_102)) },
+                        onClick = {
+                            onSetShowPlannerMenu(false)
+                            onOpenTripSettings()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Tune, contentDescription = null)
+                        },
+                        modifier = Modifier.testTag("btn_open_trip_settings")
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.ui_routebuilderscreen_importer_gpx_103)) },
+                        onClick = {
+                            onSetShowPlannerMenu(false)
+                            onLaunchGpxImport()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.UploadFile, contentDescription = null)
+                        },
+                        modifier = Modifier.testTag("btn_import_gpx")
+                    )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.planner_menu_close_loop)) },
                         onClick = {
@@ -415,6 +430,79 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                     color = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                 )
+            }
+        }
+
+        if (uiState.isRoutingGpxLegs || (uiState.gpxOriginalPoints.size >= 2 && !uiState.isUsingOriginalGpxGeometry)) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                shadowElevation = 4.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("banner_gpx_routing_progress")
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (uiState.isRoutingGpxLegs) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Text(
+                                text = if (uiState.isRoutingGpxLegs) {
+                                    "Beregner GPX-etaper (${uiState.gpxLegsCompletedCount}/${uiState.gpxLegsTotalCount})"
+                                } else {
+                                    "GPX-rute indlæst (${uiState.waypoints.count { it.role == WaypointRole.VIA }} via-punkter)"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.keepOriginalGpxGeometry() },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier
+                                .heightIn(min = 36.dp)
+                                .testTag("btn_keep_gpx_line")
+                        ) {
+                            Text(
+                                text = "Behold GPX-linjen",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    if (uiState.isRoutingGpxLegs && uiState.gpxLegsTotalCount > 0) {
+                        val frac = (uiState.gpxLegsCompletedCount.toFloat() / uiState.gpxLegsTotalCount.toFloat()).coerceIn(0f, 1f)
+                        LinearProgressIndicator(
+                            progress = { frac },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .testTag("gpx_routing_progress_bar"),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    }
+                }
             }
         }
 

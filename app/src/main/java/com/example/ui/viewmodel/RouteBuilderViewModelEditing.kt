@@ -340,94 +340,109 @@ fun RouteBuilderViewModel.addStopOrDetour(
         }
 
         // Off-trail detour (> 50m or explicit POI)
+        val pendingDetourKey = "detour_routing_${UUID.randomUUID()}"
+        _uiState.update { current ->
+            current.copy(loadingLegKeys = current.loadingLegKeys + pendingDetourKey)
+        }
         viewModelScope.launch(Dispatchers.Default) {
-            pushHistory()
-            val wps = _uiState.value.waypoints.toMutableList()
-            val segments = _uiState.value.baseTrailSegments
-            val isRev = _uiState.value.isReverse
-            val projKm = proj?.trailKm ?: (TrailSlicer.totalTrailKm(segments) / 2.0)
+            try {
+                pushHistory()
+                val wps = _uiState.value.waypoints.toMutableList()
+                val segments = _uiState.value.baseTrailSegments
+                val isRev = _uiState.value.isReverse
+                val projKm = proj?.trailKm ?: (TrailSlicer.totalTrailKm(segments) / 2.0)
 
-            var prevTrailIdx = 0
-            var nextTrailIdx = wps.lastIndex
-            for (i in wps.indices) {
-                val km = wps[i].trailKm ?: continue
-                if (km <= projKm) prevTrailIdx = i
-                if (km >= projKm && i > prevTrailIdx) {
-                    nextTrailIdx = i
-                    break
+                var prevTrailIdx = 0
+                var nextTrailIdx = wps.lastIndex
+                for (i in wps.indices) {
+                    val km = wps[i].trailKm ?: continue
+                    if (km <= projKm) prevTrailIdx = i
+                    if (km >= projKm && i > prevTrailIdx) {
+                        nextTrailIdx = i
+                        break
+                    }
                 }
-            }
-            if (nextTrailIdx <= prevTrailIdx && wps.size >= 2) {
-                prevTrailIdx = max(0, wps.lastIndex - 1)
-                nextTrailIdx = wps.lastIndex
-            }
-
-            val prevTrailWp = wps[prevTrailIdx]
-            val nextTrailWp = wps[nextTrailIdx]
-
-            val rawPin = RouteWaypoint(
-                lat = lat,
-                lng = lng,
-                role = role,
-                legModeToNext = LegMode.SNAP,
-                name = name ?: if (role == WaypointRole.OVERNIGHT) "Overnatning" else "Omvejspunkt",
-                linkedPoiId = linkedPoiId,
-                trailKm = null,
-                spotType = spotType,
-                bookingRequired = bookingRequired,
-                hasWaterNearby = hasWater,
-                hasToiletNearby = hasToilet
-            )
-
-            val detourPlan = TrailSlicer.buildTrailDetour(
-                segments = segments,
-                prevWp = prevTrailWp,
-                nextWp = nextTrailWp,
-                pinWp = rawPin,
-                routingEngine = routingEngine,
-                options = _uiState.value.options,
-                isReverse = isRev
-            )
-
-            val updatedLegs = _uiState.value.legs.toMutableMap()
-            updatedLegs.remove("${prevTrailWp.id}_to_${nextTrailWp.id}")
-
-            wps[prevTrailIdx] = prevTrailWp.copy(legModeToNext = LegMode.TRAIL)
-            wps.addAll(
-                prevTrailIdx + 1,
-                listOf(detourPlan.exitHelper, detourPlan.detourWaypoint, detourPlan.rejoinHelper)
-            )
-            normalizeRoles(wps)
-
-            for (leg in detourPlan.legs) {
-                updatedLegs[leg.legKey] = leg
-            }
-
-            updateRouteStats { current ->
-                val mergedFailed = current.failedLegs.toMutableMap().apply {
-                    putAll(detourPlan.failedLegs)
+                if (nextTrailIdx <= prevTrailIdx && wps.size >= 2) {
+                    prevTrailIdx = max(0, wps.lastIndex - 1)
+                    nextTrailIdx = wps.lastIndex
                 }
-                current.copy(
-                    waypoints = wps,
-                    legs = updatedLegs,
-                    failedLegs = mergedFailed,
-                    errorMessage = detourPlan.failedLegs.values.firstOrNull() ?: current.errorMessage,
-                    selectedWaypointId = detourPlan.detourWaypoint.id
+
+                val prevTrailWp = wps[prevTrailIdx]
+                val nextTrailWp = wps[nextTrailIdx]
+
+                val rawPin = RouteWaypoint(
+                    lat = lat,
+                    lng = lng,
+                    role = role,
+                    legModeToNext = LegMode.SNAP,
+                    name = name ?: if (role == WaypointRole.OVERNIGHT) "Overnatning" else "Omvejspunkt",
+                    linkedPoiId = linkedPoiId,
+                    trailKm = null,
+                    spotType = spotType,
+                    bookingRequired = bookingRequired,
+                    hasWaterNearby = hasWater,
+                    hasToiletNearby = hasToilet
                 )
-            }
 
-            withContext(Dispatchers.IO) {
+                val detourPlan = TrailSlicer.buildTrailDetour(
+                    segments = segments,
+                    prevWp = prevTrailWp,
+                    nextWp = nextTrailWp,
+                    pinWp = rawPin,
+                    routingEngine = routingEngine,
+                    options = _uiState.value.options,
+                    isReverse = isRev
+                )
+
+                val updatedLegs = _uiState.value.legs.toMutableMap()
+                updatedLegs.remove("${prevTrailWp.id}_to_${nextTrailWp.id}")
+
+                wps[prevTrailIdx] = prevTrailWp.copy(legModeToNext = LegMode.TRAIL)
+                wps.addAll(
+                    prevTrailIdx + 1,
+                    listOf(detourPlan.exitHelper, detourPlan.detourWaypoint, detourPlan.rejoinHelper)
+                )
+                normalizeRoles(wps)
+
                 for (leg in detourPlan.legs) {
-                    RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg)
+                    updatedLegs[leg.legKey] = leg
+                }
+
+                updateRouteStats { current ->
+                    val mergedFailed = current.failedLegs.toMutableMap().apply {
+                        putAll(detourPlan.failedLegs)
+                    }
+                    current.copy(
+                        waypoints = wps,
+                        legs = updatedLegs,
+                        failedLegs = mergedFailed,
+                        loadingLegKeys = current.loadingLegKeys - pendingDetourKey,
+                        errorMessage = detourPlan.failedLegs.values.firstOrNull() ?: current.errorMessage,
+                        selectedWaypointId = detourPlan.detourWaypoint.id
+                    )
+                }
+
+                withContext(Dispatchers.IO) {
+                    for (leg in detourPlan.legs) {
+                        RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg)
+                    }
+                }
+
+                val detourLabel = TrailSlicer.formatDetourCost(
+                    detourPlan.detourWaypoint.name,
+                    detourPlan.detourCostKm,
+                    detourPlan.detourAscentM
+                )
+                _userMessage.emit(detourLabel)
+            } finally {
+                _uiState.update { current ->
+                    if (pendingDetourKey in current.loadingLegKeys) {
+                        current.copy(loadingLegKeys = current.loadingLegKeys - pendingDetourKey)
+                    } else {
+                        current
+                    }
                 }
             }
-
-            val detourLabel = TrailSlicer.formatDetourCost(
-                detourPlan.detourWaypoint.name,
-                detourPlan.detourCostKm,
-                detourPlan.detourAscentM
-            )
-            _userMessage.emit(detourLabel)
         }
         return
     }

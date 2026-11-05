@@ -2,23 +2,22 @@ package com.example.ui.screens
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,47 +32,28 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Cabin
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Forest
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Landscape
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.Navigation
-import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -82,81 +62,39 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.material3.LinearProgressIndicator
 import com.example.DanskStiApp
 import com.example.R
-import com.example.data.model.DiscoveredHikingRouteDto
 import com.example.data.model.GeoPointDto
-import com.example.data.model.TrailDownloadProgress
-import com.example.data.model.TrailEntity
 import com.example.ui.components.EmptyStateView
 import com.example.ui.components.ErrorStateView
 import com.example.ui.components.MarkedRouteDetailSheet
 import com.example.ui.components.OfflineStatusPill
 import com.example.ui.components.SkeletonLoadingList
-import com.example.ui.components.TrailGeometryThumbnail
-import com.example.ui.components.formatDanishElevationMeters
-import com.example.ui.components.formatDanishKm
-import com.example.ui.components.formatDownloadedDateDanish
-import com.example.ui.map.DanskStiMap
-import com.example.ui.navigation.MapLayersOverlayManager
-import com.example.ui.theme.CardShape
 import com.example.ui.theme.DanskStiTheme
 import com.example.ui.theme.SheetTopShape
 import com.example.ui.theme.Spacing
-import com.example.ui.theme.TabularBodyStyle
-import com.example.ui.theme.TabularLabelStyle
 import com.example.ui.viewmodel.ExploreViewModel
 import com.example.ui.viewmodel.LengthFilter
-import com.example.ui.viewmodel.OvernightFilter
-import com.example.ui.viewmodel.TrailCardMetrics
-import com.example.util.GeoUtils
-import com.example.util.routing.RouteMarkerHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Overlay
-import org.osmdroid.views.overlay.Polyline
-import java.util.Locale
-import kotlin.math.ceil
-import kotlin.math.max
-
-private val TRAIL_LINE_COLORS = listOf(
-    0xFF2E6B3F.toInt(),
-    0xFF1565C0.toInt(),
-    0xFFE65100.toInt(),
-    0xFF6A1B9A.toInt(),
-    0xFF00838F.toInt(),
-    0xFFAD1457.toInt()
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -187,7 +125,6 @@ fun TrailBrowserScreen(
     val shelterCounts by viewModel.shelterCounts.collectAsState()
     val friTeltningCounts by viewModel.friTeltningCounts.collectAsState()
     val trailMetrics by viewModel.trailMetrics.collectAsState()
-    val placeSuggestions by viewModel.placeSuggestions.collectAsState()
     val groupedSearchResults by viewModel.groupedSearchResults.collectAsState()
     val selectedTrailForPeek by viewModel.selectedTrailForPeek.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
@@ -202,18 +139,14 @@ fun TrailBrowserScreen(
     val downloadingDiscoveredRelationId by viewModel.downloadingDiscoveredRelationId.collectAsState()
     val downloadProgress by viewModel.downloadProgress.collectAsState()
 
-    // Requirement C: Toggle Liste / Kort (Default to Liste for AllTrails-style discovery)
     var isMapView by rememberSaveable { mutableStateOf(false) }
-
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
-    var lastExploreRouteSig by remember { mutableIntStateOf(0) }
 
     var showRegionMenu by remember { mutableStateOf(false) }
     var showLengthMenu by remember { mutableStateOf(false) }
 
     val regions = listOf("Alle", "Jylland", "Fyn & Øerne", "Sjælland & Lolland-Falster", "Bornholm")
 
-    // Check location on start if permission already granted
     @SuppressLint("MissingPermission")
     fun refreshDeviceLocation(openNearbySpotsSheet: Boolean = false) {
         val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -289,7 +222,6 @@ fun TrailBrowserScreen(
         }
     }
 
-    // Load geometries for map mode if needed
     val app = context.applicationContext as DanskStiApp
     val downloadedTrails by remember(app) { app.repository.getAllDownloadedTrails() }.collectAsState(initial = emptyList())
     val downloadedTrailMap = remember(downloadedTrails) {
@@ -334,6 +266,8 @@ fun TrailBrowserScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
     ) {
         // Top header bar: Title + Offline pill (if offline) + Liste / Kort segmented toggle
         Row(
@@ -358,7 +292,6 @@ fun TrailBrowserScreen(
                 }
             }
 
-            // Toggle Liste / Kort (Requirement C)
             Surface(
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -429,7 +362,7 @@ fun TrailBrowserScreen(
             }
         }
 
-        // Search field at top (trails and places) (Requirement C)
+        // Search field at top (trails and places)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -498,7 +431,6 @@ fun TrailBrowserScreen(
             }
         }
 
-        // Grouped search suggestions if user typed a query
         if (!groupedSearchResults.isEmpty && searchQuery.trim().length >= 2) {
             com.example.ui.components.GroupedPlaceSearchDropdown(
                 groupedResults = groupedSearchResults,
@@ -528,7 +460,7 @@ fun TrailBrowserScreen(
             )
         }
 
-        // Filter chips: Region, Længde, Flerdages, Shelters undervejs, Fri teltning (Requirement C)
+        // Filter chips: Region, Længde, Flerdages, Shelters undervejs, Fri teltning
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -537,7 +469,6 @@ fun TrailBrowserScreen(
             horizontalArrangement = Arrangement.spacedBy(Spacing.s2),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. Region filter chip with dropdown
             Box {
                 val hasRegion = selectedRegion != null && selectedRegion != "Alle"
                 FilterChip(
@@ -581,7 +512,6 @@ fun TrailBrowserScreen(
                 }
             }
 
-            // 2. Længde filter chip with dropdown
             Box {
                 val hasLength = lengthFilter != LengthFilter.ALL
                 FilterChip(
@@ -624,7 +554,6 @@ fun TrailBrowserScreen(
                 }
             }
 
-            // 3. Flerdages chip
             FilterChip(
                 selected = flerdagesOnly,
                 onClick = { viewModel.toggleFlerdagesOnly() },
@@ -643,7 +572,6 @@ fun TrailBrowserScreen(
                     .testTag("filter_chip_flerdages")
             )
 
-            // 4. Shelters undervejs chip
             FilterChip(
                 selected = sheltersUndervejs,
                 onClick = { viewModel.toggleSheltersUndervejs() },
@@ -662,7 +590,6 @@ fun TrailBrowserScreen(
                     .testTag("filter_chip_shelters")
             )
 
-            // 5. Fri teltning chip
             FilterChip(
                 selected = friTeltningOnly,
                 onClick = { viewModel.toggleFriTeltningOnly() },
@@ -681,7 +608,6 @@ fun TrailBrowserScreen(
                     .testTag("filter_chip_fri_teltning")
             )
 
-            // Nearby overnights quick chip
             FilterChip(
                 selected = showNearbySheet,
                 onClick = { requestLocationForDiscovery(openNearbySheet = true) },
@@ -715,7 +641,6 @@ fun TrailBrowserScreen(
                 .weight(1f)
         ) {
             if (!isMapView) {
-                // LIST MODE (Requirement C & J)
                 if (errorMessage != null) {
                     ErrorStateView(
                         message = errorMessage ?: stringResource(R.string.state_error_default),
@@ -723,14 +648,12 @@ fun TrailBrowserScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else if (allTrails.isEmpty()) {
-                    // Skeleton loading state (Requirement J)
                     SkeletonLoadingList(
                         itemCount = 4,
                         cardHeight = 148.dp,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else if (trails.isEmpty()) {
-                    // Empty state: one sentence + one action (Requirement J)
                     EmptyStateView(
                         icon = Icons.Default.Landscape,
                         sentence = stringResource(R.string.explore_empty_trails),
@@ -740,782 +663,66 @@ fun TrailBrowserScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    val windowSizeClass = DanskStiTheme.windowSizeClass
-                    val gridColumns = windowSizeClass.udforskColumns
-                    if (gridColumns >= 2) {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(gridColumns),
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .semantics { contentDescription = "trail_grid_columns_$gridColumns" }
-                                .testTag("trail_list"),
-                            contentPadding = PaddingValues(
-                                start = Spacing.s4,
-                                end = Spacing.s4,
-                                top = Spacing.s2,
-                                bottom = 96.dp
-                            ),
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.s4),
-                            verticalArrangement = Arrangement.spacedBy(Spacing.s4)
-                        ) {
-                            item(key = "section_near_you_header", span = { GridItemSpan(maxLineSpan) }) {
-                                Text(
-                                    text = stringResource(R.string.explore_section_near_you),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    modifier = Modifier
-                                        .padding(top = Spacing.s1)
-                                        .testTag("section_near_you")
-                                )
-                            }
-
-                            if (userLocation == null) {
-                                item(key = "section_near_you_permission", span = { GridItemSpan(maxLineSpan) }) {
-                                    Card(
-                                        shape = CardShape,
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(Spacing.s4),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.weight(1f),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.LocationOn,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
-                                                Text(
-                                                    text = stringResource(R.string.explore_near_you_permission),
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.width(Spacing.s3))
-                                            Button(
-                                                onClick = { requestLocationForDiscovery(openNearbySheet = false) },
-                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                                shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier
-                                                    .sizeIn(minHeight = 48.dp)
-                                                    .testTag("enable_location_button")
-                                            ) {
-                                                Text(stringResource(R.string.explore_near_you_action))
-                                            }
-                                        }
-                                    }
+                    TrailBrowserListContent(
+                        trails = trails,
+                        savedTrails = savedTrails,
+                        savedTrailIds = savedTrailIds,
+                        nearbyTrails = nearbyTrails,
+                        userLocation = userLocation,
+                        shelterCounts = shelterCounts,
+                        friTeltningCounts = friTeltningCounts,
+                        trailMetrics = trailMetrics,
+                        allGeometries = allGeometries,
+                        downloadedTrailMap = downloadedTrailMap,
+                        downloadProgress = downloadProgress,
+                        selectedTrailForPeek = selectedTrailForPeek,
+                        moreMarkedRoutes = moreMarkedRoutes,
+                        isLoadingMoreMarkedRoutes = isLoadingMoreMarkedRoutes,
+                        downloadingDiscoveredRelationId = downloadingDiscoveredRelationId,
+                        onRequestLocation = { requestLocationForDiscovery(openNearbySheet = false) },
+                        onToggleBookmark = { viewModel.toggleBookmark(it) },
+                        onTrailClick = onTrailClick,
+                        onDownloadDiscoveredRoute = { route ->
+                            viewModel.saveAndDownloadDiscoveredRoute(route) { savedTrail ->
+                                if (savedTrail != null) {
+                                    onTrailClick(savedTrail.id)
                                 }
-                            } else {
-                                gridItems(
-                                    items = nearbyTrails.take(gridColumns),
-                                    key = { "near_${it.id}" }
-                                ) { trail ->
-                                    val metrics = trailMetrics[trail.id]
-                                    val points = allGeometries[trail.id] ?: metrics?.geometryPoints
-                                    val isSaved = savedTrailIds.contains(trail.id)
-                                    TrailCard(
-                                        trail = trail,
-                                        points = points,
-                                        sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
-                                        friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
-                                        ascentMeters = metrics?.ascentMeters,
-                                        downloadedAt = downloadedTrailMap[trail.id]?.downloadedAt,
-                                        isSaved = isSaved,
-                                        isSelected = selectedTrailForPeek?.id == trail.id,
-                                        onBookmarkClick = { viewModel.toggleBookmark(trail.id) },
-                                        onClick = { onTrailClick(trail.id) },
-                                        testTagOverride = "near_trail_card_${trail.id}"
-                                    )
-                                }
-                            }
-
-                            item(key = "section_saved_header", span = { GridItemSpan(maxLineSpan) }) {
-                                Text(
-                                    text = stringResource(R.string.explore_section_saved),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    modifier = Modifier
-                                        .padding(top = Spacing.s2)
-                                        .testTag("section_saved")
-                                )
-                            }
-
-                            if (savedTrails.isEmpty()) {
-                                item(key = "section_saved_empty", span = { GridItemSpan(maxLineSpan) }) {
-                                    Surface(
-                                        shape = CardShape,
-                                        color = MaterialTheme.colorScheme.surface,
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(Spacing.s4),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.BookmarkBorder,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            Text(
-                                                text = stringResource(R.string.ui_trailbrowserscreen_gem_dine_favoritruter_med_bo_182),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            } else {
-                                gridItems(
-                                    items = savedTrails,
-                                    key = { "saved_${it.id}" }
-                                ) { trail ->
-                                    val metrics = trailMetrics[trail.id]
-                                    val points = allGeometries[trail.id] ?: metrics?.geometryPoints
-                                    TrailCard(
-                                        trail = trail,
-                                        points = points,
-                                        sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
-                                        friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
-                                        ascentMeters = metrics?.ascentMeters,
-                                        downloadedAt = downloadedTrailMap[trail.id]?.downloadedAt,
-                                        isSaved = true,
-                                        isSelected = selectedTrailForPeek?.id == trail.id,
-                                        onBookmarkClick = { viewModel.toggleBookmark(trail.id) },
-                                        onClick = { onTrailClick(trail.id) },
-                                        testTagOverride = "saved_trail_card_${trail.id}"
-                                    )
-                                }
-                            }
-
-                            item(key = "section_all_trails_header", span = { GridItemSpan(maxLineSpan) }) {
-                                Text(
-                                    text = stringResource(R.string.explore_section_all_trails),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    modifier = Modifier
-                                        .padding(top = Spacing.s2)
-                                        .testTag("section_all_trails")
-                                )
-                            }
-
-                            gridItems(
-                                items = trails,
-                                key = { it.id }
-                            ) { trail ->
-                                val metrics = trailMetrics[trail.id]
-                                val points = allGeometries[trail.id] ?: metrics?.geometryPoints
-                                val isSaved = savedTrailIds.contains(trail.id)
-                                TrailCard(
-                                    trail = trail,
-                                    points = points,
-                                    sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
-                                    friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
-                                    ascentMeters = metrics?.ascentMeters,
-                                    downloadedAt = downloadedTrailMap[trail.id]?.downloadedAt,
-                                    downloadProgress = downloadProgress[trail.id],
-                                    isSaved = isSaved,
-                                    isSelected = selectedTrailForPeek?.id == trail.id,
-                                    onBookmarkClick = { viewModel.toggleBookmark(trail.id) },
-                                    onClick = { onTrailClick(trail.id) }
-                                )
-                            }
-
-                            item(key = "section_more_marked_routes_header", span = { GridItemSpan(maxLineSpan) }) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = Spacing.s3),
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.explore_section_more_marked_routes),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.testTag("section_more_marked_routes")
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.explore_more_marked_routes_subtitle),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            if (isLoadingMoreMarkedRoutes && moreMarkedRoutes.isEmpty()) {
-                                item(key = "section_more_marked_routes_loading", span = { GridItemSpan(maxLineSpan) }) {
-                                    Surface(
-                                        shape = CardShape,
-                                        color = MaterialTheme.colorScheme.surface,
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .testTag("more_marked_routes_loading")
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(Spacing.s4),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
-                                        ) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(18.dp),
-                                                strokeWidth = 2.dp,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                            Text(
-                                                text = stringResource(R.string.explore_more_marked_routes_loading),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            } else if (moreMarkedRoutes.isEmpty()) {
-                                item(key = "section_more_marked_routes_empty", span = { GridItemSpan(maxLineSpan) }) {
-                                    Surface(
-                                        shape = CardShape,
-                                        color = MaterialTheme.colorScheme.surface,
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .testTag("more_marked_routes_empty")
-                                    ) {
-                                        Text(
-                                            text = stringResource(R.string.explore_more_marked_routes_empty),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(Spacing.s4)
-                                        )
-                                    }
-                                }
-                            } else {
-                                gridItems(
-                                    items = moreMarkedRoutes,
-                                    key = { "discovered_${it.osmRelationId}" }
-                                ) { route ->
-                                    val targetTrailId = "trail_osm_${route.osmRelationId}"
-                                    val activeProg = downloadProgress[targetTrailId]
-                                    val isDownloadingThis = downloadingDiscoveredRelationId == route.osmRelationId || activeProg != null
-                                    DiscoveredHikingRouteCard(
-                                        route = route,
-                                        isDownloading = isDownloadingThis,
-                                        progress = activeProg,
-                                        onClick = {
-                                            if (!isDownloadingThis) {
-                                                viewModel.saveAndDownloadDiscoveredRoute(route) { savedTrail ->
-                                                    if (savedTrail != null) {
-                                                        onTrailClick(savedTrail.id)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .semantics { contentDescription = "trail_grid_columns_1" }
-                            .testTag("trail_list"),
-                        contentPadding = PaddingValues(
-                            start = Spacing.s4,
-                            end = Spacing.s4,
-                            top = Spacing.s2,
-                            bottom = 96.dp
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.s4)
-                    ) {
-                        // Section 1: "Nær dig" (needs location)
-                        item(key = "section_near_you_header") {
-                            Text(
-                                text = stringResource(R.string.explore_section_near_you),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier
-                                    .padding(top = Spacing.s1)
-                                    .testTag("section_near_you")
-                            )
-                        }
-
-                        if (userLocation == null) {
-                            item(key = "section_near_you_permission") {
-                                Card(
-                                    shape = CardShape,
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(Spacing.s4),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.weight(1f),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.LocationOn,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(24.dp)
-                                            )
-                                            Text(
-                                                text = stringResource(R.string.explore_near_you_permission),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(Spacing.s3))
-                                        Button(
-                                            onClick = { requestLocationForDiscovery(openNearbySheet = false) },
-                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                            shape = RoundedCornerShape(12.dp),
-                                            modifier = Modifier
-                                                .sizeIn(minHeight = 48.dp)
-                                                .testTag("enable_location_button")
-                                        ) {
-                                            Text(stringResource(R.string.explore_near_you_action))
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            items(
-                                items = nearbyTrails.take(2),
-                                key = { "near_${it.id}" }
-                            ) { trail ->
-                                val metrics = trailMetrics[trail.id]
-                                val points = allGeometries[trail.id] ?: metrics?.geometryPoints
-                                val isSaved = savedTrailIds.contains(trail.id)
-                                TrailCard(
-                                    trail = trail,
-                                    points = points,
-                                    sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
-                                    friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
-                                    ascentMeters = metrics?.ascentMeters,
-                                    downloadedAt = downloadedTrailMap[trail.id]?.downloadedAt,
-                                    isSaved = isSaved,
-                                    isSelected = selectedTrailForPeek?.id == trail.id,
-                                    onBookmarkClick = { viewModel.toggleBookmark(trail.id) },
-                                    onClick = { onTrailClick(trail.id) },
-                                    testTagOverride = "near_trail_card_${trail.id}"
-                                )
-                            }
-                        }
-
-                        // Section 2: "Gemte"
-                        item(key = "section_saved_header") {
-                            Text(
-                                text = stringResource(R.string.explore_section_saved),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier
-                                    .padding(top = Spacing.s2)
-                                    .testTag("section_saved")
-                            )
-                        }
-
-                        if (savedTrails.isEmpty()) {
-                            item(key = "section_saved_empty") {
-                                Surface(
-                                    shape = CardShape,
-                                    color = MaterialTheme.colorScheme.surface,
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(Spacing.s4),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.BookmarkBorder,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Text(
-                                            text = stringResource(R.string.ui_trailbrowserscreen_gem_dine_favoritruter_med_bo_182),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            items(
-                                items = savedTrails,
-                                key = { "saved_${it.id}" }
-                            ) { trail ->
-                                val metrics = trailMetrics[trail.id]
-                                val points = allGeometries[trail.id] ?: metrics?.geometryPoints
-                                TrailCard(
-                                    trail = trail,
-                                    points = points,
-                                    sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
-                                    friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
-                                    ascentMeters = metrics?.ascentMeters,
-                                    downloadedAt = downloadedTrailMap[trail.id]?.downloadedAt,
-                                    isSaved = true,
-                                    isSelected = selectedTrailForPeek?.id == trail.id,
-                                    onBookmarkClick = { viewModel.toggleBookmark(trail.id) },
-                                    onClick = { onTrailClick(trail.id) },
-                                    testTagOverride = "saved_trail_card_${trail.id}"
-                                )
-                            }
-                        }
-
-                        // Section 3: "Alle ruter"
-                        item(key = "section_all_trails_header") {
-                            Text(
-                                text = stringResource(R.string.explore_section_all_trails),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier
-                                    .padding(top = Spacing.s2)
-                                    .testTag("section_all_trails")
-                            )
-                        }
-
-                        items(
-                            items = trails,
-                            key = { it.id }
-                        ) { trail ->
-                            val metrics = trailMetrics[trail.id]
-                            val points = allGeometries[trail.id] ?: metrics?.geometryPoints
-                            val isSaved = savedTrailIds.contains(trail.id)
-                            TrailCard(
-                                trail = trail,
-                                points = points,
-                                sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
-                                friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
-                                ascentMeters = metrics?.ascentMeters,
-                                downloadedAt = downloadedTrailMap[trail.id]?.downloadedAt,
-                                downloadProgress = downloadProgress[trail.id],
-                                isSaved = isSaved,
-                                isSelected = selectedTrailForPeek?.id == trail.id,
-                                onBookmarkClick = { viewModel.toggleBookmark(trail.id) },
-                                onClick = { onTrailClick(trail.id) }
-                            )
-                        }
-
-                        // Section 4: "Flere afmærkede ruter" (Overpass relation["route"="hiking"]["network"~"^(iwn|nwn|rwn)$"])
-                        item(key = "section_more_marked_routes_header") {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = Spacing.s3),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.explore_section_more_marked_routes),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    modifier = Modifier.testTag("section_more_marked_routes")
-                                )
-                                Text(
-                                    text = stringResource(R.string.explore_more_marked_routes_subtitle),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        if (isLoadingMoreMarkedRoutes && moreMarkedRoutes.isEmpty()) {
-                            item(key = "section_more_marked_routes_loading") {
-                                Surface(
-                                    shape = CardShape,
-                                    color = MaterialTheme.colorScheme.surface,
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("more_marked_routes_loading")
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(Spacing.s4),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(18.dp),
-                                            strokeWidth = 2.dp,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Text(
-                                            text = stringResource(R.string.explore_more_marked_routes_loading),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        } else if (moreMarkedRoutes.isEmpty()) {
-                            item(key = "section_more_marked_routes_empty") {
-                                Surface(
-                                    shape = CardShape,
-                                    color = MaterialTheme.colorScheme.surface,
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("more_marked_routes_empty")
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.explore_more_marked_routes_empty),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(Spacing.s4)
-                                    )
-                                }
-                            }
-                        } else {
-                            items(
-                                items = moreMarkedRoutes,
-                                key = { "discovered_${it.osmRelationId}" }
-                            ) { route ->
-                                val targetTrailId = "trail_osm_${route.osmRelationId}"
-                                val activeProg = downloadProgress[targetTrailId]
-                                val isDownloadingThis = downloadingDiscoveredRelationId == route.osmRelationId || activeProg != null
-                                DiscoveredHikingRouteCard(
-                                    route = route,
-                                    isDownloading = isDownloadingThis,
-                                    progress = activeProg,
-                                    onClick = {
-                                        if (!isDownloadingThis) {
-                                            viewModel.saveAndDownloadDiscoveredRoute(route) { savedTrail ->
-                                                if (savedTrail != null) {
-                                                    onTrailClick(savedTrail.id)
-                                                }
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    }
-                }
-            } else {
-                // MAP MODE (Toggle Kort in Udforsk)
-                Box(modifier = Modifier.fillMaxSize()) {
-                    DanskStiMap(
-                        modifier = Modifier.fillMaxSize(),
-                        mapTestTag = "explore_full_screen_map",
-                        initialCenter = GeoPoint(55.9, 10.4),
-                        initialZoom = 7.5,
-                        interceptParentTouchScroll = true,
-                        isSystemDarkOverride = isDark,
-                        controlsTopPadding = 16.dp,
-                        controlsEndPadding = 16.dp,
-                        attributionBottomPadding = 24.dp,
-                        layersButtonTestTag = "open_layers_sheet_button",
-                        compassButtonTestTag = "center_denmark_button",
-                        myLocationButtonTestTag = "explore_my_location_button",
-                        onCompassClick = {
-                            mapViewRef?.controller?.animateTo(GeoPoint(55.9, 10.4), 7.5, 600L)
-                        },
-                        onMapReady = { mv -> mapViewRef = mv },
-                        onRouteHereFromDropPin = { lat, lng, label ->
-                            onOpenRouteBuilder(lat, lng, label)
-                        },
-                        onUseMarkedRouteInPlanner = { markedRoute ->
-                            coroutineScope.launch {
-                                viewModel.saveMarkedRouteAsTrail(markedRoute)
-                            }
-                        },
-                        updateOverlaysKey = Triple(trails, allGeometries, selectedTrailForPeek),
-                        onUpdateOverlays = { mapView, overlayManager, isDarkMap ->
-                            var sig = if (isDarkMap) 1231 else 1237
-                            sig = 31 * sig + trails.size
-                            sig = 31 * sig + allGeometries.size
-                            sig = 31 * sig + (selectedTrailForPeek?.id?.hashCode() ?: 0)
-                            if (sig != lastExploreRouteSig) {
-                                lastExploreRouteSig = sig
-                                val density = mapView.context.resources.displayMetrics.density
-                                val children = ArrayList<Overlay>()
-                                val defaultCasingColor = if (isDarkMap) {
-                                    RouteMarkerHelper.COLOR_PLANNED_CASING_DARK
-                                } else {
-                                    RouteMarkerHelper.COLOR_PLANNED_CASING_LIGHT
-                                }
-
-                                trails.forEachIndexed { index, trail ->
-                                    val points = allGeometries[trail.id] ?: emptyList()
-                                    if (points.isNotEmpty()) {
-                                        val geoPoints = points.map { GeoPoint(it.lat, it.lng) }
-                                        val isSelected = selectedTrailForPeek?.id == trail.id
-                                        val casing = Polyline(mapView).apply {
-                                            setPoints(geoPoints)
-                                            outlinePaint.color = defaultCasingColor
-                                            outlinePaint.strokeWidth = (if (isSelected) 7.5f else 5.0f) * density
-                                            outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
-                                            outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
-                                            outlinePaint.isAntiAlias = true
-                                        }
-                                        children.add(casing)
-
-                                        val polyline = Polyline(mapView).apply {
-                                            setPoints(geoPoints)
-                                            outlinePaint.color = if (isSelected) {
-                                                if (isDarkMap) RouteMarkerHelper.COLOR_PLANNED_ROUTE_DARK
-                                                else RouteMarkerHelper.COLOR_PLANNED_ROUTE_LIGHT
-                                            } else {
-                                                TRAIL_LINE_COLORS[index % TRAIL_LINE_COLORS.size]
-                                            }
-                                            outlinePaint.strokeWidth = (if (isSelected) 5.0f else 3.2f) * density
-                                            outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
-                                            outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
-                                            outlinePaint.isAntiAlias = true
-
-                                            setOnClickListener { _, _, _ ->
-                                                viewModel.selectTrailForPeek(trail)
-                                                true
-                                            }
-                                        }
-                                        children.add(polyline)
-                                    }
-                                }
-                                overlayManager.updateFolderOverlay(
-                                    MapLayersOverlayManager.KEY_ROUTE,
-                                    children
-                                )
                             }
                         }
                     )
-
-                    // Selected trail card overlay at bottom of map
-                    selectedTrailForPeek?.let { peekTrail ->
-                        val metrics = trailMetrics[peekTrail.id]
-                        val points = allGeometries[peekTrail.id] ?: metrics?.geometryPoints
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .navigationBarsPadding()
-                                .imePadding()
-                                .padding(Spacing.s4)
-                        ) {
-                            TrailCard(
-                                trail = peekTrail,
-                                points = points,
-                                sheltersCount = shelterCounts[peekTrail.id] ?: metrics?.shelterCount ?: 0,
-                                friTeltningCount = friTeltningCounts[peekTrail.id] ?: metrics?.friTeltningCount ?: 0,
-                                ascentMeters = metrics?.ascentMeters,
-                                downloadedAt = downloadedTrailMap[peekTrail.id]?.downloadedAt,
-                                isSaved = savedTrailIds.contains(peekTrail.id),
-                                isSelected = true,
-                                onBookmarkClick = { viewModel.toggleBookmark(peekTrail.id) },
-                                onClick = { onTrailClick(peekTrail.id) }
-                            )
-                        }
-                    }
                 }
+            } else {
+                TrailBrowserMapContent(
+                    isDark = isDark,
+                    trails = trails,
+                    allGeometries = allGeometries,
+                    trailMetrics = trailMetrics,
+                    shelterCounts = shelterCounts,
+                    friTeltningCounts = friTeltningCounts,
+                    downloadedTrailMap = downloadedTrailMap,
+                    savedTrailIds = savedTrailIds,
+                    selectedTrailForPeek = selectedTrailForPeek,
+                    viewModel = viewModel,
+                    onMapReady = { mv -> mapViewRef = mv },
+                    onCenterDenmark = {
+                        mapViewRef?.controller?.animateTo(GeoPoint(55.9, 10.4), 7.5, 600L)
+                    },
+                    onOpenRouteBuilder = onOpenRouteBuilder,
+                    onTrailClick = onTrailClick
+                )
             }
         }
     }
 
-    // Overnatning nær mig Bottom Sheet
     if (showNearbySheet) {
-        ModalBottomSheet(
-            onDismissRequest = { viewModel.setShowNearbySheet(false) },
-            shape = SheetTopShape,
-            containerColor = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = Spacing.s4, vertical = Spacing.s3)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = if (isNearbyUsingMapCenter) "Omkring kortets midte" else "Overnatning nær dig",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = stringResource(R.string.ui_trailbrowserscreen_shelters_fri_teltning_inden__183),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(
-                        onClick = { viewModel.setShowNearbySheet(false) },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("close_nearby_sheet_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = stringResource(R.string.cd_close)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(Spacing.s3))
-
-                if (isSearchingNearby) {
-                    SkeletonLoadingList(itemCount = 2, cardHeight = 96.dp)
-                } else if (nearbySpots.isEmpty()) {
-                    EmptyStateView(
-                        icon = Icons.Default.Cabin,
-                        sentence = "Ingen overnatningssteder fundet inden for 10 km.",
-                        actionLabel = stringResource(R.string.state_Close_or_retry),
-                        onAction = { viewModel.setShowNearbySheet(false) }
-                    )
-                } else {
-                    val availableHeightDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.takeIf { it > 0 }?.dp ?: 640.dp
-                    val nearbyListMaxHeight = availableHeightDp * 0.60f
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = nearbyListMaxHeight)
-                            .testTag("nearby_spots_list"),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.s3)
-                    ) {
-                        items(nearbySpots, key = { it.id }) { spot ->
-                            NearbyOvernightSpotCard(
-                                spot = spot,
-                                showDistance = !isNearbyUsingMapCenter && userLocation != null,
-                                onOpenDirections = {
-                                    val uri = Uri.parse("geo:0,0?q=${spot.lat},${spot.lng}(${Uri.encode(spot.name)})")
-                                    val intent = Intent(Intent.ACTION_VIEW, uri)
-                                    try {
-                                        context.startActivity(intent)
-                                    } catch (_: Exception) {
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=${spot.lat},${spot.lng}")))
-                                    }
-                                },
-                                onRouteHerTil = {
-                                    viewModel.setShowNearbySheet(false)
-                                    onOpenRouteBuilder(spot.lat, spot.lng, spot.name)
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        TrailBrowserNearbySheet(
+            isNearbyUsingMapCenter = isNearbyUsingMapCenter,
+            isSearchingNearby = isSearchingNearby,
+            nearbySpots = nearbySpots,
+            hasUserLocation = userLocation != null,
+            onDismiss = { viewModel.setShowNearbySheet(false) },
+            onOpenRouteBuilder = onOpenRouteBuilder
+        )
     }
 
     selectedMarkedRoute?.let { markedRoute ->
@@ -1532,488 +739,3 @@ fun TrailBrowserScreen(
     }
 }
 
-/**
- * Requirement C: Large trail card.
- * - Map thumbnail of the trail drawn from its geometry
- * - Name (20 sp semibold)
- * - Region (13 sp)
- * - "215 km · +1.850 m · ca. 14 dage" (tabular figures, only real computed numbers)
- * - "42 shelters · 9 fri teltning"
- * - Bookmark icon (48 dp touch target + contentDescription)
- * - No ratings or difficulty labels unless computed from a documented rule.
- */
-@Composable
-fun TrailCard(
-    trail: TrailEntity,
-    points: List<GeoPointDto>?,
-    sheltersCount: Int,
-    friTeltningCount: Int,
-    ascentMeters: Int? = null,
-    downloadedAt: Long? = null,
-    downloadProgress: TrailDownloadProgress? = null,
-    isSaved: Boolean = false,
-    isSelected: Boolean = false,
-    onBookmarkClick: (() -> Unit)? = null,
-    onClick: () -> Unit,
-    testTagOverride: String? = null,
-    modifier: Modifier = Modifier
-) {
-    val totalKm = trail.computedWalkingKm
-    val estimatedDays = max(1, ceil(totalKm / 18.0).toInt())
-    val computedRegion = remember(trail) { GeoUtils.computeDanishRegionForTrail(trail) }
-    val displayRegion = computedRegion.ifEmpty { stringResource(R.string.explore_region_after_download) }
-
-    val computedAscent = remember(points, ascentMeters, totalKm) {
-        if (ascentMeters != null && ascentMeters > 0) {
-            ascentMeters
-        } else if (!points.isNullOrEmpty()) {
-            var gain = 0.0
-            for (i in 0 until points.size - 1) {
-                val e1 = points[i].ele
-                val e2 = points[i + 1].ele
-                if (e1 != null && e2 != null) {
-                    val diff = e2 - e1
-                    if (diff > 0) gain += diff
-                }
-            }
-            if (gain > 0) gain.toInt() else (totalKm * 8.5).toInt()
-        } else {
-            (totalKm * 8.5).toInt()
-        }
-    }
-
-    val kmFormatted = if (totalKm >= 100.0) {
-        String.format(Locale("da", "DK"), "%.0f", totalKm)
-    } else {
-        formatDanishKm(totalKm, decimals = 1)
-    }
-    val ascentFormatted = formatDanishElevationMeters(computedAscent)
-
-    Card(
-        shape = CardShape,
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
-        ),
-        border = BorderStroke(
-            if (isSelected) 2.dp else 1.dp,
-            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(CardShape)
-            .clickable(onClick = onClick)
-            .testTag(testTagOverride ?: "trail_card_${trail.id}")
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(Spacing.s4),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Map thumbnail drawn from trail geometry
-            val thumbnailPoints = remember(points, trail) {
-                if (!points.isNullOrEmpty()) {
-                    points
-                } else if (trail.bboxSouth != null && trail.bboxNorth != null && trail.bboxWest != null && trail.bboxEast != null) {
-                    listOf(
-                        GeoPointDto(trail.bboxSouth, trail.bboxWest),
-                        GeoPointDto((trail.bboxSouth + trail.bboxNorth) / 2.0, (trail.bboxWest + trail.bboxEast) / 2.0),
-                        GeoPointDto(trail.bboxNorth, trail.bboxEast)
-                    )
-                } else {
-                    emptyList()
-                }
-            }
-
-            TrailGeometryThumbnail(
-                points = thumbnailPoints,
-                modifier = Modifier.size(96.dp)
-            )
-
-            Spacer(modifier = Modifier.width(Spacing.s4))
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(Spacing.s1)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = trail.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = displayRegion,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    if (onBookmarkClick != null) {
-                        IconButton(
-                            onClick = onBookmarkClick,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .testTag("bookmark_trail_${trail.id}")
-                        ) {
-                            Icon(
-                                imageVector = if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                contentDescription = if (isSaved) {
-                                    stringResource(R.string.cd_bookmark_remove)
-                                } else {
-                                    stringResource(R.string.cd_bookmark_add)
-                                },
-                                tint = if (isSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
-                // Real computed stats line: "215 km · +1.850 m · ca. 14 dage" or "Længde beregnes ved hentning"
-                if (totalKm > 0.0) {
-                    Text(
-                        text = stringResource(R.string.ui_trailbrowserscreen_km_m_ca_184, kmFormatted, ascentFormatted, estimatedDays, if (estimatedDays == 1) "dag" else "dage"),
-                        style = TabularBodyStyle.copy(
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                } else {
-                    Text(
-                        text = stringResource(R.string.explore_length_after_download),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                // Real computed overnight line: "42 shelters · 9 fri teltning"
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.s2)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Cabin,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Text(
-                        text = stringResource(R.string.ui_trailbrowserscreen_shelters_fri_teltning_185, sheltersCount, friTeltningCount),
-                        style = TabularLabelStyle,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                if (downloadProgress != null) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp)
-                            .testTag("trail_card_progress_${trail.id}"),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        LinearProgressIndicator(
-                            progress = { downloadProgress.fraction.coerceIn(0f, 1f) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                        Text(
-                            text = stringResource(
-                                R.string.trail_download_progress_format,
-                                downloadProgress.message,
-                                (downloadProgress.fraction * 100).toInt().coerceIn(0, 100)
-                            ),
-                            style = TabularLabelStyle,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-
-                // Downloaded date badge ("Hentet <dato>") when trail is downloaded offline
-                if (downloadedAt != null) {
-                    Text(
-                        text = formatDownloadedDateDanish(downloadedAt),
-                        style = TabularLabelStyle,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.testTag("trail_card_downloaded_date_${trail.id}")
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DiscoveredHikingRouteCard(
-    route: DiscoveredHikingRouteDto,
-    isDownloading: Boolean,
-    progress: TrailDownloadProgress?,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        shape = CardShape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(CardShape)
-            .clickable(enabled = !isDownloading, onClick = onClick)
-            .testTag("discovered_route_card_${route.osmRelationId}")
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(Spacing.s4),
-            verticalArrangement = Arrangement.spacedBy(Spacing.s1)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Route,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(8.dp)
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = route.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = buildString {
-                                append(route.networkLabel)
-                                route.ref?.takeIf { it.isNotBlank() }?.let {
-                                    append(" · ")
-                                    append(it)
-                                }
-                                append(" · OSM #")
-                                append(route.osmRelationId)
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            if (isDownloading) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = Spacing.s1)
-                        .testTag("discovered_route_progress_${route.osmRelationId}"),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    LinearProgressIndicator(
-                        progress = { (progress?.fraction ?: 0.1f).coerceIn(0f, 1f) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(5.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                    Text(
-                        text = if (progress != null) {
-                            stringResource(
-                                R.string.trail_download_progress_format,
-                                progress.message,
-                                (progress.fraction * 100).toInt().coerceIn(0, 100)
-                            )
-                        } else {
-                            stringResource(R.string.explore_more_marked_routes_downloading)
-                        },
-                        style = TabularLabelStyle,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun RouteThumbnailCanvas(
-    points: List<GeoPointDto>?,
-    modifier: Modifier = Modifier
-) {
-    TrailGeometryThumbnail(
-        points = points ?: emptyList(),
-        modifier = modifier
-    )
-}
-
-@Composable
-fun NearbyOvernightSpotCard(
-    spot: com.example.data.model.NearbyOvernightSpot,
-    onOpenDirections: () -> Unit,
-    onRouteHerTil: () -> Unit = {},
-    showDistance: Boolean = true,
-    modifier: Modifier = Modifier
-) {
-    val isShelter = spot.type == "SHELTER"
-    val icon = if (isShelter) Icons.Default.Cabin else Icons.Default.Forest
-    val iconTint = if (isShelter) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
-    val distanceText = if (spot.distanceMeters >= 1000.0) {
-        "${formatDanishKm(spot.distanceMeters / 1000.0, 1)} km væk"
-    } else {
-        "${spot.distanceMeters.toInt()} m væk"
-    }
-
-    Card(
-        shape = CardShape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("nearby_spot_card_${spot.id}")
-    ) {
-        Column(
-            modifier = Modifier.padding(Spacing.s4),
-            verticalArrangement = Arrangement.spacedBy(Spacing.s2)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.s3)
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = iconTint.copy(alpha = 0.15f),
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = iconTint,
-                            modifier = Modifier.padding(8.dp)
-                        )
-                    }
-
-                    Column {
-                        Text(
-                            text = spot.name,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = if (isShelter) "Shelterplads" else "Fri teltning",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                if (showDistance) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    ) {
-                        Text(
-                            text = distanceText,
-                            style = TabularLabelStyle,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-            }
-
-            spot.description?.let { desc ->
-                if (desc.isNotBlank()) {
-                    Text(
-                        text = desc,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.s2, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedButton(
-                    onClick = onRouteHerTil,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .sizeIn(minHeight = 48.dp)
-                        .testTag("route_here_button_${spot.id}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Route,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = stringResource(R.string.ui_droppinbottomsheet_rute_hertil_14), style = MaterialTheme.typography.labelMedium)
-                }
-
-                Button(
-                    onClick = onOpenDirections,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    modifier = Modifier
-                        .sizeIn(minHeight = 48.dp)
-                        .testTag("directions_button_${spot.id}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Navigation,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = stringResource(R.string.ui_trailbrowserscreen_rutevejledning_186), style = MaterialTheme.typography.labelMedium)
-                }
-            }
-        }
-    }
-}

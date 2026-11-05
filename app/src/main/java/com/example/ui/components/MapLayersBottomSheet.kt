@@ -55,12 +55,18 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -593,8 +599,10 @@ private fun LayerToggleRow(
 fun MapAttributionPill(
     layersState: MapLayersState,
     isDarkMode: Boolean = false,
+    initiallyExpanded: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    var expanded by remember { mutableStateOf(initiallyExpanded) }
     val activeCredits = buildList {
         when (layersState.baseMap) {
             BaseMapType.SKAERMKORT -> add("© Klimadatastyrelsen (Skærmkortet)")
@@ -616,9 +624,9 @@ fun MapAttributionPill(
     }.distinct().joinToString(" · ")
 
     val containerColor = if (isDarkMode) {
-        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.82f)
+        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.85f)
     } else {
-        MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
     }
     val contentColor = if (isDarkMode) {
         MaterialTheme.colorScheme.inverseOnSurface
@@ -627,18 +635,38 @@ fun MapAttributionPill(
     }
 
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(14.dp),
         color = containerColor,
         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
+            .semantics { contentDescription = "Kortkreditter: $activeCredits" }
+            .clickable { expanded = !expanded }
     ) {
-        Text(
-            text = activeCredits,
-            fontSize = 9.sp,
-            lineHeight = 11.sp,
-            color = contentColor,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = if (expanded) 8.dp else 6.dp, vertical = 3.dp)
+        ) {
+            Text(
+                text = "i",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = contentColor,
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .testTag("map_attribution_info_button")
+            )
+            if (expanded) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = activeCredits,
+                    fontSize = 9.sp,
+                    lineHeight = 11.sp,
+                    color = contentColor,
+                    modifier = Modifier.testTag("map_attribution_credits_text")
+                )
+            }
+        }
     }
 }
+
 

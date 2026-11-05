@@ -150,7 +150,7 @@ data class RouteBuilderState(
     val draggingPinKmLabel: String? = null,
     val tappedTrailPoint: TrailProjection? = null,
     val showTripSettingsSheet: Boolean = false,
-    val paceKmh: Double = 4.5,
+    val paceKmh: Double = com.example.data.local.SettingsRepository.cachedMitTempoKmh,
     val dailyTargetKm: Double = 15.0,
     val startDateMillis: Long = System.currentTimeMillis(),
     val startTimeStr: String = "09:00",
@@ -190,6 +190,11 @@ data class RouteBuilderState(
     val isStarting: Boolean = false,
     val errorMessage: String? = null,
     val gpxOriginalPoints: List<RoutePoint3D> = emptyList(),
+    val gpxOriginalIndices: List<Int> = emptyList(),
+    val isRoutingGpxLegs: Boolean = false,
+    val gpxLegsCompletedCount: Int = 0,
+    val gpxLegsTotalCount: Int = 0,
+    val isUsingOriginalGpxGeometry: Boolean = false,
     val alternatives: List<RouteAlternativeInfo> = emptyList(),
     val isComparingAlternatives: Boolean = false,
     val selectedWaypointId: String? = null,
@@ -234,7 +239,10 @@ data class RouteBuilderState(
     val plannerSearchResults: com.example.data.remote.GroupedSearchResults = com.example.data.remote.GroupedSearchResults(),
     val currentGpsPosition: LatLng? = null,
     val showCoachMarks: Boolean = false,
-    val coachMarkStep: Int = 0
+    val coachMarkStep: Int = 0,
+    val hasUnsavedChanges: Boolean = false,
+    val showUnsavedChangesDialog: Boolean = false,
+    val pendingDraftToRestore: com.example.data.model.PlannerDraftEntity? = null
 ) {
     val visibleWaypoints: List<RouteWaypoint>
         get() = waypoints.filter { !it.isHelper }

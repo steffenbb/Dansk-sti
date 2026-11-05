@@ -90,15 +90,10 @@ class MarkedRouteRepository(
         .build()
 
     @Volatile
-    private var activeOverpassCall: okhttp3.Call? = null
+    var lastFetchFailed: Boolean = false
+        private set
 
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-
-    private val overpassMirrors = listOf(
-        "https://overpass.kumi.systems/api/interpreter",
-        "https://overpass-api.de/api/interpreter",
-        "https://lz4.overpass-api.de/api/interpreter"
-    )
 
     private val effectiveFilesDir: File
         get() = try {
@@ -175,35 +170,21 @@ class MarkedRouteRepository(
         emptyList()
     }
 
-    private fun fetchMoreMarkedRoutesOverpassJson(): String? {
+    private suspend fun fetchMoreMarkedRoutesOverpassJson(): String? {
         val customFetcher = customMoreMarkedRoutesFetcher
         if (customFetcher != null) {
             return customFetcher.invoke()
         }
 
-        for (mirror in overpassMirrors) {
-            try {
-                val body = ("data=" + java.net.URLEncoder.encode(MORE_MARKED_ROUTES_OVERPASS_QUERY, "UTF-8"))
-                    .toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
-                val req = Request.Builder()
-                    .url(mirror)
-                    .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
-                    .post(body)
-                    .build()
-
-                client.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) {
-                        val str = resp.body?.string()
-                        if (!str.isNullOrBlank()) {
-                            return str
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Overpass mirror $mirror failed for Flere afmærkede ruter: ${e.message}")
-            }
+        return try {
+            com.example.data.remote.OverpassClient.queryRawJson(
+                query = MORE_MARKED_ROUTES_OVERPASS_QUERY,
+                label = "MoreMarkedRoutes"
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Overpass failed for Flere afmærkede ruter: ${e.message}")
+            null
         }
-        return null
     }
 
     fun parseOverpassTagsResponse(jsonStr: String): List<DiscoveredHikingRouteDto> {
@@ -380,8 +361,8 @@ class MarkedRouteRepository(
         maxLng: Double,
         zoomLevel: Double
     ): List<MarkedRouteDto> = withContext(Dispatchers.IO) {
-        activeOverpassCall?.cancel()
         if (zoomLevel < 10.0) {
+            lastFetchFailed = false
             val cached = dao.getMarkedRoutesInBbox(minLat, maxLat, minLng, maxLng)
             return@withContext cached.map { entityToDto(it) }
         }
@@ -397,14 +378,17 @@ class MarkedRouteRepository(
         if (validBox != null) {
             val cachedEntities = dao.getMarkedRoutesInBbox(minLat, maxLat, minLng, maxLng)
             if (cachedEntities.isNotEmpty()) {
+                lastFetchFailed = false
                 Log.d(TAG, "Cache hit: Returning ${cachedEntities.size} marked routes from Room (cached within 7 days)")
                 return@withContext cachedEntities.map { entityToDto(it) }
             }
         }
 
         // 2. Query Overpass API for relation[route=hiking] and relation[route=foot]
+        var networkFailed = false
         try {
             val liveRoutes = queryOverpassMarkedRoutes(minLat, maxLat, minLng, maxLng)
+            lastFetchFailed = false
             if (liveRoutes.isNotEmpty()) {
                 val entities = liveRoutes.map { dtoToEntity(it) }
                 dao.insertMarkedRoutes(entities)
@@ -425,14 +409,15 @@ class MarkedRouteRepository(
                 return@withContext liveRoutes
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
-            activeOverpassCall?.cancel()
             throw e
         } catch (e: Exception) {
+            networkFailed = true
             Log.w(TAG, "Overpass query failed: ${e.message}. Checking offline fallback cache.")
         }
 
         // 3. Fallback to any previously cached routes in bbox
         val fallback = dao.getMarkedRoutesInBbox(minLat, maxLat, minLng, maxLng)
+        lastFetchFailed = networkFailed && fallback.isEmpty()
         fallback.map { entityToDto(it) }
     }
 
@@ -452,48 +437,11 @@ class MarkedRouteRepository(
             out skel qt;
         """.trimIndent()
 
-        var lastError: Exception? = null
-
-        for (endpoint in overpassMirrors) {
-            kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]?.let { job ->
-                if (!job.isActive) throw kotlinx.coroutines.CancellationException()
-            }
-            try {
-                val body = query.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
-                val request = Request.Builder()
-                    .url(endpoint)
-                    .post(body)
-                    .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
-                    .build()
-
-                val call = client.newCall(request)
-                activeOverpassCall = call
-                call.execute().use { response ->
-                    if (!response.isSuccessful) {
-                        throw IOException("HTTP ${response.code} from $endpoint")
-                    }
-                    val jsonStr = response.body?.string() ?: return@withContext emptyList()
-                    val result = parseOverpassRoutesJson(jsonStr)
-                    if (result.isNotEmpty()) {
-                        return@withContext result
-                    }
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                activeOverpassCall?.cancel()
-                throw e
-            } catch (e: Exception) {
-                if (activeOverpassCall?.isCanceled() == true) {
-                    throw kotlinx.coroutines.CancellationException("Overpass call cancelled")
-                }
-                lastError = e
-                Log.w(TAG, "Overpass mirror $endpoint failed: ${e.message}")
-            }
-        }
-
-        if (lastError != null) {
-            throw lastError
-        }
-        emptyList()
+        val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
+            query = query,
+            label = "MarkedRoutes($minLat,$minLng)"
+        )
+        parseOverpassRoutesJson(jsonStr)
     }
 
     private fun parseOverpassRoutesJson(jsonStr: String): List<MarkedRouteDto> {

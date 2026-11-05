@@ -69,7 +69,8 @@ class MapLayersOverlayManager(
     private val onAccessPolygonTapped: ((AccessPolygon) -> Unit)? = null
 ) {
     private var mapView: MapView? = null
-    private var currentState: MapLayersState = MapLayersState()
+    private var currentState: MapLayersState =
+        com.example.DanskStiApp.getSettingsRepository(context).currentSettingsSnapshot().mapLayers
     private var currentIsDark: Boolean = false
 
     // Stable-keyed overlays
@@ -110,6 +111,20 @@ class MapLayersOverlayManager(
     private var lastWaterBoundsKey: String? = null
     private var lastInvalidationElapsedMs: Long = 0L
 
+    private val _layerErrorMessages = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    val layerErrorMessages: kotlinx.coroutines.flow.StateFlow<Set<String>> = _layerErrorMessages
+
+    fun setLayerError(layerLabel: String, hasError: Boolean) {
+        val msg = "Kunne ikke hente $layerLabel"
+        val current = _layerErrorMessages.value.toMutableSet()
+        if (hasError) {
+            current.add(msg)
+        } else {
+            current.remove(msg)
+        }
+        _layerErrorMessages.value = current
+    }
+
     companion object {
         const val KEY_TERRAIN_HILLSHADE = "terrain_hillshade"
         const val KEY_TERRAIN_CONTOURS = "terrain_contours"
@@ -121,6 +136,7 @@ class MapLayersOverlayManager(
         const val KEY_DROP_PIN = "drop_pin"
         const val KEY_LOCATION = "location"
         const val KEY_SCALE_BAR = "scale_bar"
+        const val KEY_PLANNER_PIN_DRAG = "planner_pin_drag"
         const val KEY_EVENTS = "events"
 
         const val WATER_DEBOUNCE_MS = 600L
@@ -257,6 +273,7 @@ class MapLayersOverlayManager(
         KEY_DROP_PIN -> 60
         KEY_LOCATION -> 70
         KEY_SCALE_BAR -> 80
+        KEY_PLANNER_PIN_DRAG -> 90
         else -> 45
     }
 
@@ -325,6 +342,7 @@ class MapLayersOverlayManager(
         } else if (!state.showWaterLayer) {
             waterDebounceJob?.cancel()
             waterFetchJob?.cancel()
+            setLayerError("Vand", false)
         }
 
         // 4. Rebuild POI cluster items only if toggles or POI lists changed
@@ -334,6 +352,7 @@ class MapLayersOverlayManager(
         markedRoutesFolderOverlay.isEnabled = state.showMarkedRoutes
         if (!state.showMarkedRoutes) {
             markedRouteFetchJob?.cancel()
+            setLayerError("Afmærkede ruter", false)
         } else if (!prevState.showMarkedRoutes || cachedMarkedRoutes.isEmpty()) {
             lastFetchedBoundsKey = null
             fetchMarkedRoutesForCurrentViewport()
@@ -343,6 +362,7 @@ class MapLayersOverlayManager(
         accessFolderOverlay.isEnabled = state.showAccessLand
         if (!state.showAccessLand) {
             accessFetchJob?.cancel()
+            setLayerError("Adgang og ejerskab", false)
         } else if (!prevState.showAccessLand || cachedAccessPolygons.isEmpty()) {
             lastAccessBoundsKey = null
             fetchAccessLandForCurrentViewport()
@@ -388,6 +408,7 @@ class MapLayersOverlayManager(
         val map = mapView ?: return
         if (!currentState.showWaterLayer) {
             waterLayerOverlay.isEnabled = false
+            setLayerError("Vand", false)
             requestMapInvalidate()
             return
         }
@@ -428,6 +449,7 @@ class MapLayersOverlayManager(
             }
             ensureActive()
             cachedWaterFeatures = features
+            setLayerError("Vand", isLiveZoom && features.isEmpty() && waterLayerRepository.lastFetchFailed)
             val density = context.resources.displayMetrics.density
             val changed = waterLayerOverlay.updateFeatures(features, currentIsDark, density)
             if (changed) {
@@ -466,6 +488,7 @@ class MapLayersOverlayManager(
             }
             ensureActive()
             cachedMarkedRoutes = routes
+            setLayerError("Afmærkede ruter", isLiveZoom && routes.isEmpty() && markedRouteRepository.lastFetchFailed)
             rebuildMarkedRouteOverlaysIfChanged()
         }
     }
@@ -508,6 +531,7 @@ class MapLayersOverlayManager(
             }
             ensureActive()
             cachedAccessPolygons = polygons
+            setLayerError("Adgang og ejerskab", isLiveZoom && polygons.isEmpty() && com.example.data.repository.AccessLandRepository.Companion.DiagnosticsState.isDataUnavailable)
             rebuildAccessOverlaysIfChanged()
         }
     }
@@ -720,4 +744,99 @@ class MapLayersOverlayManager(
     fun getActivePoiItemCount(): Int = poiClusterOverlay?.getItemCount() ?: 0
 
     fun getActiveWaterFeatureCount(): Int = waterLayerOverlay.currentFeatureCount
+
+    /**
+     * Round 10A Item 2: If a shelter, fri teltning area, water, toilet, or shop is within [maxDistanceMeters] (30 m)
+     * or the finger is on its marker, return its [PoiItem] so the caller can open [PoiInfoSheet].
+     */
+    fun findLongPressPoi(point: GeoPoint, maxDistanceMeters: Double = 30.0): PoiItem? {
+        val allowedTypes = setOf("shelter", "tent", "water", "toilet", "shop")
+
+        // 1. Check within 30 m across active cluster items and cached shelters/friTeltning/pois (pick closest)
+        var bestPoi: PoiItem? = null
+        var bestDist = maxDistanceMeters
+
+        for (item in poiClusterOverlay?.getItems().orEmpty()) {
+            if (item.type !in allowedTypes) continue
+            val d = com.example.util.GeoUtils.distanceMeters(point.latitude, point.longitude, item.lat, item.lng)
+            if (d <= bestDist) {
+                bestDist = d
+                bestPoi = item
+            }
+        }
+
+        for (s in cachedShelters) {
+            val d = com.example.util.GeoUtils.distanceMeters(point.latitude, point.longitude, s.lat, s.lng)
+            if (d <= bestDist) {
+                bestDist = d
+                bestPoi = PoiItem(
+                    id = s.id,
+                    type = "shelter",
+                    name = s.name,
+                    subText = buildString {
+                        s.capacity?.let { append("Kapacitet: $it pladser") }
+                        if (s.bookingRequired) {
+                            if (isNotEmpty()) append(" · ")
+                            append("Booking")
+                        }
+                    }.ifEmpty { "Shelter / Lejrplads" },
+                    lat = s.lat,
+                    lng = s.lng,
+                    payload = s
+                )
+            }
+        }
+
+        for (f in cachedFriTeltning) {
+            val d = com.example.util.GeoUtils.distanceMeters(point.latitude, point.longitude, f.centerLat, f.centerLng)
+            if (d <= bestDist) {
+                bestDist = d
+                bestPoi = PoiItem(
+                    id = f.id,
+                    type = "tent",
+                    name = f.name,
+                    subText = "Fri teltning skov",
+                    lat = f.centerLat,
+                    lng = f.centerLng,
+                    payload = f
+                )
+            }
+        }
+
+        for (p in cachedPois) {
+            val normalized = p.type.lowercase()
+            val typeKey = when (normalized) {
+                "water", "drinking_water", "vand" -> "water"
+                "toilet", "toilets" -> "toilet"
+                "shop", "supermarket", "convenience", "bakery", "indkoeb" -> "shop"
+                else -> null
+            } ?: continue
+            val d = com.example.util.GeoUtils.distanceMeters(point.latitude, point.longitude, p.lat, p.lng)
+            if (d <= bestDist) {
+                bestDist = d
+                bestPoi = PoiItem(
+                    id = p.id,
+                    type = typeKey,
+                    name = p.name.ifBlank {
+                        when (typeKey) {
+                            "water" -> "Drikkevand"
+                            "toilet" -> "Toilet"
+                            else -> "Indkøb"
+                        }
+                    },
+                    subText = p.openingHours ?: p.operator ?: "",
+                    lat = p.lat,
+                    lng = p.lng,
+                    payload = p
+                )
+            }
+        }
+
+        if (bestPoi != null) {
+            return bestPoi
+        }
+
+        // 2. Fallback: Check if the finger is directly on a rendered marker
+        return poiClusterOverlay?.findHitPoiAtGeoPoint(point, mapView, allowedTypes)
+    }
 }

@@ -251,4 +251,51 @@ class PoiClusterOverlay(
         }
         return false
     }
+
+    /**
+     * Checks if [geoPoint] falls on a rendered marker in [mapView] (for shelter, fri teltning, water, toilet, or shop).
+     */
+    fun findHitPoiAtGeoPoint(
+        geoPoint: GeoPoint,
+        mapView: MapView?,
+        allowedTypes: Set<String> = setOf("shelter", "tent", "water", "toilet", "shop")
+    ): MapPoiItem? {
+        if (!isEnabled || mapView == null) return null
+        val projection = mapView.projection ?: return null
+        val tapPt = Point()
+        projection.toPixels(geoPoint, tapPt)
+        val density = context.resources.displayMetrics.density
+        val touchRadius = 24f * density
+
+        synchronized(this) {
+            var closestItem: MapPoiItem? = null
+            var closestDist = Double.MAX_VALUE
+
+            for ((item, point) in activeSingleItems) {
+                if (item.type !in allowedTypes) continue
+                val dx = (tapPt.x - point.x).toDouble()
+                val dy = (tapPt.y - point.y).toDouble()
+                val dist = sqrt(dx * dx + dy * dy)
+                if (dist <= touchRadius && dist < closestDist) {
+                    closestDist = dist
+                    closestItem = item
+                }
+            }
+            if (closestItem != null) return closestItem
+
+            val itemPt = Point()
+            for (item in poiItems) {
+                if (item.type !in allowedTypes) continue
+                projection.toPixels(GeoPoint(item.lat, item.lng), itemPt)
+                val dx = (tapPt.x - itemPt.x).toDouble()
+                val dy = (tapPt.y - itemPt.y).toDouble()
+                val dist = sqrt(dx * dx + dy * dy)
+                if (dist <= touchRadius && dist < closestDist) {
+                    closestDist = dist
+                    closestItem = item
+                }
+            }
+            return closestItem
+        }
+    }
 }

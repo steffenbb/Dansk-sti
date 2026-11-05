@@ -347,7 +347,9 @@ fun RouteElevationProfileChart(
                 val y2 = yCoords[i + 1]
 
                 val dDistM = (distancesKm[i + 1] - distancesKm[i]) * 1000.0
-                val dEleM = (validPoints[i + 1].ele ?: 0.0) - (validPoints[i].ele ?: 0.0)
+                val e1 = validPoints[i].ele
+                val e2 = validPoints[i + 1].ele
+                val dEleM = if (e1 != null && e2 != null) e2 - e1 else 0.0
                 val gradientPct = if (dDistM > 0.1) (abs(dEleM) / dDistM) * 100.0 else 0.0
 
                 val segmentColor = when {

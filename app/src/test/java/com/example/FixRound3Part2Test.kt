@@ -161,6 +161,38 @@ class FixRound3Part2Test {
         assertEquals(forwardLeg.descentM, reverseLeg.ascentM, 1.0)
     }
 
+    private fun createSyntheticDetourRoutingEngine(): com.example.util.routing.RoutingEngine {
+        return object : com.example.util.routing.RoutingEngine {
+            override suspend fun routeLeg(
+                from: com.example.util.routing.LatLng,
+                to: com.example.util.routing.LatLng,
+                options: com.example.util.routing.RouteOptions,
+                alternative: Int
+            ): com.example.util.routing.RouteLegResult {
+                val dLat = Math.toRadians(to.lat - from.lat)
+                val dLng = Math.toRadians(to.lng - from.lng)
+                val a = kotlin.math.sin(dLat / 2) * kotlin.math.sin(dLat / 2) +
+                    kotlin.math.cos(Math.toRadians(from.lat)) * kotlin.math.cos(Math.toRadians(to.lat)) *
+                    kotlin.math.sin(dLng / 2) * kotlin.math.sin(dLng / 2)
+                val distKm = 2 * 6371.0 * kotlin.math.asin(kotlin.math.sqrt(a.coerceIn(0.0, 1.0))) * 1.15
+                return com.example.util.routing.RouteLegResult.Success(
+                    points = listOf(
+                        com.example.util.routing.RoutePoint3D(from.lat, from.lng, 10.0),
+                        com.example.util.routing.RoutePoint3D(to.lat, to.lng, 12.0)
+                    ),
+                    lengthKm = kotlin.math.max(0.25, distKm),
+                    ascentM = 2.0,
+                    descentM = 0.0,
+                    perPointWayInfo = listOf(
+                        com.example.util.routing.WayInfo(highway = "track", surface = "gravel"),
+                        com.example.util.routing.WayInfo(highway = "track", surface = "gravel")
+                    ),
+                    sourceName = "TestDetourEngine"
+                )
+            }
+        }
+    }
+
     /**
      * Requirement H.3:
      * Detour to a pin 400 m off the trail adds a SNAP out and back and a positive detour cost.
@@ -169,6 +201,7 @@ class FixRound3Part2Test {
     fun testDetourToPin400mOffTrail_AddsSnapOutAndBackAndPositiveDetourCost() = runBlocking {
         val segments = createSyntheticTrailSegmentsWithFerry()
         val vm = RouteBuilderViewModel(app)
+        vm.routingEngine = createSyntheticDetourRoutingEngine()
 
         // Initialize synthetic trail directly or via repository
         val testTrail = TrailEntity(
@@ -206,10 +239,12 @@ class FixRound3Part2Test {
         vm.initTrailMode("test_trail_40km")
         // Wait for initialization
         var attempts = 0
-        while (vm.uiState.value.waypoints.size < 2 && attempts < 50) {
+        while (vm.uiState.value.waypoints.size < 2 && attempts < 120) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
             delay(50)
             attempts++
         }
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
 
         val initialTotalKm = vm.uiState.value.totalKm
         assertTrue("Initial trail totalKm should be ~40 km (got $initialTotalKm)", initialTotalKm > 35.0)
@@ -418,6 +453,7 @@ class FixRound3Part2Test {
         )
 
         val vm = RouteBuilderViewModel(app)
+        vm.routingEngine = createSyntheticDetourRoutingEngine()
         vm.initTrailMode("trail_ohavsstien")
 
         var attempts = 0

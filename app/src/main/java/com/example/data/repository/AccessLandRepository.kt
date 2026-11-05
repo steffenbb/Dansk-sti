@@ -417,20 +417,11 @@ class AccessLandRepository(
             out skel qt;
         """.trimIndent()
 
-        val requestBody = query.toRequestBody("text/plain".toMediaType())
-        val request = Request.Builder()
-            .url("https://overpass-api.de/api/interpreter")
-            .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
-            .post(requestBody)
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("Overpass HTTP ${response.code}")
-            }
-            val bodyStr = response.body?.string() ?: return@withContext emptyList()
-            return@withContext parseOverpassJson(bodyStr)
-        }
+        val bodyStr = com.example.data.remote.OverpassClient.queryRawJson(
+            query = query,
+            label = "AccessLand($minLat,$minLng)"
+        )
+        return@withContext parseOverpassJson(bodyStr)
     }
 
     private fun parseOverpassJson(jsonStr: String): List<AccessPolygon> {

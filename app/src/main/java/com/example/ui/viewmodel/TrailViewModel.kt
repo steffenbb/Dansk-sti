@@ -118,12 +118,183 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     private val _createdNavigationPlanId = MutableStateFlow<Long?>(null)
     val createdNavigationPlanId: StateFlow<Long?> = _createdNavigationPlanId.asStateFlow()
 
+    private val _osmRelationTags = MutableStateFlow<Map<String, String>>(emptyMap())
+    val osmRelationTags: StateFlow<Map<String, String>> = _osmRelationTags.asStateFlow()
+
     val downloadProgress: StateFlow<Map<String, com.example.data.model.TrailDownloadProgress>> =
         com.example.data.repository.TrailGeometryRepository.globalDownloadProgress
 
-    private val settingsRepository = com.example.data.local.SettingsRepository(application)
+    // Round 10C Item 3: Direct offline download state for this trail page
+    private val _offlineEstimate = MutableStateFlow<com.example.util.OfflineEstimateResult?>(null)
+    val offlineEstimate: StateFlow<com.example.util.OfflineEstimateResult?> = _offlineEstimate.asStateFlow()
+
+    private val _showOfflineConfirmDialog = MutableStateFlow(false)
+    val showOfflineConfirmDialog: StateFlow<Boolean> = _showOfflineConfirmDialog.asStateFlow()
+
+    private val _offlineDownloadError = MutableStateFlow<String?>(null)
+    val offlineDownloadError: StateFlow<String?> = _offlineDownloadError.asStateFlow()
+
+    private val _isOfflineMapDownloading = MutableStateFlow(false)
+    val isOfflineMapDownloading: StateFlow<Boolean> = _isOfflineMapDownloading.asStateFlow()
+
+    private val _offlineMapProgressPct = MutableStateFlow(0)
+    val offlineMapProgressPct: StateFlow<Int> = _offlineMapProgressPct.asStateFlow()
+
+    private var offlineWorkObserverJob: kotlinx.coroutines.Job? = null
+
+    // Round 10C Item 8: "Start nu" fresh GPS fix state & test hooks
+    private val _isStartingNow = MutableStateFlow(false)
+    val isStartingNow: StateFlow<Boolean> = _isStartingNow.asStateFlow()
+
+    private val _startNowStatusMessage = MutableStateFlow<String?>(null)
+    val startNowStatusMessage: StateFlow<String?> = _startNowStatusMessage.asStateFlow()
+
+    var startNowFreshLocationTimeoutMs: Long = com.example.ui.map.LiveMapLocationState.CURRENT_LOCATION_TIMEOUT_MS
+    var customFreshLocationFetcher: (suspend (timeoutMs: Long) -> android.location.Location?)? = null
+
+    private val settingsRepository = com.example.DanskStiApp.getSettingsRepository(application)
 
     private var currentTrailId: String? = null
+
+    fun setOsmRelationTagsForDisplay(tags: Map<String, String>) {
+        _osmRelationTags.value = tags
+    }
+
+    fun clearStartNowStatusMessage() {
+        _startNowStatusMessage.value = null
+    }
+
+    fun setOfflineMapProgressForTesting(isDownloading: Boolean, progressPct: Int) {
+        _isOfflineMapDownloading.value = isDownloading
+        _offlineMapProgressPct.value = progressPct.coerceIn(0, 100)
+    }
+
+    /**
+     * Round 10C Item 3: Estimate offline download size for this trail and show confirmation dialog.
+     */
+    fun requestOfflineDownloadEstimate(corridorKm: Double = 1.0) {
+        val tid = currentTrailId ?: _trail.value?.id ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val est = run {
+                val trailEntity = _trail.value ?: repository.getTrailById(tid) ?: return@launch
+                val pts = _trailPoints.value.ifEmpty {
+                    repository.getTrailPoints(trailEntity).flatMap { it.points }
+                }
+                val wifiOnly = settingsRepository.currentSettingsSnapshot().offlineDownloadsWifiOnly
+                com.example.util.OfflineDownloadManager.estimateDownload(
+                    points = pts,
+                    corridorKm = corridorKm,
+                    context = getApplication(),
+                    wifiOnly = wifiOnly
+                )
+            }
+
+            _offlineEstimate.value = est
+            if (!est.isAllowed) {
+                _offlineDownloadError.value = est.refuseReason
+                _showOfflineConfirmDialog.value = false
+            } else {
+                _offlineDownloadError.value = null
+                _showOfflineConfirmDialog.value = true
+            }
+        }
+    }
+
+    fun dismissOfflineConfirmDialog() {
+        _showOfflineConfirmDialog.value = false
+    }
+
+    fun clearOfflineDownloadError() {
+        _offlineDownloadError.value = null
+    }
+
+    /**
+     * Round 10C Item 3: Start the offline map download for this trail directly after confirmation
+     * and observe progress for the button.
+     */
+    fun confirmAndStartOfflineDownload(corridorKm: Double = 1.0) {
+        val tid = currentTrailId ?: _trail.value?.id ?: return
+        _showOfflineConfirmDialog.value = false
+        viewModelScope.launch(Dispatchers.IO) {
+            val enqueueRes = run {
+                val trailEntity = _trail.value ?: repository.getTrailById(tid) ?: return@launch
+                val wifiOnly = settingsRepository.currentSettingsSnapshot().offlineDownloadsWifiOnly
+                val est = _offlineEstimate.value ?: run {
+                    val pts = _trailPoints.value.ifEmpty {
+                        repository.getTrailPoints(trailEntity).flatMap { it.points }
+                    }
+                    com.example.util.OfflineDownloadManager.estimateDownload(
+                        points = pts,
+                        corridorKm = corridorKm,
+                        context = getApplication(),
+                        wifiOnly = wifiOnly
+                    ).also { _offlineEstimate.value = it }
+                }
+                if (!est.isAllowed) {
+                    est
+                } else {
+                    com.example.util.OfflineDownloadManager.enqueueDownload(
+                        context = getApplication(),
+                        trailId = trailEntity.id,
+                        trailName = trailEntity.name,
+                        corridorKm = corridorKm,
+                        wifiOnly = wifiOnly,
+                        requiredBytes = est.estimatedSizeBytes
+                    )
+                }
+            }
+
+            if (!enqueueRes.isAllowed) {
+                _offlineDownloadError.value = enqueueRes.refuseReason
+                _isOfflineMapDownloading.value = false
+                return@launch
+            }
+
+            _offlineDownloadError.value = null
+            _isOfflineMapDownloading.value = true
+            _offlineMapProgressPct.value = 0
+            observeOfflineMapWork(tid)
+        }
+    }
+
+    private fun observeOfflineMapWork(trailId: String) {
+        offlineWorkObserverJob?.cancel()
+        offlineWorkObserverJob = viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                com.example.util.OfflineDownloadManager.observeDownloadProgress(getApplication(), trailId)
+                    .collect { workInfo ->
+                        if (workInfo == null) return@collect
+                        when (workInfo.state) {
+                            androidx.work.WorkInfo.State.ENQUEUED,
+                            androidx.work.WorkInfo.State.RUNNING -> {
+                                _isOfflineMapDownloading.value = true
+                                val pct = workInfo.progress.getInt(
+                                    com.example.service.OfflineDownloadWorker.KEY_PROGRESS_PERCENT,
+                                    _offlineMapProgressPct.value
+                                ).coerceIn(0, 100)
+                                _offlineMapProgressPct.value = pct
+                            }
+                            androidx.work.WorkInfo.State.SUCCEEDED -> {
+                                _isOfflineMapDownloading.value = false
+                                _offlineMapProgressPct.value = 100
+                                _downloadedTrail.value = withContext(Dispatchers.IO) {
+                                    repository.getDownloadedTrail(trailId)
+                                }
+                            }
+                            androidx.work.WorkInfo.State.FAILED,
+                            androidx.work.WorkInfo.State.CANCELLED -> {
+                                _isOfflineMapDownloading.value = false
+                                val err = workInfo.outputData.getString("error")
+                                if (!err.isNullOrBlank()) {
+                                    _offlineDownloadError.value = err
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
+            }
+        }
+    }
 
     fun retryLoadRoute() {
         val tid = currentTrailId ?: _trail.value?.id ?: return
@@ -132,7 +303,8 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadTrail(trailId: String) {
         currentTrailId = trailId
-        viewModelScope.launch {
+        observeOfflineMapWork(trailId)
+        viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
             _routeError.value = null
             withContext(Dispatchers.IO) {
@@ -142,6 +314,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 _trail.value = entity
                 _downloadedTrail.value = repository.getDownloadedTrail(trailId)
+                _osmRelationTags.value = repository.getRelationOsmTags(entity.id, entity.osmRelationId)
 
                 // Observe isSaved
                 launch {
@@ -165,6 +338,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 _trailPoints.value = points
                 val geom = repository.getTrailGeometry(trailId)
                 _trailGeometry.value = geom
+                _osmRelationTags.value = repository.getRelationOsmTags(entity.id, entity.osmRelationId)
                 repository.getTrailById(trailId)?.let { _trail.value = it }
 
                 if (points.isEmpty()) {
@@ -417,133 +591,171 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * UI Round 4 Item 2:
-     * "Start nu" next to "Planlæg tur": starts navigation on the whole trail from the trail point
-     * nearest my position (or the trail start without GPS), creating a simple plan with the stage planner.
+     * Round 10C Item 8:
+     * "Start nu": use a fresh GPS fix (as in Round 10A item 8) to choose the starting point on the trail;
+     * if none within 15 s, start from the trail start and say so.
      */
     fun startTrailNow(
         gpsLat: Double? = null,
         gpsLng: Double? = null,
         onPlanCreated: (Long) -> Unit
     ) {
-        viewModelScope.launch {
-            val savedPlanId = withContext(Dispatchers.IO) {
-                val tid = currentTrailId ?: _trail.value?.id ?: return@withContext null
-                val trailEntity = _trail.value ?: repository.getTrailById(tid) ?: return@withContext null
-                val segments = _trailGeometry.value?.segments?.takeIf { it.isNotEmpty() }
-                    ?: repository.geometryRepository.loadGeometry(trailEntity.id)?.segments
-                    ?: if (_trailPoints.value.isNotEmpty()) {
-                        listOf(TrailSegmentDto(type = TrailSegmentType.WALK, points = _trailPoints.value))
-                    } else {
-                        emptyList()
-                    }
-
-                val totalTrailKm = com.example.util.routing.TrailSlicer.totalTrailKm(segments)
-                    .takeIf { it > 0.0 }
-                    ?: trailEntity.computedWalkingKm.coerceAtLeast(1.0)
-
-                var isReverse = false
-                var startKm = 0.0
-                val endKm = totalTrailKm
-
-                if (gpsLat != null && gpsLng != null && segments.isNotEmpty()) {
-                    val proj = com.example.util.routing.TrailSlicer.projectOntoTrail(
-                        segments = segments,
-                        lat = gpsLat,
-                        lng = gpsLng,
-                        isReverse = false
-                    )
-                    if (proj != null) {
-                        if (proj.trailKm >= totalTrailKm - 0.25 && totalTrailKm > 1.0) {
-                            isReverse = true
-                            startKm = 0.0
+        viewModelScope.launch(Dispatchers.IO) {
+            _isStartingNow.value = true
+            try {
+                var effectiveLat = gpsLat
+                var effectiveLng = gpsLng
+                if (effectiveLat == null || effectiveLng == null) {
+                    val timeoutMs = startNowFreshLocationTimeoutMs
+                    val fetcher = customFreshLocationFetcher
+                    val freshLoc = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+                        if (fetcher != null) {
+                            fetcher(timeoutMs)
                         } else {
-                            startKm = proj.trailKm.coerceIn(0.0, (totalTrailKm - 0.1).coerceAtLeast(0.0))
+                            com.example.ui.map.LiveMapLocationState.awaitFreshLocationWithTimeout(
+                                getApplication(),
+                                timeoutMs
+                            )
+                        }
+                    }
+                    if (freshLoc != null) {
+                        effectiveLat = freshLoc.latitude
+                        effectiveLng = freshLoc.longitude
+                        _startNowStatusMessage.value = null
+                    } else {
+                        val fallbackMsg = getApplication<Application>().getString(
+                            com.example.R.string.trail_detail_start_now_no_gps_fallback
+                        )
+                        _startNowStatusMessage.value = fallbackMsg
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            runCatching {
+                                android.widget.Toast.makeText(
+                                    getApplication(),
+                                    fallbackMsg,
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }
                         }
                     }
                 }
 
-                val settings = kotlinx.coroutines.withTimeoutOrNull(250L) {
-                    settingsRepository.settingsFlow.firstOrNull()
-                } ?: com.example.data.local.AppSettings(
-                    mitTempoKmh = com.example.data.local.SettingsRepository.cachedMitTempoKmh,
-                    plannerCoachMarksSeen = com.example.data.local.SettingsRepository.cachedPlannerCoachMarksSeen
-                )
-                val paceKmh = settings.mitTempoKmh.takeIf { it > 0.5 } ?: 4.0
-                val dailyTargetKm = settings.dailyTargetKm.takeIf { it > 1.0 } ?: 15.0
-                val maxDetourKm = settings.maxDetourKm.takeIf { it > 0.1 } ?: 1.5
-                val startTime = settings.startTime
+                val savedPlanId = withContext(Dispatchers.IO) {
+                    val tid = currentTrailId ?: _trail.value?.id ?: return@withContext null
+                    val trailEntity = _trail.value ?: repository.getTrailById(tid) ?: return@withContext null
+                    val segments = _trailGeometry.value?.segments?.takeIf { it.isNotEmpty() }
+                        ?: repository.geometryRepository.loadGeometry(trailEntity.id)?.segments
+                        ?: if (_trailPoints.value.isNotEmpty()) {
+                            listOf(TrailSegmentDto(type = TrailSegmentType.WALK, points = _trailPoints.value))
+                        } else {
+                            emptyList()
+                        }
 
-                val plannedRouteRepo = com.example.data.repository.PlannedRouteRepository(getApplication())
-                val initialPlannedRoute = plannedRouteRepo.buildPlannedRoute(
-                    planId = 0L,
-                    trail = trailEntity,
-                    segments = segments,
-                    startKm = startKm,
-                    endKm = endKm,
-                    isReverse = isReverse,
-                    stages = emptyList()
-                )
+                    val totalTrailKm = com.example.util.routing.TrailSlicer.totalTrailKm(segments)
+                        .takeIf { it > 0.0 }
+                        ?: trailEntity.computedWalkingKm.coerceAtLeast(1.0)
 
-                val walkKm = initialPlannedRoute.totalWalkKm.takeIf { it > 0.1 }
-                    ?: (endKm - startKm).coerceAtLeast(1.0)
-                val numDays = kotlin.math.ceil(walkKm / dailyTargetKm).toInt().coerceAtLeast(1)
+                    var isReverse = false
+                    var startKm = 0.0
+                    val endKm = totalTrailKm
 
-                val hasRoutePoints = initialPlannedRoute.points.isNotEmpty()
-                val dao = (getApplication<Application>() as DanskStiApp).database.danskStiDao()
-                val shelters = if (hasRoutePoints) dao.getSheltersForTrail(trailEntity.id) else emptyList()
-                val friTeltning = if (hasRoutePoints) {
-                    val bbox = initialPlannedRoute.boundingBox()
-                    dao.getAllFriTeltningList().filter {
-                        it.centerLat in (bbox[0] - 0.05)..(bbox[1] + 0.05) &&
-                            it.centerLng in (bbox[2] - 0.08)..(bbox[3] + 0.08)
+                    if (effectiveLat != null && effectiveLng != null && segments.isNotEmpty()) {
+                        val proj = com.example.util.routing.TrailSlicer.projectOntoTrail(
+                            segments = segments,
+                            lat = effectiveLat,
+                            lng = effectiveLng,
+                            isReverse = false
+                        )
+                        if (proj != null) {
+                            if (proj.trailKm >= totalTrailKm - 0.25 && totalTrailKm > 1.0) {
+                                isReverse = true
+                                startKm = 0.0
+                            } else {
+                                startKm = proj.trailKm.coerceIn(0.0, (totalTrailKm - 0.1).coerceAtLeast(0.0))
+                            }
+                        }
                     }
-                } else emptyList()
-                val pois = if (hasRoutePoints) dao.getPoisForTrail(trailEntity.id) else emptyList()
 
-                val stages = com.example.util.StagePlanner.calculateStages(
-                    plannedRoute = initialPlannedRoute,
-                    trail = trailEntity,
-                    routeName = trailEntity.name,
-                    paceKmh = paceKmh,
-                    dailyTargetKm = dailyTargetKm,
-                    numDays = numDays,
-                    overnightType = com.example.data.model.OvernightType.BOTH,
-                    maxDetourKm = maxDetourKm,
-                    startTime = startTime,
-                    shelters = shelters,
-                    friTeltnings = friTeltning,
-                    pois = pois
-                )
+                    val settings = kotlinx.coroutines.withTimeoutOrNull(250L) {
+                        settingsRepository.settingsFlow.firstOrNull()
+                    } ?: settingsRepository.currentSettingsSnapshot()
+                    val paceKmh = settings.mitTempoKmh.takeIf { it > 0.5 } ?: 4.0
+                    val dailyTargetKm = settings.dailyTargetKm.takeIf { it > 1.0 } ?: 15.0
+                    val maxDetourKm = settings.maxDetourKm.takeIf { it > 0.1 } ?: 1.5
+                    val startTime = settings.startTime
 
-                val planId = repository.saveTripPlan(
-                    trail = trailEntity,
-                    startKm = startKm,
-                    endKm = endKm,
-                    isReverse = isReverse,
-                    days = stages.size.coerceAtLeast(1),
-                    overnightType = com.example.data.model.OvernightType.BOTH,
-                    preferredDailyKm = dailyTargetKm,
-                    stages = stages,
-                    paceKmh = paceKmh,
-                    maxDetourKm = maxDetourKm,
-                    startTime = startTime
-                )
-                val finalPlannedRoute = plannedRouteRepo.buildPlannedRoute(
-                    planId = planId,
-                    trail = trailEntity,
-                    segments = segments,
-                    startKm = startKm,
-                    endKm = endKm,
-                    isReverse = isReverse,
-                    stages = stages
-                )
-                plannedRouteRepo.savePlannedRoute(finalPlannedRoute)
-                _createdNavigationPlanId.value = planId
-                planId
-            }
-            if (savedPlanId != null) {
-                onPlanCreated(savedPlanId)
+                    val plannedRouteRepo = com.example.data.repository.PlannedRouteRepository(getApplication())
+                    val initialPlannedRoute = plannedRouteRepo.buildPlannedRoute(
+                        planId = 0L,
+                        trail = trailEntity,
+                        segments = segments,
+                        startKm = startKm,
+                        endKm = endKm,
+                        isReverse = isReverse,
+                        stages = emptyList()
+                    )
+
+                    val walkKm = initialPlannedRoute.totalWalkKm.takeIf { it > 0.1 }
+                        ?: (endKm - startKm).coerceAtLeast(1.0)
+                    val numDays = kotlin.math.ceil(walkKm / dailyTargetKm).toInt().coerceAtLeast(1)
+
+                    val hasRoutePoints = initialPlannedRoute.points.isNotEmpty()
+                    val dao = (getApplication<Application>() as DanskStiApp).database.danskStiDao()
+                    val shelters = if (hasRoutePoints) dao.getSheltersForTrail(trailEntity.id) else emptyList()
+                    val friTeltning = if (hasRoutePoints) {
+                        val bbox = initialPlannedRoute.boundingBox()
+                        dao.getAllFriTeltningList().filter {
+                            it.centerLat in (bbox[0] - 0.05)..(bbox[1] + 0.05) &&
+                                it.centerLng in (bbox[2] - 0.08)..(bbox[3] + 0.08)
+                        }
+                    } else emptyList()
+                    val pois = if (hasRoutePoints) dao.getPoisForTrail(trailEntity.id) else emptyList()
+
+                    val stages = com.example.util.StagePlanner.planStages(
+                        plannedRoute = initialPlannedRoute,
+                        trail = trailEntity,
+                        routeName = trailEntity.name,
+                        paceKmh = paceKmh,
+                        dailyTargetKm = dailyTargetKm,
+                        numDays = numDays,
+                        overnightType = com.example.data.model.OvernightType.BOTH,
+                        maxDetourKm = maxDetourKm,
+                        startTime = startTime,
+                        shelters = shelters,
+                        friTeltnings = friTeltning,
+                        pois = pois
+                    )
+
+                    val planId = repository.saveTripPlan(
+                        trail = trailEntity,
+                        startKm = startKm,
+                        endKm = endKm,
+                        isReverse = isReverse,
+                        days = stages.size.coerceAtLeast(1),
+                        overnightType = com.example.data.model.OvernightType.BOTH,
+                        preferredDailyKm = dailyTargetKm,
+                        stages = stages,
+                        paceKmh = paceKmh,
+                        maxDetourKm = maxDetourKm,
+                        startTime = startTime
+                    )
+                    val finalPlannedRoute = plannedRouteRepo.buildPlannedRoute(
+                        planId = planId,
+                        trail = trailEntity,
+                        segments = segments,
+                        startKm = startKm,
+                        endKm = endKm,
+                        isReverse = isReverse,
+                        stages = stages
+                    )
+                    plannedRouteRepo.savePlannedRoute(finalPlannedRoute)
+                    _createdNavigationPlanId.value = planId
+                    planId
+                }
+                if (savedPlanId != null) {
+                    onPlanCreated(savedPlanId)
+                }
+            } finally {
+                _isStartingNow.value = false
             }
         }
     }

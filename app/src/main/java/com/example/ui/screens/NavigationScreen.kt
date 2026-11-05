@@ -52,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
 import com.example.data.model.TurnCue
+import com.example.ui.components.PoiInfoSheet
+import com.example.ui.components.PoiInfoSheetData
 import com.example.ui.components.formatDanishKm
 import com.example.ui.map.DanskStiMap
 import com.example.ui.navigation.NavigationMapOverlayManager
@@ -65,37 +67,6 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import java.util.Locale
 import kotlin.math.max
-
-/**
- * Sets or clears [WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON] so the screen is kept on
- * ONLY while active navigation is running and the "Hold skærmen tændt" setting is enabled.
- */
-fun updateKeepScreenOnWindowFlag(
-    window: Window?,
-    isNavigating: Boolean,
-    keepScreenOnEnabled: Boolean
-) {
-    if (window == null) return
-    if (isNavigating && keepScreenOnEnabled) {
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-    } else {
-        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val params = window.attributes
-        if (params != null && params.screenBrightness != WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
-            params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-            window.attributes = params
-        }
-    }
-}
-
-fun Context.findActivity(): Activity? {
-    var ctx: Context? = this
-    while (ctx is ContextWrapper) {
-        if (ctx is Activity) return ctx
-        ctx = ctx.baseContext
-    }
-    return null
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -138,38 +109,28 @@ fun NavigationScreen(
     val voiceGuidance by viewModel.voiceGuidance.collectAsState()
     val sunsetTime by viewModel.sunsetTime.collectAsState()
 
-    // Round 9A Item 4: Read device heading from the rotation vector sensor
-    DisposableEffect(context) {
-        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
-        val rotationSensor = sensorManager?.getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR)
-        val listener = object : android.hardware.SensorEventListener {
-            private val rotationMatrix = FloatArray(9)
-            private val orientationAngles = FloatArray(3)
+    // Round 9A Item 4 & Round 10B Item 2: Read device heading from the rotation vector sensor
+    // and remap coordinate system according to display rotation.
+    ObserveCompassSensorHeading(
+        context = context,
+        activity = activity,
+        onHeadingDegrees = { azimuthDeg -> viewModel.updateDeviceHeading(azimuthDeg) }
+    )
 
-            override fun onSensorChanged(event: android.hardware.SensorEvent?) {
-                if (event?.sensor?.type == android.hardware.Sensor.TYPE_ROTATION_VECTOR && event.values != null) {
-                    try {
-                        android.hardware.SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-                        android.hardware.SensorManager.getOrientation(rotationMatrix, orientationAngles)
-                        val azimuthRad = orientationAngles[0]
-                        val azimuthDeg = ((Math.toDegrees(azimuthRad.toDouble()).toFloat() % 360f) + 360f) % 360f
-                        viewModel.updateDeviceHeading(azimuthDeg)
-                    } catch (_: Exception) {}
-                }
-            }
-
-            override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
-        }
-        if (rotationSensor != null) {
-            try {
-                sensorManager.registerListener(listener, rotationSensor, android.hardware.SensorManager.SENSOR_DELAY_UI)
-            } catch (_: Exception) {}
-        }
-        onDispose {
-            try {
-                sensorManager?.unregisterListener(listener)
-            } catch (_: Exception) {}
-        }
+    // Round 10B Item 2: Unified heading source for heading-up map and off-route arrow
+    val unifiedHeadingDegrees = remember(
+        liveState.speedKmh,
+        liveState.bearing,
+        liveState.hasGpsBearing,
+        deviceHeadingDegrees,
+        liveState.deviceHeadingDegrees
+    ) {
+        resolveNavigationHeadingDegrees(
+            speedKmh = liveState.speedKmh,
+            gpsCourseDegrees = liveState.bearing,
+            hasGpsCourse = liveState.hasGpsBearing,
+            compassHeadingDegrees = deviceHeadingDegrees ?: liveState.deviceHeadingDegrees
+        )
     }
 
     val hasGpsFix = liveState.currentLat != null && liveState.currentLng != null
@@ -223,10 +184,13 @@ fun NavigationScreen(
         var engine: TextToSpeech? = null
         if (voiceGuidance) {
             runCatching {
+                val daLocale = com.example.util.DanishTtsChecker.DANISH_LOCALE
                 engine = TextToSpeech(context.applicationContext) { status ->
-                    if (status == TextToSpeech.SUCCESS) {
-                        engine?.language = Locale("da", "DK")
+                    if (status == TextToSpeech.SUCCESS && com.example.util.DanishTtsChecker.isDanishTtsSupported(engine)) {
+                        engine?.language = daLocale
                         ttsReady = true
+                    } else {
+                        ttsReady = false
                     }
                 }
                 ttsRef = engine
@@ -290,6 +254,7 @@ fun NavigationScreen(
     var isFollowingUser by remember { mutableStateOf(true) }
     var showNavMenu by remember { mutableStateOf(false) }
     var dismissedCampArrivalForDay by remember { mutableStateOf(-1) }
+    var dismissedCompletedDialog by remember(liveState.planId) { mutableStateOf(false) }
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
     var overlayManagerRef by remember { mutableStateOf<NavigationMapOverlayManager?>(null) }
     val isDark = DanskStiTheme.isDark
@@ -307,7 +272,16 @@ fun NavigationScreen(
         if (nearCue || liveState.speedKmh < 2.0) 17.0 else 16.0
     }
 
-    LaunchedEffect(mapMode, liveState.currentLat, liveState.currentLng, liveState.bearing, targetAutoZoom, plannedRoute, currentDay) {
+    LaunchedEffect(
+        mapMode,
+        liveState.currentLat,
+        liveState.currentLng,
+        unifiedHeadingDegrees,
+        liveState.bearing,
+        targetAutoZoom,
+        plannedRoute,
+        currentDay
+    ) {
         val mv = mapViewRef ?: return@LaunchedEffect
         when (mapMode) {
             NavigationMapMode.FOLLOW_NORTH_UP -> {
@@ -324,7 +298,8 @@ fun NavigationScreen(
             }
             NavigationMapMode.FOLLOW_HEADING_UP -> {
                 isFollowingUser = true
-                mv.mapOrientation = -liveState.bearing
+                val heading = unifiedHeadingDegrees ?: liveState.bearing
+                mv.mapOrientation = -heading
                 if (kotlin.math.abs(mv.zoomLevelDouble - targetAutoZoom) >= 0.4) {
                     mv.controller.setZoom(targetAutoZoom)
                 }
@@ -473,8 +448,10 @@ fun NavigationScreen(
             val parts = effectiveSunsetTime.split(":")
             val sunsetHour = parts.getOrNull(0)?.toIntOrNull() ?: (defaultSunTimes.sunsetMinutesOfDay / 60)
             val sunsetMin = parts.getOrNull(1)?.toIntOrNull() ?: (defaultSunTimes.sunsetMinutesOfDay % 60)
-            val copenhagenZdt = java.time.Instant.ofEpochMilli(nowClockMs).atZone(com.example.util.SunCalculator.COPENHAGEN_ZONE)
-            val nowMinutes = copenhagenZdt.hour * 60 + copenhagenZdt.minute
+            val copenhagenCal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Europe/Copenhagen")).apply {
+                timeInMillis = nowClockMs
+            }
+            val nowMinutes = copenhagenCal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + copenhagenCal.get(java.util.Calendar.MINUTE)
             val sunsetMinutes = sunsetHour * 60 + sunsetMin
             val daylightHoursLeft = (sunsetMinutes - nowMinutes) / 60.0
             val hoursNeededAtMyPace = distanceRemainingToday / mitTempoKmh.coerceAtLeast(1.0)
@@ -502,6 +479,9 @@ fun NavigationScreen(
             currentDayStat = currentDayStat,
             hasGpsFix = hasGpsFix,
             emergencyInfo = emergencyInfo,
+            liveState = liveState,
+            onRerouteBack = { viewModel.routeMeBack() },
+            onTakeDetour = { viewModel.takeDetour() },
             onExitBatterySaver = { viewModel.setBatterySaverMode(false) },
             onOpenSos = { viewModel.setSosSheet(true) },
             onShareLocation = { viewModel.shareCurrentLocation(context) }
@@ -527,7 +507,7 @@ fun NavigationScreen(
                     }
                 }
         ) {
-            val isLandscape = maxWidth > maxHeight || maxHeight < 480.dp || windowSizeClass.isLandscape
+            val isLandscape = maxWidth > maxHeight || windowSizeClass.isLandscape
             val navUserGeoPoint = remember(liveState.currentLat, liveState.currentLng) {
                 val lat = liveState.currentLat
                 val lng = liveState.currentLng
@@ -539,6 +519,7 @@ fun NavigationScreen(
             val navFriTeltningEntities = remember(routeFriTeltning) {
                 routeFriTeltning.map { it.first }
             }
+            var selectedNavigationPoi by remember { mutableStateOf<PoiInfoSheetData?>(null) }
 
             val navigationMapSection: @Composable (androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp) -> Unit =
                 { topPad, endPad, bottomAttrPad ->
@@ -546,9 +527,9 @@ fun NavigationScreen(
                         modifier = Modifier.fillMaxSize(),
                         mapTestTag = "navigation_map_view",
                         initialZoom = 16.0,
-                        isSystemDarkOverride = isDark,
+                        appIsDark = isDark,
                         userLocation = navUserGeoPoint,
-                        userHeadingDegrees = liveState.bearing,
+                        userHeadingDegrees = unifiedHeadingDegrees ?: liveState.bearing,
                         userAccuracyMeters = liveState.accuracyM,
                         shelters = routeShelters,
                         friTeltning = navFriTeltningEntities,
@@ -603,7 +584,14 @@ fun NavigationScreen(
                             val mgr = NavigationMapOverlayManager(
                                 mapView = mv,
                                 context = mv.context,
-                                onSelectPoi = {}
+                                onSelectPoi = { corridorPoi ->
+                                    selectedNavigationPoi = PoiInfoSheetData.fromNavigationCorridorPoi(
+                                        corridorPoi = corridorPoi,
+                                        shelters = routeShelters,
+                                        friTeltning = navFriTeltningEntities,
+                                        pois = navCombinedPois
+                                    )
+                                }
                             )
                             overlayManagerRef = mgr
                             plannedRoute?.let { route ->
@@ -645,7 +633,7 @@ fun NavigationScreen(
                     cueBannerPrimaryText = cueBannerPrimaryText,
                     topCardHeadline = topCardHeadline,
                     liveState = liveState,
-                    deviceHeadingDegrees = deviceHeadingDegrees,
+                    deviceHeadingDegrees = unifiedHeadingDegrees,
                     mapMode = mapMode,
                     routeBackErrorMessage = routeBackErrorMessage,
                     isGpsWeakOrStale = isGpsWeakOrStale,
@@ -731,7 +719,51 @@ fun NavigationScreen(
                     statsAndControlsContent(false)
                 }
             }
+
+            selectedNavigationPoi?.let { poiData ->
+                PoiInfoSheet(
+                    poiData = poiData,
+                    liveUserLocation = navUserGeoPoint,
+                    isLocationFresh = !isGpsWeakOrStale,
+                    onDismiss = { selectedNavigationPoi = null },
+                    onRouteHere = { lat, lng, _ ->
+                        selectedNavigationPoi = null
+                        mapViewRef?.controller?.animateTo(GeoPoint(lat, lng), 16.0, 600L)
+                    },
+                    onAddToRoute = { lat, lng, _ ->
+                        selectedNavigationPoi = null
+                        mapViewRef?.controller?.animateTo(GeoPoint(lat, lng), 16.0, 600L)
+                    }
+                )
+            }
         }
+    }
+
+    if (liveState.isCompleted && !dismissedCompletedDialog) {
+        val totalKm = max(
+            liveState.totalDistanceWalkedKm,
+            plannedRoute?.totalWalkKm ?: liveState.plannedRoute?.totalWalkKm ?: 0.0
+        )
+        val totalMovingSecs = allRecordedDayStats.sumOf { it.movingTimeSeconds }
+            .takeIf { it > 0L }
+            ?: (currentDayStat?.movingTimeSeconds ?: 0L)
+        val totalAscentM = allRecordedDayStats.sumOf { it.ascentMeters }
+            .takeIf { it > 0 }
+            ?: (currentDayStat?.ascentMeters ?: 0)
+        val completedDays = maxOf(currentDay, allRecordedDayStats.size, 1)
+        NavigationTripCompletedSummaryDialog(
+            trailName = liveState.trailName.ifBlank { activePlan?.trailName ?: "" },
+            totalDistanceKm = totalKm,
+            totalMovingSeconds = totalMovingSecs,
+            totalAscentMeters = totalAscentM,
+            totalDays = completedDays,
+            onDismiss = { dismissedCompletedDialog = true },
+            onFinishAndBack = {
+                dismissedCompletedDialog = true
+                com.example.service.NavigationTrackingService.stop(context)
+                onBack()
+            }
+        )
     }
 
     if (showSosSheet) {

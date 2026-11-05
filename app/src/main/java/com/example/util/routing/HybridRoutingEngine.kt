@@ -14,7 +14,7 @@ import android.util.Log
  */
 class HybridRoutingEngine(
     private val context: Context,
-    val onlineEngine: BRouterOnlineEngine = BRouterOnlineEngine(context),
+    val onlineEngine: RoutingEngine = BRouterOnlineEngine(context),
     val offlineEngine: BRouterOfflineEngine = BRouterOfflineEngine(context),
     private val storageManager: BRouterStorageManager = BRouterStorageManager.getInstance(context)
 ) : RoutingEngine {
@@ -60,12 +60,33 @@ class HybridRoutingEngine(
                 return offlineResult
             }
 
+            val isVersionMismatch = when (offlineResult) {
+                is RouteLegResult.Failure -> BRouterOfflineEngine.isDataOrLookupVersionMismatch(offlineResult.message, offlineResult.cause)
+                is RouteLegResult.NoRoute -> BRouterOfflineEngine.isDataOrLookupVersionMismatch(offlineResult.message)
+                else -> false
+            } || storageManager.hasVersionMismatch()
+
+            if (isVersionMismatch) {
+                storageManager.reportVersionMismatch(true)
+            }
+
             Log.w(TAG, "Offline routing failed or returned no route ($offlineResult). Attempting online fallback.")
             val onlineResult = onlineEngine.routeLeg(from, to, options, alternative)
             return if (onlineResult is RouteLegResult.Success) {
-                onlineResult
+                if (isVersionMismatch) {
+                    onlineResult.copy(warningMessage = BRouterOfflineEngine.VERSION_MISMATCH_MESSAGE)
+                } else {
+                    onlineResult
+                }
             } else {
-                offlineResult
+                if (isVersionMismatch) {
+                    RouteLegResult.Failure(
+                        BRouterOfflineEngine.VERSION_MISMATCH_MESSAGE,
+                        (offlineResult as? RouteLegResult.Failure)?.cause
+                    )
+                } else {
+                    offlineResult
+                }
             }
         } else {
             Log.d(TAG, "Routing leg ($from -> $to) via BRouterOnlineEngine (offline data not present)")

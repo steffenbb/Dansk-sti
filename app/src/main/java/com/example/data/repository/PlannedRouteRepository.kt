@@ -279,7 +279,8 @@ class PlannedRouteRepository(private val context: Context) {
         shelters: List<com.example.data.model.ShelterEntity> = emptyList(),
         friTeltnings: List<com.example.data.model.FriTeltningEntity> = emptyList(),
         pois: List<com.example.data.model.PoiEntity> = emptyList(),
-        sunsetTime: String? = null
+        sunsetTime: String? = null,
+        startDateEpochMs: Long? = null
     ): Pair<List<TripStage>, PlannedRoute> = Companion.buildStagesAndPlannedRoute(
         planId = planId,
         trailId = trailId,
@@ -296,7 +297,8 @@ class PlannedRouteRepository(private val context: Context) {
         shelters = shelters,
         friTeltnings = friTeltnings,
         pois = pois,
-        sunsetTime = sunsetTime
+        sunsetTime = sunsetTime,
+        startDateEpochMs = startDateEpochMs
     )
 
     /**
@@ -383,7 +385,8 @@ class PlannedRouteRepository(private val context: Context) {
             shelters = shelters,
             friTeltnings = friTeltnings,
             pois = pois,
-            sunsetTime = sunsetTime
+            sunsetTime = sunsetTime,
+            startDateEpochMs = startDateEpochMs
         )
 
         val stagesListType = com.squareup.moshi.Types.newParameterizedType(List::class.java, TripStage::class.java)
@@ -539,7 +542,8 @@ class PlannedRouteRepository(private val context: Context) {
             shelters: List<com.example.data.model.ShelterEntity> = emptyList(),
             friTeltnings: List<com.example.data.model.FriTeltningEntity> = emptyList(),
             pois: List<com.example.data.model.PoiEntity> = emptyList(),
-            sunsetTime: String? = null
+            sunsetTime: String? = null,
+            startDateEpochMs: Long? = null
         ): Pair<List<TripStage>, PlannedRoute> {
             val baseRoute = buildFromComposedLegs(
                 planId = planId,
@@ -571,7 +575,7 @@ class PlannedRouteRepository(private val context: Context) {
             }
             val effectiveDays = numDays ?: max(1, overnightWaypoints.size + 1)
 
-            val stages = com.example.util.StagePlanner.calculateStages(
+            val stages = com.example.util.StagePlanner.planStages(
                 plannedRoute = baseRoute,
                 trail = null,
                 routeName = trailName,
@@ -587,7 +591,8 @@ class PlannedRouteRepository(private val context: Context) {
                 shelters = shelters,
                 friTeltnings = friTeltnings,
                 pois = pois,
-                sunsetTime = sunsetTime
+                sunsetTime = sunsetTime,
+                startDateEpochMs = startDateEpochMs
             )
 
             val finalRoute = baseRoute.copy(stages = stages)

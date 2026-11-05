@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -70,18 +71,55 @@ import com.example.ui.viewmodel.RouteBuilderViewModel
 import java.net.URLDecoder
 
 class MainActivity : ComponentActivity() {
+
+    private val _pendingNavigationPlanId = kotlinx.coroutines.flow.MutableStateFlow<Long?>(null)
+    val pendingNavigationPlanId: kotlinx.coroutines.flow.StateFlow<Long?> = _pendingNavigationPlanId
+
+    companion object {
+        fun extractNavigationPlanIdFromIntent(intent: android.content.Intent?): Long? {
+            if (intent == null) return null
+            val openNav = intent.getBooleanExtra(NavigationTrackingService.EXTRA_OPEN_NAVIGATION, false)
+            val hasPlanExtra = intent.hasExtra(NavigationTrackingService.EXTRA_PLAN_ID)
+            if (!openNav && !hasPlanExtra) return null
+            val extraPlanId = intent.getLongExtra(NavigationTrackingService.EXTRA_PLAN_ID, -1L).takeIf { it > 0L }
+            val livePlanId = NavigationTrackingService.liveState.value.planId.takeIf { it > 0L }
+            return extraPlanId ?: livePlanId ?: 0L
+        }
+    }
+
+    internal fun handleNavigationIntent(intent: android.content.Intent?) {
+        val targetPlanId = extractNavigationPlanIdFromIntent(intent)
+        if (targetPlanId != null) {
+            _pendingNavigationPlanId.value = targetPlanId
+        }
+    }
+
+    fun consumePendingNavigationPlanId() {
+        _pendingNavigationPlanId.value = null
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNavigationIntent(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleNavigationIntent(intent)
         val app = application as DanskStiApp
+        val settingsRepository = DanskStiApp.getSettingsRepository(app)
+        val initialSnapshot = settingsRepository.currentSettingsSnapshot()
         val initialSystemDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
             android.content.res.Configuration.UI_MODE_NIGHT_YES
-        val initialDark = app.settingsRepository.currentSettingsSnapshot().resolveIsDarkApp(initialSystemDark)
+        val initialDark = initialSnapshot.resolveIsDarkApp(initialSystemDark)
         applySystemBarStyle(initialDark)
         setContent {
             val dbError by app.databaseError.collectAsState()
-            val appSettings by app.settingsRepository.settingsFlow.collectAsState(
-                initial = app.settingsRepository.currentSettingsSnapshot()
+            val appSettings by settingsRepository.settingsFlow.collectAsState(
+                initial = initialSnapshot
             )
+            val navPlanIdFromIntent by pendingNavigationPlanId.collectAsState()
             val systemDark = isSystemInDarkTheme()
             val resolvedDarkTheme = appSettings.resolveIsDarkApp(systemDark)
             val adaptiveInfo = currentWindowAdaptiveInfo()
@@ -132,7 +170,11 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     } else {
-                        DanskStiAppRoot(windowSizeClass = windowSizeClass)
+                        DanskStiAppRoot(
+                            windowSizeClass = windowSizeClass,
+                            pendingNavigationPlanId = navPlanIdFromIntent,
+                            onConsumeNavigationPlanId = ::consumePendingNavigationPlanId
+                        )
                     }
                 }
             }
@@ -165,7 +207,9 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun DanskStiAppRoot(
-    windowSizeClass: WindowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
+    windowSizeClass: WindowSizeClass = currentWindowAdaptiveInfo().windowSizeClass,
+    pendingNavigationPlanId: Long? = null,
+    onConsumeNavigationPlanId: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as DanskStiApp
@@ -174,6 +218,16 @@ fun DanskStiAppRoot(
     val currentRoute = navBackStackEntry?.destination?.route
     val liveState by NavigationTrackingService.liveState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(pendingNavigationPlanId, currentRoute) {
+        if (pendingNavigationPlanId != null && currentRoute != null) {
+            val targetRoute = Screen.Navigation.createRoute(pendingNavigationPlanId.takeIf { it > 0L })
+            navController.navigate(targetRoute) {
+                launchSingleTop = true
+            }
+            onConsumeNavigationPlanId()
+        }
+    }
 
     val activeTripBannerState = remember(liveState) {
         if (liveState.isTracking) {
@@ -213,7 +267,7 @@ fun DanskStiAppRoot(
     }
 
     Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
             if (showBottomBar && !useNavigationRail) {
@@ -230,6 +284,7 @@ fun DanskStiAppRoot(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .consumeWindowInsets(innerPadding)
         ) {
             if (showBottomBar && useNavigationRail) {
                 DanskStiNavigationRail(
