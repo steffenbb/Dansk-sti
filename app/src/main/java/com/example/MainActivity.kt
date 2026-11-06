@@ -30,7 +30,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -55,6 +59,7 @@ import com.example.ui.navigation.Screen
 import com.example.ui.screens.ApiDiagnosticsScreen
 import com.example.ui.screens.DataCreditsScreen
 import com.example.ui.screens.FullscreenMapScreen
+import com.example.ui.screens.HowToGuideScreen
 import com.example.ui.screens.KortScreen
 import com.example.ui.screens.NavigationScreen
 import com.example.ui.screens.OfflineTrailsScreen
@@ -90,11 +95,17 @@ class MainActivity : ComponentActivity() {
     internal fun handleNavigationIntent(intent: android.content.Intent?) {
         val targetPlanId = extractNavigationPlanIdFromIntent(intent)
         if (targetPlanId != null) {
+            intent?.removeExtra(NavigationTrackingService.EXTRA_OPEN_NAVIGATION)
+            intent?.removeExtra(NavigationTrackingService.EXTRA_PLAN_ID)
+            this.intent?.removeExtra(NavigationTrackingService.EXTRA_OPEN_NAVIGATION)
+            this.intent?.removeExtra(NavigationTrackingService.EXTRA_PLAN_ID)
             _pendingNavigationPlanId.value = targetPlanId
         }
     }
 
     fun consumePendingNavigationPlanId() {
+        intent?.removeExtra(NavigationTrackingService.EXTRA_OPEN_NAVIGATION)
+        intent?.removeExtra(NavigationTrackingService.EXTRA_PLAN_ID)
         _pendingNavigationPlanId.value = null
     }
 
@@ -213,11 +224,33 @@ fun DanskStiAppRoot(
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as DanskStiApp
+    val settingsRepository = remember(app) { DanskStiApp.getSettingsRepository(app) }
+    val appSettings by settingsRepository.settingsFlow.collectAsState(
+        initial = settingsRepository.currentSettingsSnapshot()
+    )
+    val coroutineScope = rememberCoroutineScope()
+    var showFirstOpenGuide by remember(appSettings.hasSeenHowToGuide) {
+        mutableStateOf(!appSettings.hasSeenHowToGuide)
+    }
+    val dismissFirstOpenGuide: () -> Unit = {
+        if (showFirstOpenGuide) {
+            showFirstOpenGuide = false
+            coroutineScope.launch {
+                settingsRepository.setHasSeenHowToGuide(true)
+            }
+        }
+    }
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val liveState by NavigationTrackingService.liveState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(currentRoute) {
+        if (currentRoute != null && currentRoute != Screen.Explore.route && showFirstOpenGuide) {
+            dismissFirstOpenGuide()
+        }
+    }
 
     LaunchedEffect(pendingNavigationPlanId, currentRoute) {
         if (pendingNavigationPlanId != null && currentRoute != null) {
@@ -256,6 +289,7 @@ fun DanskStiAppRoot(
         currentRoute == Screen.Profile.route
     val useNavigationRail = windowSizeClass.useNavigationRail
     val onNavigateTab: (String) -> Unit = { route ->
+        dismissFirstOpenGuide()
         navController.navigate(route) {
             popUpTo(Screen.Explore.route) { saveState = true }
             launchSingleTop = true
@@ -263,6 +297,7 @@ fun DanskStiAppRoot(
         }
     }
     val onContinueTrip: () -> Unit = {
+        dismissFirstOpenGuide()
         navController.navigate(Screen.Navigation.createRoute(activeTripBannerState.planId))
     }
 
@@ -301,6 +336,12 @@ fun DanskStiAppRoot(
                     ActiveTripSlimBanner(
                         state = activeTripBannerState,
                         onClick = onContinueTrip
+                    )
+                }
+                if (showFirstOpenGuide && (currentRoute == null || currentRoute == Screen.Explore.route) && pendingNavigationPlanId == null) {
+                    HowToGuideScreen(
+                        onDismiss = dismissFirstOpenGuide,
+                        isFirstLaunchOnboarding = true
                     )
                 }
                 NavHost(

@@ -55,7 +55,6 @@ class ApiHealthChecker(
     suspend fun runFullDiagnostics(): DiagnosticsReport = coroutineScope {
         val dataforsyningenDeferred = async(Dispatchers.IO) { checkDataforsyningen() }
         val overpassDeferred = async(Dispatchers.IO) { checkOverpass() }
-        val directOsmDeferred = async(Dispatchers.IO) { checkDirectOsm() }
         val elevationDeferred = async(Dispatchers.IO) { checkElevation() }
         val miljoeportalDeferred = async(Dispatchers.IO) { checkMiljoeportalWfs() }
         val roomDeferred = async(Dispatchers.IO) { checkRoomDatabase() }
@@ -63,7 +62,6 @@ class ApiHealthChecker(
         val results = listOf(
             dataforsyningenDeferred.await(),
             overpassDeferred.await(),
-            directOsmDeferred.await(),
             elevationDeferred.await(),
             miljoeportalDeferred.await(),
             roomDeferred.await()
@@ -203,55 +201,8 @@ class ApiHealthChecker(
             httpCode = firstError?.first,
             latencyMs = null,
             summary = firstError?.second ?: "Forbindelse timeout på alle Overpass spejle",
-            details = "Overpass er overbelastet eller utilgængelig. Appen skifter automatisk til direkte OpenStreetMap 0.6 REST API."
+            details = "Overpass er overbelastet eller utilgængelig på alle spejle."
         )
-    }
-
-    suspend fun checkDirectOsm(): ApiCheckResult = withContext(Dispatchers.IO) {
-        val testUrl = "https://api.openstreetmap.org/api/0.6/relation/1202410.json"
-        val start = System.currentTimeMillis()
-        try {
-            val request = Request.Builder()
-                .url(testUrl)
-                .header("User-Agent", NetworkConstants.USER_AGENT)
-                .build()
-            client.newCall(request).execute().use { response ->
-                val elapsed = System.currentTimeMillis() - start
-                val code = response.code
-                if (response.isSuccessful) {
-                    ApiCheckResult(
-                        serviceName = "OpenStreetMap 0.6 Direct API",
-                        endpointUrl = "api.openstreetmap.org",
-                        status = ApiCheckStatus.SUCCESS,
-                        httpCode = code,
-                        latencyMs = elapsed,
-                        summary = "$code OK • Direkte OSM fallback klar ($elapsed ms)",
-                        details = "OpenStreetMap officielle REST API svarer. Anvendes som hurtig og uafhængig fallback ved overbelastning."
-                    )
-                } else {
-                    ApiCheckResult(
-                        serviceName = "OpenStreetMap 0.6 Direct API",
-                        endpointUrl = "api.openstreetmap.org",
-                        status = ApiCheckStatus.WARNING,
-                        httpCode = code,
-                        latencyMs = elapsed,
-                        summary = "HTTP $code ($elapsed ms)",
-                        details = "OSM relation endpoint returnerede kode $code."
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            val elapsed = System.currentTimeMillis() - start
-            ApiCheckResult(
-                serviceName = "OpenStreetMap 0.6 Direct API",
-                endpointUrl = "api.openstreetmap.org",
-                status = ApiCheckStatus.ERROR,
-                httpCode = null,
-                latencyMs = elapsed,
-                summary = "Forbindelsesfejl (${e.javaClass.simpleName})",
-                details = "Kunne ikke forbinde til api.openstreetmap.org: ${e.message}"
-            )
-        }
     }
 
     suspend fun checkElevation(): ApiCheckResult = withContext(Dispatchers.IO) {

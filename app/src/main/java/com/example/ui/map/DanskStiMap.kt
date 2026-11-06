@@ -546,176 +546,59 @@ fun DanskStiMap(
         }
         val layerErrorMessages by overlayManager.layerErrorMessages.collectAsState()
 
-        // Bottom-left: Offline pill (when offline), Stale location badge (> 2 min), layer error messages, & active layer attribution
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(start = attributionStartPadding, bottom = attributionBottomPadding),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            if (!isDeviceOnline) {
-                com.example.ui.components.OfflineStatusPill()
-            }
-            for (errMsg in layerErrorMessages) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.94f),
-                    modifier = Modifier.testTag("map_layer_error_banner")
-                ) {
-                    Text(
-                        text = errMsg,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
-            }
-            val staleText = if (userLocation != null) null else liveLocationState.staleBadgeText
-            if (staleText != null) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
-                    modifier = Modifier.testTag("map_stale_location_badge")
-                ) {
-                    Text(
-                        text = staleText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
-                }
-            }
-            val locErr = liveLocationState.locationErrorMessage
-            if (locErr != null) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    modifier = Modifier
-                        .clickable { liveLocationState.clearErrorMessage() }
-                        .testTag("map_location_error_banner")
-                ) {
-                    Text(
-                        text = locErr,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
-            }
-            MapAttributionPill(
-                layersState = mapLayersState,
-                isDarkMode = effectiveIsDark,
-                modifier = Modifier.testTag("map_attribution_pill")
-            )
-        }
+        DanskStiMapBottomAttributionAndBanners(
+            isDeviceOnline = isDeviceOnline,
+            layerErrorMessages = layerErrorMessages,
+            staleText = if (userLocation != null) null else liveLocationState.staleBadgeText,
+            locationErrorMessage = liveLocationState.locationErrorMessage,
+            onClearLocationError = { liveLocationState.clearErrorMessage() },
+            mapLayersState = mapLayersState,
+            effectiveIsDark = effectiveIsDark,
+            attributionStartPadding = attributionStartPadding,
+            attributionBottomPadding = attributionBottomPadding
+        )
 
-        // Standard Map Buttons (Lag, Kompas/nord op, Min position)
         if (showStandardButtons) {
-            val primaryColor = MaterialTheme.colorScheme.primary
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(top = controlsTopPadding, end = controlsEndPadding)
-                    .testTag("map_controls_column"),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalAlignment = Alignment.End
-            ) {
-                // 1. Lag (Layers)
-                SmallFloatingActionButton(
-                    onClick = { showLayersSheet = true },
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                    contentColor = primaryColor,
-                    shape = CircleShape,
-                    elevation = FloatingActionButtonDefaults.elevation(4.dp),
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag(layersButtonTestTag)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Layers,
-                        contentDescription = stringResource(R.string.ui_danskstimap_kortlag_29)
-                    )
-                }
-
-                // 2. Kompas / nord op
-                SmallFloatingActionButton(
-                    onClick = {
-                        mapViewRef?.let { mv ->
-                            mv.mapOrientation = 0f
-                            currentBearing = 0f
-                            mv.postInvalidate()
+            DanskStiMapStandardButtonsColumn(
+                controlsTopPadding = controlsTopPadding,
+                controlsEndPadding = controlsEndPadding,
+                layersButtonTestTag = layersButtonTestTag,
+                compassButtonTestTag = compassButtonTestTag,
+                myLocationButtonTestTag = myLocationButtonTestTag,
+                currentBearing = currentBearing,
+                isRequestingCurrentLocation = liveLocationState.isRequestingCurrentLocation,
+                onOpenLayersSheet = { showLayersSheet = true },
+                onResetCompass = {
+                    mapViewRef?.let { mv ->
+                        mv.mapOrientation = 0f
+                        currentBearing = 0f
+                        mv.postInvalidate()
+                    }
+                    onCompassClick?.invoke()
+                },
+                onMyLocationButtonClick = {
+                    if (liveLocationState.hasLocationPermission()) {
+                        effectiveUserLocation?.let { known ->
+                            mapViewRef?.controller?.animateTo(known, 14.5, 450L)
                         }
-                        onCompassClick?.invoke()
-                    },
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                    contentColor = if (currentBearing != 0f) primaryColor else MaterialTheme.colorScheme.onSurface,
-                    shape = CircleShape,
-                    elevation = FloatingActionButtonDefaults.elevation(4.dp),
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag(compassButtonTestTag)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Explore,
-                        contentDescription = stringResource(R.string.ui_danskstimap_kompas_nord_op_30),
-                        modifier = Modifier.rotate(-currentBearing)
-                    )
-                }
-
-                // 3. Min position (requests fresh fix via getCurrentLocation with spinner & 15s timeout)
-                SmallFloatingActionButton(
-                    onClick = {
-                        if (liveLocationState.hasLocationPermission()) {
-                            // If we already have a known location, pan immediately while requesting a fresh fix
-                            effectiveUserLocation?.let { known ->
-                                mapViewRef?.controller?.animateTo(known, 14.5, 450L)
+                        liveLocationState.requestFreshCurrentLocation { freshLoc ->
+                            val freshGeo = freshLoc?.let { GeoPoint(it.latitude, it.longitude) }
+                            val target = freshGeo ?: effectiveUserLocation
+                            if (freshGeo != null) {
+                                mapViewRef?.controller?.animateTo(freshGeo, 14.5, 600L)
                             }
-                            liveLocationState.requestFreshCurrentLocation { freshLoc ->
-                                val freshGeo = freshLoc?.let { GeoPoint(it.latitude, it.longitude) }
-                                val target = freshGeo ?: effectiveUserLocation
-                                if (freshGeo != null) {
-                                    mapViewRef?.controller?.animateTo(freshGeo, 14.5, 600L)
-                                }
-                                onMyLocationClick?.invoke(target)
-                            }
-                        } else {
-                            locationPermissionLauncher.launch(
-                                arrayOf(
-                                    Manifest.permission.ACCESS_FINE_LOCATION,
-                                    Manifest.permission.ACCESS_COARSE_LOCATION
-                                )
-                            )
+                            onMyLocationClick?.invoke(target)
                         }
-                    },
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                    contentColor = primaryColor,
-                    shape = CircleShape,
-                    elevation = FloatingActionButtonDefaults.elevation(4.dp),
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag(myLocationButtonTestTag)
-                ) {
-                    if (liveLocationState.isRequestingCurrentLocation) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .size(22.dp)
-                                .testTag("my_location_spinner"),
-                            strokeWidth = 2.5.dp,
-                            color = primaryColor
-                        )
                     } else {
-                        Icon(
-                            imageVector = Icons.Default.MyLocation,
-                            contentDescription = stringResource(R.string.map_btn_my_location)
+                        locationPermissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            )
                         )
                     }
                 }
-            }
+            )
         }
 
         // Screen-specific Compose overlay content
@@ -800,105 +683,6 @@ fun DanskStiMap(
                 dbCustomWaypoints = dbCustomWaypoints + savedWp
             }
         )
-    }
-}
-
-/**
- * Renders the user's GPS position dot with a translucent accuracy circle and directional heading cone.
- * Greys out the dot when the fix is stale (> 2 minutes old).
- */
-class UserLocationHeadingOverlay : Overlay() {
-
-    private var location: GeoPoint? = null
-    private var headingDegrees: Float? = null
-    private var accuracyMeters: Float = 15f
-    var isStale: Boolean = false
-        private set
-
-    private val accuracyFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.argb(42, 30, 136, 229)
-    }
-    private val accuracyStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = Color.argb(115, 30, 136, 229)
-        strokeWidth = 2f
-    }
-    private val headingConePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.argb(95, 30, 136, 229)
-    }
-    private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.rgb(255, 255, 255)
-    }
-    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.rgb(25, 118, 210)
-    }
-
-    private val screenPt = Point()
-    private val conePath = Path()
-
-    fun updateLocation(
-        location: GeoPoint?,
-        headingDegrees: Float?,
-        accuracyMeters: Float,
-        isStale: Boolean = false
-    ) {
-        this.location = location
-        this.headingDegrees = headingDegrees
-        this.accuracyMeters = accuracyMeters.coerceAtLeast(3f)
-        this.isStale = isStale
-        if (isStale) {
-            accuracyFillPaint.color = Color.argb(30, 140, 140, 140)
-            accuracyStrokePaint.color = Color.argb(90, 130, 130, 130)
-            headingConePaint.color = Color.argb(65, 140, 140, 140)
-            dotPaint.color = Color.rgb(142, 142, 147)
-        } else {
-            accuracyFillPaint.color = Color.argb(42, 30, 136, 229)
-            accuracyStrokePaint.color = Color.argb(115, 30, 136, 229)
-            headingConePaint.color = Color.argb(95, 30, 136, 229)
-            dotPaint.color = Color.rgb(25, 118, 210)
-        }
-    }
-
-    override fun draw(canvas: Canvas?, mapView: MapView?, shadow: Boolean) {
-        if (shadow || canvas == null || mapView == null || !isEnabled) return
-        val loc = location ?: return
-        val proj = mapView.projection ?: return
-
-        proj.toPixels(loc, screenPt)
-        val cx = screenPt.x.toFloat()
-        val cy = screenPt.y.toFloat()
-        val density = mapView.context.resources.displayMetrics.density
-
-        // 1. Accuracy circle (meters -> screen pixels at current latitude & zoom)
-        val metersPerPixel = proj.metersToPixels(accuracyMeters)
-        if (metersPerPixel > 6f * density && metersPerPixel < canvas.width * 1.5f) {
-            canvas.drawCircle(cx, cy, metersPerPixel, accuracyFillPaint)
-            canvas.drawCircle(cx, cy, metersPerPixel, accuracyStrokePaint)
-        }
-
-        // 2. Heading cone if bearing is available
-        val heading = headingDegrees
-        if (heading != null && !heading.isNaN() && !isStale) {
-            val coneLen = 26f * density
-            val halfSpread = 13f * density
-            canvas.save()
-            canvas.rotate(heading, cx, cy)
-            conePath.reset()
-            conePath.moveTo(cx, cy)
-            conePath.lineTo(cx - halfSpread, cy - coneLen)
-            conePath.lineTo(cx + halfSpread, cy - coneLen)
-            conePath.close()
-            canvas.drawPath(conePath, headingConePaint)
-            canvas.restore()
-        }
-
-        // 3. White halo + blue (or grey when stale) location dot
-        canvas.drawCircle(cx, cy, 8.5f * density, haloPaint)
-        canvas.drawCircle(cx, cy, 6.2f * density, dotPaint)
     }
 }
 

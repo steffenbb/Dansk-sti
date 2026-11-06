@@ -249,7 +249,7 @@ internal fun RouteBuilderBasicDialogs(
             onDismissRequest = { viewModel.dismissTrailLineTapSheet() },
             title = {
                 Text(
-                    text = String.format(Locale.GERMANY, "På sporet ved km %.1f", tap.trailKm),
+                    text = stringResource(R.string.planner_on_trail_at_km_fmt, String.format(Locale.GERMANY, "%.1f", tap.trailKm)),
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp
                 )
@@ -399,7 +399,7 @@ internal fun RouteBuilderBasicDialogs(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(cand.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        val typeLabel = if (cand.type == "FRI_TELTNING") "Fri teltning" else "Shelter"
+                                        val typeLabel = if (cand.type == "FRI_TELTNING") stringResource(R.string.planner_pref_free_tent) else stringResource(R.string.poi_type_shelter)
                                         Text(
                                             text = stringResource(R.string.ui_routebuilderscreen_km_m_omvej_131, typeLabel, String.format(Locale.GERMANY, "%.1f", cand.walkKm), cand.detourMeters.toInt()),
                                             fontSize = 12.sp,
@@ -440,17 +440,17 @@ internal fun RouteBuilderBasicDialogs(
     uiState.pendingDraftToRestore?.let { draft ->
         AlertDialog(
             onDismissRequest = { viewModel.discardDraft() },
-            title = { Text("Fortsæt kladde", fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.planner_draft_continue_title), fontWeight = FontWeight.Bold) },
             text = {
-                val label = draft.routeName.ifBlank { "Ugemt rute" }
-                Text("Der findes en ugemt kladde ($label). Vil du fortsætte redigeringen eller kassere den?")
+                val label = draft.routeName.ifBlank { stringResource(R.string.planner_unsaved_route_default) }
+                Text(stringResource(R.string.planner_draft_restore_message_fmt, label))
             },
             confirmButton = {
                 Button(
                     onClick = { viewModel.continueDraft() },
                     modifier = Modifier.testTag("btn_draft_continue")
                 ) {
-                    Text("Fortsæt kladde")
+                    Text(stringResource(R.string.planner_draft_continue_title))
                 }
             },
             dismissButton = {
@@ -458,7 +458,7 @@ internal fun RouteBuilderBasicDialogs(
                     onClick = { viewModel.discardDraft() },
                     modifier = Modifier.testTag("btn_draft_discard")
                 ) {
-                    Text("Kassér")
+                    Text(stringResource(R.string.planner_discard_button))
                 }
             },
             modifier = Modifier.testTag("planner_draft_restore_dialog")
@@ -476,21 +476,21 @@ internal fun PlannerUnsavedChangesDialog(
     if (!show) return
     AlertDialog(
         onDismissRequest = onContinueEditing,
-        title = { Text("Gem ruten?", fontWeight = FontWeight.Bold) },
-        text = { Text("Du har ugemte ændringer. Vil du gemme ruten, før du forlader planlæggeren?") },
+        title = { Text(stringResource(R.string.planner_save_route_title), fontWeight = FontWeight.Bold) },
+        text = { Text(stringResource(R.string.planner_unsaved_changes_message)) },
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(
                     onClick = onDiscard,
                     modifier = Modifier.testTag("btn_unsaved_discard")
                 ) {
-                    Text("Kassér", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.planner_discard_button), color = MaterialTheme.colorScheme.error)
                 }
                 Button(
                     onClick = onSave,
                     modifier = Modifier.testTag("btn_unsaved_save")
                 ) {
-                    Text("Gem")
+                    Text(stringResource(R.string.btn_save))
                 }
             }
         },
@@ -499,7 +499,7 @@ internal fun PlannerUnsavedChangesDialog(
                 onClick = onContinueEditing,
                 modifier = Modifier.testTag("btn_unsaved_continue")
             ) {
-                Text("Fortsæt redigering")
+                Text(stringResource(R.string.planner_continue_editing_button))
             }
         },
         modifier = Modifier.testTag("planner_unsaved_changes_dialog")
@@ -631,7 +631,11 @@ internal fun TripSettingsDialog(
                     ) {
                         Text(stringResource(R.string.ui_routebuilderscreen_startdato_168), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            text = if (startDateOffsetDays == 0) "I dag ($formattedStartDate)" else "Om $startDateOffsetDays dage ($formattedStartDate)",
+                            text = if (startDateOffsetDays == 0) {
+                                stringResource(R.string.planner_start_date_today_fmt, formattedStartDate)
+                            } else {
+                                stringResource(R.string.planner_start_date_in_days_fmt, startDateOffsetDays, formattedStartDate)
+                            },
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -675,9 +679,9 @@ internal fun TripSettingsDialog(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         listOf(
-                            "BOTH" to "Begge",
-                            "SHELTER" to "Kun shelter",
-                            "FRI_TELTNING" to "Fri teltning"
+                            "BOTH" to stringResource(R.string.planner_pref_both),
+                            "SHELTER" to stringResource(R.string.planner_pref_shelter_only),
+                            "FRI_TELTNING" to stringResource(R.string.planner_pref_free_tent)
                         ).forEach { (key, label) ->
                             OutlinedButton(
                                 onClick = { overnightPref = key },

@@ -163,6 +163,7 @@ data class AppSettings(
     val keepScreenOn: Boolean = true,
     val voiceGuidance: Boolean = false,
     val plannerCoachMarksSeen: Boolean = false,
+    val hasSeenHowToGuide: Boolean = false,
     val offlineDownloadsWifiOnly: Boolean = false,
     val mapLayers: MapLayersState = MapLayersState(
         mapDarkMode = mapDarkMode,
@@ -202,6 +203,9 @@ class SettingsRepository(context: Context) {
         var cachedPlannerCoachMarksSeen: Boolean = false
 
         @Volatile
+        var cachedHasSeenHowToGuide: Boolean = false
+
+        @Volatile
         var cachedOfflineDownloadsWifiOnly: Boolean = false
 
         @Volatile
@@ -219,6 +223,7 @@ class SettingsRepository(context: Context) {
         val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val KEY_VOICE_GUIDANCE = booleanPreferencesKey("voice_guidance")
         val KEY_PLANNER_COACH_MARKS_SEEN = booleanPreferencesKey("planner_coach_marks_seen")
+        val KEY_HAS_SEEN_HOW_TO_GUIDE = booleanPreferencesKey("has_seen_how_to_guide")
         val KEY_OFFLINE_WIFI_ONLY = booleanPreferencesKey("offline_wifi_only")
 
         // Appearance & Map Layers Keys
@@ -257,6 +262,7 @@ class SettingsRepository(context: Context) {
             KEY_KEEP_SCREEN_ON,
             KEY_VOICE_GUIDANCE,
             KEY_PLANNER_COACH_MARKS_SEEN,
+            KEY_HAS_SEEN_HOW_TO_GUIDE,
             KEY_OFFLINE_WIFI_ONLY,
             KEY_MAP_FOLLOWS_APP,
             KEY_OVERLAY_TERRAIN,
@@ -440,6 +446,8 @@ class SettingsRepository(context: Context) {
         cachedMitTempoKmh = tempo
         val coachSeen = prefs[KEY_PLANNER_COACH_MARKS_SEEN] ?: cachedPlannerCoachMarksSeen
         cachedPlannerCoachMarksSeen = coachSeen
+        val guideSeen = prefs[KEY_HAS_SEEN_HOW_TO_GUIDE] ?: cachedHasSeenHowToGuide
+        cachedHasSeenHowToGuide = guideSeen
         val wifiOnly = prefs[KEY_OFFLINE_WIFI_ONLY] ?: cachedOfflineDownloadsWifiOnly
         cachedOfflineDownloadsWifiOnly = wifiOnly
         val layers = parseMapLayers(prefs)
@@ -455,6 +463,7 @@ class SettingsRepository(context: Context) {
             keepScreenOn = prefs[KEY_KEEP_SCREEN_ON] ?: true,
             voiceGuidance = prefs[KEY_VOICE_GUIDANCE] ?: false,
             plannerCoachMarksSeen = coachSeen,
+            hasSeenHowToGuide = guideSeen,
             offlineDownloadsWifiOnly = wifiOnly,
             mapLayers = layers
         )
@@ -596,6 +605,15 @@ class SettingsRepository(context: Context) {
     suspend fun setPlannerCoachMarksSeen(seen: Boolean) {
         cachedPlannerCoachMarksSeen = seen
         updatePref(KEY_PLANNER_COACH_MARKS_SEEN, seen)
+    }
+
+    val hasSeenHowToGuideFlow: Flow<Boolean> = safeDataFlow.map { prefs ->
+        prefs[KEY_HAS_SEEN_HOW_TO_GUIDE] ?: cachedHasSeenHowToGuide
+    }
+
+    suspend fun setHasSeenHowToGuide(seen: Boolean) {
+        cachedHasSeenHowToGuide = seen
+        updatePref(KEY_HAS_SEEN_HOW_TO_GUIDE, seen)
     }
 
     suspend fun setOfflineDownloadsWifiOnly(wifiOnly: Boolean) {

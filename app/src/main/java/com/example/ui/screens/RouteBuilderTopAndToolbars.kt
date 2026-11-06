@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material.icons.filled.MoreVert
@@ -89,7 +90,8 @@ internal fun RouteBuilderTopAppBar(
     onOpenLayersSheet: () -> Unit,
     onLaunchGpxImport: () -> Unit,
     onCloseRouteLoop: () -> Unit,
-    onAppendOutAndBack: () -> Unit
+    onAppendOutAndBack: () -> Unit,
+    onOpenHowToGuide: () -> Unit = {}
 ) {
     TopAppBar(
         title = {
@@ -176,6 +178,16 @@ internal fun RouteBuilderTopAppBar(
         },
         actions = {
             IconButton(
+                onClick = onOpenHowToGuide,
+                modifier = Modifier.testTag("btn_planner_help_guide")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.HelpOutline,
+                    contentDescription = stringResource(R.string.how_to_guide_title)
+                )
+            }
+
+            IconButton(
                 onClick = onOpenLayersSheet,
                 modifier = Modifier.testTag("btn_toggle_access_layer")
             ) {
@@ -245,6 +257,17 @@ internal fun RouteBuilderTopAppBar(
                         },
                         enabled = visibleWaypoints.size >= 2,
                         modifier = Modifier.testTag("menu_item_ud_og_hjem")
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.how_to_guide_title)) },
+                        onClick = {
+                            onSetShowPlannerMenu(false)
+                            onOpenHowToGuide()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.HelpOutline, contentDescription = null)
+                        },
+                        modifier = Modifier.testTag("menu_item_how_to_guide")
                     )
                 }
             }

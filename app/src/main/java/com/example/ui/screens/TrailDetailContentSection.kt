@@ -246,18 +246,18 @@ internal fun TrailDetailDetailsSection(
                                     context = context,
                                     fileName = "${t.name.replace(" ", "_")}.gpx",
                                     gpxContent = gpxContent,
-                                    shareTitle = "Eksporter ${t.name} som GPX"
+                                    shareTitle = context.getString(R.string.trail_detail_export_gpx_title_fmt, t.name)
                                 )
                             } else {
                                 val sendIntent = Intent().apply {
                                     action = Intent.ACTION_SEND
-                                    putExtra(Intent.EXTRA_TEXT, "Tjek vandreruten ${t.name} ($totalKm km) i Dansk Sti!")
+                                    putExtra(Intent.EXTRA_TEXT, context.getString(R.string.trail_detail_share_text_fmt, t.name, totalKm))
                                     type = "text/plain"
                                 }
                                 try {
-                                    context.startActivity(Intent.createChooser(sendIntent, "Del rute"))
+                                    context.startActivity(Intent.createChooser(sendIntent, context.getString(R.string.trail_detail_share_chooser_title)))
                                 } catch (_: ActivityNotFoundException) {
-                                    Toast.makeText(context, "Ingen app fundet til at dele ruten", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.trail_detail_share_no_app), Toast.LENGTH_SHORT).show()
                                 }
                             }
                         },
@@ -308,7 +308,13 @@ internal fun TrailDetailDetailsSection(
 
             // Tabs: Oversigt, Overnatning, Vand & mad, Vejr, Transport
             item {
-                val tabs = listOf("Oversigt", "Overnatning", "Vand & mad", "Vejr", "Transport")
+                val tabs = listOf(
+                    stringResource(R.string.trail_detail_tab_overview),
+                    stringResource(R.string.trail_detail_tab_overnight),
+                    stringResource(R.string.trail_detail_tab_water_food),
+                    stringResource(R.string.trail_detail_tab_weather),
+                    stringResource(R.string.trail_detail_tab_transport)
+                )
                 ScrollableTabRow(
                     selectedTabIndex = selectedTabIndex,
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -478,12 +484,12 @@ internal fun TrailDetailDetailsSection(
                             )
 
                             WeatherForecastCard(
-                                title = "Startsted (${points.firstOrNull()?.let { "km 0" } ?: ""})",
+                                title = stringResource(R.string.trail_detail_weather_start_fmt, points.firstOrNull()?.let { "km 0" } ?: ""),
                                 weather = weatherStart
                             )
 
                             WeatherForecastCard(
-                                title = "Slutsted (${points.lastOrNull()?.let { "km ${String.format(Locale.US, "%.1f", totalKm)}" } ?: ""})",
+                                title = stringResource(R.string.trail_detail_weather_end_fmt, points.lastOrNull()?.let { "km ${String.format(Locale.US, "%.1f", totalKm)}" } ?: ""),
                                 weather = weatherEnd
                             )
                         }
@@ -619,7 +625,7 @@ fun OsmRelationTagsCard(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text = "Ifølge OpenStreetMap",
+                text = stringResource(R.string.trail_detail_osm_header),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -637,7 +643,7 @@ fun OsmRelationTagsCard(
 
             if (note != null) {
                 Text(
-                    text = "Bemærkning: $note",
+                    text = stringResource(R.string.trail_detail_osm_note_fmt, note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("trail_osm_tag_note")
@@ -646,7 +652,7 @@ fun OsmRelationTagsCard(
 
             if (operator != null) {
                 Text(
-                    text = "Operatør: $operator",
+                    text = stringResource(R.string.trail_detail_osm_operator_fmt, operator),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("trail_osm_tag_operator")
@@ -655,7 +661,7 @@ fun OsmRelationTagsCard(
 
             if (distance != null) {
                 Text(
-                    text = "Distance: $distance",
+                    text = stringResource(R.string.trail_detail_osm_distance_fmt, distance),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("trail_osm_tag_distance")
@@ -677,9 +683,9 @@ fun OsmRelationTagsCard(
                                 }
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(normalizedUrl)))
                             } catch (_: ActivityNotFoundException) {
-                                Toast.makeText(context, "Ingen app fundet til at åbne linket", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.toast_no_app_for_link), Toast.LENGTH_SHORT).show()
                             } catch (_: Exception) {
-                                Toast.makeText(context, "Ingen app fundet til at åbne linket", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.toast_no_app_for_link), Toast.LENGTH_SHORT).show()
                             }
                         }
                         .testTag("trail_osm_tag_website")

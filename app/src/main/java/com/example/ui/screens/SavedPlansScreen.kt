@@ -142,6 +142,23 @@ fun SavedPlansScreen(
     val undoLabel = stringResource(R.string.library_undo_action)
 
     var activeSnackbarJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                activeSnackbarJob?.cancel()
+                snackbarHostState.currentSnackbarData?.dismiss()
+                viewModel.commitPendingDelete()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            activeSnackbarJob?.cancel()
+            viewModel.commitPendingDelete()
+        }
+    }
 
     fun showUndoSnackbar(itemName: String) {
         activeSnackbarJob?.cancel()
@@ -689,17 +706,9 @@ fun SavedPlansScreen(
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Wifi,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
+                                                Icon(Icons.Default.Wifi, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                                                 Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    text = stringResource(R.string.ui_offlinetrailsscreen_hent_kun_via_wi_fi_89),
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
+                                                Text(text = stringResource(R.string.ui_offlinetrailsscreen_hent_kun_via_wi_fi_89), style = MaterialTheme.typography.bodyMedium)
                                             }
                                             Switch(
                                                 checked = brouterState.wifiOnly,
@@ -708,18 +717,13 @@ fun SavedPlansScreen(
                                                 modifier = Modifier.testTag("switch_brouter_wifi_only")
                                             )
                                         }
-
                                         Spacer(modifier = Modifier.height(Spacing.s2))
-
                                         if (brouterState.isAllDownloaded) {
                                             Button(
                                                 onClick = { viewModel.updateBRouterData() },
                                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                                 shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .sizeIn(minHeight = 48.dp)
-                                                    .testTag("btn_brouter_update")
+                                                modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp).testTag("btn_brouter_update")
                                             ) {
                                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                                                 Spacer(modifier = Modifier.width(8.dp))
@@ -730,10 +734,7 @@ fun SavedPlansScreen(
                                                 onClick = { viewModel.downloadBRouterData() },
                                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                                 shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .sizeIn(minHeight = 48.dp)
-                                                    .testTag("btn_brouter_download")
+                                                modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp).testTag("btn_brouter_download")
                                             ) {
                                                 Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                                                 Spacer(modifier = Modifier.width(8.dp))

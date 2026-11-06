@@ -348,8 +348,9 @@ class FixRound10CTest {
 
         val newPlanId = 888L
         val secondIntent = NavigationTrackingService.buildLaunchNavigationIntent(app, newPlanId)
-        controller.newIntent(secondIntent)
         assertEquals(newPlanId, secondIntent.getLongExtra(NavigationTrackingService.EXTRA_PLAN_ID, -1L))
+        controller.newIntent(secondIntent)
+        assertFalse(secondIntent.hasExtra(NavigationTrackingService.EXTRA_PLAN_ID))
         controller.pause().stop().destroy()
     }
 

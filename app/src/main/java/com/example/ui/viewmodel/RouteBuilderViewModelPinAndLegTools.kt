@@ -16,16 +16,21 @@ import kotlinx.coroutines.launch
 /**
  * Long-press on the line: Insert a via point at the tapped location.
  */
-fun RouteBuilderViewModel.insertViaPointOnLine(lat: Double, lng: Double) {
+fun RouteBuilderViewModel.insertViaPointOnLine(
+    lat: Double,
+    lng: Double,
+    name: String? = null,
+    linkedPoiId: String? = null
+) {
     val state = _uiState.value
     if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
-        addStopOrDetour(lat, lng, WaypointRole.VIA, "Via")
+        addStopOrDetour(lat, lng, WaypointRole.VIA, name ?: "Via", linkedPoiId)
         return
     }
 
     val wps = state.waypoints
     if (wps.size < 2) {
-        addPointAtEndInternal(lat, lng)
+        addPointAtEndInternal(lat, lng, name)
         return
     }
 
@@ -47,16 +52,22 @@ fun RouteBuilderViewModel.insertViaPointOnLine(lat: Double, lng: Double) {
     }
 
     if (bestIndex != -1) {
-        insertPointAtIndex(bestIndex, lat, lng)
+        insertPointAtIndex(bestIndex, lat, lng, name = name, linkedPoiId = linkedPoiId)
     } else {
-        addPointAtEndInternal(lat, lng)
+        addPointAtEndInternal(lat, lng, name)
     }
 }
 
 /**
  * Inserts a via point at a specific index, replacing leg (i-1 -> i) with two legs.
  */
-fun RouteBuilderViewModel.insertPointAtIndex(index: Int, lat: Double, lng: Double) {
+fun RouteBuilderViewModel.insertPointAtIndex(
+    index: Int,
+    lat: Double,
+    lng: Double,
+    name: String? = null,
+    linkedPoiId: String? = null
+) {
     pushHistory()
     val currentWps = _uiState.value.waypoints.toMutableList()
     val newWp = RouteWaypoint(
@@ -64,7 +75,8 @@ fun RouteBuilderViewModel.insertPointAtIndex(index: Int, lat: Double, lng: Doubl
         lng = lng,
         role = WaypointRole.VIA,
         legModeToNext = LegMode.SNAP,
-        name = "Via ${currentWps.size}"
+        name = name ?: "Via ${currentWps.size}",
+        linkedPoiId = linkedPoiId
     )
 
     currentWps.add(index, newWp)

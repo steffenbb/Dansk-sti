@@ -297,12 +297,21 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private val commitScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + Dispatchers.IO
+    )
+
     fun commitPendingDeletedTrail() {
         val item = _lastDeletedTrail.value ?: return
         _lastDeletedTrail.value = null
-        viewModelScope.launch(Dispatchers.IO) {
+        commitScope.launch {
             repository.commitDownloadedTrailPermanentDelete(item.trailId)
         }
+    }
+
+    override fun onCleared() {
+        commitPendingDeletedTrail()
+        super.onCleared()
     }
 
     fun undoLastDeletedTrail() {

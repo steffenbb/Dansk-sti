@@ -617,116 +617,39 @@ class MapLayersOverlayManager(
         requestMapInvalidate()
     }
 
+    private var cachedPlannerPois: List<com.example.ui.viewmodel.PlannerMapPoi> = emptyList()
+
+    /**
+     * Round 11 Item 5: Updates planner-fetched POIs on the shared POI cluster layer,
+     * deduplicated against the map's shelter/POI layers so there is only one marker per place.
+     */
+    fun setPlannerPois(plannerPois: List<com.example.ui.viewmodel.PlannerMapPoi>) {
+        if (cachedPlannerPois == plannerPois) return
+        cachedPlannerPois = plannerPois
+        rebuildPoiClusterItemsIfChanged()
+    }
+
     private fun rebuildPoiClusterItemsIfChanged() {
         val overlay = poiClusterOverlay ?: return
-        var sig = 17
-        sig = 31 * sig + currentState.showShelters.hashCode()
-        sig = 31 * sig + currentState.showFriTeltning.hashCode()
-        sig = 31 * sig + currentState.showWaterPois.hashCode()
-        sig = 31 * sig + currentState.showToilets.hashCode()
-        sig = 31 * sig + currentState.showShops.hashCode()
-        sig = 31 * sig + currentState.showTransit.hashCode()
-        sig = 31 * sig + currentState.showMyPoints.hashCode()
-        sig = 31 * sig + cachedShelters.size
-        sig = 31 * sig + cachedFriTeltning.size
-        sig = 31 * sig + cachedPois.size
-        sig = 31 * sig + cachedCustomWaypoints.size
-
+        val sig = MapLayersPoiBuilder.computePoiSignature(
+            state = currentState,
+            shelters = cachedShelters,
+            friTeltning = cachedFriTeltning,
+            pois = cachedPois,
+            customWaypoints = cachedCustomWaypoints,
+            plannerPois = cachedPlannerPois
+        )
         if (sig == lastPoiSignature) return
         lastPoiSignature = sig
 
-        val items = ArrayList<PoiItem>()
-
-        if (currentState.showShelters) {
-            for (s in cachedShelters) {
-                items.add(
-                    PoiItem(
-                        id = s.id,
-                        type = "shelter",
-                        name = s.name,
-                        subText = buildString {
-                            s.capacity?.let { append("Kapacitet: $it pladser") }
-                            if (s.bookingRequired) {
-                                if (isNotEmpty()) append(" · ")
-                                append("Booking")
-                            }
-                        }.ifEmpty { "Shelter / Lejrplads" },
-                        lat = s.lat,
-                        lng = s.lng,
-                        payload = s
-                    )
-                )
-            }
-        }
-
-        if (currentState.showFriTeltning) {
-            for (f in cachedFriTeltning) {
-                items.add(
-                    PoiItem(
-                        id = f.id,
-                        type = "tent",
-                        name = f.name,
-                        subText = "Fri teltning skov",
-                        lat = f.centerLat,
-                        lng = f.centerLng,
-                        payload = f
-                    )
-                )
-            }
-        }
-
-        for (p in cachedPois) {
-            val normalized = p.type.lowercase()
-            val shouldInclude = when (normalized) {
-                "water", "drinking_water", "vand" -> currentState.showWaterPois
-                "toilet", "toilets" -> currentState.showToilets
-                "shop", "supermarket", "convenience", "bakery", "indkoeb" -> currentState.showShops
-                "station", "ferry", "train_station", "bus_stop", "ferry_terminal", "transit", "offentlig_transport" -> currentState.showTransit
-                else -> false
-            }
-            if (shouldInclude) {
-                val typeKey = when (normalized) {
-                    "water", "drinking_water", "vand" -> "water"
-                    "toilet", "toilets" -> "toilet"
-                    "shop", "supermarket", "convenience", "bakery", "indkoeb" -> "shop"
-                    else -> "transit"
-                }
-                items.add(
-                    PoiItem(
-                        id = p.id,
-                        type = typeKey,
-                        name = p.name.ifBlank {
-                            when (typeKey) {
-                                "water" -> "Drikkevand"
-                                "toilet" -> "Toilet"
-                                "shop" -> "Indkøb"
-                                else -> "Stoppested / Station"
-                            }
-                        },
-                        subText = p.openingHours ?: p.operator ?: "",
-                        lat = p.lat,
-                        lng = p.lng,
-                        payload = p
-                    )
-                )
-            }
-        }
-
-        if (currentState.showMyPoints) {
-            for (wp in cachedCustomWaypoints) {
-                items.add(
-                    PoiItem(
-                        id = "wp_${wp.id}",
-                        type = "my_point",
-                        name = wp.name,
-                        subText = wp.note.ifBlank { "Gemt punkt" },
-                        lat = wp.lat,
-                        lng = wp.lng,
-                        payload = wp
-                    )
-                )
-            }
-        }
+        val items = MapLayersPoiBuilder.buildClusterItems(
+            state = currentState,
+            shelters = cachedShelters,
+            friTeltning = cachedFriTeltning,
+            pois = cachedPois,
+            customWaypoints = cachedCustomWaypoints,
+            plannerPois = cachedPlannerPois
+        )
 
         if (overlay.setItems(items)) {
             requestMapInvalidate()
@@ -743,6 +666,8 @@ class MapLayersOverlayManager(
 
     fun getActivePoiItemCount(): Int = poiClusterOverlay?.getItemCount() ?: 0
 
+    fun getActivePoiItems(): List<PoiItem> = poiClusterOverlay?.getItems().orEmpty()
+
     fun getActiveWaterFeatureCount(): Int = waterLayerOverlay.currentFeatureCount
 
     /**
@@ -750,93 +675,14 @@ class MapLayersOverlayManager(
      * or the finger is on its marker, return its [PoiItem] so the caller can open [PoiInfoSheet].
      */
     fun findLongPressPoi(point: GeoPoint, maxDistanceMeters: Double = 30.0): PoiItem? {
-        val allowedTypes = setOf("shelter", "tent", "water", "toilet", "shop")
-
-        // 1. Check within 30 m across active cluster items and cached shelters/friTeltning/pois (pick closest)
-        var bestPoi: PoiItem? = null
-        var bestDist = maxDistanceMeters
-
-        for (item in poiClusterOverlay?.getItems().orEmpty()) {
-            if (item.type !in allowedTypes) continue
-            val d = com.example.util.GeoUtils.distanceMeters(point.latitude, point.longitude, item.lat, item.lng)
-            if (d <= bestDist) {
-                bestDist = d
-                bestPoi = item
-            }
-        }
-
-        for (s in cachedShelters) {
-            val d = com.example.util.GeoUtils.distanceMeters(point.latitude, point.longitude, s.lat, s.lng)
-            if (d <= bestDist) {
-                bestDist = d
-                bestPoi = PoiItem(
-                    id = s.id,
-                    type = "shelter",
-                    name = s.name,
-                    subText = buildString {
-                        s.capacity?.let { append("Kapacitet: $it pladser") }
-                        if (s.bookingRequired) {
-                            if (isNotEmpty()) append(" · ")
-                            append("Booking")
-                        }
-                    }.ifEmpty { "Shelter / Lejrplads" },
-                    lat = s.lat,
-                    lng = s.lng,
-                    payload = s
-                )
-            }
-        }
-
-        for (f in cachedFriTeltning) {
-            val d = com.example.util.GeoUtils.distanceMeters(point.latitude, point.longitude, f.centerLat, f.centerLng)
-            if (d <= bestDist) {
-                bestDist = d
-                bestPoi = PoiItem(
-                    id = f.id,
-                    type = "tent",
-                    name = f.name,
-                    subText = "Fri teltning skov",
-                    lat = f.centerLat,
-                    lng = f.centerLng,
-                    payload = f
-                )
-            }
-        }
-
-        for (p in cachedPois) {
-            val normalized = p.type.lowercase()
-            val typeKey = when (normalized) {
-                "water", "drinking_water", "vand" -> "water"
-                "toilet", "toilets" -> "toilet"
-                "shop", "supermarket", "convenience", "bakery", "indkoeb" -> "shop"
-                else -> null
-            } ?: continue
-            val d = com.example.util.GeoUtils.distanceMeters(point.latitude, point.longitude, p.lat, p.lng)
-            if (d <= bestDist) {
-                bestDist = d
-                bestPoi = PoiItem(
-                    id = p.id,
-                    type = typeKey,
-                    name = p.name.ifBlank {
-                        when (typeKey) {
-                            "water" -> "Drikkevand"
-                            "toilet" -> "Toilet"
-                            else -> "Indkøb"
-                        }
-                    },
-                    subText = p.openingHours ?: p.operator ?: "",
-                    lat = p.lat,
-                    lng = p.lng,
-                    payload = p
-                )
-            }
-        }
-
-        if (bestPoi != null) {
-            return bestPoi
-        }
-
-        // 2. Fallback: Check if the finger is directly on a rendered marker
-        return poiClusterOverlay?.findHitPoiAtGeoPoint(point, mapView, allowedTypes)
+        return MapLayersPoiBuilder.findLongPressPoi(
+            point = point,
+            maxDistanceMeters = maxDistanceMeters,
+            poiClusterOverlay = poiClusterOverlay,
+            mapView = mapView,
+            cachedShelters = cachedShelters,
+            cachedFriTeltning = cachedFriTeltning,
+            cachedPois = cachedPois
+        )
     }
 }

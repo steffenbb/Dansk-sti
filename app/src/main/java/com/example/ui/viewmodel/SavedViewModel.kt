@@ -269,12 +269,18 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
         _lastDeletedItem.value = newItem
     }
 
+    private val commitScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + Dispatchers.IO
+    )
+
     /**
-     * Round 10C Item 1: Called when the undo snackbar closes without "Fortryd".
+     * Round 10C Item 1 & Round 11 Item 3:
+     * Called when the undo snackbar closes without "Fortryd", or when Mine ture is left
+     * or the app goes to the background with an undo pending.
      * Permanently deletes files, POIs, progress, stages, track points, and offline archives.
      */
     fun commitPendingDelete() {
-        viewModelScope.launch(Dispatchers.IO) {
+        commitScope.launch {
             undoMutex.lock()
             try {
                 val item = _lastDeletedItem.value ?: return@launch
@@ -284,6 +290,11 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
                 undoMutex.unlock()
             }
         }
+    }
+
+    override fun onCleared() {
+        commitPendingDelete()
+        super.onCleared()
     }
 
     private suspend fun snapshotPlanForUndo(plan: TripPlanEntity): DeletedLibraryItem.Plan {

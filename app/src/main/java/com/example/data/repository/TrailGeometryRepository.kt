@@ -329,17 +329,10 @@ class TrailGeometryRepository(private val context: Context) {
                     emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
                 }
             } else {
-                // 1. Download via direct OSM 0.6 API first (official, canonical, responsive in ~1-2s)
-                downloadRelationDirectOsm(relationId, rawElements) { dl, tot ->
+                // Round 11 Item 1: Use the shared OverpassClient first, with its mirrors and backoff.
+                downloadRelationRecursive(relationId, rawElements) { dl, tot ->
                     val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
                     emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
-                }
-
-                // 2. If direct OSM returned no elements, fall back to Overpass mirrors
-                if (rawElements.isEmpty()) {
-                    Log.i("TrailGeometry", "Direct OSM API returned no data for relation $relationId ($trailName). Trying Overpass mirrors.")
-                    emitProg(0.15f, 0, 1, 0.0, "Henter via Overpass spejlserver...")
-                    downloadRelationRecursive(relationId, rawElements)
                 }
             }
 
@@ -407,7 +400,11 @@ class TrailGeometryRepository(private val context: Context) {
         }
     }
 
-    private suspend fun downloadRelationRecursive(relationId: Long, collected: MutableMap<Long, Map<String, Any>>) {
+    private suspend fun downloadRelationRecursive(
+        relationId: Long,
+        collected: MutableMap<Long, Map<String, Any>>,
+        onChildProgress: ((downloaded: Int, total: Int) -> Unit)? = null
+    ) {
         if (collected.containsKey(relationId)) return
         val query = """
             [out:json][timeout:60];
@@ -435,6 +432,7 @@ class TrailGeometryRepository(private val context: Context) {
                         val mutableEl = el.toMutableMap()
                         @Suppress("UNCHECKED_CAST")
                         val members = el["members"] as? List<Map<String, Any>> ?: emptyList()
+                        val childRelIds = mutableListOf<Long>()
                         val enrichedMembers = members.map { m ->
                             val mType = m["type"] as? String
                             val mRef = (m["ref"] as? Number)?.toLong()
@@ -445,15 +443,20 @@ class TrailGeometryRepository(private val context: Context) {
                                     mCopy["tags"] = wTags
                                     mCopy
                                 } else m
-                            } else m
+                            } else {
+                                if (mType == "relation" && mRef != null) {
+                                    childRelIds.add(mRef)
+                                }
+                                m
+                            }
                         }
                         mutableEl["members"] = enrichedMembers
                         collected[id] = mutableEl
-                        for (m in enrichedMembers) {
-                            val mType = m["type"] as? String
-                            val mRef = (m["ref"] as? Number)?.toLong()
-                            if (mType == "relation" && mRef != null) {
-                                downloadRelationRecursive(mRef, collected)
+                        for ((idx, cid) in childRelIds.withIndex()) {
+                            onChildProgress?.invoke(idx + 1, childRelIds.size)
+                            downloadRelationRecursive(cid, collected, null)
+                            if (childRelIds.size > 1 && !isLikelyDanishChildRelation(collected[cid])) {
+                                collected.remove(cid)
                             }
                         }
                     }
@@ -571,110 +574,6 @@ class TrailGeometryRepository(private val context: Context) {
         if (danishMarkers.any { combinedText.contains(it) }) return true
         if (foreignMarkers.any { combinedText.contains(it) }) return false
         return true
-    }
-
-    private fun downloadRelationDirectOsm(
-        relationId: Long,
-        collected: MutableMap<Long, Map<String, Any>>,
-        onChildProgress: ((downloaded: Int, total: Int) -> Unit)? = null
-    ) {
-        if (collected.containsKey(relationId)) return
-        val url = "https://api.openstreetmap.org/api/0.6/relation/$relationId/full.json"
-        try {
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
-                .build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    Log.w("TrailGeometry", "Direct OSM API returned ${response.code} for relation $relationId")
-                    return
-                }
-                val jsonStr = response.body?.string() ?: return
-                @Suppress("UNCHECKED_CAST")
-                val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
-                @Suppress("UNCHECKED_CAST")
-                val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
-
-                val nodeMap = mutableMapOf<Long, Map<String, Double>>()
-                val wayMap = mutableMapOf<Long, MutableMap<String, Any>>()
-                val relMap = mutableMapOf<Long, MutableMap<String, Any>>()
-
-                for (el in elements) {
-                    val id = (el["id"] as? Number)?.toLong() ?: continue
-                    val type = el["type"] as? String
-                    when (type) {
-                        "node" -> {
-                            val lat = (el["lat"] as? Number)?.toDouble() ?: 0.0
-                            val lon = (el["lon"] as? Number)?.toDouble() ?: 0.0
-                            nodeMap[id] = mapOf("lat" to lat, "lon" to lon)
-                        }
-                        "way" -> {
-                            wayMap[id] = el.toMutableMap()
-                        }
-                        "relation" -> {
-                            relMap[id] = el.toMutableMap()
-                        }
-                    }
-                }
-
-                // Resolve way node coordinates into inline geometry
-                for ((_, way) in wayMap) {
-                    @Suppress("UNCHECKED_CAST")
-                    val nodeRefs = (way["nodes"] as? List<Number>)?.map { it.toLong() } ?: emptyList()
-                    val wayGeom = nodeRefs.mapNotNull { nodeMap[it] }
-                    way["geometry"] = wayGeom
-                }
-
-                val currentRel = relMap[relationId] ?: return
-                @Suppress("UNCHECKED_CAST")
-                val rawMembers = currentRel["members"] as? List<Map<String, Any>> ?: emptyList()
-                val resolvedMembers = mutableListOf<Map<String, Any>>()
-                val allChildRelIds = mutableListOf<Long>()
-
-                for (m in rawMembers) {
-                    val mType = m["type"] as? String
-                    val mRef = (m["ref"] as? Number)?.toLong()
-                    if (mType == "way" && mRef != null) {
-                        val fullWay = wayMap[mRef]
-                        val memberCopy = m.toMutableMap()
-                        if (fullWay != null) {
-                            @Suppress("UNCHECKED_CAST")
-                            val geom = fullWay["geometry"] as? List<Map<String, Double>> ?: emptyList()
-                            memberCopy["geometry"] = geom
-                            @Suppress("UNCHECKED_CAST")
-                            val tags = fullWay["tags"] as? Map<String, String> ?: emptyMap()
-                            memberCopy["tags"] = tags
-                        }
-                        resolvedMembers.add(memberCopy)
-                    } else if (mType == "relation" && mRef != null) {
-                        resolvedMembers.add(m)
-                        allChildRelIds.add(mRef)
-                    } else {
-                        resolvedMembers.add(m)
-                    }
-                }
-
-                currentRel["members"] = resolvedMembers
-                collected[relationId] = currentRel
-
-                // Filter out non-Danish child relations if this is an international super-relation (e.g., E1, E6)
-                val filteredChildIds = if (allChildRelIds.size > 1) {
-                    val danishCandidates = allChildRelIds.filter { cid -> isLikelyDanishChildRelation(relMap[cid]) }
-                    if (danishCandidates.isNotEmpty()) danishCandidates else allChildRelIds
-                } else {
-                    allChildRelIds
-                }
-
-                // Recursively fetch child relations with progress updates
-                for ((idx, cid) in filteredChildIds.withIndex()) {
-                    onChildProgress?.invoke(idx + 1, filteredChildIds.size)
-                    downloadRelationDirectOsm(cid, collected, null)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("TrailGeometry", "Error fetching direct OSM relation $relationId: ${e.message}", e)
-        }
     }
 
     private fun collectWayMembersRecursive(

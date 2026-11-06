@@ -120,10 +120,24 @@ fun ProfileScreen(
     var aboutTapCount by rememberSaveable { mutableIntStateOf(0) }
     val showDiagnostics = isDebugBuild || aboutTapCount >= 7
     var showPrivacyScreen by rememberSaveable { mutableStateOf(false) }
+    var showHowToGuideScreen by rememberSaveable { mutableStateOf(false) }
 
     if (showPrivacyScreen) {
         PrivacyScreen(
             onBack = { showPrivacyScreen = false },
+            modifier = modifier
+        )
+        return
+    }
+
+    if (showHowToGuideScreen) {
+        HowToGuideScreen(
+            onDismiss = {
+                showHowToGuideScreen = false
+                coroutineScope.launch {
+                    settingsRepository.setHasSeenHowToGuide(true)
+                }
+            },
             modifier = modifier
         )
         return
@@ -380,7 +394,7 @@ fun ProfileScreen(
                         )
                         Spacer(modifier = Modifier.width(Spacing.s2))
                         Text(
-                            text = "Stemmeguidning (dansk oplæsning)",
+                            text = stringResource(R.string.profile_voice_guidance_danish),
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
@@ -403,7 +417,7 @@ fun ProfileScreen(
                 if (isDanishVoiceInstalled == false) {
                     Spacer(modifier = Modifier.height(Spacing.s1))
                     Text(
-                        text = "Dansk stemme til oplæsning (TTS) er ikke installeret på enheden. Installer dansk sprogpakke i systemindstillingerne.",
+                        text = stringResource(R.string.profile_danish_tts_missing_warning),
                         style = MaterialTheme.typography.bodySmall,
                         color = DanskStiTheme.colors.warning,
                         modifier = Modifier.testTag("profile_danish_tts_missing_text")
@@ -522,63 +536,6 @@ fun ProfileScreen(
                         }
                     }
                 }
-
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = Spacing.s3),
-                    color = MaterialTheme.colorScheme.outlineVariant
-                )
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Straighten,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(Spacing.s2))
-                    Text(
-                        text = stringResource(R.string.setting_units),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                Spacer(modifier = Modifier.height(Spacing.s2))
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.s2),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.s1)
-                ) {
-                    val unitOptions = listOf(
-                        "metric" to stringResource(R.string.units_metric),
-                        "imperial" to stringResource(R.string.units_imperial)
-                    )
-                    unitOptions.forEach { (key, label) ->
-                        val selected = appSettings.units.equals(key, ignoreCase = true)
-                        FilterChip(
-                            selected = selected,
-                            onClick = {
-                                coroutineScope.launch {
-                                    settingsRepository.setUnits(key)
-                                }
-                            },
-                            label = {
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            ),
-                            modifier = Modifier
-                                .heightIn(min = MinTouchTargetSize)
-                                .testTag("profile_units_chip_$key")
-                        )
-                    }
-                }
             }
         }
 
@@ -600,14 +557,7 @@ fun ProfileScreen(
                 onDownloadBrouter = { offlineViewModel.downloadBRouterData() },
                 onClearCache = {
                     coroutineScope.launch {
-                        withContext(Dispatchers.IO) {
-                            try {
-                                val trailsDir = File(context.filesDir, "trails")
-                                trailsDir.listFiles()?.forEach { it.delete() }
-                                context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
-                            } catch (_: Exception) {
-                            }
-                        }
+                        app.repository.clearCachedTrailGeometries()
                         cacheClearedMessage = cacheClearedText
                     }
                 },
@@ -628,6 +578,7 @@ fun ProfileScreen(
             ProfileAboutSectionCard(
                 showDiagnostics = showDiagnostics,
                 onTapVersionRow = { aboutTapCount++ },
+                onOpenHowToGuide = { showHowToGuideScreen = true },
                 onOpenCredits = onOpenCredits,
                 onOpenPrivacy = { showPrivacyScreen = true },
                 onOpenDiagnostics = onOpenDiagnostics

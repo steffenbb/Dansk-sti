@@ -84,7 +84,9 @@ fun NavigationTopCueAndAlertsStack(
     onRerouteBack: () -> Unit,
     onTakeDetour: () -> Unit,
     onRequestLocationPermission: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    corridorPoisErrorMessage: String? = null,
+    onRetryCorridorPois: () -> Unit = {}
 ) {
     val danskStiColors = DanskStiTheme.colors
     Column(
@@ -471,6 +473,53 @@ fun NavigationTopCueAndAlertsStack(
                         Text(
                             text = stringResource(R.string.grant_location_permission_action),
                             color = MaterialTheme.colorScheme.onPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        if (!corridorPoisErrorMessage.isNullOrBlank()) {
+            Surface(
+                onClick = onRetryCorridorPois,
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.96f),
+                shadowElevation = 4.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("nav_corridor_pois_error_banner")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = corridorPoisErrorMessage,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("nav_corridor_pois_error_text")
+                    )
+                    OutlinedButton(
+                        onClick = onRetryCorridorPois,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .sizeIn(minWidth = 48.dp, minHeight = 36.dp)
+                            .testTag("nav_corridor_pois_retry_button")
+                    ) {
+                        Text(
+                            text = stringResource(R.string.nav_corridor_pois_retry_button),
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }

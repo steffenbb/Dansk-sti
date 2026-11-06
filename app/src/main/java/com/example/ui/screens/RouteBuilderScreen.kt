@@ -113,6 +113,7 @@ fun RouteBuilderScreen(
     var renameWaypointText by remember { mutableStateOf("") }
     var showPlannerMenu by remember { mutableStateOf(false) }
     var showLayersSheet by remember { mutableStateOf(false) }
+    var showHowToGuide by remember { mutableStateOf(false) }
     var hasZoomedToInitialRoute by remember { mutableStateOf(false) }
 
     var mapViewInstance by remember { mutableStateOf<MapView?>(null) }
@@ -274,6 +275,7 @@ fun RouteBuilderScreen(
         uiState.scrubbedPointOnMap,
         uiState.baseTrailPoints,
         uiState.baseTrailKmMarkers,
+        uiState.nearbyPoisForPlan,
         uiState.draggingWaypointId,
         uiState.draggingTrailKmLabel,
         currentEffectiveDarkMap,
@@ -312,6 +314,7 @@ fun RouteBuilderScreen(
 
     val handleBackPress = {
         when {
+            showHowToGuide -> showHowToGuide = false
             uiState.isCrosshairMode -> viewModel.cancelCrosshairMode()
             uiState.selectedWaypointId != null || uiState.selectedLegKey != null -> {
                 viewModel.selectWaypoint(null)
@@ -328,6 +331,14 @@ fun RouteBuilderScreen(
     }
 
     BackHandler(onBack = handleBackPress)
+
+    if (showHowToGuide) {
+        HowToGuideScreen(
+            initialSection = 1,
+            onDismiss = { showHowToGuide = false }
+        )
+        return
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -350,7 +361,8 @@ fun RouteBuilderScreen(
                     gpxPickerLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "text/xml", "*/*"))
                 },
                 onCloseRouteLoop = { viewModel.closeRouteLoop() },
-                onAppendOutAndBack = { viewModel.appendOutAndBack() }
+                onAppendOutAndBack = { viewModel.appendOutAndBack() },
+                onOpenHowToGuide = { showHowToGuide = true }
             )
         }
     ) { paddingValues ->
@@ -478,6 +490,9 @@ fun RouteBuilderScreen(
                                 poiId = poiData.id,
                                 poiType = poiData.rawType
                             )
+                        },
+                        onPoiTapped = {
+                            viewModel.selectNearbyPoiForSheet(null)
                         },
                         onCameraChanged = { _, zoom, bbox ->
                             if (bbox != null) {

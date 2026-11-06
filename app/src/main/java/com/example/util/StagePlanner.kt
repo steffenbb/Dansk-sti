@@ -248,6 +248,78 @@ object StagePlanner {
         return distanceDiff + (detourKm * 2.0) + bookingPenalty + noWaterPenalty
     }
 
+    fun computePrimaryWindow(targetKm: Double, dailyTargetKm: Double): Pair<Double, Double> {
+        val minusWindow = max(4.0, dailyTargetKm * 0.26)
+        val plusWindow = max(3.0, dailyTargetKm * 0.20)
+        return (targetKm - minusWindow) to (targetKm + plusWindow)
+    }
+
+    fun computeAdaptiveFallbackWindow(targetKm: Double, dailyTargetKm: Double): Pair<Double, Double> {
+        val minusWindow = max(4.2, dailyTargetKm * 0.35)
+        val plusWindow = max(3.5, dailyTargetKm * 0.30)
+        return (targetKm - minusWindow) to (targetKm + plusWindow)
+    }
+
+    fun wouldArriveAfterSunset(
+        stageKm: Double,
+        paceKmh: Double,
+        startTime: String,
+        sunsetTime: String
+    ): Boolean {
+        if (sunsetTime.isBlank() || sunsetTime == "Solnedgang ukendt") return false
+        val sunsetParts = sunsetTime.split(":").mapNotNull { it.toIntOrNull() }
+        if (sunsetParts.size < 2) return false
+        val startParts = startTime.split(":").mapNotNull { it.toIntOrNull() }
+        val startMinutes = (startParts.getOrNull(0) ?: 9) * 60 + (startParts.getOrNull(1) ?: 0)
+        val effectivePace = paceKmh.coerceAtLeast(1.0)
+        val walkMinutes = ((stageKm / effectivePace) * 60.0).roundToInt()
+        val arrivalMinutes = startMinutes + walkMinutes + 60
+        val sunsetMinutes = sunsetParts[0] * 60 + sunsetParts[1]
+        return arrivalMinutes > sunsetMinutes
+    }
+
+    /**
+     * Multi-criteria smart stage score factoring in base score, toilet access,
+     * after-sunset arrival penalty, and 1-day look-ahead availability.
+     */
+    fun calculateSmartStageScore(
+        candidate: OvernightCandidate,
+        targetKm: Double,
+        dayStartKm: Double = 0.0,
+        dailyTargetKm: Double = 15.0,
+        paceKmh: Double = 4.0,
+        startTime: String = "09:00",
+        dayNumber: Int = 1,
+        startDateEpochMs: Long? = null,
+        sunsetTimeOverride: String? = null,
+        allCandidates: List<OvernightCandidate> = emptyList(),
+        isSecondToLastDayOrEarlier: Boolean = false,
+        totalWalkKm: Double = 0.0
+    ): Double {
+        val baseScore = calculateScore(candidate, targetKm)
+        val noToiletPenalty = if (!candidate.hasToiletNearby) 0.5 else 0.0
+        val stageKm = max(0.0, candidate.walkKm - dayStartKm)
+        val daySunset = resolveDaySunset(dayNumber, candidate.lat, candidate.lng, startDateEpochMs, sunsetTimeOverride)
+        val afterSunsetPenalty = if (wouldArriveAfterSunset(stageKm, paceKmh, startTime, daySunset)) 3.5 else 0.0
+
+        val lookAheadPenalty = if (isSecondToLastDayOrEarlier && allCandidates.isNotEmpty()) {
+            val nextTargetKm = candidate.walkKm + dailyTargetKm
+            if (totalWalkKm > nextTargetKm + 3.0) {
+                val (nextMin, nextMax) = computeAdaptiveFallbackWindow(nextTargetKm, dailyTargetKm)
+                val hasNextDayCandidate = allCandidates.any {
+                    it.walkKm in nextMin..nextMax && it.walkKm > candidate.walkKm + 0.5
+                }
+                if (!hasNextDayCandidate) 5.0 else 0.0
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        }
+
+        return baseScore + noToiletPenalty + afterSunsetPenalty + lookAheadPenalty
+    }
+
     /**
      * Round 10B Item 3: Every day uses its own date (trip start date + day index)
      * and that night's overnight coordinates.
@@ -590,14 +662,40 @@ object StagePlanner {
                 prevEndWalkKm = stageEndKm
                 prevStopName = stopName
             } else {
-                val windowCandidates = candidates.filter {
-                    it.walkKm >= (targetKm - 4.0) &&
-                        it.walkKm <= (targetKm + 3.0) &&
+                val (primaryMinKm, primaryMaxKm) = computePrimaryWindow(targetKm, dailyTargetKm)
+                val primaryWindowCandidates = candidates.filter {
+                    it.walkKm >= primaryMinKm &&
+                        it.walkKm <= primaryMaxKm &&
                         it.walkKm > (prevEndWalkKm + 0.1)
+                }
+                val windowCandidates = if (primaryWindowCandidates.isNotEmpty()) {
+                    primaryWindowCandidates
+                } else {
+                    val (fallbackMinKm, fallbackMaxKm) = computeAdaptiveFallbackWindow(targetKm, dailyTargetKm)
+                    candidates.filter {
+                        it.walkKm >= fallbackMinKm &&
+                            it.walkKm <= fallbackMaxKm &&
+                            it.walkKm > (prevEndWalkKm + 0.1)
+                    }
                 }
 
                 if (windowCandidates.isNotEmpty()) {
-                    val best = windowCandidates.minByOrNull { calculateScore(it, targetKm) }!!
+                    val best = windowCandidates.minByOrNull { cand ->
+                        calculateSmartStageScore(
+                            candidate = cand,
+                            targetKm = targetKm,
+                            dayStartKm = prevEndWalkKm,
+                            dailyTargetKm = dailyTargetKm,
+                            paceKmh = paceKmh,
+                            startTime = startTime,
+                            dayNumber = day,
+                            startDateEpochMs = startDateEpochMs,
+                            sunsetTimeOverride = sunsetTime,
+                            allCandidates = candidates,
+                            isSecondToLastDayOrEarlier = day < daysCount,
+                            totalWalkKm = totalWalkKm
+                        )
+                    }!!
                     val stageStartKm = prevEndWalkKm
                     val stageEndKm = min(totalWalkKm, best.walkKm)
                     val daySunset = resolveDaySunset(day, best.lat, best.lng, startDateEpochMs, sunsetTime)

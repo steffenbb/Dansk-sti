@@ -2150,6 +2150,133 @@ class DanskStiRepository(
         commitCustomWaypointPermanentDelete(id, wp?.photoPath)
     }
 
+    /**
+     * Round 11 Item 3:
+     * On app start, delete orphan files:
+     * - plans/ files with no matching database row in trip_plans
+     * - routes/ (and custom_routes/) files with no matching database row in custom_routes (or trip_plans)
+     * - offline/ files with no matching database row in downloaded_trails
+     * - photos/ files no saved point in user_custom_waypoints refers to
+     */
+    suspend fun cleanupOrphanFiles(
+        baseFilesDir: java.io.File = context.filesDir,
+        maxLastModifiedEpochMs: Long = Long.MAX_VALUE
+    ) = withContext(Dispatchers.IO) {
+        try {
+            // 1. plans/
+            val validPlans = dao.getAllTripPlansList()
+            val validPlanIds = validPlans.map { it.id.toString() }.toSet()
+            val plansDir = java.io.File(baseFilesDir, "plans")
+            if (plansDir.exists()) {
+                plansDir.listFiles()?.forEach { file ->
+                    if (file.isFile && file.lastModified() <= maxLastModifiedEpochMs) {
+                        val stem = file.name
+                            .removeSuffix(".gz")
+                            .removeSuffix(".json")
+                            .removePrefix("plan_")
+                        if (stem !in validPlanIds) {
+                            runCatching { file.delete() }
+                        }
+                    }
+                }
+            }
+
+            // 2. routes/ and custom_routes/
+            val validRoutes = dao.getAllCustomRoutesList()
+            val validRouteIds = buildSet {
+                validRoutes.forEach { r ->
+                    add(r.id.toString())
+                    add("route_${r.id}")
+                }
+                validPlans.forEach { p ->
+                    p.customRouteId?.let { cid ->
+                        add(cid.toString())
+                        add("route_$cid")
+                    }
+                    if (p.trailId.startsWith("route_")) {
+                        add(p.trailId)
+                        add(p.trailId.removePrefix("route_"))
+                    }
+                }
+            }
+            val validGeometryFiles = validRoutes.mapNotNull { it.geometryFile.takeIf { f -> f.isNotBlank() } }.toSet()
+
+            val routesDir = java.io.File(baseFilesDir, "routes")
+            if (routesDir.exists()) {
+                routesDir.listFiles()?.forEach { file ->
+                    if (file.isFile && file.lastModified() <= maxLastModifiedEpochMs) {
+                        val stem = file.name
+                            .removeSuffix(".gz")
+                            .removeSuffix(".json")
+                        val cleanStem = stem.removePrefix("route_")
+                        if (stem !in validRouteIds && cleanStem !in validRouteIds && file.name !in validGeometryFiles) {
+                            runCatching { file.delete() }
+                        }
+                    }
+                }
+            }
+
+            val customRoutesDir = java.io.File(baseFilesDir, "custom_routes")
+            if (customRoutesDir.exists()) {
+                customRoutesDir.listFiles()?.forEach { file ->
+                    if (file.isFile && file.lastModified() <= maxLastModifiedEpochMs) {
+                        val stem = file.name.removeSuffix(".gz").removeSuffix(".json")
+                        val cleanStem = stem.removePrefix("route_")
+                        if (file.name !in validGeometryFiles && stem !in validRouteIds && cleanStem !in validRouteIds) {
+                            runCatching { file.delete() }
+                        }
+                    }
+                }
+            }
+
+            // 3. offline/
+            val validDownloadedTrails = dao.getAllDownloadedTrailsList()
+            val validOfflineStems = buildSet {
+                validDownloadedTrails.forEach { dt ->
+                    add(dt.trailId)
+                    add(dt.trailId.replace(Regex("[^a-zA-Z0-9_-]"), "_"))
+                }
+            }
+            val offlineDir = java.io.File(baseFilesDir, "offline")
+            if (offlineDir.exists()) {
+                offlineDir.listFiles()?.forEach { file ->
+                    if (file.isFile && file.lastModified() <= maxLastModifiedEpochMs) {
+                        val baseName = file.name.substringBefore(".sqlite")
+                        if (baseName !in validOfflineStems && file.name !in validOfflineStems) {
+                            runCatching {
+                                com.example.util.DanskStiTileSourceHelper.detachOfflineArchiveAndDeleteFile(file)
+                                if (file.exists()) file.delete()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4. photos/
+            val validWaypoints = dao.getAllCustomWaypointsList()
+            val validPhotoNames = validWaypoints
+                .mapNotNull { it.photoPath?.takeIf { p -> p.isNotBlank() } }
+                .map { java.io.File(it).name }
+                .toSet()
+            val validPhotoPaths = validWaypoints
+                .mapNotNull { it.photoPath?.takeIf { p -> p.isNotBlank() } }
+                .map { java.io.File(it).absolutePath }
+                .toSet()
+            val photosDir = java.io.File(baseFilesDir, "photos")
+            if (photosDir.exists()) {
+                photosDir.listFiles()?.forEach { file ->
+                    if (file.isFile && file.lastModified() <= maxLastModifiedEpochMs) {
+                        if (file.name !in validPhotoNames && file.absolutePath !in validPhotoPaths) {
+                            runCatching { file.delete() }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("DanskStiRepo", "Orphan file cleanup failed: ${e.message}")
+        }
+    }
+
     // Phase 13 Requirement B: Afmærkede ruter
     suspend fun getMarkedRoutes(
         minLat: Double,
@@ -2179,6 +2306,16 @@ class DanskStiRepository(
         onProgress: ((com.example.data.model.TrailDownloadProgress) -> Unit)? = null
     ): Result<com.example.data.model.TrailEntity> = withContext(Dispatchers.IO) {
         markedRouteRepository.saveAndDownloadDiscoveredRoute(route, onProgress)
+    }
+
+    suspend fun clearCachedTrailGeometries() = withContext(Dispatchers.IO) {
+        try {
+            val trailsDir = java.io.File(context.filesDir, "trails")
+            trailsDir.listFiles()?.forEach { it.delete() }
+            context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+        } catch (_: Exception) {
+        }
+        dao.resetAllTrailsGeometryDownloaded()
     }
 }
 

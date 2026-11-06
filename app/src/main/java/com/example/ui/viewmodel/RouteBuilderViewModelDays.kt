@@ -316,12 +316,21 @@ fun RouteBuilderViewModel.openReplaceOvernightSheet(waypointId: String) {
     viewModelScope.launch {
         val shelters = repository.getAllSheltersList()
         val friTeltning = repository.getAllFriTeltningList()
-        val maxDetourM = state.maxDetourKm * 1000.0
+        val pois = state.nearbyPois.ifEmpty { repository.getAllPoisList() }
+        val waterPois = pois.filter { it.type == "water" }
+        val toiletPois = pois.filter { it.type == "toilet" }
+        val maxDetourM = (state.maxDetourKm * 1000.0).coerceAtLeast(1000.0)
         val candidates = mutableListOf<OvernightCandidate>()
 
         for (s in shelters) {
             val distM = haversineM(wp.lat, wp.lng, s.lat, s.lng)
             if (distM <= maxDetourM * 1.5) {
+                val hasWater = s.hasWaterNearby || waterPois.any {
+                    haversineM(s.lat, s.lng, it.lat, it.lng) <= 500.0
+                }
+                val hasToilet = s.hasToiletNearby || toiletPois.any {
+                    haversineM(s.lat, s.lng, it.lat, it.lng) <= 500.0
+                }
                 candidates.add(
                     OvernightCandidate(
                         id = s.id,
@@ -331,9 +340,9 @@ fun RouteBuilderViewModel.openReplaceOvernightSheet(waypointId: String) {
                         lng = s.lng,
                         walkKm = wp.trailKm ?: 0.0,
                         detourMeters = distM,
-                        bookingRequired = !s.bookingUrl.isNullOrBlank(),
-                        hasWaterNearby = s.hasWaterNearby,
-                        hasToiletNearby = s.hasToiletNearby,
+                        bookingRequired = s.bookingRequired || !s.bookingUrl.isNullOrBlank(),
+                        hasWaterNearby = hasWater,
+                        hasToiletNearby = hasToilet,
                         sourceEntity = s
                     )
                 )
@@ -342,6 +351,12 @@ fun RouteBuilderViewModel.openReplaceOvernightSheet(waypointId: String) {
         for (ft in friTeltning) {
             val distM = haversineM(wp.lat, wp.lng, ft.centerLat, ft.centerLng)
             if (distM <= maxDetourM * 1.5) {
+                val hasWater = ft.waterDistanceMeters <= 500 || waterPois.any {
+                    haversineM(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0
+                }
+                val hasToilet = ft.toiletDistanceMeters <= 500 || toiletPois.any {
+                    haversineM(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0
+                }
                 candidates.add(
                     OvernightCandidate(
                         id = ft.id,
@@ -352,8 +367,9 @@ fun RouteBuilderViewModel.openReplaceOvernightSheet(waypointId: String) {
                         walkKm = wp.trailKm ?: 0.0,
                         detourMeters = distM,
                         bookingRequired = false,
-                        hasWaterNearby = false,
-                        hasToiletNearby = false
+                        hasWaterNearby = hasWater,
+                        hasToiletNearby = hasToilet,
+                        sourceEntity = ft
                     )
                 )
             }
@@ -362,7 +378,13 @@ fun RouteBuilderViewModel.openReplaceOvernightSheet(waypointId: String) {
         _uiState.update {
             it.copy(
                 replaceOvernightWaypointId = waypointId,
-                replaceOvernightCandidates = candidates.sortedBy { c -> c.detourMeters }.take(10)
+                replaceOvernightCandidates = candidates
+                    .sortedWith(
+                        compareBy<OvernightCandidate> { c -> c.detourMeters }
+                            .thenByDescending { c -> c.hasWaterNearby }
+                            .thenByDescending { c -> c.hasToiletNearby }
+                    )
+                    .take(10)
             )
         }
     }

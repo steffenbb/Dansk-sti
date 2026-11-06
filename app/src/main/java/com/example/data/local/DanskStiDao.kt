@@ -215,6 +215,9 @@ interface DanskStiDao {
     @Query("SELECT * FROM downloaded_trails ORDER BY downloadedAt DESC")
     fun getAllDownloadedTrails(): kotlinx.coroutines.flow.Flow<List<com.example.data.model.DownloadedTrailEntity>>
 
+    @Query("SELECT * FROM downloaded_trails ORDER BY downloadedAt DESC")
+    suspend fun getAllDownloadedTrailsList(): List<com.example.data.model.DownloadedTrailEntity>
+
     @Query("SELECT * FROM downloaded_trails WHERE trailId = :trailId LIMIT 1")
     suspend fun getDownloadedTrail(trailId: String): com.example.data.model.DownloadedTrailEntity?
 
@@ -303,6 +306,9 @@ interface DanskStiDao {
     // Custom Routes (Phase 9 - Rutebygger)
     @Query("SELECT * FROM custom_routes ORDER BY updatedAt DESC")
     fun getAllCustomRoutes(): kotlinx.coroutines.flow.Flow<List<com.example.data.model.CustomRouteEntity>>
+
+    @Query("SELECT * FROM custom_routes ORDER BY updatedAt DESC")
+    suspend fun getAllCustomRoutesList(): List<com.example.data.model.CustomRouteEntity>
 
     @Query("SELECT * FROM custom_routes WHERE id = :id LIMIT 1")
     suspend fun getCustomRouteById(id: Long): com.example.data.model.CustomRouteEntity?
@@ -423,6 +429,9 @@ interface DanskStiDao {
 
     @Query("DELETE FROM planner_drafts")
     suspend fun clearPlannerDraft()
+
+    @Query("UPDATE trails SET isGeometryDownloaded = 0")
+    suspend fun resetAllTrailsGeometryDownloaded()
 }
 
 

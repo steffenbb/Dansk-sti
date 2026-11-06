@@ -70,10 +70,14 @@ fun RouteElevationProfileChart(
     val overnightColor = stiColors.overnight
     val casingColor = stiColors.routeCasing
 
-    val validPoints = remember(points) {
-        points.filter { pt ->
+    val allCoordPoints = remember(points) {
+        points.filter { pt -> pt.lat.isFinite() && pt.lng.isFinite() }
+    }
+
+    val validPoints = remember(allCoordPoints) {
+        allCoordPoints.filter { pt ->
             val ele = pt.ele
-            ele != null && ele.isFinite() && pt.lat.isFinite() && pt.lng.isFinite()
+            ele != null && ele.isFinite()
         }
     }
 
@@ -95,12 +99,12 @@ fun RouteElevationProfileChart(
         return
     }
 
-    val distancesKm = remember(validPoints) {
-        val dists = FloatArray(validPoints.size)
+    val allDistancesKm = remember(allCoordPoints) {
+        val dists = FloatArray(allCoordPoints.size)
         var sumM = 0.0
-        for (i in 1 until validPoints.size) {
-            val p1 = validPoints[i - 1]
-            val p2 = validPoints[i]
+        for (i in 1 until allCoordPoints.size) {
+            val p1 = allCoordPoints[i - 1]
+            val p2 = allCoordPoints[i]
             val dM = haversineM(p1.lat, p1.lng, p2.lat, p2.lng)
             if (dM.isFinite() && dM > 0.0) {
                 sumM += dM
@@ -110,7 +114,21 @@ fun RouteElevationProfileChart(
         dists
     }
 
-    val rawTotalKm = distancesKm.lastOrNull() ?: 0f
+    val distancesKm = remember(allCoordPoints, allDistancesKm, validPoints) {
+        val dists = FloatArray(validPoints.size)
+        var validIdx = 0
+        for (i in allCoordPoints.indices) {
+            val pt = allCoordPoints[i]
+            val ele = pt.ele
+            if (ele != null && ele.isFinite() && validIdx < dists.size) {
+                dists[validIdx] = allDistancesKm[i]
+                validIdx++
+            }
+        }
+        dists
+    }
+
+    val rawTotalKm = allDistancesKm.lastOrNull() ?: distancesKm.lastOrNull() ?: 0f
     val totalKm = if (rawTotalKm.isFinite() && rawTotalKm > 0f) rawTotalKm else 0f
 
     var minEle = Float.MAX_VALUE
@@ -148,16 +166,19 @@ fun RouteElevationProfileChart(
         ) {
             val currentScrubbed = scrubbedPoint
             if (scrubFraction in 0f..1f && currentScrubbed != null) {
+                val labelText = formatScrubbedElevationLabel(
+                    scrubbedKm = scrubbedKm,
+                    ele = currentScrubbed.ele,
+                    markerFormat = stringResource(R.string.elevation_marker_format),
+                    unknownMarkerFormat = stringResource(R.string.elevation_marker_unknown_format),
+                    unknownElevationText = stringResource(R.string.elevation_unknown)
+                )
                 Text(
-                    text = String.format(
-                        Locale.GERMANY,
-                        stringResource(R.string.elevation_marker_format),
-                        scrubbedKm,
-                        currentScrubbed.ele ?: 0.0
-                    ),
+                    text = labelText,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = primaryColor
+                    color = primaryColor,
+                    modifier = Modifier.testTag("elevation_scrub_label")
                 )
             } else {
                 Text(
@@ -221,7 +242,7 @@ fun RouteElevationProfileChart(
                 .fillMaxWidth()
                 .height(110.dp)
                 .testTag("route_elevation_chart")
-                .pointerInput(validPoints, totalKm, dayBoundaryWalkKms, overnightWaypointIds) {
+                .pointerInput(allCoordPoints, validPoints, totalKm, dayBoundaryWalkKms, overnightWaypointIds) {
                     fun updateScrub(xPos: Float) {
                         if (size.width <= 0) return
                         val fraction = (xPos / size.width.toFloat()).coerceIn(0f, 1f)
@@ -230,11 +251,11 @@ fun RouteElevationProfileChart(
                         scrubbedKm = targetKm
 
                         val closestIdx = if (totalKm > 0f) {
-                            findClosestIndex(distancesKm, targetKm)
+                            findClosestIndex(allDistancesKm, targetKm)
                         } else {
-                            ((fraction * (validPoints.size - 1)).toInt()).coerceIn(0, validPoints.size - 1)
+                            ((fraction * (allCoordPoints.size - 1)).toInt()).coerceIn(0, allCoordPoints.size - 1)
                         }
-                        val pt = validPoints.getOrNull(closestIdx)
+                        val pt = allCoordPoints.getOrNull(closestIdx)
                         scrubbedPoint = pt
                         onPointScrubbed?.invoke(pt, targetKm.toDouble())
                     }
@@ -245,7 +266,7 @@ fun RouteElevationProfileChart(
                         }
                     )
                 }
-                .pointerInput(validPoints, totalKm, dayBoundaryWalkKms, overnightWaypointIds) {
+                .pointerInput(allCoordPoints, validPoints, totalKm, dayBoundaryWalkKms, overnightWaypointIds) {
                     detectDragGestures(
                         onDragStart = { offset ->
                             if (size.width <= 0) return@detectDragGestures
@@ -269,11 +290,11 @@ fun RouteElevationProfileChart(
                             draggingOvernightId = matchedOvId
 
                             val idx = if (totalKm > 0f) {
-                                findClosestIndex(distancesKm, targetKm)
+                                findClosestIndex(allDistancesKm, targetKm)
                             } else {
-                                ((fraction * (validPoints.size - 1)).toInt()).coerceIn(0, validPoints.size - 1)
+                                ((fraction * (allCoordPoints.size - 1)).toInt()).coerceIn(0, allCoordPoints.size - 1)
                             }
-                            val pt = validPoints.getOrNull(idx)
+                            val pt = allCoordPoints.getOrNull(idx)
                             scrubbedPoint = pt
                             onPointScrubbed?.invoke(pt, targetKm.toDouble())
                         },
@@ -285,11 +306,11 @@ fun RouteElevationProfileChart(
                             val targetKm = fraction * totalKm
                             scrubbedKm = targetKm
                             val idx = if (totalKm > 0f) {
-                                findClosestIndex(distancesKm, targetKm)
+                                findClosestIndex(allDistancesKm, targetKm)
                             } else {
-                                ((fraction * (validPoints.size - 1)).toInt()).coerceIn(0, validPoints.size - 1)
+                                ((fraction * (allCoordPoints.size - 1)).toInt()).coerceIn(0, allCoordPoints.size - 1)
                             }
-                            val pt = validPoints.getOrNull(idx)
+                            val pt = allCoordPoints.getOrNull(idx)
                             scrubbedPoint = pt
                             onPointScrubbed?.invoke(pt, targetKm.toDouble())
                             draggingOvernightId?.let { ovId ->
@@ -424,6 +445,20 @@ fun RouteElevationProfileChart(
                 )
             }
         }
+    }
+}
+
+fun formatScrubbedElevationLabel(
+    scrubbedKm: Float,
+    ele: Double?,
+    markerFormat: String = "Markør: %1$.1f km · %2$.0f m",
+    unknownMarkerFormat: String = "Markør: %1$.1f km · %2\$s",
+    unknownElevationText: String = "Højde ukendt"
+): String {
+    return if (ele != null && ele.isFinite()) {
+        String.format(Locale.GERMANY, markerFormat, scrubbedKm, ele)
+    } else {
+        String.format(Locale.GERMANY, unknownMarkerFormat, scrubbedKm, unknownElevationText)
     }
 }
 

@@ -382,10 +382,19 @@ fun RouteBuilderViewModel.dismissNearestPoiDialog() {
 }
 
 fun RouteBuilderViewModel.routeToNearest(category: NearestPoiCategory, startLat: Double? = null, startLng: Double? = null) {
-    val lastWp = _uiState.value.waypoints.lastOrNull()
+    val stateSnapshot = _uiState.value
+    val visibleWps = stateSnapshot.waypoints.filter { !it.isHelper }
+    val selectedWp = stateSnapshot.selectedWaypointId?.let { selId ->
+        visibleWps.find { it.id == selId }
+    }
+    val referenceWp = selectedWp ?: if (visibleWps.size >= 2) {
+        visibleWps[visibleWps.size / 2]
+    } else {
+        visibleWps.lastOrNull()
+    }
     val startPt = when {
-        lastWp != null -> LatLng(lastWp.lat, lastWp.lng)
         startLat != null && startLng != null -> LatLng(startLat, startLng)
+        referenceWp != null -> LatLng(referenceWp.lat, referenceWp.lng)
         else -> null
     }
 
@@ -421,41 +430,87 @@ fun RouteBuilderViewModel.routeToNearest(category: NearestPoiCategory, startLat:
 
             if (match != null) {
                 val (poi, legResult) = match
-                pushHistory()
-                val wpStart = RouteWaypoint(id = "start_nearest", lat = startPt.lat, lng = startPt.lng, role = WaypointRole.START, name = "Start")
-                val wpDest = RouteWaypoint(id = "dest_${poi.id}", lat = poi.lat, lng = poi.lng, role = WaypointRole.END, name = poi.name)
-
-                val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(
-                    legResult.points,
-                    legResult.perPointWayInfo
-                )
-
-                val leg = LegGeometryData(
-                    fromWaypointId = wpStart.id,
-                    toWaypointId = wpDest.id,
-                    legMode = LegMode.SNAP,
-                    points = legResult.points,
-                    lengthKm = legResult.lengthKm,
-                    ascentM = legResult.ascentM,
-                    descentM = legResult.descentM,
-                    pathSharePct = pathShare,
-                    roadKm = roadKm,
-                    wayInfo = legResult.perPointWayInfo,
-                    turnCues = legResult.turnCues
-                )
-
-                val legsMap = mapOf("${wpStart.id}_to_${wpDest.id}" to leg)
-                _uiState.update {
-                    it.copy(
-                        isRoutingToNearest = false,
-                        waypoints = listOf(wpStart, wpDest),
-                        legs = legsMap,
-                        failedLegs = emptyMap(),
-                        routeName = "Rute til ${poi.name}"
+                val currentVisibleWps = _uiState.value.waypoints.filter { !it.isHelper }
+                if (currentVisibleWps.size >= 2) {
+                    val targetRole = if (category == NearestPoiCategory.SHELTER) {
+                        WaypointRole.OVERNIGHT
+                    } else {
+                        WaypointRole.VIA
+                    }
+                    if (targetRole == WaypointRole.OVERNIGHT ||
+                        (_uiState.value.mode == PlannerMode.TRAIL && _uiState.value.baseTrailSegments.isNotEmpty())
+                    ) {
+                        pushHistory()
+                        addStopOrDetourSuspend(
+                            lat = poi.lat,
+                            lng = poi.lng,
+                            role = targetRole,
+                            name = poi.name,
+                            linkedPoiId = poi.id
+                        )
+                    } else {
+                        insertViaPointOnLine(
+                            lat = poi.lat,
+                            lng = poi.lng,
+                            name = poi.name,
+                            linkedPoiId = poi.id
+                        )
+                    }
+                    _uiState.update { it.copy(isRoutingToNearest = false) }
+                    updateRouteStats()
+                    _userMessage.emit(
+                        "Tilføjet til ruten: ${poi.name} (+${String.format(Locale.US, "%.1f", legResult.lengthKm)} km)"
                     )
+                } else {
+                    pushHistory()
+                    val wpStart = RouteWaypoint(
+                        id = "start_nearest",
+                        lat = startPt.lat,
+                        lng = startPt.lng,
+                        role = WaypointRole.START,
+                        name = "Start"
+                    )
+                    val wpDest = RouteWaypoint(
+                        id = "dest_${poi.id}",
+                        lat = poi.lat,
+                        lng = poi.lng,
+                        role = WaypointRole.END,
+                        name = poi.name,
+                        linkedPoiId = poi.id
+                    )
+
+                    val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(
+                        legResult.points,
+                        legResult.perPointWayInfo
+                    )
+
+                    val leg = LegGeometryData(
+                        fromWaypointId = wpStart.id,
+                        toWaypointId = wpDest.id,
+                        legMode = LegMode.SNAP,
+                        points = legResult.points,
+                        lengthKm = legResult.lengthKm,
+                        ascentM = legResult.ascentM,
+                        descentM = legResult.descentM,
+                        pathSharePct = pathShare,
+                        roadKm = roadKm,
+                        wayInfo = legResult.perPointWayInfo,
+                        turnCues = legResult.turnCues
+                    )
+
+                    val legsMap = mapOf("${wpStart.id}_to_${wpDest.id}" to leg)
+                    _uiState.update {
+                        it.copy(
+                            isRoutingToNearest = false,
+                            waypoints = listOf(wpStart, wpDest),
+                            legs = legsMap,
+                            failedLegs = emptyMap(),
+                            routeName = "Rute til ${poi.name}"
+                        )
+                    }
+                    updateRouteStats()
+                    _userMessage.emit("Rute fundet til ${poi.name}: ${String.format(Locale.US, "%.1f", legResult.lengthKm)} km via rute")
                 }
-                updateRouteStats()
-                _userMessage.emit("Rute fundet til ${poi.name}: ${String.format(Locale.US, "%.1f", legResult.lengthKm)} km via rute")
             } else {
                 _uiState.update { it.copy(isRoutingToNearest = false) }
                 _userMessage.emit("Ingen ${category.label.lowercase()} fundet i nærheden.")

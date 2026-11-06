@@ -230,7 +230,7 @@ fun WaypointRow(
     ) {
         Row(
             modifier = Modifier
-                .heightIn(min = 44.dp)
+                .heightIn(min = 48.dp)
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -239,7 +239,7 @@ fun WaypointRow(
                 contentDescription = stringResource(R.string.planner_drag_to_reorder_cd),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
-                    .size(22.dp)
+                    .size(24.dp)
                     .pointerInput(waypoint.id, index) {
                         detectVerticalDragGestures(
                             onDragEnd = { verticalDragAccumPx = 0f },
@@ -336,26 +336,26 @@ fun WaypointRow(
                     onClick = onMoveUp,
                     enabled = index > 0,
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(36.dp)
                         .testTag("waypoint_move_up_$index")
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowUp,
                         contentDescription = stringResource(R.string.planner_move_waypoint_up),
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
                 IconButton(
                     onClick = onMoveDown,
                     enabled = index < totalCount - 1,
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(36.dp)
                         .testTag("waypoint_move_down_$index")
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
                         contentDescription = stringResource(R.string.planner_move_waypoint_down),
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -363,14 +363,14 @@ fun WaypointRow(
             IconButton(
                 onClick = onSwipeDelete,
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(36.dp)
                     .testTag("waypoint_delete_${waypoint.id}")
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = stringResource(R.string.btn_delete),
                     tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }

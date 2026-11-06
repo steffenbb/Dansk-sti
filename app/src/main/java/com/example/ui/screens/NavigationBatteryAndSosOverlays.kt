@@ -377,7 +377,7 @@ fun NavigationBatterySaverScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (hasGpsFix) "Del position" else "Venter på GPS-position",
+                                text = if (hasGpsFix) stringResource(R.string.nav_sos_share_location) else stringResource(R.string.nav_sos_waiting_gps),
                                 color = if (hasGpsFix) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -456,7 +456,7 @@ fun NavigationSosBottomSheet(
                         ?: if (liveState.currentLat != null && liveState.currentLng != null) {
                             "${liveState.currentLat}, ${liveState.currentLng}"
                         } else {
-                            "Venter på GPS-position"
+                            stringResource(R.string.nav_sos_waiting_gps)
                         }
                     Text(
                         text = coordsText,
@@ -488,13 +488,13 @@ fun NavigationSosBottomSheet(
                     } catch (_: android.content.ActivityNotFoundException) {
                         android.widget.Toast.makeText(
                             context,
-                            "Ingen telefon-app fundet på enheden",
+                            context.getString(R.string.nav_sos_no_phone_app),
                             android.widget.Toast.LENGTH_SHORT
                         ).show()
                     } catch (_: Exception) {
                         android.widget.Toast.makeText(
                             context,
-                            "Kunne ikke åbne telefon-appen",
+                            context.getString(R.string.nav_sos_phone_app_error),
                             android.widget.Toast.LENGTH_SHORT
                         ).show()
                     }
@@ -572,7 +572,13 @@ fun NavigationCampAndContinuePrompts(
                 val movSecs = currentDayStat?.movingTimeSeconds ?: 0L
                 val ascent = currentDayStat?.ascentMeters ?: 0
                 Text(
-                    text = "Dag $currentDay: $walkedToday km gået · ${formatMovingTime(movSecs)} · +$ascent m",
+                    text = stringResource(
+                        R.string.nav_day_ended_summary_fmt,
+                        currentDay,
+                        walkedToday,
+                        formatMovingTime(movSecs),
+                        ascent
+                    ),
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -682,7 +688,7 @@ fun NavigationTripCompletedSummaryDialog(
         modifier = Modifier.testTag("nav_trip_completed_summary_dialog"),
         title = {
             Text(
-                text = "Turen er gennemført!",
+                text = stringResource(R.string.nav_trip_completed_title),
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 20.sp
             )
@@ -710,7 +716,7 @@ fun NavigationTripCompletedSummaryDialog(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Distance", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                            Text(stringResource(R.string.nav_trip_completed_distance_label), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                             Text(
                                 text = "${formatDanishKm(totalDistanceKm, 1)} km",
                                 fontWeight = FontWeight.Bold,
@@ -722,7 +728,7 @@ fun NavigationTripCompletedSummaryDialog(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Aktiv tid", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                            Text(stringResource(R.string.nav_trip_completed_time_label), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                             Text(
                                 text = formatMovingTime(totalMovingSeconds),
                                 fontWeight = FontWeight.Bold,
@@ -734,7 +740,7 @@ fun NavigationTripCompletedSummaryDialog(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Stigning", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                            Text(stringResource(R.string.nav_trip_completed_ascent_label), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                             Text(
                                 text = "+$totalAscentMeters m",
                                 fontWeight = FontWeight.Bold,
@@ -746,9 +752,9 @@ fun NavigationTripCompletedSummaryDialog(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Dage", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                            Text(stringResource(R.string.nav_trip_completed_days_label), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                             Text(
-                                text = "$totalDays ${if (totalDays == 1) "dag" else "dage"}",
+                                text = "$totalDays ${if (totalDays == 1) stringResource(R.string.day_singular) else stringResource(R.string.day_plural)}",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 modifier = Modifier.testTag("nav_completed_days_text")
@@ -757,7 +763,7 @@ fun NavigationTripCompletedSummaryDialog(
                     }
                 }
                 Text(
-                    text = "GPS-sporing er stoppet, og planen er markeret som gennemført i Mine ture.",
+                    text = stringResource(R.string.nav_trip_completed_footer),
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -770,7 +776,7 @@ fun NavigationTripCompletedSummaryDialog(
                     .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                     .testTag("nav_trip_completed_close_button")
             ) {
-                Text("Afslut tur", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.nav_trip_completed_finish_button), fontWeight = FontWeight.Bold)
             }
         }
     )

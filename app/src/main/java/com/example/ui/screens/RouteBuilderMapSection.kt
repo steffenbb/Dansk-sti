@@ -233,54 +233,9 @@ internal fun refreshMapOverlays(
         }
     }
 
-    if (state.nearbyPoisForPlan.isNotEmpty()) {
-        val currentZoom = mapView.zoomLevelDouble
-        if (currentZoom < 13.0 && state.nearbyPoisForPlan.size > 1) {
-            val cellSizeDeg = 0.04
-            val clusters = state.nearbyPoisForPlan.groupBy { poi ->
-                Pair((poi.lat / cellSizeDeg).toInt(), (poi.lng / cellSizeDeg).toInt())
-            }
-            clusters.values.forEach { group ->
-                val first = group.first()
-                val poiMarker = Marker(mapView).apply {
-                    position = GeoPoint(first.lat, first.lng)
-                    icon = RouteMarkerHelper.createNearbyPoiMarkerBitmap(
-                        context = context,
-                        typeKey = first.type,
-                        clusterCount = group.size
-                    )
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    setOnMarkerClickListener { _, _ ->
-                        if (group.size == 1) {
-                            viewModel.onPoiTapped(first)
-                        } else {
-                            mapView.controller.animateTo(GeoPoint(first.lat, first.lng), currentZoom + 2.0, 400L)
-                        }
-                        true
-                    }
-                }
-                routeFolder.add(poiMarker)
-            }
-        } else {
-            state.nearbyPoisForPlan.forEach { poi ->
-                val poiMarker = Marker(mapView).apply {
-                    position = GeoPoint(poi.lat, poi.lng)
-                    title = poi.name
-                    icon = RouteMarkerHelper.createNearbyPoiMarkerBitmap(
-                        context = context,
-                        typeKey = poi.type,
-                        clusterCount = 1
-                    )
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    setOnMarkerClickListener { _, _ ->
-                        viewModel.onPoiTapped(poi)
-                        true
-                    }
-                }
-                routeFolder.add(poiMarker)
-            }
-        }
-    }
+    // Round 11 Item 5: Do not draw the planner's own shelter/POI markers where the map's shelter/POI layer
+    // already shows them. Delegate planner POIs to overlayManager so there is strictly one marker per place.
+    overlayManager.setPlannerPois(state.nearbyPoisForPlan)
 
     val visibleWaypoints = wps.filter { !it.isHelper }
     var overnightDayCounter = 0

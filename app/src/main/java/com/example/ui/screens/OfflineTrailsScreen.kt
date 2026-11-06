@@ -122,8 +122,30 @@ fun OfflineTrailsScreen(
     val totalMbStr = String.format(Locale("da", "DK"), "%.1f", totalBytes / (1024.0 * 1024.0))
     val deletedMsg = stringResource(R.string.library_deleted_snackbar)
     val undoLabel = stringResource(R.string.library_undo_action)
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var activeSnackbarJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                activeSnackbarJob?.cancel()
+                snackbarHostState.currentSnackbarData?.dismiss()
+                viewModel.commitPendingDeletedTrail()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            activeSnackbarJob?.cancel()
+            snackbarHostState.currentSnackbarData?.dismiss()
+            viewModel.commitPendingDeletedTrail()
+        }
+    }
 
     BackHandler {
+        activeSnackbarJob?.cancel()
+        snackbarHostState.currentSnackbarData?.dismiss()
+        viewModel.commitPendingDeletedTrail()
         onBack()
     }
 
@@ -409,276 +431,12 @@ fun OfflineTrailsScreen(
 
             // BRouter Routing Data for Denmark Card (Requirement B)
             item(key = "brouter_denmark_card") {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(
-                        1.dp,
-                        if (brouterState.isAllDownloaded) colorScheme.primary.copy(alpha = 0.5f)
-                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("brouter_data_card")
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = if (brouterState.isAllDownloaded) colorScheme.primary.copy(alpha = 0.15f)
-                                else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = if (brouterState.isAllDownloaded) Icons.Default.CheckCircle else Icons.Default.Route,
-                                        contentDescription = null,
-                                        tint = if (brouterState.isAllDownloaded) colorScheme.primary else MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(14.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = stringResource(R.string.ui_offlinetrailsscreen_rutedata_for_danmark_85),
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = if (brouterState.isAllDownloaded) {
-                                        val date = brouterState.lastUpdatedDate ?: "Opdateret"
-                                        "Klar til brug uden mobildækning • $date"
-                                    } else {
-                                        "BRouter routing data (5 segmenter, ${brouterState.totalSizeMb} MB)"
-                                    },
-                                    fontSize = 12.sp,
-                                    color = if (brouterState.isAllDownloaded) colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                if (brouterState.hasVersionMismatch) {
-                                    Text(
-                                        text = stringResource(R.string.brouter_version_mismatch_update_needed),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = danskStiColors.danger,
-                                        modifier = Modifier.testTag("brouter_version_mismatch_badge")
-                                    )
-                                } else if (brouterState.isUpdateAvailable) {
-                                    Text(
-                                        text = stringResource(R.string.brouter_update_available),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = colorScheme.primary,
-                                        modifier = Modifier.testTag("brouter_update_available_badge")
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Show download progress if downloading
-                        if (brouterState.isDownloading) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = if (brouterState.currentSegmentName.isNotBlank())
-                                            "Henter ${brouterState.currentSegmentName}..."
-                                        else "Henter rutedata...",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.ui_offlinetrailsscreen_fmt_86, brouterState.progressPercent),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = colorScheme.primary
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(6.dp))
-                                LinearProgressIndicator(
-                                    progress = { brouterState.progressPercent / 100f },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(8.dp),
-                                    color = colorScheme.primary,
-                                    trackColor = colorScheme.primaryContainer
-                                )
-
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End
-                                ) {
-                                    OutlinedButton(
-                                        onClick = { viewModel.cancelBRouterDownload() },
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                        modifier = Modifier.testTag("btn_brouter_cancel")
-                                    ) {
-                                        Text(stringResource(R.string.btn_cancel), fontSize = 12.sp)
-                                    }
-                                }
-                            }
-                        } else {
-                            // Expandable segment details showing real file sizes before download
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { isSegmentsExpanded = !isSegmentsExpanded }
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = if (isSegmentsExpanded) "Skjul dækning og filstørrelser" else "Vis dækning og filstørrelser (5 filer)",
-                                    fontSize = 12.sp,
-                                    color = colorScheme.primary,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Icon(
-                                    imageVector = if (isSegmentsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                    contentDescription = null,
-                                    tint = colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-
-                            AnimatedVisibility(visible = isSegmentsExpanded) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    brouterState.segments.forEach { seg ->
-                                        val isSegDownloaded = brouterState.downloadedSegments.contains(seg.filename)
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .testTag("brouter_segment_${seg.id}"),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    imageVector = if (isSegDownloaded) Icons.Default.CheckCircle else Icons.Default.CloudDownload,
-                                                    contentDescription = null,
-                                                    tint = if (isSegDownloaded) colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = stringResource(R.string.ui_offlinetrailsscreen_fmt_87, seg.filename, seg.name),
-                                                    fontSize = 11.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
-                                            Text(
-                                                text = stringResource(R.string.ui_offlinetrailsscreen_mb_88, seg.sizeMb),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            // Wi-Fi only switch
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.Wifi,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = stringResource(R.string.ui_offlinetrailsscreen_hent_kun_via_wi_fi_89),
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                                Switch(
-                                    checked = brouterState.wifiOnly,
-                                    onCheckedChange = { viewModel.setBRouterWifiOnly(it) },
-                                    colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.primary),
-                                    modifier = Modifier.testTag("switch_brouter_wifi_only")
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // Action buttons: Download vs Opdater
-                            if (brouterState.isAllDownloaded) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = brouterState.lastUpdatedDate?.let { "Opdateret: $it" } ?: "Hentet lokalt",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.testTag("brouter_last_updated_text")
-                                    )
-                                    Button(
-                                        onClick = { viewModel.updateBRouterData() },
-                                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.testTag("btn_brouter_update")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(stringResource(R.string.ui_offlinetrailsscreen_opdater_90))
-                                    }
-                                }
-                            } else {
-                                Button(
-                                    onClick = { viewModel.downloadBRouterData() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("btn_brouter_download")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CloudDownload,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(stringResource(R.string.ui_offlinetrailsscreen_hent_rutedata_mb_91, brouterState.totalSizeMb))
-                                }
-                            }
-                        }
-                    }
-                }
+                OfflineBRouterDenmarkCard(
+                    brouterState = brouterState,
+                    isSegmentsExpanded = isSegmentsExpanded,
+                    onToggleSegmentsExpanded = { isSegmentsExpanded = !isSegmentsExpanded },
+                    viewModel = viewModel
+                )
             }
 
             // Refusal error banner (e.g. insufficient free storage or missing network/Wi-Fi)
@@ -885,10 +643,11 @@ fun OfflineTrailsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
+                        activeSnackbarJob?.cancel()
+                        snackbarHostState.currentSnackbarData?.dismiss()
                         viewModel.deleteDownloadedTrailWithUndo(trail)
                         trailToDelete = null
-                        coroutineScope.launch {
-                            snackbarHostState.currentSnackbarData?.dismiss()
+                        activeSnackbarJob = coroutineScope.launch {
                             val result = snackbarHostState.showSnackbar(
                                 message = "$deletedMsg: ${trail.trailName}",
                                 actionLabel = undoLabel,

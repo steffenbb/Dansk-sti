@@ -620,7 +620,7 @@ internal fun PlannerSaveAndStartRow(
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
                 .weight(1f)
-                .heightIn(min = 42.dp)
+                .heightIn(min = 48.dp)
                 .testTag("btn_full_sheet_save")
         ) {
             if (isSaving) {
@@ -644,7 +644,7 @@ internal fun PlannerSaveAndStartRow(
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
                 .weight(1f)
-                .heightIn(min = 42.dp)
+                .heightIn(min = 48.dp)
                 .testTag("btn_full_sheet_start")
         ) {
             if (isStarting) {
@@ -675,17 +675,21 @@ fun SheetHeightChip(
         shape = RoundedCornerShape(8.dp),
         color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         modifier = Modifier
-            .heightIn(min = 24.dp)
+            .heightIn(min = 32.dp)
             .clickable(onClick = onClick)
             .testTag(testTag)
     ) {
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-        )
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+        ) {
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

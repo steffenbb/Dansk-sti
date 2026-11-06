@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Map
@@ -357,7 +358,7 @@ internal fun ProfileStorageSectionCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Kun på Wi-Fi (kortdownloads)",
+                text = stringResource(R.string.storage_wifi_only_downloads),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -509,11 +510,55 @@ internal fun ProfileApiKeysSectionCard(
 internal fun ProfileAboutSectionCard(
     showDiagnostics: Boolean,
     onTapVersionRow: () -> Unit,
+    onOpenHowToGuide: () -> Unit = {},
     onOpenCredits: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenDiagnostics: () -> Unit
 ) {
     ProfileSectionCard(title = stringResource(R.string.profile_section_about)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = MinTouchTargetSize)
+                .clickable(onClick = onOpenHowToGuide)
+                .testTag("profile_how_to_guide_button"),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Icon(
+                    imageVector = Icons.Default.HelpOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(Spacing.s2))
+                Column {
+                    Text(
+                        text = stringResource(R.string.how_to_guide_row_title),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = stringResource(R.string.how_to_guide_row_subtitle),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = stringResource(R.string.how_to_guide_row_title),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = Spacing.s2),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()

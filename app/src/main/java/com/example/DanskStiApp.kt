@@ -133,6 +133,7 @@ class DanskStiApp : Application() {
      */
     fun initDatabaseSafely() {
         try {
+            val startupCutoffMs = System.currentTimeMillis() - 1000L
             val db = DanskStiDatabase.getInstance(this)
             db.openHelper.writableDatabase
             databaseField = db
@@ -141,6 +142,7 @@ class DanskStiApp : Application() {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     migrateLegacyWaypointPhotosInDb(db.dao())
+                    repository.cleanupOrphanFiles(filesDir, maxLastModifiedEpochMs = startupCutoffMs)
                     repository.initializePreseededDataIfEmpty()
                 } catch (t: Throwable) {
                     Log.e("DanskStiApp", "Failed to preseed database: ${t.message}", t)
@@ -150,6 +152,10 @@ class DanskStiApp : Application() {
             Log.e("DanskStiApp", "Database init failed (never deleting database): ${e.message}", e)
             _databaseError.value = e.message ?: e.javaClass.simpleName
         }
+    }
+
+    suspend fun cleanupOrphanFilesNow() {
+        repository.cleanupOrphanFiles(filesDir)
     }
 
     internal suspend fun migrateLegacyWaypointPhotosInDb(dao: com.example.data.local.DanskStiDao) {
