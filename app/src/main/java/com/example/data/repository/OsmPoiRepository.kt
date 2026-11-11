@@ -262,7 +262,7 @@ class OsmPoiRepository(private val context: Context) {
     fun buildOverpassPolylineQuery(simplifiedPoints: List<GeoPointDto>): String {
         val coordStr = simplifiedPoints.joinToString(",") { "${it.lat},${it.lng}" }
         return """
-            [out:json][timeout:180];
+            [out:json][timeout:120];
             (
               nwr["shop"~"^(supermarket|convenience|bakery|farm|kiosk|greengrocer)$"](around:2000,$coordStr);
               nwr["amenity"="drinking_water"](around:3000,$coordStr);
@@ -280,7 +280,7 @@ class OsmPoiRepository(private val context: Context) {
     private fun buildOverpassQuery(relationId: Long, childRelationIds: List<Long>): String {
         val relClauses = (listOf(relationId) + childRelationIds).joinToString("\n") { "relation($it);" }
         return """
-            [out:json][timeout:180];
+            [out:json][timeout:120];
             (
               $relClauses
             )->.super;

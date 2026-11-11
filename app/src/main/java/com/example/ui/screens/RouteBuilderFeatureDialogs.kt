@@ -511,11 +511,8 @@ internal fun RouteBuilderFeatureDialogsHost(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        val loc = getLastKnownLocation(context)
                                         viewModel.onNearestCategorySelected(
                                             category = cat,
-                                            userLat = loc?.latitude,
-                                            userLng = loc?.longitude,
                                             mapCenterLat = currentMapCenter?.latitude,
                                             mapCenterLng = currentMapCenter?.longitude
                                         )

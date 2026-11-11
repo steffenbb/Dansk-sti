@@ -90,6 +90,7 @@ class RouteBuilderViewModel(
     internal var stagesAndPoisJob: Job? = null
     internal var draftAutosaveJob: Job? = null
     internal var gpxRoutingJob: Job? = null
+    internal var trailGeometryDownloadJob: Job? = null
     internal var nightWeatherCache: MutableMap<String, String> = mutableMapOf()
     internal var pendingSaveCallback: ((Long) -> Unit)? = null
     internal var pendingSaveIsStarting: Boolean = false
@@ -438,7 +439,8 @@ class RouteBuilderViewModel(
                 errorMessage = null
             )
         }
-        viewModelScope.launch(Dispatchers.Default) {
+        trailGeometryDownloadJob?.cancel()
+        trailGeometryDownloadJob = viewModelScope.launch(Dispatchers.Default) {
             val isCached = repository.geometryRepository.isGeometryCached(trailId)
             if (!isCached) {
                 _uiState.update { it.copy(isDownloadingTrailGeometry = true) }

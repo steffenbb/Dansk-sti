@@ -400,11 +400,8 @@ fun RouteBuilderScreen(
                     onOpenTripSettings = { viewModel.openTripSettingsSheet() },
                     onOpenRundturDialog = { viewModel.openRundturDialog() },
                     onOpenNearestPoiDialog = {
-                        val loc = getLastKnownLocation(context)
                         val center = mapViewInstance?.mapCenter
                         viewModel.openNearestPoiDialog(
-                            userLat = loc?.latitude,
-                            userLng = loc?.longitude,
                             mapCenterLat = center?.latitude,
                             mapCenterLng = center?.longitude
                         )

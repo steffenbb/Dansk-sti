@@ -2427,6 +2427,7 @@ class DanskStiRepository(
         dao.getAllCustomRoutesList().forEach { custom ->
             protectedIds.add("custom_${custom.id}")
             protectedIds.add("route_${custom.id}")
+            custom.baseTrailId?.takeIf { it.isNotBlank() }?.let { protectedIds.add(it) }
         }
         protectedIds
     }

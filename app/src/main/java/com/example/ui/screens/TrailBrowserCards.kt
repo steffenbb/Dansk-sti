@@ -268,20 +268,34 @@ fun TrailCard(
                             .testTag("trail_card_progress_${trail.id}"),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        LinearProgressIndicator(
-                            progress = { downloadProgress.fraction.coerceIn(0f, 1f) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
+                        if (downloadProgress.isIndeterminate) {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                progress = { downloadProgress.fraction.coerceIn(0f, 1f) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        }
                         Text(
-                            text = stringResource(
-                                R.string.trail_download_progress_format,
-                                downloadProgress.message,
-                                (downloadProgress.fraction * 100).toInt().coerceIn(0, 100)
-                            ),
+                            text = if (downloadProgress.isIndeterminate) {
+                                downloadProgress.message
+                            } else {
+                                stringResource(
+                                    R.string.trail_download_progress_format,
+                                    downloadProgress.message,
+                                    (downloadProgress.fraction * 100).toInt().coerceIn(0, 100)
+                                )
+                            },
                             style = TabularLabelStyle,
                             color = MaterialTheme.colorScheme.primary
                         )

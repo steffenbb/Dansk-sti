@@ -13,6 +13,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -51,6 +52,26 @@ class TrailGeometryRepository(private val context: Context) {
 
         private val inMemoryNameMismatches = CopyOnWriteArrayList<TrailNameMismatchEntry>()
 
+        private class InFlightTrailDownload(
+            val trailId: String,
+            val deferred: kotlinx.coroutines.Deferred<TrailGeometryDto?>,
+            val waiterCount: java.util.concurrent.atomic.AtomicInteger = java.util.concurrent.atomic.AtomicInteger(1),
+            val progressListeners: CopyOnWriteArrayList<(TrailDownloadProgress) -> Unit> = CopyOnWriteArrayList()
+        )
+
+        private val inFlightLock = Any()
+        private val inFlightDownloads = java.util.concurrent.ConcurrentHashMap<String, InFlightTrailDownload>()
+        private val sharedDownloadScope = kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+        )
+
+        val totalDownloadStarts = java.util.concurrent.atomic.AtomicInteger(0)
+        val downloadStartCountByTrail = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+        val cancelledTrailIds = CopyOnWriteArrayList<String>()
+
+        @Volatile
+        var noServerAnswerTimeoutMs: Long = 55_000L
+
         /**
          * Optional hook for unit tests to supply relation elements and verify progress / name mismatch logging.
          */
@@ -60,6 +81,30 @@ class TrailGeometryRepository(private val context: Context) {
             collected: MutableMap<Long, Map<String, Any>>,
             onChildProgress: ((downloaded: Int, total: Int) -> Unit)?
         ) -> Boolean)? = null
+
+        fun resetDownloadDeduplicationForTest() {
+            synchronized(inFlightLock) {
+                inFlightDownloads.values.forEach { it.deferred.cancel() }
+                inFlightDownloads.clear()
+            }
+            totalDownloadStarts.set(0)
+            downloadStartCountByTrail.clear()
+            cancelledTrailIds.clear()
+            noServerAnswerTimeoutMs = 55_000L
+            _globalDownloadProgress.value = emptyMap()
+        }
+
+        fun getDownloadStartCount(trailId: String): Int =
+            downloadStartCountByTrail[trailId]?.get() ?: 0
+
+        fun cancelDownload(trailId: String) {
+            cancelledTrailIds.add(trailId)
+            val removed = synchronized(inFlightLock) {
+                inFlightDownloads.remove(trailId)
+            }
+            removed?.deferred?.cancel(kotlinx.coroutines.CancellationException("Download annulleret"))
+            clearProgress(trailId)
+        }
 
         fun updateProgress(progress: TrailDownloadProgress) {
             _globalDownloadProgress.update { current ->
@@ -298,77 +343,219 @@ class TrailGeometryRepository(private val context: Context) {
         }
     }
 
+    fun cancelDownload(trailId: String) {
+        Companion.cancelDownload(trailId)
+    }
+
     suspend fun fetchAndProcessTrail(
         trailId: String,
         trailName: String,
         osmRelationId: Long?,
         onProgress: ((TrailDownloadProgress) -> Unit)? = null
-    ): TrailGeometryDto? = withContext(Dispatchers.IO) {
-        val emitProg: (Float, Int, Int, Double, String) -> Unit = { frac, dl, tot, km, msg ->
-            val p = TrailDownloadProgress(
-                trailId = trailId,
-                fraction = frac.coerceIn(0f, 1f),
-                downloadedRelations = dl,
-                totalRelations = tot.coerceAtLeast(1),
-                accumulatedKm = km,
-                stageMessage = msg
-            )
-            updateProgress(p)
-            onProgress?.invoke(p)
+    ): TrailGeometryDto? = withContext(com.example.data.remote.OverpassClient.ioDispatcher) {
+        val inFlight: InFlightTrailDownload
+        var joinedExisting = false
+
+        synchronized(inFlightLock) {
+            val existing = inFlightDownloads[trailId]
+            if (existing != null && existing.deferred.isActive) {
+                existing.waiterCount.incrementAndGet()
+                if (onProgress != null) {
+                    existing.progressListeners.add(onProgress)
+                }
+                inFlight = existing
+                joinedExisting = true
+            } else {
+                totalDownloadStarts.incrementAndGet()
+                downloadStartCountByTrail.computeIfAbsent(trailId) {
+                    java.util.concurrent.atomic.AtomicInteger(0)
+                }.incrementAndGet()
+
+                val listeners = CopyOnWriteArrayList<(TrailDownloadProgress) -> Unit>()
+                if (onProgress != null) {
+                    listeners.add(onProgress)
+                }
+                val deferred = kotlinx.coroutines.CoroutineScope(
+                    kotlinx.coroutines.SupervisorJob() + com.example.data.remote.OverpassClient.ioDispatcher
+                ).async {
+                    performSingleTrailDownload(
+                        trailId = trailId,
+                        trailName = trailName,
+                        osmRelationId = osmRelationId,
+                        listeners = listeners
+                    )
+                }
+                val created = InFlightTrailDownload(
+                    trailId = trailId,
+                    deferred = deferred,
+                    waiterCount = java.util.concurrent.atomic.AtomicInteger(1),
+                    progressListeners = listeners
+                )
+                inFlightDownloads[trailId] = created
+                inFlight = created
+            }
+        }
+
+        if (joinedExisting && onProgress != null) {
+            _globalDownloadProgress.value[trailId]?.let { currentProg ->
+                onProgress.invoke(currentProg)
+            }
         }
 
         try {
-            emitProg(0.05f, 0, 1, 0.0, "Henter rutedata for $trailName...")
-            val relationId = osmRelationId ?: findRelationByName(trailName) ?: return@withContext null
-            val rawElements = mutableMapOf<Long, Map<String, Any>>()
-
-            val customFetcher = customRelationFetcher
-            if (customFetcher != null) {
-                customFetcher.invoke(relationId, rawElements) { dl, tot ->
-                    val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
-                    emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
-                }
-            } else {
-                // Round 11 Item 1: Use the shared OverpassClient first, with its mirrors and backoff.
-                downloadRelationRecursive(relationId, rawElements) { dl, tot ->
-                    val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
-                    emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
-                }
-            }
-
-            if (rawElements.isEmpty()) {
-                Log.e("TrailGeometry", "No elements downloaded for relation $relationId ($trailName) from any source")
-                return@withContext null
-            }
-
-            emitProg(0.70f, rawElements.size, rawElements.size.coerceAtLeast(1), 0.0, "Sammensætter rutegeometri...")
-            val dto = processRelationData(trailId, relationId, rawElements) { frac, km, msg ->
-                emitProg(frac, rawElements.size, rawElements.size.coerceAtLeast(1), km, msg)
-            }
-
-            // Round 9 C Requirement 1: On first download, compare the relation's name tag with the catalogue name
-            // and log any mismatch in Diagnostics.
-            verifyAndRecordRelationNameMismatch(
-                trailId = trailId,
-                osmRelationId = relationId,
-                catalogueName = trailName,
-                osmRelationName = dto.osmRelationName
-            )
-
-            emitProg(
-                1.0f,
-                rawElements.size,
-                rawElements.size.coerceAtLeast(1),
-                dto.totalWalkingKm,
-                "Færdig (${dto.totalWalkingKm} km)"
-            )
-            dto
+            inFlight.deferred.await()
         } finally {
-            clearProgress(trailId)
+            if (onProgress != null) {
+                inFlight.progressListeners.remove(onProgress)
+            }
+            val remainingWaiters = inFlight.waiterCount.decrementAndGet()
+            if (remainingWaiters <= 0) {
+                synchronized(inFlightLock) {
+                    inFlightDownloads.remove(trailId, inFlight)
+                }
+                if (!inFlight.deferred.isCompleted) {
+                    inFlight.deferred.cancel()
+                }
+                clearProgress(trailId)
+            }
         }
     }
 
-    private suspend fun findRelationByName(name: String): Long? {
+    private suspend fun performSingleTrailDownload(
+        trailId: String,
+        trailName: String,
+        osmRelationId: Long?,
+        listeners: CopyOnWriteArrayList<(TrailDownloadProgress) -> Unit>
+    ): TrailGeometryDto? {
+        val emitProgressState: (TrailDownloadProgress) -> Unit = { p ->
+            updateProgress(p)
+            for (listener in listeners) {
+                runCatching { listener.invoke(p) }
+            }
+        }
+        val emitProg: (Float, Int, Int, Double, String) -> Unit = { frac, dl, tot, km, msg ->
+            emitProgressState(
+                TrailDownloadProgress(
+                    trailId = trailId,
+                    fraction = frac.coerceIn(0f, 1f),
+                    downloadedRelations = dl,
+                    totalRelations = tot.coerceAtLeast(1),
+                    accumulatedKm = km,
+                    stageMessage = msg,
+                    isIndeterminate = false,
+                    queuePosition = 0
+                )
+            )
+        }
+        val onOverpassStatusChange: (com.example.data.remote.OverpassClient.RequestState) -> Unit = { state ->
+            when (state) {
+                is com.example.data.remote.OverpassClient.RequestState.Queued -> {
+                    emitProgressState(
+                        TrailDownloadProgress(
+                            trailId = trailId,
+                            fraction = 0f,
+                            downloadedRelations = 0,
+                            totalRelations = 1,
+                            accumulatedKm = 0.0,
+                            stageMessage = "Venter på OpenStreetMap (${state.aheadCount} foran i køen)",
+                            isIndeterminate = true,
+                            queuePosition = state.aheadCount
+                        )
+                    )
+                }
+                is com.example.data.remote.OverpassClient.RequestState.Running -> {
+                    emitProgressState(
+                        TrailDownloadProgress(
+                            trailId = trailId,
+                            fraction = 0f,
+                            downloadedRelations = 0,
+                            totalRelations = 1,
+                            accumulatedKm = 0.0,
+                            stageMessage = "Henter rute fra OpenStreetMap…",
+                            isIndeterminate = true,
+                            queuePosition = 0
+                        )
+                    )
+                }
+            }
+        }
+
+        val relationId = osmRelationId ?: findRelationByName(trailName, onOverpassStatusChange) ?: return null
+        val rawElements = mutableMapOf<Long, Map<String, Any>>()
+
+        val customFetcher = customRelationFetcher
+        if (customFetcher != null) {
+            onOverpassStatusChange(com.example.data.remote.OverpassClient.RequestState.Running)
+            customFetcher.invoke(relationId, rawElements) { dl, tot ->
+                val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
+                emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
+            }
+        } else {
+            val timeoutMs = noServerAnswerTimeoutMs.coerceIn(1_000L, 58_000L)
+            try {
+                kotlinx.coroutines.withTimeout(timeoutMs) {
+                    downloadRelationRecursive(
+                        relationId = relationId,
+                        collected = rawElements,
+                        onStatusChange = onOverpassStatusChange
+                    ) { dl, tot ->
+                        val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
+                        emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
+                    }
+                    if (rawElements.isNotEmpty()) {
+                        // Round 13 Item 2e: Fetch member way tags in ONE request for all relations, not one per relation.
+                        val allWayTags = fetchMemberWayTagsForRelations(
+                            relationIds = rawElements.keys.toList(),
+                            onStatusChange = null
+                        )
+                        if (allWayTags.isNotEmpty()) {
+                            enrichRelationsWithWayTags(rawElements, allWayTags)
+                        }
+                    }
+                }
+            } catch (ce: kotlinx.coroutines.TimeoutCancellationException) {
+                Log.w("TrailGeometry", "Overpass timed out after ${timeoutMs}ms for $trailName")
+                return null
+            }
+        }
+
+        if (rawElements.isEmpty()) {
+            Log.e("TrailGeometry", "No elements downloaded for relation $relationId ($trailName) from any source")
+            return null
+        }
+
+        emitProg(0.70f, rawElements.size, rawElements.size.coerceAtLeast(1), 0.0, "Sammensætter rutegeometri...")
+        val dto = processRelationData(trailId, relationId, rawElements) { frac, km, msg ->
+            emitProg(frac, rawElements.size, rawElements.size.coerceAtLeast(1), km, msg)
+        }
+
+        // Round 9 C Requirement 1: On first download, compare the relation's name tag with the catalogue name
+        // and log any mismatch in Diagnostics.
+        verifyAndRecordRelationNameMismatch(
+            trailId = trailId,
+            osmRelationId = relationId,
+            catalogueName = trailName,
+            osmRelationName = dto.osmRelationName
+        )
+
+        if (dto.segments.any { it.points.isNotEmpty() }) {
+            saveGeometry(dto)
+        }
+
+        emitProg(
+            1.0f,
+            rawElements.size,
+            rawElements.size.coerceAtLeast(1),
+            dto.totalWalkingKm,
+            "Færdig (${dto.totalWalkingKm} km)"
+        )
+        return dto
+    }
+
+    private suspend fun findRelationByName(
+        name: String,
+        onStatusChange: ((com.example.data.remote.OverpassClient.RequestState) -> Unit)? = null
+    ): Long? {
         val cleanName = name.replace(Regex("\\s*\\(.*\\)"), "").trim()
         val query = """
             [out:json][timeout:10];
@@ -379,7 +566,9 @@ class TrailGeometryRepository(private val context: Context) {
         return try {
             val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
                 query = query,
-                label = "FindRelation($cleanName)"
+                label = "FindRelation($cleanName)",
+                priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED,
+                onStatusChange = onStatusChange
             )
             val root = moshi.adapter(Map::class.java).fromJson(jsonStr)
             @Suppress("UNCHECKED_CAST")
@@ -394,6 +583,8 @@ class TrailGeometryRepository(private val context: Context) {
                 }
                 null
             }
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
         } catch (e: Exception) {
             Log.w("TrailGeometry", "Error searching relation for $name: ${e.message}")
             null
@@ -403,11 +594,12 @@ class TrailGeometryRepository(private val context: Context) {
     private suspend fun downloadRelationRecursive(
         relationId: Long,
         collected: MutableMap<Long, Map<String, Any>>,
+        onStatusChange: ((com.example.data.remote.OverpassClient.RequestState) -> Unit)? = null,
         onChildProgress: ((downloaded: Int, total: Int) -> Unit)? = null
     ) {
         if (collected.containsKey(relationId)) return
         val query = """
-            [out:json][timeout:60];
+            [out:json][timeout:90];
             relation($relationId);
             out geom;
         """.trimIndent()
@@ -415,16 +607,15 @@ class TrailGeometryRepository(private val context: Context) {
         try {
             val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
                 query = query,
-                label = "RelationGeom($relationId)"
+                label = "RelationGeom($relationId)",
+                priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED,
+                onStatusChange = onStatusChange
             )
             @Suppress("UNCHECKED_CAST")
             val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
             @Suppress("UNCHECKED_CAST")
             val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
             if (elements.isNotEmpty()) {
-                // Requirement 22: After downloading a relation, fetch its member way tags (way(r); out tags;)
-                // so ways with route=ferry are marked as FERRY segments.
-                val wayTagsMap = fetchMemberWayTags(relationId)
                 for (el in elements) {
                     val id = (el["id"] as? Number)?.toLong()
                     val type = el["type"] as? String
@@ -433,48 +624,139 @@ class TrailGeometryRepository(private val context: Context) {
                         @Suppress("UNCHECKED_CAST")
                         val members = el["members"] as? List<Map<String, Any>> ?: emptyList()
                         val childRelIds = mutableListOf<Long>()
-                        val enrichedMembers = members.map { m ->
+                        for (m in members) {
                             val mType = m["type"] as? String
                             val mRef = (m["ref"] as? Number)?.toLong()
-                            if (mType == "way" && mRef != null) {
-                                val wTags = wayTagsMap[mRef]
-                                if (wTags != null) {
-                                    val mCopy = m.toMutableMap()
-                                    mCopy["tags"] = wTags
-                                    mCopy
-                                } else m
-                            } else {
-                                if (mType == "relation" && mRef != null) {
-                                    childRelIds.add(mRef)
-                                }
-                                m
+                            if (mType == "relation" && mRef != null) {
+                                childRelIds.add(mRef)
                             }
                         }
-                        mutableEl["members"] = enrichedMembers
                         collected[id] = mutableEl
-                        for ((idx, cid) in childRelIds.withIndex()) {
-                            onChildProgress?.invoke(idx + 1, childRelIds.size)
-                            downloadRelationRecursive(cid, collected, null)
-                            if (childRelIds.size > 1 && !isLikelyDanishChildRelation(collected[cid])) {
-                                collected.remove(cid)
+                        if (childRelIds.isNotEmpty()) {
+                            // Round 13 Item 2e: Before downloading a child relation's geometry, fetch the children's
+                            // tags and bounding boxes in one request (relation(r); out tags bb;) and skip children outside Denmark.
+                            val danishChildIds = filterDanishChildRelations(id, childRelIds)
+                            for ((idx, cid) in danishChildIds.withIndex()) {
+                                onChildProgress?.invoke(idx + 1, danishChildIds.size)
+                                downloadRelationRecursive(cid, collected, null, null)
+                                if (danishChildIds.size > 1 && !isLikelyDanishChildRelation(collected[cid])) {
+                                    collected.remove(cid)
+                                }
                             }
                         }
                     }
                 }
             }
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
         } catch (e: Exception) {
             Log.w("TrailGeometry", "Overpass failed for relation $relationId: ${e.message}")
         }
     }
 
     /**
-     * Requirement 22: Fetches member way tags for a relation using `relation($relationId); way(r); out tags;`
-     * so ways with `route=ferry` are detected and marked as FERRY segments.
+     * Round 13 Item 2e:
+     * Before downloading a child relation's geometry, fetch the children's tags and bounding boxes
+     * in one request (`relation($parentRelationId); relation(r); out tags bb;`) and skip children outside Denmark.
      */
-    private suspend fun fetchMemberWayTags(relationId: Long): Map<Long, Map<String, String>> {
+    private suspend fun filterDanishChildRelations(
+        parentRelationId: Long,
+        childRelIds: List<Long>
+    ): List<Long> {
+        if (childRelIds.isEmpty()) return emptyList()
         val query = """
             [out:json][timeout:30];
-            relation($relationId);
+            relation($parentRelationId);
+            relation(r);
+            out tags bb;
+        """.trimIndent()
+
+        return try {
+            val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
+                query = query,
+                label = "ChildTagsBb($parentRelationId)",
+                priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED
+            )
+            @Suppress("UNCHECKED_CAST")
+            val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
+            @Suppress("UNCHECKED_CAST")
+            val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
+            if (elements.isEmpty()) return childRelIds
+
+            val metaById = elements.mapNotNull { el ->
+                val cid = (el["id"] as? Number)?.toLong() ?: return@mapNotNull null
+                cid to el
+            }.toMap()
+
+            childRelIds.filter { cid ->
+                val meta = metaById[cid] ?: return@filter true
+                isChildRelationInsideDenmark(meta) && isLikelyDanishChildRelation(meta)
+            }
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
+        } catch (e: Exception) {
+            Log.w("TrailGeometry", "Child tags/bb fetch failed for $parentRelationId: ${e.message}")
+            childRelIds
+        }
+    }
+
+    private fun isChildRelationInsideDenmark(relElement: Map<String, Any>): Boolean {
+        @Suppress("UNCHECKED_CAST")
+        val bounds = relElement["bounds"] as? Map<String, Any> ?: return true
+        val minLat = (bounds["minlat"] as? Number)?.toDouble() ?: return true
+        val maxLat = (bounds["maxlat"] as? Number)?.toDouble() ?: return true
+        val minLon = (bounds["minlon"] as? Number)?.toDouble() ?: return true
+        val maxLon = (bounds["maxlon"] as? Number)?.toDouble() ?: return true
+
+        // Denmark bounding box: lat 54.40..58.10, lon 7.50..15.60
+        val intersectsLat = maxLat >= 54.40 && minLat <= 58.10
+        val intersectsLon = maxLon >= 7.50 && minLon <= 15.60
+        return intersectsLat && intersectsLon
+    }
+
+    private fun enrichRelationsWithWayTags(
+        collected: MutableMap<Long, Map<String, Any>>,
+        wayTagsMap: Map<Long, Map<String, String>>
+    ) {
+        for ((relId, relMap) in collected.entries.toList()) {
+            @Suppress("UNCHECKED_CAST")
+            val members = relMap["members"] as? List<Map<String, Any>> ?: continue
+            val enrichedMembers = members.map { m ->
+                val mType = m["type"] as? String
+                val mRef = (m["ref"] as? Number)?.toLong()
+                if (mType == "way" && mRef != null) {
+                    val wTags = wayTagsMap[mRef]
+                    if (wTags != null) {
+                        val mCopy = m.toMutableMap()
+                        mCopy["tags"] = wTags
+                        mCopy
+                    } else m
+                } else m
+            }
+            val updatedRel = relMap.toMutableMap()
+            updatedRel["members"] = enrichedMembers
+            collected[relId] = updatedRel
+        }
+    }
+
+    /**
+     * Requirement 22 & Round 13 Item 2e:
+     * Fetches member way tags in one request for all relations, not one per relation,
+     * so ways with `route=ferry` are detected and marked as FERRY segments.
+     */
+    private suspend fun fetchMemberWayTagsForRelations(
+        relationIds: List<Long>,
+        onStatusChange: ((com.example.data.remote.OverpassClient.RequestState) -> Unit)? = null
+    ): Map<Long, Map<String, String>> {
+        if (relationIds.isEmpty()) return emptyMap()
+        val relSelector = if (relationIds.size == 1) {
+            "relation(${relationIds.first()});"
+        } else {
+            "relation(id:${relationIds.joinToString(",")});"
+        }
+        val query = """
+            [out:json][timeout:30];
+            $relSelector
             way(r);
             out tags;
         """.trimIndent()
@@ -482,7 +764,9 @@ class TrailGeometryRepository(private val context: Context) {
         return try {
             val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
                 query = query,
-                label = "MemberWayTags($relationId)"
+                label = "MemberWayTags(${relationIds.joinToString(",")})",
+                priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED,
+                onStatusChange = onStatusChange
             )
             @Suppress("UNCHECKED_CAST")
             val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
@@ -499,8 +783,10 @@ class TrailGeometryRepository(private val context: Context) {
                 }
             }
             result
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
         } catch (e: Exception) {
-            Log.w("TrailGeometry", "Way tags fetch failed for relation $relationId: ${e.message}")
+            Log.w("TrailGeometry", "Way tags fetch failed for relations $relationIds: ${e.message}")
             emptyMap()
         }
     }

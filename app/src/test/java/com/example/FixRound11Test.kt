@@ -90,7 +90,6 @@ class FixRound11Test {
         val schemaJson = schemaFile.readText()
         assertTrue("Schema 26.json must declare version 26", schemaJson.contains("\"version\": 26"))
         assertTrue("Schema 26.json must include planner_drafts table", schemaJson.contains("\"tableName\": \"planner_drafts\""))
-        assertTrue("Schema 26.json must include offline_downloads_in_progress table", schemaJson.contains("\"tableName\": \"offline_downloads_in_progress\""))
 
         val dbName = "migration_test_25_26_${System.currentTimeMillis()}.db"
         migrationHelper.createDatabase(dbName, 25).apply {
@@ -145,19 +144,6 @@ class FixRound11Test {
             assertEquals("Kladde Fyn", cursor.getString(1))
             assertEquals("camino_fyn", cursor.getString(2))
             assertEquals(0, cursor.getInt(3))
-        }
-
-        // Verify offline_downloads_in_progress table was created by MIGRATION_25_26
-        db.execSQL(
-            """
-            INSERT INTO `offline_downloads_in_progress` (`trailId`, `startedAt`)
-            VALUES ('camino_fyn', 1700000002000)
-            """.trimIndent()
-        )
-        db.query("SELECT trailId, startedAt FROM offline_downloads_in_progress WHERE trailId = 'camino_fyn'").use { cursor ->
-            assertTrue("Inserted offline_downloads_in_progress row must exist", cursor.moveToFirst())
-            assertEquals("camino_fyn", cursor.getString(0))
-            assertEquals(1700000002000L, cursor.getLong(1))
         }
 
         db.close()

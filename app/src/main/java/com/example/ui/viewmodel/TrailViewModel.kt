@@ -302,6 +302,24 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var loadTrailJob: kotlinx.coroutines.Job? = null
+
+    fun cancelTrailDownload() {
+        val tid = currentTrailId ?: _trail.value?.id
+        loadTrailJob?.cancel()
+        loadTrailJob = null
+        if (!tid.isNullOrBlank()) {
+            com.example.data.repository.TrailGeometryRepository.cancelDownload(tid)
+            viewModelScope.launch(Dispatchers.IO) {
+                com.example.util.OfflineDownloadManager.cancelDownload(getApplication(), tid)
+            }
+        }
+        _isFetchingLiveRoute.value = false
+        _isLoading.value = false
+        _isOfflineMapDownloading.value = false
+        _routeError.value = "Download annulleret"
+    }
+
     fun retryLoadRoute() {
         val tid = currentTrailId ?: _trail.value?.id ?: return
         loadTrail(tid)
@@ -310,7 +328,8 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     fun loadTrail(trailId: String) {
         currentTrailId = trailId
         observeOfflineMapWork(trailId)
-        viewModelScope.launch(Dispatchers.IO) {
+        loadTrailJob?.cancel()
+        loadTrailJob = viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
             _routeError.value = null
             withContext(Dispatchers.IO) {

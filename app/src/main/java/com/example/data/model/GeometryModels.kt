@@ -78,7 +78,9 @@ data class TrailDownloadProgress(
     val downloadedRelations: Int = 0,
     val totalRelations: Int = 1,
     val accumulatedKm: Double = 0.0,
-    val stageMessage: String = "Downloader rutegeometri..."
+    val stageMessage: String = "Henter rute fra OpenStreetMap…",
+    val isIndeterminate: Boolean = false,
+    val queuePosition: Int = 0
 ) {
     val message: String get() = stageMessage
 }

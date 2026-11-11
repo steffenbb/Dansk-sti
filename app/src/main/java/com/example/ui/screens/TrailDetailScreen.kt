@@ -334,29 +334,59 @@ fun TrailDetailScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = if (activeDownloadProgress != null) {
-                                        stringResource(
-                                            R.string.trail_download_progress_format,
-                                            activeDownloadProgress.message,
-                                            (activeDownloadProgress.fraction * 100).toInt().coerceIn(0, 100)
-                                        )
-                                    } else {
-                                        stringResource(R.string.ui_traildetailscreen_henter_live_rutedata_fra_ope_189)
+                                    text = when {
+                                        activeDownloadProgress == null -> {
+                                            stringResource(R.string.ui_traildetailscreen_henter_live_rutedata_fra_ope_189)
+                                        }
+                                        activeDownloadProgress.isIndeterminate -> {
+                                            activeDownloadProgress.message
+                                        }
+                                        else -> {
+                                            stringResource(
+                                                R.string.trail_download_progress_format,
+                                                activeDownloadProgress.message,
+                                                (activeDownloadProgress.fraction * 100).toInt().coerceIn(0, 100)
+                                            )
+                                        }
                                     },
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
-                            LinearProgressIndicator(
-                                progress = { (activeDownloadProgress?.fraction ?: 0.15f).coerceIn(0f, 1f) },
+                            if (activeDownloadProgress == null || activeDownloadProgress.isIndeterminate) {
+                                LinearProgressIndicator(
+                                    modifier = Modifier
+                                        .width(200.dp)
+                                        .height(4.dp)
+                                        .testTag("trail_download_linear_progress"),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            } else {
+                                LinearProgressIndicator(
+                                    progress = { activeDownloadProgress.fraction.coerceIn(0f, 1f) },
+                                    modifier = Modifier
+                                        .width(200.dp)
+                                        .height(4.dp)
+                                        .testTag("trail_download_linear_progress"),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            }
+                            androidx.compose.material3.TextButton(
+                                onClick = { viewModel.cancelTrailDownload() },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                                 modifier = Modifier
-                                    .width(200.dp)
-                                    .height(4.dp)
-                                    .testTag("trail_download_linear_progress"),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
+                                    .testTag("btn_cancel_trail_download")
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.btn_cancel),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
                     }
                 }

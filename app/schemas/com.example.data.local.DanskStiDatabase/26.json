@@ -2011,30 +2011,6 @@
             "id"
           ]
         }
-      },
-      {
-        "tableName": "offline_downloads_in_progress",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`trailId` TEXT NOT NULL, `startedAt` INTEGER NOT NULL, PRIMARY KEY(`trailId`))",
-        "fields": [
-          {
-            "fieldPath": "trailId",
-            "columnName": "trailId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "startedAt",
-            "columnName": "startedAt",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "trailId"
-          ]
-        }
       }
     ],
     "setupQueries": [

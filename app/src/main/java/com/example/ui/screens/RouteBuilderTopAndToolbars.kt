@@ -625,35 +625,40 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                         Text(
-                            text = if (activeDownloadProgress != null) {
-                                stringResource(
-                                    R.string.trail_download_progress_format,
-                                    activeDownloadProgress.message,
-                                    (activeDownloadProgress.fraction * 100).toInt().coerceIn(0, 100)
-                                )
-                            } else {
-                                stringResource(R.string.ui_routebuilderscreen_henter_rutens_spor_106)
+                            text = when {
+                                activeDownloadProgress == null -> stringResource(R.string.ui_routebuilderscreen_henter_rutens_spor_106)
+                                activeDownloadProgress.isIndeterminate -> activeDownloadProgress.message
+                                else -> stringResource(R.string.trail_download_progress_format, activeDownloadProgress.message, (activeDownloadProgress.fraction * 100).toInt().coerceIn(0, 100))
                             },
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        androidx.compose.material3.TextButton(
+                            onClick = { viewModel.cancelTrailGeometryDownload() },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.heightIn(min = 32.dp).testTag("btn_cancel_trail_download")
+                        ) {
+                            Text(stringResource(R.string.btn_cancel), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = danskStiColors.danger)
+                        }
+                    }
+                    if (activeDownloadProgress == null || activeDownloadProgress.isIndeterminate) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(4.dp).testTag("planner_trail_download_linear_progress"),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            progress = { activeDownloadProgress.fraction.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(4.dp).testTag("planner_trail_download_linear_progress"),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
                         )
                     }
-                    LinearProgressIndicator(
-                        progress = { (activeDownloadProgress?.fraction ?: 0.15f).coerceIn(0f, 1f) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .testTag("planner_trail_download_linear_progress"),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
                 }
             }
         }

@@ -484,8 +484,8 @@ class NavigationTrackingService : Service() {
             }
         }
 
-        // Round 10B Item 9: When RouteTracker reports completed, mark the plan finished in Mine ture,
-        // stop location updates and the service, and keep isCompleted = true in liveState so the summary shows.
+        // Round 10B Item 9 & Round 13 Item 3: Write the final progress before stopping the service
+        // (withContext(NonCancellable) awaited before stopSelf).
         if (trackResult.isCompleted) {
             val completedProgress = TripProgressEntity(
                 planId = planId,
@@ -500,15 +500,10 @@ class NavigationTrackingService : Service() {
                 isCompleted = true,
                 lastActiveTimestamp = now
             )
-            serviceScope.launch {
-                try {
-                    DanskStiApp.instance.database.dao().saveTripProgress(completedProgress)
-                    tracker.markPersisted(now)
-                } catch (e: Exception) {
-                    Log.w("NavService", "Failed to save completed progress: ${e.message}")
-                }
-            }
-            stopTracking()
+            persistFinalProgressAndStopService(
+                progress = completedProgress,
+                onPersisted = { tracker.markPersisted(now) }
+            )
             return
         }
 
@@ -857,22 +852,46 @@ class NavigationTrackingService : Service() {
         return builder.build()
     }
 
+    private fun persistFinalProgressAndStopService(
+        progress: TripProgressEntity,
+        onPersisted: (() -> Unit)? = null
+    ) {
+        val writeBlock: suspend () -> Unit = {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                try {
+                    DanskStiApp.instance.database.dao().saveTripProgress(progress)
+                    onPersisted?.invoke()
+                } catch (e: Exception) {
+                    Log.w("NavService", "Failed to save final trip progress: ${e.message}")
+                }
+            }
+        }
+        if (Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
+            kotlinx.coroutines.runBlocking {
+                writeBlock()
+            }
+            stopTracking()
+        } else {
+            serviceScope.launch {
+                writeBlock()
+                stopTracking()
+            }
+        }
+    }
+
     private fun stopForToday() {
         val tracker = routeTracker
         if (tracker != null && planId != 0L) {
-            serviceScope.launch {
-                val progress = tracker.stopForToday()
-                DanskStiApp.instance.database.dao().saveTripProgress(progress)
-                _liveState.value = _liveState.value.copy(
-                    isTracking = false,
-                    isPaused = true,
-                    currentDay = progress.currentDay,
-                    distanceWalkedTodayKm = 0.0,
-                    distanceRemainingTodayKm = progress.remainingDistanceTodayKm,
-                    showContinueDayPrompt = true
-                )
-                stopTracking()
-            }
+            val progress = tracker.stopForToday()
+            _liveState.value = _liveState.value.copy(
+                isTracking = false,
+                isPaused = true,
+                currentDay = progress.currentDay,
+                distanceWalkedTodayKm = 0.0,
+                distanceRemainingTodayKm = progress.remainingDistanceTodayKm,
+                showContinueDayPrompt = true
+            )
+            persistFinalProgressAndStopService(progress = progress)
         } else {
             stopTracking()
         }

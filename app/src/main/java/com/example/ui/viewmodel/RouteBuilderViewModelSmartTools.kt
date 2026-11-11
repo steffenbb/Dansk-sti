@@ -453,6 +453,22 @@ fun RouteBuilderViewModel.resolveNearestSearchOrigin(
     )
 }
 
+fun RouteBuilderViewModel.cancelTrailGeometryDownload() {
+    val tid = _uiState.value.baseTrailId
+    trailGeometryDownloadJob?.cancel()
+    trailGeometryDownloadJob = null
+    if (!tid.isNullOrBlank()) {
+        com.example.data.repository.TrailGeometryRepository.cancelDownload(tid)
+    }
+    _uiState.update {
+        it.copy(
+            isDownloadingTrailGeometry = false,
+            trailGeometryDownloadFailed = true,
+            errorMessage = "Download annulleret"
+        )
+    }
+}
+
 fun RouteBuilderViewModel.openNearestPoiDialog(
     userLat: Double? = null,
     userLng: Double? = null,
@@ -465,13 +481,30 @@ fun RouteBuilderViewModel.openNearestPoiDialog(
     if (mapCenterLat != null && mapCenterLng != null) {
         _uiState.update { it.copy(mapCenterLat = mapCenterLat, mapCenterLng = mapCenterLng) }
     }
-    val origin = resolveNearestSearchOrigin(userLat, userLng, mapCenterLat, mapCenterLng)
+    val initialOrigin = resolveNearestSearchOrigin(userLat, userLng, mapCenterLat, mapCenterLng)
     _uiState.update {
         it.copy(
             showNearestPoiDialog = true,
             showNearestShelterRoleChoice = false,
-            nearestPoiOriginLabelRes = origin.labelResId
+            nearestPoiOriginLabelRes = initialOrigin.labelResId
         )
+    }
+    // Round 13 Item 4: Use the same fresh-position helper as Round 12A item 6 instead of getLastKnownLocation
+    if (userLat == null || userLng == null) {
+        viewModelScope.launch(Dispatchers.Main.immediate) {
+            val res = resolveCurrentOrFallbackLocation()
+            val loc = res.location
+            if (loc != null) {
+                _uiState.update { it.copy(currentGpsPosition = LatLng(loc.latitude, loc.longitude)) }
+                val updatedOrigin = resolveNearestSearchOrigin(
+                    userLat = loc.latitude,
+                    userLng = loc.longitude,
+                    mapCenterLat = mapCenterLat,
+                    mapCenterLng = mapCenterLng
+                )
+                _uiState.update { it.copy(nearestPoiOriginLabelRes = updatedOrigin.labelResId) }
+            }
+        }
     }
 }
 
@@ -485,8 +518,9 @@ fun RouteBuilderViewModel.dismissNearestPoiDialog() {
 }
 
 /**
- * Round 12B Item 5:
+ * Round 12B Item 5 & Round 13 Item 4:
  * For a shelter, ask "Overnat her" or "Tilføj som stop" instead of always making it an overnight stop.
+ * Uses the fresh-position helper (resolveCurrentOrFallbackLocation) when userLat/userLng are not explicitly passed.
  */
 fun RouteBuilderViewModel.onNearestCategorySelected(
     category: NearestPoiCategory,
@@ -502,6 +536,14 @@ fun RouteBuilderViewModel.onNearestCategorySelected(
         _uiState.update { it.copy(mapCenterLat = mapCenterLat, mapCenterLng = mapCenterLng) }
     }
     if (category == NearestPoiCategory.SHELTER) {
+        if (userLat == null && userLng == null && _uiState.value.currentGpsPosition == null) {
+            viewModelScope.launch(Dispatchers.Main.immediate) {
+                val res = resolveCurrentOrFallbackLocation()
+                res.location?.let { loc ->
+                    _uiState.update { it.copy(currentGpsPosition = LatLng(loc.latitude, loc.longitude)) }
+                }
+            }
+        }
         _uiState.update {
             it.copy(
                 showNearestPoiDialog = true,
@@ -509,10 +551,28 @@ fun RouteBuilderViewModel.onNearestCategorySelected(
             )
         }
     } else {
-        routeToNearest(
-            category = category,
-            roleOverride = WaypointRole.VIA
-        )
+        if (userLat == null && userLng == null && _uiState.value.currentGpsPosition == null) {
+            viewModelScope.launch(Dispatchers.Main.immediate) {
+                val res = resolveCurrentOrFallbackLocation()
+                val loc = res.location
+                if (loc != null) {
+                    _uiState.update { it.copy(currentGpsPosition = LatLng(loc.latitude, loc.longitude)) }
+                }
+                routeToNearest(
+                    category = category,
+                    startLat = loc?.latitude,
+                    startLng = loc?.longitude,
+                    roleOverride = WaypointRole.VIA
+                )
+            }
+        } else {
+            routeToNearest(
+                category = category,
+                startLat = userLat,
+                startLng = userLng,
+                roleOverride = WaypointRole.VIA
+            )
+        }
     }
 }
 
