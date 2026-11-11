@@ -119,6 +119,7 @@ fun NavigationBottomOrSideControlsAndStats(
     onSetShowNavMenu: (Boolean) -> Unit,
     onDismissCampArrival: () -> Unit,
     onBack: () -> Unit,
+    onOpenHowToGuide: () -> Unit = {},
     isLandscapeRightColumn: Boolean = false
 ) {
     val context = LocalContext.current
@@ -315,6 +316,14 @@ fun NavigationBottomOrSideControlsAndStats(
                             viewModel.shareCurrentLocation(context)
                         },
                         modifier = Modifier.testTag("nav_share_location_top_button")
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.nav_help_guide_menu_item)) },
+                        onClick = {
+                            onSetShowNavMenu(false)
+                            onOpenHowToGuide()
+                        },
+                        modifier = Modifier.testTag("nav_menu_how_to_guide")
                     )
                 }
             }

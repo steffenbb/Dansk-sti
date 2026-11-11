@@ -40,7 +40,8 @@ import com.example.data.model.UserHazardNoteEntity
         com.example.data.model.MarkedRouteCacheBoxEntity::class,
         com.example.data.model.WaterFeatureEntity::class,
         com.example.data.model.WaterTileCacheEntity::class,
-        com.example.data.model.PlannerDraftEntity::class
+        com.example.data.model.PlannerDraftEntity::class,
+        com.example.data.model.OfflineDownloadInProgressEntity::class
     ],
     version = 26,
     exportSchema = true
@@ -607,18 +608,45 @@ abstract class DanskStiDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `offline_downloads_in_progress` (
+                        `trailId` TEXT NOT NULL PRIMARY KEY,
+                        `startedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
             }
         }
 
+        @Volatile
+        private var lastAppContextRef: java.lang.ref.WeakReference<Context>? = null
+
         fun resetInstance() {
-            INSTANCE = null
+            com.example.DanskStiApp.cancelActiveInitJob()
+            synchronized(this) {
+                runCatching { INSTANCE?.close() }
+                INSTANCE = null
+                lastAppContextRef = null
+            }
         }
 
         fun getInstance(context: Context): DanskStiDatabase {
-            val appCtx = context.applicationContext
+            val appCtx = context.applicationContext ?: context
             appFilesDir = appCtx.filesDir
-            return INSTANCE?.takeIf { it.isOpen } ?: synchronized(this) {
-                INSTANCE?.takeIf { it.isOpen } ?: run {
+            val current = INSTANCE
+            if (current != null && current.isOpen && lastAppContextRef?.get() === appCtx) {
+                return current
+            }
+            return synchronized(this) {
+                val existing = INSTANCE
+                if (existing != null && existing.isOpen && lastAppContextRef?.get() === appCtx) {
+                    existing
+                } else {
+                    if (existing != null && lastAppContextRef?.get() !== appCtx) {
+                        com.example.DanskStiApp.cancelActiveInitJob()
+                        runCatching { existing.close() }
+                    }
                     val instance = Room.databaseBuilder(
                         appCtx,
                         DanskStiDatabase::class.java,
@@ -634,6 +662,7 @@ abstract class DanskStiDatabase : RoomDatabase() {
                     )
                         .build()
                     INSTANCE = instance
+                    lastAppContextRef = java.lang.ref.WeakReference(appCtx)
                     instance
                 }
             }

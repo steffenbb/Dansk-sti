@@ -1483,6 +1483,138 @@ object DanskStiTileSourceHelper {
             "$base + ${overlays.joinToString(", ")}"
         }
     }
+
+    private val activeMapViews = java.util.Collections.synchronizedList(
+        mutableListOf<java.lang.ref.WeakReference<MapView>>()
+    )
+
+    @Volatile
+    var tileCacheDetachCount: Int = 0
+        private set
+
+    @Volatile
+    var tileCacheReattachCount: Int = 0
+        private set
+
+    fun registerActiveMapView(mapView: MapView) {
+        synchronized(activeMapViews) {
+            activeMapViews.removeAll { it.get() == null || it.get() === mapView }
+            activeMapViews.add(java.lang.ref.WeakReference(mapView))
+        }
+    }
+
+    fun unregisterActiveMapView(mapView: MapView) {
+        synchronized(activeMapViews) {
+            activeMapViews.removeAll { it.get() == null || it.get() === mapView }
+        }
+    }
+
+    fun getActiveMapViewsSnapshot(): List<MapView> = synchronized(activeMapViews) {
+        activeMapViews.removeAll { it.get() == null }
+        activeMapViews.mapNotNull { it.get() }
+    }
+
+    fun getBrowsingTileCacheDir(context: Context): File {
+        val configured = runCatching {
+            org.osmdroid.config.Configuration.getInstance().osmdroidTileCache
+        }.getOrNull()
+        val fallback = File(context.cacheDir, "osmdroid_tiles")
+        val target = if (configured != null && !configured.absolutePath.contains("/files/offline")) {
+            configured
+        } else {
+            fallback
+        }
+        if (!target.exists()) {
+            target.mkdirs()
+        }
+        return target
+    }
+
+    fun getBrowsingTileCacheSizeBytes(context: Context): Long {
+        val dir = getBrowsingTileCacheDir(context)
+        return computeDirSizeBytes(dir)
+    }
+
+    private fun computeDirSizeBytes(file: File): Long {
+        if (!file.exists()) return 0L
+        if (file.isFile) return file.length()
+        return file.listFiles()?.sumOf { computeDirSizeBytes(it) } ?: 0L
+    }
+
+    /**
+     * Round 12B Item 2:
+     * Close or detach the map tile cache before deleting it, then reattach, so open maps keep working.
+     * Never touches offline downloads (/files/offline).
+     */
+    fun detachDeleteAndReattachTileCache(context: Context): Long {
+        val cacheDir = getBrowsingTileCacheDir(context)
+        val freedBytes = computeDirSizeBytes(cacheDir)
+        val mapViews = getActiveMapViewsSnapshot()
+
+        val runOnMainIfNeeded: (() -> Unit) -> Unit = { action ->
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                action()
+            } else {
+                val latch = java.util.concurrent.CountDownLatch(1)
+                android.os.Handler(Looper.getMainLooper()).post {
+                    try {
+                        action()
+                    } finally {
+                        latch.countDown()
+                    }
+                }
+                runCatching { latch.await(2, java.util.concurrent.TimeUnit.SECONDS) }
+            }
+        }
+
+        val savedTileSources = mutableMapOf<MapView, org.osmdroid.tileprovider.tilesource.ITileSource>()
+        // 1. Detach and close active tile writers / providers on open maps
+        runOnMainIfNeeded {
+            for (mv in mapViews) {
+                runCatching {
+                    val provider = mv.tileProvider
+                    if (provider != null) {
+                        savedTileSources[mv] = provider.tileSource
+                        provider.clearTileCache()
+                        provider.tileWriter?.onDetach()
+                        provider.detach()
+                    }
+                }
+            }
+        }
+        // Also close any standalone SqlTileWriter connection before deleting cache.db
+        runCatching {
+            val writer = org.osmdroid.tileprovider.modules.SqlTileWriter()
+            writer.purgeCache()
+            writer.onDetach()
+        }
+        tileCacheDetachCount++
+
+        // 2. Delete only browsing tile cache files (never touching files/offline)
+        runCatching {
+            cacheDir.listFiles()?.forEach { child ->
+                child.deleteRecursively()
+            }
+            if (!cacheDir.exists()) {
+                cacheDir.mkdirs()
+            }
+            org.osmdroid.config.Configuration.getInstance().osmdroidTileCache = cacheDir
+        }
+
+        // 3. Reattach fresh tile providers to open maps so they keep working
+        runOnMainIfNeeded {
+            for (mv in mapViews) {
+                runCatching {
+                    val source = savedTileSources[mv] ?: mv.tileProvider?.tileSource ?: skaermkortInstance
+                    val newProvider = org.osmdroid.tileprovider.MapTileProviderBasic(mv.context.applicationContext, source)
+                    mv.tileProvider = newProvider
+                    mv.invalidate()
+                }
+            }
+        }
+        tileCacheReattachCount++
+        return freedBytes
+    }
 }
 
 /**

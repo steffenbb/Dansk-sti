@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.NightShelter
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Save
@@ -56,6 +57,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,6 +77,7 @@ import com.example.util.routing.BRouterOnlineEngine
 import com.example.util.routing.LegMode
 import com.example.util.routing.RouteWaypoint
 import com.example.util.routing.WaypointRole
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -89,6 +92,7 @@ internal fun RouteBuilderTopAppBar(
     onOpenTripSettings: () -> Unit,
     onOpenLayersSheet: () -> Unit,
     onLaunchGpxImport: () -> Unit,
+    onStartFromMyLocation: () -> Unit = {},
     onCloseRouteLoop: () -> Unit,
     onAppendOutAndBack: () -> Unit,
     onOpenHowToGuide: () -> Unit = {}
@@ -213,6 +217,17 @@ internal fun RouteBuilderTopAppBar(
                     onDismissRequest = { onSetShowPlannerMenu(false) }
                 ) {
                     DropdownMenuItem(
+                        text = { Text("Start fra min position") },
+                        onClick = {
+                            onSetShowPlannerMenu(false)
+                            onStartFromMyLocation()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.MyLocation, contentDescription = null)
+                        },
+                        modifier = Modifier.testTag("menu_item_start_from_my_location")
+                    )
+                    DropdownMenuItem(
                         text = { Text(stringResource(R.string.ui_routebuilderscreen_indstillinger_for_turen_102)) },
                         onClick = {
                             onSetShowPlannerMenu(false)
@@ -288,6 +303,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
     modifier: Modifier = Modifier
 ) {
     val danskStiColors = DanskStiTheme.colors
+    val coroutineScope = rememberCoroutineScope()
 
     Column(
         modifier = modifier,
@@ -353,37 +369,54 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                 groupedResults = uiState.plannerSearchResults,
                 onSelectRouteOrTrail = { item ->
                     viewModel.clearPlannerSearch()
-                    val loc = getLastKnownLocation(context)
-                    if (item.isCustomRoute && item.customRouteId != null) {
-                        viewModel.initialize(
-                            routeId = item.customRouteId,
-                            destLat = null,
-                            destLng = null,
-                            destName = null,
-                            gpsLat = loc?.latitude,
-                            gpsLng = loc?.longitude
-                        )
-                    } else {
-                        viewModel.initialize(
-                            routeId = null,
-                            destLat = null,
-                            destLng = null,
-                            destName = null,
-                            gpsLat = loc?.latitude,
-                            gpsLng = loc?.longitude,
-                            baseTrailId = item.id
-                        )
+                    coroutineScope.launch {
+                        val res = viewModel.resolveCurrentOrFallbackLocation(getLastKnownLocation(context))
+                        val loc = res.location
+                        if (item.isCustomRoute && item.customRouteId != null) {
+                            viewModel.initialize(
+                                routeId = item.customRouteId,
+                                destLat = null,
+                                destLng = null,
+                                destName = null,
+                                gpsLat = loc?.latitude,
+                                gpsLng = loc?.longitude,
+                                staleLocationMessage = res.staleMessage
+                            )
+                        } else {
+                            viewModel.initialize(
+                                routeId = null,
+                                destLat = null,
+                                destLng = null,
+                                destName = null,
+                                gpsLat = loc?.latitude,
+                                gpsLng = loc?.longitude,
+                                staleLocationMessage = res.staleMessage,
+                                baseTrailId = item.id
+                            )
+                        }
                     }
                 },
                 onRouteHere = { lat, lng, name ->
-                    val loc = getLastKnownLocation(context)
-                    viewModel.routeToPlace(
-                        destLat = lat,
-                        destLng = lng,
-                        destName = name,
-                        currentLat = loc?.latitude,
-                        currentLng = loc?.longitude
-                    )
+                    coroutineScope.launch {
+                        val res = viewModel.resolveCurrentOrFallbackLocation(getLastKnownLocation(context))
+                        val loc = res.location
+                        if (loc != null) {
+                            viewModel.routeToPlace(
+                                destLat = lat,
+                                destLng = lng,
+                                destName = name,
+                                currentLat = loc.latitude,
+                                currentLng = loc.longitude,
+                                staleMessage = res.staleMessage
+                            )
+                        } else {
+                            viewModel.initialize(
+                                destLat = lat,
+                                destLng = lng,
+                                destName = name
+                            )
+                        }
+                    }
                 },
                 onAddAsPoint = { lat, lng, name ->
                     viewModel.clearPlannerSearch()
@@ -433,6 +466,51 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
+                }
+            }
+        }
+
+        uiState.staleStartLocationMessage?.let { staleMsg ->
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                border = BorderStroke(1.dp, danskStiColors.warning),
+                shadowElevation = 4.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("banner_stale_start_location")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = staleMsg,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("banner_stale_start_location_text")
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.enablePickAnotherStart() },
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .heightIn(min = 36.dp)
+                            .testTag("btn_pick_another_start")
+                    ) {
+                        Text(
+                            text = "Vælg andet startpunkt",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

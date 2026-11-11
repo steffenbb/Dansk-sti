@@ -309,8 +309,54 @@ fun RouteBuilderViewModel.routeToPlace(
     destLng: Double,
     destName: String,
     currentLat: Double? = null,
-    currentLng: Double? = null
+    currentLng: Double? = null,
+    currentFixTimeMs: Long? = null,
+    staleMessage: String? = null
 ) {
+    val computedStale = staleMessage ?: currentFixTimeMs?.let {
+        com.example.ui.map.LiveMapLocationState.formatOldFixMessage(it)
+    }
+    if (currentLat == null && currentLng == null && customLocationResolver != null) {
+        viewModelScope.launch {
+            val res = resolveCurrentOrFallbackLocation()
+            val loc = res.location
+            if (loc != null) {
+                applyRouteToPlaceWithStart(
+                    destLat = destLat,
+                    destLng = destLng,
+                    destName = destName,
+                    startLat = loc.latitude,
+                    startLng = loc.longitude,
+                    staleMessage = res.staleMessage
+                )
+            } else {
+                val destWp = RouteWaypoint(
+                    lat = destLat,
+                    lng = destLng,
+                    role = WaypointRole.END,
+                    legModeToNext = LegMode.SNAP,
+                    name = destName.ifBlank { "Destination" }
+                )
+                _uiState.update {
+                    it.copy(
+                        mode = PlannerMode.FREE,
+                        interactionMode = PlannerInteractionMode.TEGN,
+                        routeName = if (destName.isNotBlank()) "Rute til $destName" else "Ny rute",
+                        waypoints = listOf(destWp),
+                        legs = emptyMap(),
+                        failedLegs = emptyMap(),
+                        waitingForStartPointTap = true,
+                        staleStartLocationMessage = null,
+                        plannerSearchQuery = "",
+                        plannerSearchResults = com.example.data.remote.GroupedSearchResults(),
+                        errorMessage = "Vælg startpunkt - tryk på kortet"
+                    )
+                }
+            }
+        }
+        return
+    }
+
     val state = _uiState.value
     val startLat = currentLat
         ?: state.currentGpsPosition?.lat
@@ -321,6 +367,24 @@ fun RouteBuilderViewModel.routeToPlace(
         ?: state.waypoints.firstOrNull()?.lng
         ?: 10.2
 
+    applyRouteToPlaceWithStart(
+        destLat = destLat,
+        destLng = destLng,
+        destName = destName,
+        startLat = startLat,
+        startLng = startLng,
+        staleMessage = computedStale ?: state.staleStartLocationMessage
+    )
+}
+
+internal fun RouteBuilderViewModel.applyRouteToPlaceWithStart(
+    destLat: Double,
+    destLng: Double,
+    destName: String,
+    startLat: Double,
+    startLng: Double,
+    staleMessage: String? = null
+) {
     pushHistory()
     val startWp = RouteWaypoint(
         lat = startLat,
@@ -366,6 +430,7 @@ fun RouteBuilderViewModel.routeToPlace(
             plannerSearchQuery = "",
             plannerSearchResults = com.example.data.remote.GroupedSearchResults(),
             currentGpsPosition = LatLng(startLat, startLng),
+            staleStartLocationMessage = staleMessage,
             errorMessage = null
         )
     }
@@ -375,14 +440,18 @@ fun RouteBuilderViewModel.routeToPlace(
 fun RouteBuilderViewModel.routeToPlace(
     place: com.example.data.remote.PlaceSearchResult,
     currentLat: Double? = null,
-    currentLng: Double? = null
+    currentLng: Double? = null,
+    currentFixTimeMs: Long? = null,
+    staleMessage: String? = null
 ) {
     routeToPlace(
         destLat = place.lat,
         destLng = place.lng,
         destName = place.displayName,
         currentLat = currentLat,
-        currentLng = currentLng
+        currentLng = currentLng,
+        currentFixTimeMs = currentFixTimeMs,
+        staleMessage = staleMessage
     )
 }
 
@@ -581,24 +650,27 @@ fun RouteBuilderViewModel.updateTripSettings(
     maxDetourKm: Double,
     overnightPreference: OvernightType = _uiState.value.overnightPreference
 ) {
-    pacingSpeedKmh = paceKmh.coerceIn(2.0, 8.0)
-    this.startTimeStr = startTimeStr
+    val clampedPace = com.example.data.local.HikingSettingsRanges.clampPaceKmh(paceKmh)
+    val clampedDailyTarget = com.example.data.local.HikingSettingsRanges.clampDailyTargetKm(dailyTargetKm)
+    val normalizedStartTime = com.example.data.local.HikingSettingsRanges.normalizeStartTime(startTimeStr)
+    pacingSpeedKmh = clampedPace
+    this.startTimeStr = normalizedStartTime
     _uiState.update {
         it.copy(
-            paceKmh = pacingSpeedKmh,
-            dailyTargetKm = dailyTargetKm.coerceIn(5.0, 50.0),
+            paceKmh = clampedPace,
+            dailyTargetKm = clampedDailyTarget,
             startDateMillis = startDateMillis,
-            startTimeStr = startTimeStr,
+            startTimeStr = normalizedStartTime,
             maxDetourKm = maxDetourKm.coerceIn(0.2, 10.0),
             overnightPreference = overnightPreference,
             showTripSettingsSheet = false
         )
     }
     viewModelScope.launch {
-        settingsRepository.setMitTempoKmh(pacingSpeedKmh)
-        settingsRepository.setStartTime(startTimeStr)
+        settingsRepository.setMitTempoKmh(clampedPace)
+        settingsRepository.setStartTime(normalizedStartTime)
         settingsRepository.setMaxDetourKm(maxDetourKm.coerceIn(0.2, 10.0))
-        settingsRepository.setDailyTargetKm(dailyTargetKm.coerceIn(5.0, 50.0))
+        settingsRepository.setDailyTargetKm(clampedDailyTarget)
     }
     nightWeatherCache.clear()
     updateRouteStats()

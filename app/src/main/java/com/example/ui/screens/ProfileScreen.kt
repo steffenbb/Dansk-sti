@@ -145,6 +145,22 @@ fun ProfileScreen(
 
     var cacheClearedMessage by remember { mutableStateOf<String?>(null) }
     val cacheClearedText = stringResource(R.string.storage_cache_cleared)
+    var showClearCacheSheet by remember { mutableStateOf(false) }
+    var cacheBreakdown by remember { mutableStateOf(com.example.data.repository.CacheBreakdown()) }
+
+    if (showClearCacheSheet) {
+        ClearCacheSheet(
+            breakdown = cacheBreakdown,
+            onConfirmClear = { selected ->
+                showClearCacheSheet = false
+                coroutineScope.launch {
+                    val freedBytes = app.repository.clearSelectedCaches(selected)
+                    cacheClearedMessage = "$cacheClearedText (${formatCacheSizeDanish(freedBytes)})"
+                }
+            },
+            onDismiss = { showClearCacheSheet = false }
+        )
+    }
 
     val totalOfflineMapsMb = remember(downloadedTrails) {
         downloadedTrails.sumOf { it.sizeBytes } / (1024.0 * 1024.0)
@@ -227,15 +243,18 @@ fun ProfileScreen(
                     )
                 }
                 Slider(
-                    value = appSettings.mitTempoKmh.toFloat(),
+                    value = appSettings.mitTempoKmh.toFloat().coerceIn(
+                        com.example.data.local.HikingSettingsRanges.PACE_RANGE_FLOAT.start,
+                        com.example.data.local.HikingSettingsRanges.PACE_RANGE_FLOAT.endInclusive
+                    ),
                     onValueChange = { newVal ->
-                        val rounded = (newVal * 2).roundToInt() / 2.0
+                        val rounded = com.example.data.local.HikingSettingsRanges.clampPaceKmh(newVal.toDouble())
                         coroutineScope.launch {
                             settingsRepository.setMitTempoKmh(rounded)
                         }
                     },
-                    valueRange = 2.0f..7.0f,
-                    steps = 9,
+                    valueRange = com.example.data.local.HikingSettingsRanges.PACE_RANGE_FLOAT,
+                    steps = com.example.data.local.HikingSettingsRanges.PACE_SLIDER_STEPS,
                     colors = SliderDefaults.colors(
                         thumbColor = MaterialTheme.colorScheme.primary,
                         activeTrackColor = MaterialTheme.colorScheme.primary
@@ -283,15 +302,18 @@ fun ProfileScreen(
                     )
                 }
                 Slider(
-                    value = appSettings.dailyTargetKm.toFloat(),
+                    value = appSettings.dailyTargetKm.toFloat().coerceIn(
+                        com.example.data.local.HikingSettingsRanges.DAILY_TARGET_RANGE_FLOAT.start,
+                        com.example.data.local.HikingSettingsRanges.DAILY_TARGET_RANGE_FLOAT.endInclusive
+                    ),
                     onValueChange = { newVal ->
-                        val rounded = newVal.roundToInt().toDouble()
+                        val rounded = com.example.data.local.HikingSettingsRanges.clampDailyTargetKm(newVal.toDouble())
                         coroutineScope.launch {
                             settingsRepository.setDailyTargetKm(rounded)
                         }
                     },
-                    valueRange = 5.0f..40.0f,
-                    steps = 34,
+                    valueRange = com.example.data.local.HikingSettingsRanges.DAILY_TARGET_RANGE_FLOAT,
+                    steps = com.example.data.local.HikingSettingsRanges.DAILY_TARGET_SLIDER_STEPS,
                     colors = SliderDefaults.colors(
                         thumbColor = MaterialTheme.colorScheme.primary,
                         activeTrackColor = MaterialTheme.colorScheme.primary
@@ -337,7 +359,24 @@ fun ProfileScreen(
                         modifier = Modifier.testTag("profile_start_time_value")
                     )
                 }
-                Spacer(modifier = Modifier.height(Spacing.s2))
+                Slider(
+                    value = com.example.data.local.HikingSettingsRanges.startTimeToSliderIndex(appSettings.startTime),
+                    onValueChange = { rawIdx ->
+                        val newTime = com.example.data.local.HikingSettingsRanges.sliderIndexToStartTime(rawIdx)
+                        coroutineScope.launch {
+                            settingsRepository.setStartTime(newTime)
+                        }
+                    },
+                    valueRange = com.example.data.local.HikingSettingsRanges.START_TIME_SLIDER_RANGE,
+                    steps = com.example.data.local.HikingSettingsRanges.START_TIME_SLIDER_STEPS,
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("profile_start_time_slider")
+                )
                 val startTimes = listOf("07:00", "08:00", "09:00", "10:00")
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
@@ -557,8 +596,8 @@ fun ProfileScreen(
                 onDownloadBrouter = { offlineViewModel.downloadBRouterData() },
                 onClearCache = {
                     coroutineScope.launch {
-                        app.repository.clearCachedTrailGeometries()
-                        cacheClearedMessage = cacheClearedText
+                        cacheBreakdown = app.repository.computeCacheBreakdown()
+                        showClearCacheSheet = true
                     }
                 },
                 cacheClearedMessage = cacheClearedMessage

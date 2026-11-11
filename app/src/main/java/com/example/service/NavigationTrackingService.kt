@@ -119,6 +119,15 @@ class NavigationTrackingService : Service() {
     private var alerted150CueWalkKm: Double? = null
     private var alerted30CueWalkKm: Double? = null
 
+    // Round 12A Item 5: Ongoing notification throttling & single off-route alert state
+    internal var lastOngoingNotificationMs: Long = 0L
+    internal var lastOngoingNotificationTitle: String = ""
+    internal var lastOngoingNotificationContent: String = ""
+    internal var lastOngoingNotificationPaused: Boolean? = null
+    internal var hasSentOffRouteAlert: Boolean = false
+    internal var offRouteAlertSentCount: Int = 0
+    internal var ongoingNotificationPostCount: Int = 0
+
     @Volatile
     internal var currentGpsProfile: GpsPowerProfile = GpsPowerProfile.HIGH_ACCURACY_2S
     @Volatile
@@ -403,8 +412,8 @@ class NavigationTrackingService : Service() {
             timestampMs = now
         )
 
-        // 3. Trigger vibration if required by off-route logic (suppressed when detour muted)
-        if (trackResult.shouldVibrate && !trackResult.isDetourMuted) {
+        // 3. Trigger vibration if required by off-route logic (once on entering off-route, suppressed when detour muted)
+        if (trackResult.shouldVibrate && !trackResult.isDetourMuted && !hasSentOffRouteAlert) {
             triggerOffTrailVibration()
         }
 
@@ -503,9 +512,22 @@ class NavigationTrackingService : Service() {
             return
         }
 
-        // 5. Update Foreground Notification
+        // 5. Off-route single alert on CHANNEL_ALERTS_ID & throttled ongoing notification on CHANNEL_NAVIGATION_ID (Round 12A Item 5)
+        val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+        if (!trackResult.isOffRoute) {
+            if (hasSentOffRouteAlert) {
+                hasSentOffRouteAlert = false
+                notifManager?.cancel(OFF_ROUTE_ALERT_NOTIFICATION_ID)
+            }
+        } else if (!trackResult.isDetourMuted && !hasSentOffRouteAlert) {
+            hasSentOffRouteAlert = true
+            offRouteAlertSentCount++
+            val alertNotif = buildOffRouteAlertNotification(trackResult.offRouteDistanceM)
+            notifManager?.notify(OFF_ROUTE_ALERT_NOTIFICATION_ID, alertNotif)
+        }
+
         val stageName = trackResult.currentStage?.stopName ?: getString(com.example.R.string.notif_nav_default_stage)
-        val notif = buildNotification(
+        maybePostOngoingNotification(
             trailName = plannedRoute.trailName,
             stageName = stageName,
             speedKmh = speedKmh,
@@ -514,10 +536,10 @@ class NavigationTrackingService : Service() {
             isOffRoute = trackResult.isOffRoute && !trackResult.isDetourMuted,
             offRouteMeters = trackResult.offRouteDistanceM,
             walkedTodayKm = trackResult.walkedTodayKm,
-            isPaused = _liveState.value.isPaused
+            isPaused = _liveState.value.isPaused,
+            nowMs = now,
+            force = false
         )
-        val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
-        notifManager?.notify(NOTIFICATION_ID, notif)
 
         // 6. Persist progress to Room throttled (at most every 30s or every 100m)
         if (trackResult.shouldPersistToDb) {
@@ -592,7 +614,7 @@ class NavigationTrackingService : Service() {
         val route = currentPlannedRoute
         if (route != null) {
             val st = _liveState.value
-            val notif = buildNotification(
+            maybePostOngoingNotification(
                 trailName = route.trailName,
                 stageName = st.currentStage?.stopName ?: getString(com.example.R.string.notif_nav_default_stage),
                 speedKmh = st.speedKmh,
@@ -601,10 +623,10 @@ class NavigationTrackingService : Service() {
                 isOffRoute = st.isOffTrailWarning,
                 offRouteMeters = st.offTrailDistanceMeters,
                 walkedTodayKm = st.distanceWalkedTodayKm,
-                isPaused = paused
+                isPaused = paused,
+                nowMs = System.currentTimeMillis(),
+                force = true
             )
-            val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
-            notifManager?.notify(NOTIFICATION_ID, notif)
         }
     }
 
@@ -617,6 +639,9 @@ class NavigationTrackingService : Service() {
         val tracker = routeTracker
         tracker?.takeDetour(nowMs)
         val muteUntil = tracker?.detourMuteUntilMs ?: (nowMs + RouteTracker.DETOUR_MUTE_DURATION_MS)
+        hasSentOffRouteAlert = true
+        val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+        notifManager?.cancel(OFF_ROUTE_ALERT_NOTIFICATION_ID)
         _liveState.value = _liveState.value.copy(
             isOffTrailWarning = false,
             isDetourMuted = true,
@@ -628,6 +653,124 @@ class NavigationTrackingService : Service() {
         return buildLaunchNavigationIntent(this, activePlanId)
     }
 
+    internal fun maybePostOngoingNotification(
+        trailName: String,
+        stageName: String,
+        speedKmh: Double,
+        remainingTodayKm: Double?,
+        remainingTripKm: Double,
+        isOffRoute: Boolean,
+        offRouteMeters: Double,
+        walkedTodayKm: Double = 0.0,
+        isPaused: Boolean = false,
+        nowMs: Long = System.currentTimeMillis(),
+        force: Boolean = false
+    ) {
+        val elapsedSinceLastMs = if (lastOngoingNotificationMs == 0L) Long.MAX_VALUE else (nowMs - lastOngoingNotificationMs)
+        val clockReferenceMs = if (elapsedSinceLastMs >= ONGOING_NOTIFICATION_MIN_INTERVAL_MS || lastOngoingNotificationMs == 0L) {
+            nowMs
+        } else {
+            lastOngoingNotificationMs
+        }
+        val (title, content) = formatOngoingNotificationText(
+            trailName = trailName,
+            stageName = stageName,
+            speedKmh = speedKmh,
+            remainingTodayKm = remainingTodayKm,
+            isPaused = isPaused,
+            nowMs = clockReferenceMs
+        )
+        val textChanged = title != lastOngoingNotificationTitle ||
+            content != lastOngoingNotificationContent ||
+            isPaused != lastOngoingNotificationPaused
+        val intervalElapsed = elapsedSinceLastMs >= ONGOING_NOTIFICATION_MIN_INTERVAL_MS
+
+        if (force || textChanged || intervalElapsed) {
+            lastOngoingNotificationMs = nowMs
+            lastOngoingNotificationTitle = title
+            lastOngoingNotificationContent = content
+            lastOngoingNotificationPaused = isPaused
+            ongoingNotificationPostCount++
+            val notif = buildNotification(
+                trailName = trailName,
+                stageName = stageName,
+                speedKmh = speedKmh,
+                remainingTodayKm = remainingTodayKm,
+                remainingTripKm = remainingTripKm,
+                isOffRoute = isOffRoute,
+                offRouteMeters = offRouteMeters,
+                walkedTodayKm = walkedTodayKm,
+                isPaused = isPaused,
+                nowMs = nowMs
+            )
+            val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            notifManager?.notify(NOTIFICATION_ID, notif)
+        }
+    }
+
+    internal fun formatOngoingNotificationText(
+        trailName: String,
+        stageName: String,
+        speedKmh: Double,
+        remainingTodayKm: Double?,
+        isPaused: Boolean = false,
+        nowMs: Long = System.currentTimeMillis()
+    ): Pair<String, String> {
+        val title = getString(com.example.R.string.notif_nav_hiking_title, trailName)
+        val baseContent = if (remainingTodayKm != null) {
+            val configuredPace = com.example.data.local.SettingsRepository.cachedMitTempoKmh.takeIf { it > 0.0 } ?: userPaceKmh
+            val arrivalClock = com.example.util.SunCalculator.computeArrivalClock(
+                remainingTodayKm = remainingTodayKm,
+                speedKmh = speedKmh,
+                configuredPaceKmh = configuredPace,
+                nowMillis = nowMs
+            )
+            val etaString = getString(com.example.R.string.notif_nav_eta_prefix, "kl. $arrivalClock")
+            getString(com.example.R.string.notif_nav_next_camp_with_dist, stageName, remainingTodayKm, etaString)
+        } else {
+            getString(com.example.R.string.notif_nav_next_camp_only, stageName)
+        }
+        val content = if (isPaused) "Sat på pause • $baseContent" else baseContent
+        return title to content
+    }
+
+    internal fun buildOffRouteAlertNotification(offRouteMeters: Double): Notification {
+        val launchIntent = buildLaunchNavigationIntent(planId)
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            10,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val detourIntent = Intent(this, NavigationTrackingService::class.java).apply {
+            action = ACTION_TAKE_DETOUR
+        }
+        val detourPending = PendingIntent.getService(
+            this,
+            11,
+            detourIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val title = getString(com.example.R.string.notif_nav_off_route_title, offRouteMeters.toInt())
+        val text = "Du er uden for ruten. Tjek kortet eller vælg 'Jeg tager en omvej'."
+        return NotificationCompat.Builder(this, DanskStiApp.CHANNEL_ALERTS_ID)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setSmallIcon(com.example.R.drawable.ic_notif_alert)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .addAction(
+                com.example.R.drawable.ic_notif_detour,
+                "Jeg tager en omvej",
+                detourPending
+            )
+            .build()
+    }
+
     internal fun buildNotification(
         trailName: String,
         stageName: String,
@@ -637,7 +780,8 @@ class NavigationTrackingService : Service() {
         isOffRoute: Boolean,
         offRouteMeters: Double,
         walkedTodayKm: Double = 0.0,
-        isPaused: Boolean = false
+        isPaused: Boolean = false,
+        nowMs: Long = System.currentTimeMillis()
     ): Notification {
         val launchIntent = buildLaunchNavigationIntent(planId)
         val pendingIntent = PendingIntent.getActivity(
@@ -658,24 +802,14 @@ class NavigationTrackingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = if (isOffRoute) {
-            getString(com.example.R.string.notif_nav_off_route_title, offRouteMeters.toInt())
-        } else {
-            getString(com.example.R.string.notif_nav_hiking_title, trailName)
-        }
-
-        val content = if (remainingTodayKm != null) {
-            val configuredPace = com.example.data.local.SettingsRepository.cachedMitTempoKmh.takeIf { it > 0.0 } ?: userPaceKmh
-            val arrivalClock = com.example.util.SunCalculator.computeArrivalClock(
-                remainingTodayKm = remainingTodayKm,
-                speedKmh = speedKmh,
-                configuredPaceKmh = configuredPace
-            )
-            val etaString = getString(com.example.R.string.notif_nav_eta_prefix, arrivalClock)
-            getString(com.example.R.string.notif_nav_next_camp_with_dist, stageName, remainingTodayKm, etaString)
-        } else {
-            getString(com.example.R.string.notif_nav_next_camp_only, stageName)
-        }
+        val (title, content) = formatOngoingNotificationText(
+            trailName = trailName,
+            stageName = stageName,
+            speedKmh = speedKmh,
+            remainingTodayKm = remainingTodayKm,
+            isPaused = isPaused,
+            nowMs = nowMs
+        )
 
         // Pause / Fortsæt action
         val pauseIntent = Intent(this, NavigationTrackingService::class.java).apply {
@@ -688,7 +822,8 @@ class NavigationTrackingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val channelId = if (isOffRoute) DanskStiApp.CHANNEL_ALERTS_ID else DanskStiApp.CHANNEL_NAVIGATION_ID
+        // Round 12A Item 5: Always post ongoing notification on low-importance navigation channel with setOnlyAlertOnce(true)
+        val channelId = DanskStiApp.CHANNEL_NAVIGATION_ID
         val pauseActionLabel = getString(
             if (isPaused) com.example.R.string.notif_nav_action_resume else com.example.R.string.notif_nav_action_pause
         )
@@ -696,16 +831,17 @@ class NavigationTrackingService : Service() {
         val builder = NotificationCompat.Builder(this, channelId)
             .setContentTitle(title)
             .setContentText(content)
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setSmallIcon(com.example.R.drawable.ic_notif_navigation)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .addAction(
-                if (isPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+                if (isPaused) com.example.R.drawable.ic_notif_play else com.example.R.drawable.ic_notif_pause,
                 pauseActionLabel,
                 pausePending
             )
             .addAction(
-                android.R.drawable.ic_media_pause,
+                com.example.R.drawable.ic_notif_stop,
                 getString(com.example.R.string.notif_nav_action_stop_today),
                 stopTodayPending
             )
@@ -815,7 +951,7 @@ class NavigationTrackingService : Service() {
             .setContentTitle(getString(com.example.R.string.notif_private_forest_title))
             .setContentText(shortText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(longText))
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(com.example.R.drawable.ic_notif_alert)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -841,6 +977,8 @@ class NavigationTrackingService : Service() {
     companion object {
         const val NOTIFICATION_ID = 4040
         const val SUNSET_WARNING_NOTIFICATION_ID = 4041
+        const val OFF_ROUTE_ALERT_NOTIFICATION_ID = 4042
+        const val ONGOING_NOTIFICATION_MIN_INTERVAL_MS = 10_000L
         const val ACTION_START = "com.example.dansksti.ACTION_START"
         const val ACTION_STOP = "com.example.dansksti.ACTION_STOP"
         const val ACTION_STOP_TODAY = "com.example.dansksti.ACTION_STOP_TODAY"

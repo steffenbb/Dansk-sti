@@ -116,6 +116,7 @@ fun TrailBrowserScreen(
     val savedTrailIds by viewModel.savedTrailIds.collectAsState()
     val nearbyTrails by viewModel.nearbyTrails.collectAsState()
     val userLocation by viewModel.userLocation.collectAsState()
+    val userLocationStaleMessage by viewModel.userLocationStaleMessage.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedRegion by viewModel.selectedRegion.collectAsState()
     val lengthFilter by viewModel.lengthFilter.collectAsState()
@@ -151,25 +152,19 @@ fun TrailBrowserScreen(
     fun refreshDeviceLocation(openNearbySpotsSheet: Boolean = false) {
         val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (hasFine || hasCoarse) {
+        val centerPair = mapViewRef?.mapCenter?.let { Pair(it.latitude, it.longitude) }
+        if (hasFine || hasCoarse || viewModel.customLocationResolver != null) {
             val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-            val loc = lm?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                ?: lm?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                ?: lm?.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
-            if (loc != null) {
-                viewModel.updateUserLocation(loc.latitude, loc.longitude)
-                if (openNearbySpotsSheet) {
-                    viewModel.findNearbyOvernights(loc.latitude, loc.longitude, isMapCenter = false)
-                }
-            } else {
-                viewModel.clearUserLocation()
-                if (openNearbySpotsSheet) {
-                    val center = mapViewRef?.mapCenter
-                    if (center != null && (center.latitude != 0.0 || center.longitude != 0.0)) {
-                        viewModel.findNearbyOvernights(center.latitude, center.longitude, isMapCenter = true)
-                    }
-                }
-            }
+            val loc = if (hasFine || hasCoarse) {
+                lm?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                    ?: lm?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                    ?: lm?.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+            } else null
+            viewModel.refreshUserLocationWithFreshness(
+                openNearbySpotsSheet = openNearbySpotsSheet,
+                fallbackLocation = loc,
+                fallbackMapCenter = centerPair
+            )
         } else {
             viewModel.clearUserLocation()
             if (openNearbySpotsSheet) {
@@ -669,6 +664,10 @@ fun TrailBrowserScreen(
                         savedTrailIds = savedTrailIds,
                         nearbyTrails = nearbyTrails,
                         userLocation = userLocation,
+                        userLocationStaleMessage = userLocationStaleMessage,
+                        onPickAnotherStart = {
+                            isMapView = true
+                        },
                         shelterCounts = shelterCounts,
                         friTeltningCounts = friTeltningCounts,
                         trailMetrics = trailMetrics,
@@ -720,6 +719,11 @@ fun TrailBrowserScreen(
             isSearchingNearby = isSearchingNearby,
             nearbySpots = nearbySpots,
             hasUserLocation = userLocation != null,
+            staleLocationMessage = userLocationStaleMessage,
+            onPickAnotherStart = {
+                viewModel.setShowNearbySheet(false)
+                isMapView = true
+            },
             onDismiss = { viewModel.setShowNearbySheet(false) },
             onOpenRouteBuilder = onOpenRouteBuilder
         )

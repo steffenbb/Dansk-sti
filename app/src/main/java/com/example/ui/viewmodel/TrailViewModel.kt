@@ -149,8 +149,12 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     private val _startNowStatusMessage = MutableStateFlow<String?>(null)
     val startNowStatusMessage: StateFlow<String?> = _startNowStatusMessage.asStateFlow()
 
+    private val _startNowUsedOldFix = MutableStateFlow(false)
+    val startNowUsedOldFix: StateFlow<Boolean> = _startNowUsedOldFix.asStateFlow()
+
     var startNowFreshLocationTimeoutMs: Long = com.example.ui.map.LiveMapLocationState.CURRENT_LOCATION_TIMEOUT_MS
     var customFreshLocationFetcher: (suspend (timeoutMs: Long) -> android.location.Location?)? = null
+    var customLocationResolver: (suspend (timeoutMs: Long) -> com.example.ui.map.FreshLocationResolution)? = null
 
     private val settingsRepository = com.example.DanskStiApp.getSettingsRepository(application)
 
@@ -215,6 +219,9 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     fun confirmAndStartOfflineDownload(corridorKm: Double = 1.0) {
         val tid = currentTrailId ?: _trail.value?.id ?: return
         _showOfflineConfirmDialog.value = false
+        _offlineDownloadError.value = null
+        _isOfflineMapDownloading.value = true
+        _offlineMapProgressPct.value = 0
         viewModelScope.launch(Dispatchers.IO) {
             val enqueueRes = run {
                 val trailEntity = _trail.value ?: repository.getTrailById(tid) ?: return@launch
@@ -252,7 +259,6 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
 
             _offlineDownloadError.value = null
             _isOfflineMapDownloading.value = true
-            _offlineMapProgressPct.value = 0
             observeOfflineMapWork(tid)
         }
     }
@@ -607,22 +613,71 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 var effectiveLng = gpsLng
                 if (effectiveLat == null || effectiveLng == null) {
                     val timeoutMs = startNowFreshLocationTimeoutMs
+                    val resolver = customLocationResolver
                     val fetcher = customFreshLocationFetcher
-                    val freshLoc = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
-                        if (fetcher != null) {
-                            fetcher(timeoutMs)
-                        } else {
-                            com.example.ui.map.LiveMapLocationState.awaitFreshLocationWithTimeout(
-                                getApplication(),
-                                timeoutMs
-                            )
+                    val resolution = when {
+                        resolver != null -> resolver.invoke(timeoutMs)
+                        fetcher != null -> {
+                            val fetched = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+                                fetcher(timeoutMs)
+                            }
+                            val now = com.example.ui.map.LiveMapLocationState.currentTimeMillis()
+                            if (fetched != null) {
+                                val fixTime = fetched.time
+                                if (fixTime <= 0L || com.example.ui.map.LiveMapLocationState.isFixFresh(fixTime, now)) {
+                                    com.example.ui.map.FreshLocationResolution(fetched, false, 0L, null)
+                                } else {
+                                    val mins = kotlin.math.max(1L, (now - fixTime) / 60_000L)
+                                    com.example.ui.map.FreshLocationResolution(
+                                        fetched,
+                                        true,
+                                        mins,
+                                        "Position fra for $mins min siden"
+                                    )
+                                }
+                            } else {
+                                val old = com.example.ui.map.LiveMapLocationState.readAnyLastKnownLocation(getApplication())
+                                if (old != null) {
+                                    val fixTime = old.time.takeIf { it > 0L } ?: (now - 180_000L)
+                                    val mins = kotlin.math.max(1L, (now - fixTime) / 60_000L)
+                                    com.example.ui.map.FreshLocationResolution(
+                                        old,
+                                        true,
+                                        mins,
+                                        "Position fra for $mins min siden"
+                                    )
+                                } else {
+                                    com.example.ui.map.FreshLocationResolution(null, false, 0L, null)
+                                }
+                            }
                         }
+                        else -> com.example.ui.map.LiveMapLocationState.resolveFreshOrFallbackLocation(
+                            getApplication(),
+                            timeoutMs
+                        )
                     }
-                    if (freshLoc != null) {
-                        effectiveLat = freshLoc.latitude
-                        effectiveLng = freshLoc.longitude
-                        _startNowStatusMessage.value = null
+
+                    val resolvedLoc = resolution.location
+                    if (resolvedLoc != null) {
+                        effectiveLat = resolvedLoc.latitude
+                        effectiveLng = resolvedLoc.longitude
+                        _startNowUsedOldFix.value = resolution.isOldFix
+                        if (resolution.isOldFix) {
+                            _startNowStatusMessage.value = resolution.staleMessage
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                runCatching {
+                                    android.widget.Toast.makeText(
+                                        getApplication(),
+                                        resolution.staleMessage ?: "",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+                        } else {
+                            _startNowStatusMessage.value = null
+                        }
                     } else {
+                        _startNowUsedOldFix.value = true
                         val fallbackMsg = getApplication<Application>().getString(
                             com.example.R.string.trail_detail_start_now_no_gps_fallback
                         )

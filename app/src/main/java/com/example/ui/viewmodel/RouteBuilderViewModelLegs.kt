@@ -406,6 +406,15 @@ internal fun RouteBuilderViewModel.loadAccessPolygonsForRouteCorridor() {
     }
 }
 
+fun RouteBuilderViewModel.setMapCenter(lat: Double, lng: Double) {
+    _uiState.update {
+        it.copy(
+            mapCenterLat = lat,
+            mapCenterLng = lng
+        )
+    }
+}
+
 fun RouteBuilderViewModel.onMapCameraIdle(
     minLat: Double,
     maxLat: Double,
@@ -414,6 +423,16 @@ fun RouteBuilderViewModel.onMapCameraIdle(
     zoom: Double,
     isMapLayerAccessEnabled: Boolean = true
 ) {
+    val centerLat = (minLat + maxLat) / 2.0
+    val centerLng = (minLng + maxLng) / 2.0
+    if (centerLat.isFinite() && centerLng.isFinite()) {
+        _uiState.update {
+            it.copy(
+                mapCenterLat = centerLat,
+                mapCenterLng = centerLng
+            )
+        }
+    }
     mapCameraAccessJob?.cancel()
     if (!_uiState.value.isAccessLayerVisible || !isMapLayerAccessEnabled || zoom < 11.0) return
 

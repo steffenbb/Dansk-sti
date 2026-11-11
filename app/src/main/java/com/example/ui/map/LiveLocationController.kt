@@ -46,6 +46,13 @@ import kotlin.math.max
  *   and says "Kan ikke finde din position" if none comes within 15 s.
  * - The long-press card's distance uses a fix less than 2 minutes old, otherwise "ukendt".
  */
+data class FreshLocationResolution(
+    val location: Location?,
+    val isOldFix: Boolean,
+    val ageMinutes: Long = 0L,
+    val staleMessage: String? = null
+)
+
 @Stable
 class LiveMapLocationState(
     private val context: Context,
@@ -67,6 +74,9 @@ class LiveMapLocationState(
         @Volatile
         var testCurrentLocationProvider: (suspend () -> Location?)? = null
 
+        @Volatile
+        var testLastKnownFallbackProvider: (() -> Location?)? = null
+
         fun currentTimeMillis(): Long = testClockNowMs ?: System.currentTimeMillis()
 
         fun isFixFresh(fixTimeMs: Long, nowMs: Long = currentTimeMillis()): Boolean {
@@ -80,6 +90,94 @@ class LiveMapLocationState(
             if (ageMs <= STALE_THRESHOLD_MS) return null
             val mins = max(2L, ageMs / 60_000L)
             return "sidst set $mins min siden"
+        }
+
+        fun formatOldFixMessage(fixTimeMs: Long, nowMs: Long = currentTimeMillis()): String? {
+            if (fixTimeMs <= 0L) return null
+            val ageMs = nowMs - fixTimeMs
+            if (ageMs <= STALE_THRESHOLD_MS) return null
+            val mins = max(1L, ageMs / 60_000L)
+            return "Position fra for $mins min siden"
+        }
+
+        @SuppressLint("MissingPermission")
+        fun readAnyLastKnownLocation(context: Context): Location? {
+            testLastKnownFallbackProvider?.let { provider ->
+                provider.invoke()?.let { return it }
+            }
+            testInitialLocation?.let { return it }
+            val hasPerm = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            if (!hasPerm) return null
+            return try {
+                val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+                val gps = runCatching { lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) }.getOrNull()
+                val net = runCatching { lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) }.getOrNull()
+                val passive = runCatching { lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER) }.getOrNull()
+                listOfNotNull(gps, net, passive).maxByOrNull { it.time }
+            } catch (_: SecurityException) {
+                null
+            }
+        }
+
+        /**
+         * Round 12A Item 6:
+         * - Requests a fresh fix (getCurrentLocation, up to 15 s).
+         * - If only an old fix exists, returns it with isOldFix = true and staleMessage = "Position fra for X min siden".
+         */
+        suspend fun resolveFreshOrFallbackLocation(
+            context: Context,
+            timeoutMs: Long = CURRENT_LOCATION_TIMEOUT_MS,
+            fallbackCandidate: Location? = null
+        ): FreshLocationResolution {
+            val fresh = awaitFreshLocationWithTimeout(context, timeoutMs)
+            val now = currentTimeMillis()
+            if (fresh != null) {
+                val fixTime = fresh.time
+                if (fixTime <= 0L || isFixFresh(fixTime, now)) {
+                    return FreshLocationResolution(
+                        location = fresh,
+                        isOldFix = false,
+                        ageMinutes = 0L,
+                        staleMessage = null
+                    )
+                } else {
+                    val mins = max(1L, (now - fixTime) / 60_000L)
+                    return FreshLocationResolution(
+                        location = fresh,
+                        isOldFix = true,
+                        ageMinutes = mins,
+                        staleMessage = "Position fra for $mins min siden"
+                    )
+                }
+            }
+
+            val oldLoc = testLastKnownFallbackProvider?.invoke()
+                ?: fallbackCandidate
+                ?: readAnyLastKnownLocation(context)
+            if (oldLoc != null) {
+                val fixTime = oldLoc.time.takeIf { it > 0L } ?: (now - STALE_THRESHOLD_MS - 60_000L)
+                val mins = max(1L, (now - fixTime) / 60_000L)
+                return FreshLocationResolution(
+                    location = oldLoc,
+                    isOldFix = true,
+                    ageMinutes = mins,
+                    staleMessage = "Position fra for $mins min siden"
+                )
+            }
+
+            return FreshLocationResolution(
+                location = null,
+                isOldFix = false,
+                ageMinutes = 0L,
+                staleMessage = null
+            )
         }
 
         /**
@@ -121,7 +219,7 @@ class LiveMapLocationState(
                             tokenSource.token
                         ).addOnSuccessListener { loc ->
                             if (!cont.isActive) return@addOnSuccessListener
-                            if (loc != null) {
+                            if (loc != null && (loc.time <= 0L || isFixFresh(loc.time))) {
                                 cont.resume(loc)
                             } else {
                                 val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
@@ -133,6 +231,8 @@ class LiveMapLocationState(
                                 }
                                 if (best != null && (best.time <= 0L || isFixFresh(best.time))) {
                                     cont.resume(best)
+                                } else {
+                                    cont.resume(null)
                                 }
                             }
                         }.addOnFailureListener {
@@ -146,10 +246,14 @@ class LiveMapLocationState(
                             }
                             if (best != null && (best.time <= 0L || isFixFresh(best.time))) {
                                 cont.resume(best)
+                            } else {
+                                cont.resume(null)
                             }
                         }
                     } catch (_: Exception) {
-                        // Wait for timeout if FusedLocationProviderClient is unavailable and no fresh fix exists
+                        if (cont.isActive) {
+                            cont.resume(null)
+                        }
                     }
                 }
             }

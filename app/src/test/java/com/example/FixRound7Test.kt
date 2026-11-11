@@ -70,6 +70,7 @@ class FixRound7Test {
         app.repository.isOnlineOverrideForTests = false
         DanskStiTileSourceHelper.userConfirmedOsmFallback = true
         runBlocking {
+            DanskStiApp.getSettingsRepository(app).setHasSeenHowToGuide(true)
             app.repository.initializePreseededDataIfEmpty()
             // Build a 220 km Øhavsstien geometry with > 2,000 points (~100m spacing)
             val pts = (0..2200).map { idx ->
@@ -123,11 +124,19 @@ class FixRound7Test {
                 )
             }
         }
+        runCatching {
+            composeTestRule.waitForIdle()
+            if (composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("how_to_guide_got_it_button")).fetchSemanticsNodes().isNotEmpty()) {
+                composeTestRule.onNode(androidx.compose.ui.test.hasTestTag("how_to_guide_got_it_button")).performClick()
+                composeTestRule.waitForIdle()
+            }
+        }
     }
 
     @After
     fun tearDown() {
         app.repository.isOnlineOverrideForTests = null
+        NavigationTrackingService.updateLiveStateForTest(com.example.service.NavigationLiveState())
     }
 
     @Test
@@ -181,6 +190,8 @@ class FixRound7Test {
         val text = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
         assertFalse("Notification must not show 15.0 fallback before stage data arrives: $text", text.contains("15"))
         assertEquals("Næste lejr: Overnatning", text)
+        service.stopTracking()
+        controller.destroy()
     }
 
     @Test

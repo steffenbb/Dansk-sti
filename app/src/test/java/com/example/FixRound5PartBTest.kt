@@ -71,7 +71,15 @@ class FixRound5PartBTest {
         app = ApplicationProvider.getApplicationContext()
         DanskStiTileSource.userConfirmedOsmFallback = true
         runBlocking {
+            DanskStiApp.getSettingsRepository(app).setHasSeenHowToGuide(true)
             app.repository.initializePreseededDataIfEmpty()
+        }
+        runCatching {
+            composeTestRule.waitForIdle()
+            if (composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("how_to_guide_got_it_button")).fetchSemanticsNodes().isNotEmpty()) {
+                composeTestRule.onNode(androidx.compose.ui.test.hasTestTag("how_to_guide_got_it_button")).performClick()
+                composeTestRule.waitForIdle()
+            }
         }
     }
 

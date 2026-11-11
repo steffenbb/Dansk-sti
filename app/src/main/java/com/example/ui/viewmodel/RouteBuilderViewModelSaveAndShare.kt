@@ -548,3 +548,128 @@ internal fun RouteBuilderViewModel.haversineM(lat1: Double, lon1: Double, lat2: 
     return r * c
 }
 
+internal suspend fun RouteBuilderViewModel.computeSingleLegSuspend(from: RouteWaypoint, to: RouteWaypoint) {
+    val legKey = "${from.id}_to_${to.id}"
+    val state = _uiState.value
+
+    if (from.trailKm != null && to.trailKm != null && state.baseTrailSegments.isNotEmpty()) {
+        val trailLeg = com.example.util.routing.TrailSlicer.buildTrailLegGeometry(
+            fromWaypointId = from.id,
+            toWaypointId = to.id,
+            segments = state.baseTrailSegments,
+            fromKm = from.trailKm,
+            toKm = to.trailKm,
+            isReverse = state.isReverse
+        )
+        _uiState.update { current ->
+            val updatedLegs = current.legs.toMutableMap().apply { put(legKey, trailLeg) }
+            val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
+            val updatedLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+            current.copy(
+                legs = updatedLegs,
+                failedLegs = updatedFailed,
+                loadingLegKeys = updatedLoading
+            )
+        }
+        withContext(Dispatchers.IO) {
+            RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, trailLeg)
+        }
+        return
+    }
+
+    val legMode = from.legModeToNext
+    if (legMode == com.example.util.routing.LegMode.STRAIGHT) {
+        val distKm = haversineM(from.lat, from.lng, to.lat, to.lng) / 1000.0
+        val straightLeg = LegGeometryData(
+            fromWaypointId = from.id,
+            toWaypointId = to.id,
+            legMode = com.example.util.routing.LegMode.STRAIGHT,
+            points = listOf(com.example.util.routing.RoutePoint3D(from.lat, from.lng, null), com.example.util.routing.RoutePoint3D(to.lat, to.lng, null)),
+            lengthKm = distKm,
+            ascentM = 0.0,
+            descentM = 0.0,
+            pathSharePct = null,
+            roadKm = 0.0,
+            hasAccessWarning = false,
+            sourceName = "Straight",
+            wayInfo = emptyList()
+        )
+        _uiState.update { current ->
+            val updatedLegs = current.legs.toMutableMap().apply { put(legKey, straightLeg) }
+            val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
+            val doneLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+            current.copy(
+                legs = updatedLegs,
+                loadingLegKeys = doneLoading,
+                failedLegs = updatedFailed
+            )
+        }
+        withContext(Dispatchers.IO) {
+            RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, straightLeg)
+        }
+        return
+    }
+
+    _uiState.update { current ->
+        val currentLoading = current.loadingLegKeys.toMutableSet().apply { add(legKey) }
+        current.copy(loadingLegKeys = currentLoading)
+    }
+
+    try {
+        val fromCoord = com.example.util.routing.LatLng(from.lat, from.lng)
+        val toCoord = com.example.util.routing.LatLng(to.lat, to.lng)
+        val options = _uiState.value.options
+        val result = routingEngine.routeLeg(fromCoord, toCoord, options, alternative = 0)
+        val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+
+        when (result) {
+            is com.example.util.routing.RouteLegResult.Success -> {
+                val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(
+                    result.points,
+                    result.perPointWayInfo
+                )
+                val legData = LegGeometryData(
+                    fromWaypointId = from.id,
+                    toWaypointId = to.id,
+                    legMode = com.example.util.routing.LegMode.SNAP,
+                    points = result.points,
+                    lengthKm = result.lengthKm,
+                    ascentM = result.ascentM,
+                    descentM = result.descentM,
+                    pathSharePct = pathShare,
+                    roadKm = roadKm,
+                    hasAccessWarning = false,
+                    sourceName = result.sourceName,
+                    fetchedAt = result.fetchedAt,
+                    wayInfo = result.perPointWayInfo,
+                    turnCues = result.turnCues
+                )
+                _uiState.update { current ->
+                    val updatedLegs = current.legs.toMutableMap().apply { put(legKey, legData) }
+                    val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
+                    val doneLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+                    current.copy(
+                        legs = updatedLegs,
+                        failedLegs = updatedFailed,
+                        loadingLegKeys = doneLoading,
+                        isBuiltinFallbackInUse = com.example.util.routing.BRouterOnlineEngine.isBuiltinFallbackInUse(),
+                        errorMessage = result.warningMessage ?: if (updatedFailed.isEmpty()) null else current.errorMessage
+                    )
+                }
+                withContext(Dispatchers.IO) {
+                    RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, legData)
+                }
+            }
+            is com.example.util.routing.RouteLegResult.ServerBusy -> recordFailedLeg(legKey, result.message, updatedLoading)
+            is com.example.util.routing.RouteLegResult.Offline -> recordFailedLeg(legKey, result.message, updatedLoading)
+            is com.example.util.routing.RouteLegResult.NoRoute -> recordFailedLeg(legKey, result.message, updatedLoading)
+            is com.example.util.routing.RouteLegResult.Failure -> recordFailedLeg(legKey, result.message, updatedLoading)
+        }
+    } catch (e: Exception) {
+        val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+        val daMsg = com.example.util.routing.BRouterOnlineEngine.translateBRouterError(e.message)
+        recordFailedLeg(legKey, daMsg, updatedLoading)
+    }
+}
+
+

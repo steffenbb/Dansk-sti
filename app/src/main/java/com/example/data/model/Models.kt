@@ -58,7 +58,8 @@ data class TripStage(
     var isAfterSunset: Boolean = false,
     var spotId: String? = null,
     var isWarningNoOvernight: Boolean = false,
-    var warningMessage: String? = null
+    var warningMessage: String? = null,
+    var campExplanation: String = ""
 ) {
     val startWalkKm: Double get() = startKm
     val endWalkKm: Double get() = endKm
@@ -418,5 +419,12 @@ data class NearbyOvernightSpot(
     val distanceKm: Double
         get() = distanceMeters / 1000.0
 }
+
+@Entity(tableName = "offline_downloads_in_progress")
+data class OfflineDownloadInProgressEntity(
+    @PrimaryKey val trailId: String,
+    val startedAt: Long = System.currentTimeMillis()
+)
+
 
 

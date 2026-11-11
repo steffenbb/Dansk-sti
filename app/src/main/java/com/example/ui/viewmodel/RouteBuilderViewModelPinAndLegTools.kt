@@ -403,10 +403,20 @@ fun RouteBuilderViewModel.clearRoute() {
 }
 
 /**
- * "Fra min position" - Sets START at current GPS fix.
+ * "Start fra min position" - Sets START at current GPS fix.
  */
-fun RouteBuilderViewModel.setStartAtGps(lat: Double, lng: Double) {
+fun RouteBuilderViewModel.setStartAtGps(
+    lat: Double,
+    lng: Double,
+    staleMessage: String? = null
+) {
     val state = _uiState.value
+    _uiState.update {
+        it.copy(
+            currentGpsPosition = LatLng(lat, lng),
+            staleStartLocationMessage = staleMessage
+        )
+    }
     if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
         val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, lat, lng, state.isReverse)
         if (proj != null) {
@@ -427,10 +437,13 @@ fun RouteBuilderViewModel.setStartAtGps(lat: Double, lng: Double) {
         name = "Min position"
     )
 
+    val updatedLegs = _uiState.value.legs.toMutableMap()
     if (wps.isEmpty()) {
         wps.add(startWp)
     } else {
         if (wps.first().role == WaypointRole.START) {
+            val oldStartId = wps.first().id
+            updatedLegs.keys.removeAll { it.startsWith("${oldStartId}_to_") }
             wps[0] = startWp
         } else {
             wps.add(0, startWp)
@@ -440,7 +453,9 @@ fun RouteBuilderViewModel.setStartAtGps(lat: Double, lng: Double) {
     _uiState.update {
         it.copy(
             waypoints = wps,
+            legs = updatedLegs,
             waitingForStartPointTap = false,
+            staleStartLocationMessage = staleMessage,
             errorMessage = null
         )
     }

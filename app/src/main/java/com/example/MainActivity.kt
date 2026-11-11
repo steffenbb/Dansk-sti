@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -246,12 +247,6 @@ fun DanskStiAppRoot(
     val liveState by NavigationTrackingService.liveState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(currentRoute) {
-        if (currentRoute != null && currentRoute != Screen.Explore.route && showFirstOpenGuide) {
-            dismissFirstOpenGuide()
-        }
-    }
-
     LaunchedEffect(pendingNavigationPlanId, currentRoute) {
         if (pendingNavigationPlanId != null && currentRoute != null) {
             val targetRoute = Screen.Navigation.createRoute(pendingNavigationPlanId.takeIf { it > 0L })
@@ -289,18 +284,21 @@ fun DanskStiAppRoot(
         currentRoute == Screen.Profile.route
     val useNavigationRail = windowSizeClass.useNavigationRail
     val onNavigateTab: (String) -> Unit = { route ->
-        dismissFirstOpenGuide()
-        navController.navigate(route) {
-            popUpTo(Screen.Explore.route) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
+        if (!showFirstOpenGuide) {
+            navController.navigate(route) {
+                popUpTo(Screen.Explore.route) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
         }
     }
     val onContinueTrip: () -> Unit = {
-        dismissFirstOpenGuide()
-        navController.navigate(Screen.Navigation.createRoute(activeTripBannerState.planId))
+        if (!showFirstOpenGuide) {
+            navController.navigate(Screen.Navigation.createRoute(activeTripBannerState.planId))
+        }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -336,12 +334,6 @@ fun DanskStiAppRoot(
                     ActiveTripSlimBanner(
                         state = activeTripBannerState,
                         onClick = onContinueTrip
-                    )
-                }
-                if (showFirstOpenGuide && (currentRoute == null || currentRoute == Screen.Explore.route) && pendingNavigationPlanId == null) {
-                    HowToGuideScreen(
-                        onDismiss = dismissFirstOpenGuide,
-                        isFirstLaunchOnboarding = true
                     )
                 }
                 NavHost(
@@ -637,5 +629,14 @@ fun DanskStiAppRoot(
                 }
             }
         }
+    }
+
+    if (showFirstOpenGuide && pendingNavigationPlanId == null) {
+        HowToGuideScreen(
+            onDismiss = dismissFirstOpenGuide,
+            isFirstLaunchOnboarding = true,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
     }
 }

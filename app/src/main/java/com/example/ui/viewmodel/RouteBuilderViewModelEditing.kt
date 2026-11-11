@@ -684,6 +684,21 @@ internal fun RouteBuilderViewModel.addPointAtEndInternal(lat: Double, lng: Doubl
     val currentWps = state.waypoints.toMutableList()
 
     if (state.waitingForStartPointTap || (currentWps.size == 1 && currentWps.first().role == WaypointRole.END)) {
+        if (state.mode == PlannerMode.TRAIL && state.baseTrailSegments.isNotEmpty()) {
+            val proj = TrailSlicer.projectOntoTrail(state.baseTrailSegments, lat, lng, state.isReverse)
+            val startWp = currentWps.firstOrNull { it.role == WaypointRole.START }
+            if (proj != null && startWp != null) {
+                _uiState.update {
+                    it.copy(
+                        waitingForStartPointTap = false,
+                        staleStartLocationMessage = null,
+                        errorMessage = null
+                    )
+                }
+                moveWaypointOnTrailToKm(startWp.id, proj.trailKm, finishDrag = true)
+                return
+            }
+        }
         pushHistory()
         val startWp = RouteWaypoint(
             lat = lat,
@@ -692,17 +707,28 @@ internal fun RouteBuilderViewModel.addPointAtEndInternal(lat: Double, lng: Doubl
             legModeToNext = state.nextLegMode,
             name = name ?: "Start"
         )
-        currentWps.add(0, startWp)
+        val updatedLegs = state.legs.toMutableMap()
+        if (currentWps.isNotEmpty() && currentWps.first().role == WaypointRole.START) {
+            val oldStartId = currentWps.first().id
+            updatedLegs.keys.removeAll { it.startsWith("${oldStartId}_to_") }
+            currentWps[0] = startWp
+        } else {
+            currentWps.add(0, startWp)
+        }
         normalizeRoles(currentWps)
         _uiState.update {
             it.copy(
                 waypoints = currentWps,
+                legs = updatedLegs,
                 waitingForStartPointTap = false,
+                staleStartLocationMessage = null,
                 errorMessage = null
             )
         }
         if (currentWps.size >= 2) {
             computeSingleLeg(currentWps[0], currentWps[1])
+        } else {
+            updateRouteStats()
         }
         return
     }

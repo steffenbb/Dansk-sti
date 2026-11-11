@@ -415,180 +415,29 @@ fun PlannerBottomSheet(
                 }
             }
 
-            // Spacious 2-Row Action Grid (48dp touch targets)
-            Column(
+            // Round 12B Item 3: Icon-over-label buttons in a grid that wraps to more rows when needed
+            PlannerSheetActionButtonGrid(
+                uiState = uiState,
+                visibleWaypointsCount = visibleWaypoints.size,
+                onSuggestOvernightStops = {
+                    onSuggestOvernightStops()
+                    if (uiState.sheetHeightState == SheetHeightState.PEEK) {
+                        onSetSheetHeightState(SheetHeightState.HALF)
+                    }
+                },
+                onStartNavigation = onStartNavigation,
+                onOpenTripSettings = onOpenTripSettings,
+                onOpenRundturDialog = onOpenRundturDialog,
+                onOpenNearestPoiDialog = onOpenNearestPoiDialog,
+                onShareRoute = onShareRoute,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            onSuggestOvernightStops()
-                            if (uiState.sheetHeightState == SheetHeightState.PEEK) {
-                                onSetSheetHeightState(SheetHeightState.HALF)
-                            }
-                        },
-                        enabled = visibleWaypoints.size >= 2 && !uiState.isFindingOvernight,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        modifier = Modifier
-                            .weight(1.25f)
-                            .heightIn(min = 48.dp)
-                            .testTag("btn_find_overnight")
-                    ) {
-                        if (uiState.isFindingOvernight) {
-                            CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                stringResource(R.string.planner_suggesting_overnights),
-                                fontSize = 13.sp,
-                                maxLines = 1
-                            )
-                        } else {
-                            Icon(Icons.Default.NightShelter, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                stringResource(R.string.planner_suggest_overnights),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1
-                            )
-                        }
-                    }
-
-                    Button(
-                        onClick = onStartNavigation,
-                        enabled = visibleWaypoints.size >= 2 && !uiState.isSaving && !uiState.isStarting,
-                        colors = ButtonDefaults.buttonColors(containerColor = DanskStiTheme.colors.plannedRoute),
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        modifier = Modifier
-                            .weight(0.95f)
-                            .heightIn(min = 48.dp)
-                            .testTag("btn_start_planned_navigation")
-                    ) {
-                        if (uiState.isStarting) {
-                            CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                stringResource(R.string.planner_btn_starting),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1
-                            )
-                        } else {
-                            Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                stringResource(R.string.planner_btn_start),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = onOpenTripSettings,
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                        modifier = Modifier
-                            .weight(1.1f)
-                            .heightIn(min = 48.dp)
-                            .testTag("btn_sheet_trip_settings")
-                    ) {
-                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            stringResource(R.string.planner_btn_settings),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                    }
-
-                    if (uiState.mode == PlannerMode.FREE) {
-                        OutlinedButton(
-                            onClick = onOpenRundturDialog,
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                            modifier = Modifier
-                                .weight(0.95f)
-                                .heightIn(min = 48.dp)
-                                .testTag("btn_open_rundtur")
-                        ) {
-                            Icon(Icons.Default.Loop, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                stringResource(R.string.planner_btn_rundtur),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1
-                            )
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = onOpenNearestPoiDialog,
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                        modifier = Modifier
-                            .weight(1.0f)
-                            .heightIn(min = 48.dp)
-                            .testTag("btn_open_nearest_poi")
-                    ) {
-                        Icon(Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            stringResource(R.string.planner_btn_nearest),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = onShareRoute,
-                        enabled = visibleWaypoints.size >= 2,
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                        modifier = Modifier
-                            .widthIn(min = 48.dp)
-                            .heightIn(min = 48.dp)
-                            .testTag("btn_share_route_sheet")
-                    ) {
-                        Icon(
-                            Icons.Default.Share,
-                            contentDescription = stringResource(R.string.action_share),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-            }
+                    .padding(top = 3.dp)
+                    .testTag("planner_action_button_grid")
+            )
 
             // HALF, FULL, or Side Panel section: Tabs (Rute, Dage, Detaljer) + Tab Content
-            AnimatedVisibility(
-                visible = isSidePanel || uiState.sheetHeightState == SheetHeightState.HALF || uiState.sheetHeightState == SheetHeightState.FULL
-            ) {
+            if (isSidePanel || uiState.sheetHeightState == SheetHeightState.HALF || uiState.sheetHeightState == SheetHeightState.FULL) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -710,4 +559,5 @@ internal fun PlannerTabButton(
         }
     }
 }
+
 

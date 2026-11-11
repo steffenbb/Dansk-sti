@@ -24,6 +24,9 @@ interface DanskStiDao {
     @Query("SELECT * FROM trails ORDER BY computedWalkingKm DESC")
     fun getAllTrails(): Flow<List<TrailEntity>>
 
+    @Query("SELECT * FROM trails")
+    suspend fun getAllTrailsList(): List<TrailEntity>
+
     @Query("SELECT * FROM trails WHERE id = :id")
     suspend fun getTrailById(id: String): TrailEntity?
 
@@ -430,8 +433,63 @@ interface DanskStiDao {
     @Query("DELETE FROM planner_drafts")
     suspend fun clearPlannerDraft()
 
+    // Round 12A Item 1: Offline Downloads in Progress
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertOfflineDownloadInProgress(record: com.example.data.model.OfflineDownloadInProgressEntity)
+
+    @Query("SELECT * FROM offline_downloads_in_progress WHERE trailId = :trailId LIMIT 1")
+    suspend fun getOfflineDownloadInProgress(trailId: String): com.example.data.model.OfflineDownloadInProgressEntity?
+
+    @Query("SELECT * FROM offline_downloads_in_progress")
+    suspend fun getAllOfflineDownloadsInProgressList(): List<com.example.data.model.OfflineDownloadInProgressEntity>
+
+    @Query("DELETE FROM offline_downloads_in_progress WHERE trailId = :trailId")
+    suspend fun deleteOfflineDownloadInProgress(trailId: String)
+
+    @Query("DELETE FROM offline_downloads_in_progress")
+    suspend fun clearAllOfflineDownloadsInProgress()
+
     @Query("UPDATE trails SET isGeometryDownloaded = 0")
     suspend fun resetAllTrailsGeometryDownloaded()
+
+    @Query("UPDATE trails SET isGeometryDownloaded = :downloaded WHERE id = :trailId")
+    suspend fun setTrailGeometryDownloaded(trailId: String, downloaded: Boolean)
+
+    @Query("SELECT COALESCE(SUM(LENGTH(coordinatesJson) + COALESCE(LENGTH(name), 0) + 64), 0) FROM water_features")
+    suspend fun getWaterFeaturesApproxBytes(): Long
+
+    @Query("SELECT COUNT(*) * 64 FROM water_tile_cache")
+    suspend fun getWaterTileCacheApproxBytes(): Long
+
+    @Query("SELECT COALESCE(SUM(LENGTH(coordinatesJson) + COALESCE(LENGTH(name), 0) + 64), 0) FROM access_polygons")
+    suspend fun getAccessPolygonsApproxBytes(): Long
+
+    @Query("DELETE FROM water_features")
+    suspend fun clearAllWaterFeatures()
+
+    @Query("DELETE FROM water_tile_cache")
+    suspend fun clearAllWaterTileCache()
+
+    @Query("DELETE FROM access_polygons")
+    suspend fun clearAllAccessPolygons()
+
+    @Query("SELECT COALESCE(SUM(LENGTH(segmentsJson) + LENGTH(name) + 64), 0) FROM marked_routes")
+    suspend fun getMarkedRoutesApproxBytes(): Long
+
+    @Query("SELECT COUNT(*) * 64 FROM marked_route_cache_boxes")
+    suspend fun getMarkedRouteBoxesApproxBytes(): Long
+
+    @Query("DELETE FROM marked_routes")
+    suspend fun clearAllMarkedRoutes()
+
+    @Query("DELETE FROM marked_route_cache_boxes")
+    suspend fun clearAllMarkedRouteCacheBoxes()
+
+    @Query("SELECT COALESCE(SUM(LENGTH(pointsJson) + LENGTH(wayInfoJson) + 64), 0) FROM cached_route_legs")
+    suspend fun getCachedRouteLegsApproxBytes(): Long
+
+    @Query("DELETE FROM cached_route_legs")
+    suspend fun clearAllCachedRouteLegs()
 }
 
 

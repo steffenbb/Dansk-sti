@@ -172,6 +172,21 @@ class PhotonPlaceSearchService(private val context: Context) {
     private val cacheFile: File
         get() = File(context.filesDir, CACHE_FILE_NAME)
 
+    fun getCacheSizeBytes(): Long {
+        val f = cacheFile
+        return if (f.exists() && f.isFile) f.length() else 0L
+    }
+
+    fun clearCache() {
+        synchronized(cacheLock) {
+            memoryCache = null
+            runCatching {
+                val f = cacheFile
+                if (f.exists()) f.delete()
+            }
+        }
+    }
+
     fun getCachedPlaces(): List<PlaceSearchResult> {
         synchronized(cacheLock) {
             memoryCache?.let { return it.toList() }

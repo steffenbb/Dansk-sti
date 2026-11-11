@@ -99,14 +99,19 @@ internal fun RouteBuilderFeatureDialogsHost(
     if (uiState.showTripSettingsSheet) {
         TripSettingsDialog(
             uiState = uiState,
-            onUpdateSettings = { pace, dailyKm, maxDetourKm, startHour, startEpochMs, pref ->
+            onUpdateSettings = { pace, dailyKm, maxDetourKm, startTimeStr, startEpochMs, pref ->
+                val parsedPref = try {
+                    com.example.data.model.OvernightType.valueOf(pref)
+                } catch (_: Exception) {
+                    com.example.data.model.OvernightType.BOTH
+                }
                 viewModel.updateTripSettings(
                     paceKmh = pace,
                     dailyTargetKm = dailyKm,
+                    startDateMillis = startEpochMs,
+                    startTimeStr = startTimeStr,
                     maxDetourKm = maxDetourKm,
-                    startHour = startHour,
-                    startDateEpochMs = startEpochMs,
-                    overnightPref = pref
+                    overnightPreference = parsedPref
                 )
             },
             onDismiss = { viewModel.dismissTripSettingsSheet() }
@@ -378,6 +383,11 @@ internal fun RouteBuilderFeatureDialogsHost(
     }
 
     if (uiState.showNearestPoiDialog) {
+        val currentMapCenter = mapViewInstance?.mapCenter
+        val origin = viewModel.resolveNearestSearchOrigin(
+            mapCenterLat = currentMapCenter?.latitude,
+            mapCenterLng = currentMapCenter?.longitude
+        )
         AlertDialog(
             onDismissRequest = { viewModel.dismissNearestPoiDialog() },
             icon = {
@@ -393,6 +403,22 @@ internal fun RouteBuilderFeatureDialogsHost(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = stringResource(origin.labelResId),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .testTag("nearest_poi_origin_label")
+                        )
+                    }
+
                     Text(
                         text = stringResource(R.string.ui_routebuilderscreen_v_lg_kategori_appen_beregner_153),
                         fontSize = 12.sp,
@@ -414,6 +440,68 @@ internal fun RouteBuilderFeatureDialogsHost(
                                 Text(stringResource(R.string.ui_routebuilderscreen_beregner_rute_til_n_rmeste_154), fontSize = 12.sp)
                             }
                         }
+                    } else if (uiState.showNearestShelterRoleChoice) {
+                        Card(
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("nearest_shelter_role_choice_card")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.nearest_shelter_choice_title),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Button(
+                                    onClick = {
+                                        viewModel.confirmNearestShelterRole(
+                                            com.example.util.routing.WaypointRole.OVERNIGHT
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 44.dp)
+                                        .testTag("btn_nearest_shelter_overnight")
+                                ) {
+                                    Icon(Icons.Default.NightShelter, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = stringResource(R.string.nearest_shelter_choice_overnight),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.confirmNearestShelterRole(
+                                            com.example.util.routing.WaypointRole.VIA
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 44.dp)
+                                        .testTag("btn_nearest_shelter_stop")
+                                ) {
+                                    Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = stringResource(R.string.nearest_shelter_choice_stop),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+                        }
                     } else {
                         NearestPoiCategory.values().forEach { cat ->
                             Surface(
@@ -424,7 +512,13 @@ internal fun RouteBuilderFeatureDialogsHost(
                                     .fillMaxWidth()
                                     .clickable {
                                         val loc = getLastKnownLocation(context)
-                                        viewModel.routeToNearest(cat, loc?.latitude, loc?.longitude)
+                                        viewModel.onNearestCategorySelected(
+                                            category = cat,
+                                            userLat = loc?.latitude,
+                                            userLng = loc?.longitude,
+                                            mapCenterLat = currentMapCenter?.latitude,
+                                            mapCenterLng = currentMapCenter?.longitude
+                                        )
                                     }
                                     .testTag("btn_nearest_${cat.name.lowercase()}")
                             ) {
@@ -562,10 +656,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                         ) {
                             OutlinedButton(
                                 onClick = onLaunchCamera,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .heightIn(min = 38.dp)
-                                    .testTag("btn_camera_capture")
+                                modifier = Modifier.weight(1f).heightIn(min = 38.dp).testTag("btn_camera_capture")
                             ) {
                                 Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -573,10 +664,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                             }
                             OutlinedButton(
                                 onClick = onLaunchGallery,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .heightIn(min = 38.dp)
-                                    .testTag("btn_gallery_pick")
+                                modifier = Modifier.weight(1f).heightIn(min = 38.dp).testTag("btn_gallery_pick")
                             ) {
                                 Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -596,9 +684,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
                     modifier = Modifier.testTag("btn_save_custom_wp")
-                ) {
-                    Text(stringResource(R.string.save_point_dialog_title))
-                }
+                ) { Text(stringResource(R.string.save_point_dialog_title)) }
             },
             dismissButton = {
                 TextButton(
@@ -608,9 +694,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                         onCustomWpNoteChange("")
                         onCustomWpPhotoPathChange(null)
                     }
-                ) {
-                    Text(stringResource(R.string.btn_cancel))
-                }
+                ) { Text(stringResource(R.string.btn_cancel)) }
             }
         )
     }
@@ -619,37 +703,20 @@ internal fun RouteBuilderFeatureDialogsHost(
         AlertDialog(
             onDismissRequest = { viewModel.selectCustomWaypointForDetails(null) },
             icon = {
-                Icon(
-                    Icons.Default.Place,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.size(28.dp)
-                )
+                Icon(Icons.Default.Place, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(28.dp))
             },
-            title = {
-                Text(wp.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            },
+            title = { Text(wp.name, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
             text = {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!wp.photoPath.isNullOrBlank()) {
                         val bitmap = remember(wp.photoPath) {
-                            try {
-                                if (File(wp.photoPath).exists()) BitmapFactory.decodeFile(wp.photoPath) else null
-                            } catch (_: Exception) {
-                                null
-                            }
+                            runCatching { if (File(wp.photoPath).exists()) BitmapFactory.decodeFile(wp.photoPath) else null }.getOrNull()
                         }
                         if (bitmap != null) {
                             Image(
                                 bitmap = bitmap.asImageBitmap(),
                                 contentDescription = wp.name,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(160.dp)
-                                    .clip(RoundedCornerShape(8.dp))
+                                modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(8.dp))
                             )
                         }
                         TextButton(
@@ -664,11 +731,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                     }
 
                     if (wp.note.isNotBlank()) {
-                        Text(
-                            text = wp.note,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        Text(text = wp.note, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
                     }
 
                     Text(
@@ -676,13 +739,9 @@ internal fun RouteBuilderFeatureDialogsHost(
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = {
                                 mapViewInstance?.controller?.animateTo(GeoPoint(wp.lat, wp.lng), 16.0, 500L)
@@ -694,13 +753,10 @@ internal fun RouteBuilderFeatureDialogsHost(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(stringResource(R.string.action_view_on_map), fontSize = 12.sp)
                         }
-
                         Button(
                             onClick = { viewModel.deleteCustomWaypoint(wp.id) },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_delete_custom_waypoint_dialog")
+                            modifier = Modifier.weight(1f).testTag("btn_delete_custom_waypoint_dialog")
                         ) {
                             Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))

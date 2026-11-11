@@ -190,6 +190,77 @@ data class AppSettings(
         if (mapFollowsApp) resolveIsDarkApp(isSystemDark) else (mapThemeOverride == MapThemeOverride.DARK)
 }
 
+/**
+ * Round 12A Item 7:
+ * Shared definition of pace (2.0-7.0 km/h), daily target (5-40 km) and start time (05:00-20:00, 30 min steps),
+ * used in Profil, the planner's trip settings and the stage planner.
+ */
+object HikingSettingsRanges {
+    const val MIN_PACE_KMH: Double = 2.0
+    const val MAX_PACE_KMH: Double = 7.0
+    const val PACE_STEP_KMH: Double = 0.5
+    val PACE_RANGE_DOUBLE: ClosedFloatingPointRange<Double> = MIN_PACE_KMH..MAX_PACE_KMH
+    val PACE_RANGE_FLOAT: ClosedFloatingPointRange<Float> = MIN_PACE_KMH.toFloat()..MAX_PACE_KMH.toFloat()
+    const val PACE_SLIDER_STEPS: Int = 9 // (7.0 - 2.0) / 0.5 - 1
+
+    const val MIN_DAILY_TARGET_KM: Double = 5.0
+    const val MAX_DAILY_TARGET_KM: Double = 40.0
+    const val DAILY_TARGET_STEP_KM: Double = 1.0
+    val DAILY_TARGET_RANGE_DOUBLE: ClosedFloatingPointRange<Double> = MIN_DAILY_TARGET_KM..MAX_DAILY_TARGET_KM
+    val DAILY_TARGET_RANGE_FLOAT: ClosedFloatingPointRange<Float> = MIN_DAILY_TARGET_KM.toFloat()..MAX_DAILY_TARGET_KM.toFloat()
+    const val DAILY_TARGET_SLIDER_STEPS: Int = 34 // (40 - 5) / 1 - 1
+
+    const val MIN_START_TIME_MINUTES: Int = 5 * 60 // 05:00
+    const val MAX_START_TIME_MINUTES: Int = 20 * 60 // 20:00
+    const val START_TIME_STEP_MINUTES: Int = 30
+    val START_TIME_MINUTES_RANGE: IntRange = MIN_START_TIME_MINUTES..MAX_START_TIME_MINUTES
+    val START_TIME_OPTIONS: List<String> = (MIN_START_TIME_MINUTES..MAX_START_TIME_MINUTES step START_TIME_STEP_MINUTES).map { totalMins ->
+        val h = totalMins / 60
+        val m = totalMins % 60
+        String.format(java.util.Locale.US, "%02d:%02d", h, m)
+    }
+    val START_TIME_SLIDER_RANGE: ClosedFloatingPointRange<Float> = 0f..(START_TIME_OPTIONS.size - 1).toFloat()
+    val START_TIME_SLIDER_STEPS: Int = (START_TIME_OPTIONS.size - 2).coerceAtLeast(0)
+
+    fun clampPaceKmh(pace: Double): Double {
+        val stepped = kotlin.math.round(pace / PACE_STEP_KMH) * PACE_STEP_KMH
+        return stepped.coerceIn(MIN_PACE_KMH, MAX_PACE_KMH)
+    }
+
+    fun clampDailyTargetKm(dailyKm: Double): Double {
+        return kotlin.math.round(dailyKm).coerceIn(MIN_DAILY_TARGET_KM, MAX_DAILY_TARGET_KM)
+    }
+
+    fun parseStartTimeToMinutes(startTime: String): Int {
+        val parts = startTime.trim().split(":")
+        val h = parts.getOrNull(0)?.toIntOrNull() ?: 9
+        val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        return h * 60 + m
+    }
+
+    fun normalizeStartTime(startTime: String): String {
+        val rawMins = parseStartTimeToMinutes(startTime)
+        val clampedMins = rawMins.coerceIn(MIN_START_TIME_MINUTES, MAX_START_TIME_MINUTES)
+        val snappedMins = (
+            kotlin.math.round((clampedMins - MIN_START_TIME_MINUTES).toDouble() / START_TIME_STEP_MINUTES).toInt() *
+                START_TIME_STEP_MINUTES + MIN_START_TIME_MINUTES
+            ).coerceIn(MIN_START_TIME_MINUTES, MAX_START_TIME_MINUTES)
+        return String.format(java.util.Locale.US, "%02d:%02d", snappedMins / 60, snappedMins % 60)
+    }
+
+    fun startTimeToSliderIndex(startTime: String): Float {
+        val exactIdx = START_TIME_OPTIONS.indexOf(startTime.trim())
+        if (exactIdx >= 0) return exactIdx.toFloat()
+        val normalized = normalizeStartTime(startTime)
+        return START_TIME_OPTIONS.indexOf(normalized).coerceAtLeast(0).toFloat()
+    }
+
+    fun sliderIndexToStartTime(indexFloat: Float): String {
+        val idx = kotlin.math.round(indexFloat).toInt().coerceIn(0, START_TIME_OPTIONS.lastIndex)
+        return START_TIME_OPTIONS[idx]
+    }
+}
+
 class SettingsRepository(context: Context) {
     private val appContext: Context = context.applicationContext ?: context
 
@@ -564,8 +635,9 @@ class SettingsRepository(context: Context) {
     }
 
     suspend fun setMitTempoKmh(tempo: Double) {
-        cachedMitTempoKmh = tempo
-        updatePref(KEY_MIT_TEMPO, tempo)
+        val clamped = HikingSettingsRanges.clampPaceKmh(tempo)
+        cachedMitTempoKmh = clamped
+        updatePref(KEY_MIT_TEMPO, clamped)
     }
 
     suspend fun setUnits(units: String) {
@@ -573,7 +645,8 @@ class SettingsRepository(context: Context) {
     }
 
     suspend fun setStartTime(time: String) {
-        updatePref(KEY_START_TIME, time)
+        val normalized = HikingSettingsRanges.normalizeStartTime(time)
+        updatePref(KEY_START_TIME, normalized)
     }
 
     suspend fun setMaxDetourKm(detour: Double) {
@@ -581,7 +654,8 @@ class SettingsRepository(context: Context) {
     }
 
     suspend fun setDailyTargetKm(dailyKm: Double) {
-        updatePref(KEY_DAILY_TARGET, dailyKm)
+        val clamped = HikingSettingsRanges.clampDailyTargetKm(dailyKm)
+        updatePref(KEY_DAILY_TARGET, clamped)
     }
 
     suspend fun setDarkMapMode(mode: MapDarkMode) = setMapDarkMode(mode)

@@ -153,16 +153,70 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
     private val _userLocation = MutableStateFlow<Pair<Double, Double>?>(null)
     val userLocation: StateFlow<Pair<Double, Double>?> = _userLocation.asStateFlow()
 
-    fun updateUserLocation(lat: Double, lng: Double) {
+    private val _userLocationStaleMessage = MutableStateFlow<String?>(null)
+    val userLocationStaleMessage: StateFlow<String?> = _userLocationStaleMessage.asStateFlow()
+
+    var freshLocationTimeoutMs: Long = com.example.ui.map.LiveMapLocationState.CURRENT_LOCATION_TIMEOUT_MS
+    var customLocationResolver: (suspend (timeoutMs: Long) -> com.example.ui.map.FreshLocationResolution)? = null
+
+    fun updateUserLocation(
+        lat: Double,
+        lng: Double,
+        fixTimeMs: Long? = null,
+        staleMessage: String? = null
+    ) {
         if (lat.isFinite() && lng.isFinite() && (lat != 0.0 || lng != 0.0)) {
             _userLocation.value = Pair(lat, lng)
+            _userLocationStaleMessage.value = staleMessage ?: fixTimeMs?.let {
+                com.example.ui.map.LiveMapLocationState.formatOldFixMessage(it)
+            }
         } else {
             _userLocation.value = null
+            _userLocationStaleMessage.value = null
         }
     }
 
     fun clearUserLocation() {
         _userLocation.value = null
+        _userLocationStaleMessage.value = null
+    }
+
+    fun refreshUserLocationWithFreshness(
+        openNearbySpotsSheet: Boolean = false,
+        fallbackLocation: android.location.Location? = null,
+        fallbackMapCenter: Pair<Double, Double>? = null
+    ) {
+        viewModelScope.launch {
+            val resolver = customLocationResolver
+            val res = if (resolver != null) {
+                resolver.invoke(freshLocationTimeoutMs)
+            } else {
+                com.example.ui.map.LiveMapLocationState.resolveFreshOrFallbackLocation(
+                    context = app,
+                    timeoutMs = freshLocationTimeoutMs,
+                    fallbackCandidate = fallbackLocation
+                )
+            }
+            val loc = res.location
+            if (loc != null) {
+                updateUserLocation(
+                    lat = loc.latitude,
+                    lng = loc.longitude,
+                    staleMessage = res.staleMessage
+                )
+                if (openNearbySpotsSheet) {
+                    findNearbyOvernights(loc.latitude, loc.longitude, isMapCenter = false)
+                }
+            } else {
+                clearUserLocation()
+                if (openNearbySpotsSheet && fallbackMapCenter != null) {
+                    val (cLat, cLng) = fallbackMapCenter
+                    if (cLat != 0.0 || cLng != 0.0) {
+                        findNearbyOvernights(cLat, cLng, isMapCenter = true)
+                    }
+                }
+            }
+        }
     }
 
     init {
@@ -224,60 +278,67 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
             _errorMessage.value = null
             try {
                 withContext(Dispatchers.IO) {
-                    repository.initializePreseededDataIfEmpty()
+                    runCatching { repository.initializePreseededDataIfEmpty() }
                 }
                 allTrails.collect { trails ->
                     if (trails.isNotEmpty()) {
+                        _errorMessage.value = null
                         withContext(Dispatchers.IO) {
-                            val sCounts = mutableMapOf<String, Int>()
-                            val fCounts = mutableMapOf<String, Int>()
-                            val metricsMap = mutableMapOf<String, TrailCardMetrics>()
-                            val allFt = repository.getAllFriTeltning()
+                            runCatching {
+                                val sCounts = mutableMapOf<String, Int>()
+                                val fCounts = mutableMapOf<String, Int>()
+                                val metricsMap = mutableMapOf<String, TrailCardMetrics>()
+                                val allFt = runCatching { repository.getAllFriTeltning() }.getOrDefault(emptyList())
 
-                            for (t in trails) {
-                                val sCount = repository.getShelterCountForTrail(t.id)
-                                sCounts[t.id] = sCount
+                                for (t in trails) {
+                                    val sCount = runCatching { repository.getShelterCountForTrail(t.id) }.getOrDefault(0)
+                                    sCounts[t.id] = sCount
 
-                                val computedReg = GeoUtils.computeDanishRegionForTrail(t)
-                                val fCount = if (t.bboxSouth != null && t.bboxNorth != null && t.bboxWest != null && t.bboxEast != null) {
-                                    allFt.count { ft ->
-                                        ft.centerLat in (t.bboxSouth - 0.04)..(t.bboxNorth + 0.04) &&
-                                            ft.centerLng in (t.bboxWest - 0.06)..(t.bboxEast + 0.06)
+                                    val computedReg = GeoUtils.computeDanishRegionForTrail(t)
+                                    val fCount = if (t.bboxSouth != null && t.bboxNorth != null && t.bboxWest != null && t.bboxEast != null) {
+                                        allFt.count { ft ->
+                                            ft.centerLat in (t.bboxSouth - 0.04)..(t.bboxNorth + 0.04) &&
+                                                ft.centerLng in (t.bboxWest - 0.06)..(t.bboxEast + 0.06)
+                                        }
+                                    } else {
+                                        allFt.count { ft ->
+                                            ft.trailCorridorId == t.id ||
+                                                (computedReg.isNotEmpty() && ft.name.contains(computedReg, ignoreCase = true))
+                                        }
                                     }
-                                } else {
-                                    allFt.count { ft ->
-                                        ft.trailCorridorId == t.id ||
-                                            (computedReg.isNotEmpty() && ft.name.contains(computedReg, ignoreCase = true))
+                                    fCounts[t.id] = fCount
+
+                                    val geom = try {
+                                        repository.getTrailGeometry(t.id)
+                                    } catch (_: Exception) {
+                                        null
                                     }
-                                }
-                                fCounts[t.id] = fCount
+                                    val pts = geom?.segments?.flatMap { it.points } ?: emptyList()
+                                    val computedKm = geom?.totalWalkingKm?.takeIf { it > 0.0 } ?: t.computedWalkingKm
+                                    val ascentM = geom?.totalAscentM ?: (computedKm * 8.5).toInt()
+                                    val estDays = kotlin.math.ceil(computedKm / 20.0).toInt().coerceAtLeast(1)
 
-                                val geom = try {
-                                    repository.getTrailGeometry(t.id)
-                                } catch (_: Exception) {
-                                    null
+                                    metricsMap[t.id] = TrailCardMetrics(
+                                        shelterCount = sCount,
+                                        friTeltningCount = fCount,
+                                        ascentMeters = ascentM,
+                                        estimatedDays = estDays,
+                                        geometryPoints = pts
+                                    )
                                 }
-                                val pts = geom?.segments?.flatMap { it.points } ?: emptyList()
-                                val computedKm = geom?.totalWalkingKm?.takeIf { it > 0.0 } ?: t.computedWalkingKm
-                                val ascentM = geom?.totalAscentM ?: (computedKm * 8.5).toInt()
-                                val estDays = kotlin.math.ceil(computedKm / 20.0).toInt().coerceAtLeast(1)
-
-                                metricsMap[t.id] = TrailCardMetrics(
-                                    shelterCount = sCount,
-                                    friTeltningCount = fCount,
-                                    ascentMeters = ascentM,
-                                    estimatedDays = estDays,
-                                    geometryPoints = pts
-                                )
+                                _shelterCounts.value = sCounts
+                                _friTeltningCounts.value = fCounts
+                                _trailMetrics.value = metricsMap
                             }
-                            _shelterCounts.value = sCounts
-                            _friTeltningCounts.value = fCounts
-                            _trailMetrics.value = metricsMap
                         }
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _errorMessage.value = "Kunne ikke indlæse ruter. Tjek din forbindelse og prøv igen."
+                if (allTrails.value.isEmpty()) {
+                    _errorMessage.value = "Kunne ikke indlæse ruter. Tjek din forbindelse og prøv igen."
+                }
             }
         }
     }
@@ -350,7 +411,7 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
             matchesQuery && matchesRegion && matchesLength && matchesFlerdages &&
                 matchesOvernightEnum && matchesSheltersChip && matchesFriTeltningChip
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.local.PreseededData.getInitialTrails())
 
     val nearbyTrails: StateFlow<List<TrailEntity>> = combine(
         filteredTrails,

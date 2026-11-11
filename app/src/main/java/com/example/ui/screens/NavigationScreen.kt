@@ -254,6 +254,7 @@ fun NavigationScreen(
     var isDrawerExpanded by remember { mutableStateOf(false) }
     var isFollowingUser by remember { mutableStateOf(true) }
     var showNavMenu by remember { mutableStateOf(false) }
+    var showHowToGuide by remember { mutableStateOf(false) }
     var dismissedCampArrivalForDay by remember { mutableStateOf(-1) }
     var dismissedCompletedDialog by remember(liveState.planId) { mutableStateOf(false) }
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
@@ -689,6 +690,7 @@ fun NavigationScreen(
                     onSetShowNavMenu = { showNavMenu = it },
                     onDismissCampArrival = { dismissedCampArrivalForDay = currentDay },
                     onBack = onBack,
+                    onOpenHowToGuide = { showHowToGuide = true },
                     isLandscapeRightColumn = isLandscapeRightCol
                 )
             }
@@ -774,6 +776,13 @@ fun NavigationScreen(
             liveState = liveState,
             emergencyInfo = emergencyInfo,
             onDismiss = { viewModel.setSosSheet(false) }
+        )
+    }
+
+    if (showHowToGuide) {
+        HowToGuideScreen(
+            onDismiss = { showHowToGuide = false },
+            initialSection = HowToGuideDefinitions.SECTION_OFFLINE_NAVIGATION
         )
     }
 }

@@ -603,28 +603,25 @@ fun PlannerCoachMarksOverlay(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = 16.dp, end = 16.dp, top = 2.dp)
-            .zIndex(20f)
             .testTag("planner_coach_marks"),
         contentAlignment = Alignment.TopCenter
     ) {
         Card(
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 175.dp)
-                .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                 .semantics { contentDescription = coachIntroCd }
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -633,7 +630,8 @@ fun PlannerCoachMarksOverlay(
                 ) {
                     Text(
                         text = stringResource(R.string.planner_coach_header_format, stepIndex + 1),
-                        style = MaterialTheme.typography.labelLarge,
+                        fontSize = 11.sp,
+                        lineHeight = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
@@ -643,13 +641,13 @@ fun PlannerCoachMarksOverlay(
                     IconButton(
                         onClick = onDismiss,
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(20.dp)
                             .testTag("coach_marks_close_icon")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = stringResource(R.string.planner_coach_close_cd),
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                 }
@@ -657,7 +655,7 @@ fun PlannerCoachMarksOverlay(
                 tips.forEachIndexed { idx, (title, subtitle) ->
                     val isCurrent = idx == stepIndex
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(4.dp),
                         color = if (isCurrent) {
                             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
                         } else {
@@ -668,21 +666,22 @@ fun PlannerCoachMarksOverlay(
                             .testTag("coach_mark_tip_$idx")
                     ) {
                         Column(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                            verticalArrangement = Arrangement.spacedBy(1.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                         ) {
                             Text(
                                 text = "${idx + 1}. $title",
-                                fontSize = 11.sp,
-                                lineHeight = 13.sp,
+                                fontSize = 10.sp,
+                                lineHeight = 11.sp,
+                                maxLines = 1,
                                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             if (isCurrent) {
                                 Text(
                                     text = subtitle,
-                                    fontSize = 10.sp,
-                                    lineHeight = 12.sp,
+                                    fontSize = 9.sp,
+                                    lineHeight = 10.sp,
+                                    maxLines = 1,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -692,30 +691,30 @@ fun PlannerCoachMarksOverlay(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 30.dp)
+                            .height(26.dp)
                             .testTag("coach_marks_dismiss_button")
                     ) {
-                        Text(stringResource(R.string.planner_coach_understood), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.planner_coach_understood), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                     }
                     Button(
                         onClick = onNextStep,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 30.dp)
+                            .height(26.dp)
                             .testTag("coach_marks_next_button")
                     ) {
                         Text(
                             text = if (stepIndex < tips.lastIndex) stringResource(R.string.planner_coach_next_tip) else stringResource(R.string.planner_coach_start_planning),
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }

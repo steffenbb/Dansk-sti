@@ -92,11 +92,19 @@ class FixRound10CTest {
     }
 
     @After
-    fun tearDown() {
+    fun tearDown(): Unit = runBlocking {
         BRouterStorageManager.customHeadFetcher = null
         BRouterOfflineEngine.simulateVersionMismatchForTests = false
         OfflineDownloadManager.freeBytesProviderOverride = null
         OfflineDownloadManager.networkStatusProviderOverride = null
+        runCatching {
+            if (androidx.work.WorkManager.isInitialized()) {
+                androidx.work.WorkManager.getInstance(app).cancelAllWork().result.get()
+            }
+        }
+        runCatching {
+            db.dao().clearAllOfflineDownloadsInProgress()
+        }
     }
 
     private suspend fun waitUntilCondition(timeoutMs: Long = 5_000L, predicate: suspend () -> Boolean) {

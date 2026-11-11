@@ -111,6 +111,53 @@ class RouteBuilderViewModel(
     internal var sunsetTimeStr: String = com.example.util.SunCalculator.calculateSunset()
     internal val plannerSearchQueryFlow = MutableStateFlow("")
 
+    var freshLocationTimeoutMs: Long = com.example.ui.map.LiveMapLocationState.CURRENT_LOCATION_TIMEOUT_MS
+    var customLocationResolver: (suspend (timeoutMs: Long) -> com.example.ui.map.FreshLocationResolution)? = null
+
+    suspend fun resolveCurrentOrFallbackLocation(
+        fallbackLocation: android.location.Location? = null
+    ): com.example.ui.map.FreshLocationResolution {
+        val resolver = customLocationResolver
+        if (resolver != null) {
+            return resolver.invoke(freshLocationTimeoutMs)
+        }
+        return com.example.ui.map.LiveMapLocationState.resolveFreshOrFallbackLocation(
+            context = getApplication(),
+            timeoutMs = freshLocationTimeoutMs,
+            fallbackCandidate = fallbackLocation
+        )
+    }
+
+    fun enablePickAnotherStart() {
+        _uiState.update {
+            it.copy(
+                interactionMode = PlannerInteractionMode.TEGN,
+                waitingForStartPointTap = true,
+                staleStartLocationMessage = null,
+                errorMessage = "Vælg startpunkt - tryk på kortet"
+            )
+        }
+        viewModelScope.launch {
+            _userMessage.emit("Vælg startpunkt - tryk på kortet")
+        }
+    }
+
+    fun dismissStaleStartLocationMessage() {
+        _uiState.update { it.copy(staleStartLocationMessage = null) }
+    }
+
+    fun startFromMyLocation() {
+        viewModelScope.launch {
+            val res = resolveCurrentOrFallbackLocation()
+            val loc = res.location
+            if (loc != null) {
+                setStartAtGps(loc.latitude, loc.longitude, staleMessage = res.staleMessage)
+            } else {
+                enablePickAnotherStart()
+            }
+        }
+    }
+
     internal fun computeStagesSignature(state: RouteBuilderState): String {
         val wpSig = state.waypoints.joinToString("|") {
             "${it.id}:${String.format(Locale.US, "%.5f,%.5f", it.lat, it.lng)}:${it.role}:${it.trailKm ?: "null"}:${it.isHelper}"
@@ -122,35 +169,6 @@ class RouteBuilderViewModel(
         }.joinToString("|")
         return "$wpSig#$legSig#${state.paceKmh}#${state.dailyTargetKm}#${state.maxDetourKm}#${state.overnightPreference}#${state.startTimeStr}#${state.startDateMillis}#${state.isReverse}"
     }
-
-    internal fun TripStageEntity.toModel(): com.example.data.model.TripStage = com.example.data.model.TripStage(
-        dayNumber = dayNumber,
-        startKm = startKm,
-        endKm = endKm,
-        stageKm = stageKm,
-        stopName = stopName,
-        stopType = stopType,
-        stopLat = stopLat,
-        stopLng = stopLng,
-        bookingRequired = bookingRequired,
-        hasWaterNearby = hasWaterNearby,
-        hasToiletNearby = hasToiletNearby,
-        startTrailKm = startTrailKm,
-        endTrailKm = endTrailKm,
-        fromName = fromName,
-        toName = toName,
-        detourMeters = detourMeters,
-        ascentMeters = ascentMeters,
-        descentMeters = descentMeters,
-        estimatedWalkMinutes = estimatedWalkMinutes,
-        waterCount = waterCount,
-        shopCount = shopCount,
-        sunsetTime = sunsetTime,
-        isAfterSunset = isAfterSunset,
-        spotId = spotId,
-        isWarningNoOvernight = isWarningNoOvernight,
-        warningMessage = warningMessage
-    )
 
     init {
         viewModelScope.launch {
@@ -177,6 +195,7 @@ class RouteBuilderViewModel(
             _uiState.update {
                 it.copy(
                     paceKmh = settings.mitTempoKmh,
+                    dailyTargetKm = settings.dailyTargetKm,
                     startTimeStr = settings.startTime,
                     maxDetourKm = settings.maxDetourKm,
                     showCoachMarks = !settings.plannerCoachMarksSeen
@@ -236,6 +255,8 @@ class RouteBuilderViewModel(
         currentGpsLat: Double? = null,
         gpsLng: Double? = null,
         currentGpsLng: Double? = null,
+        gpsFixTimeMs: Long? = null,
+        staleLocationMessage: String? = null,
         baseTrailId: String? = null,
         trailId: String? = null,
         existingPlanId: Long? = null
@@ -252,6 +273,9 @@ class RouteBuilderViewModel(
         val effDestName = destName ?: initialDestName
         val effGpsLat = gpsLat ?: currentGpsLat
         val effGpsLng = gpsLng ?: currentGpsLng
+        val computedStaleMessage = staleLocationMessage ?: gpsFixTimeMs?.let {
+            com.example.ui.map.LiveMapLocationState.formatOldFixMessage(it)
+        }
 
         if (existingPlanId != null && existingPlanId > 0L) {
             viewModelScope.launch {
@@ -261,7 +285,7 @@ class RouteBuilderViewModel(
                     if (linkedRouteId != null && linkedRouteId > 0L && repository.getCustomRoute(linkedRouteId) != null) {
                         loadExistingRoute(linkedRouteId, existingPlanId)
                     } else {
-                        initializeTrailMode(plan.trailId, effGpsLat, effGpsLng, existingPlanId)
+                        initializeTrailMode(plan.trailId, effGpsLat, effGpsLng, existingPlanId, computedStaleMessage)
                     }
                 }
             }
@@ -274,12 +298,17 @@ class RouteBuilderViewModel(
         }
 
         if (!effTrailId.isNullOrBlank()) {
-            initializeTrailMode(effTrailId, effGpsLat, effGpsLng)
+            initializeTrailMode(effTrailId, effGpsLat, effGpsLng, null, computedStaleMessage)
             return
         }
 
         if (effGpsLat != null && effGpsLng != null) {
-            _uiState.update { it.copy(currentGpsPosition = LatLng(effGpsLat, effGpsLng)) }
+            _uiState.update {
+                it.copy(
+                    currentGpsPosition = LatLng(effGpsLat, effGpsLng),
+                    staleStartLocationMessage = computedStaleMessage
+                )
+            }
         }
 
         if (effDestLat != null && effDestLng != null) {
@@ -305,10 +334,53 @@ class RouteBuilderViewModel(
                         legs = emptyMap(),
                         failedLegs = emptyMap(),
                         waitingForStartPointTap = false,
+                        staleStartLocationMessage = computedStaleMessage,
                         errorMessage = null
                     )
                 }
                 computeSingleLeg(startWp, destWp)
+            } else if (customLocationResolver != null) {
+                viewModelScope.launch {
+                    val res = resolveCurrentOrFallbackLocation()
+                    val loc = res.location
+                    if (loc != null) {
+                        val startWp = RouteWaypoint(
+                            lat = loc.latitude,
+                            lng = loc.longitude,
+                            role = WaypointRole.START,
+                            legModeToNext = LegMode.SNAP,
+                            name = "Min position"
+                        )
+                        _uiState.update {
+                            it.copy(
+                                mode = PlannerMode.FREE,
+                                routeName = effDestName?.let { n -> "Rute til $n" } ?: "Ny rute",
+                                waypoints = listOf(startWp, destWp),
+                                legs = emptyMap(),
+                                failedLegs = emptyMap(),
+                                waitingForStartPointTap = false,
+                                currentGpsPosition = LatLng(loc.latitude, loc.longitude),
+                                staleStartLocationMessage = res.staleMessage,
+                                errorMessage = null
+                            )
+                        }
+                        computeSingleLeg(startWp, destWp)
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                mode = PlannerMode.FREE,
+                                routeName = effDestName?.let { n -> "Rute til $n" } ?: "Ny rute",
+                                waypoints = listOf(destWp),
+                                legs = emptyMap(),
+                                failedLegs = emptyMap(),
+                                waitingForStartPointTap = true,
+                                staleStartLocationMessage = null,
+                                errorMessage = "Vælg startpunkt - tryk på kortet"
+                            )
+                        }
+                        _userMessage.emit("Vælg startpunkt - tryk på kortet")
+                    }
+                }
             } else {
                 _uiState.update {
                     it.copy(
@@ -318,11 +390,24 @@ class RouteBuilderViewModel(
                         legs = emptyMap(),
                         failedLegs = emptyMap(),
                         waitingForStartPointTap = true,
+                        staleStartLocationMessage = null,
                         errorMessage = "Vælg startpunkt - tryk på kortet"
                     )
                 }
                 viewModelScope.launch {
                     _userMessage.emit("Vælg startpunkt - tryk på kortet")
+                }
+            }
+        } else if (effGpsLat == null && effGpsLng == null && customLocationResolver != null) {
+            viewModelScope.launch {
+                val res = resolveCurrentOrFallbackLocation()
+                res.location?.let { loc ->
+                    _uiState.update {
+                        it.copy(
+                            currentGpsPosition = LatLng(loc.latitude, loc.longitude),
+                            staleStartLocationMessage = res.staleMessage
+                        )
+                    }
                 }
             }
         }
@@ -337,7 +422,8 @@ class RouteBuilderViewModel(
         trailId: String,
         currentGpsLat: Double? = null,
         currentGpsLng: Double? = null,
-        specificPlanId: Long? = null
+        specificPlanId: Long? = null,
+        staleLocationMessage: String? = null
     ) {
         val preseededTrail = com.example.data.local.PreseededData.getInitialTrails().find { it.id == trailId }
         _uiState.update {
@@ -391,9 +477,21 @@ class RouteBuilderViewModel(
             var startKm = existingPlan?.startKm ?: 0.0
             var endKm = existingPlan?.endKm?.takeIf { it > startKm } ?: totalKm
 
-            if (existingPlan == null && currentGpsLat != null && currentGpsLng != null && segments.isNotEmpty()) {
-                val gpsProj = TrailSlicer.projectOntoTrail(segments, currentGpsLat, currentGpsLng, isReverse)
+            var effectiveLat = currentGpsLat
+            var effectiveLng = currentGpsLng
+            var effectiveStaleMsg = staleLocationMessage
+            if (existingPlan == null && (effectiveLat == null || effectiveLng == null) && customLocationResolver != null) {
+                val res = resolveCurrentOrFallbackLocation()
+                effectiveLat = res.location?.latitude
+                effectiveLng = res.location?.longitude
+                effectiveStaleMsg = res.staleMessage
+            }
+
+            var usedGpsForStart = false
+            if (existingPlan == null && effectiveLat != null && effectiveLng != null && segments.isNotEmpty()) {
+                val gpsProj = TrailSlicer.projectOntoTrail(segments, effectiveLat, effectiveLng, isReverse)
                 if (gpsProj != null && gpsProj.distanceMeters <= 2000.0) {
+                    usedGpsForStart = true
                     if (gpsProj.trailKm < totalKm - 0.5) {
                         startKm = gpsProj.trailKm
                         endKm = totalKm
@@ -505,6 +603,7 @@ class RouteBuilderViewModel(
                     legs = initialLegs,
                     failedLegs = emptyMap(),
                     waitingForStartPointTap = false,
+                    staleStartLocationMessage = if (usedGpsForStart) effectiveStaleMsg else current.staleStartLocationMessage,
                     isDownloadingTrailGeometry = false,
                     trailGeometryDownloadFailed = false,
                     errorMessage = null,

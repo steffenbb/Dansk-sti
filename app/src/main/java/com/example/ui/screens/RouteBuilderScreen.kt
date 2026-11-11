@@ -180,7 +180,12 @@ fun RouteBuilderScreen(
     }
 
     LaunchedEffect(routeId, baseTrailId, existingPlanId, destLat, destLng) {
-        val loc = getLastKnownLocation(context)
+        val lastKnown = getLastKnownLocation(context)
+        val res = viewModel.resolveCurrentOrFallbackLocation(lastKnown)
+        val loc = res.location ?: lastKnown
+        val staleMsg = res.staleMessage ?: loc?.time?.takeIf { it > 0L }?.let {
+            com.example.ui.map.LiveMapLocationState.formatOldFixMessage(it)
+        }
         viewModel.initialize(
             routeId = routeId,
             destLat = destLat,
@@ -188,6 +193,7 @@ fun RouteBuilderScreen(
             destName = destName,
             gpsLat = loc?.latitude,
             gpsLng = loc?.longitude,
+            staleLocationMessage = staleMsg,
             baseTrailId = baseTrailId,
             existingPlanId = existingPlanId
         )
@@ -360,6 +366,10 @@ fun RouteBuilderScreen(
                 onLaunchGpxImport = {
                     gpxPickerLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "text/xml", "*/*"))
                 },
+                onStartFromMyLocation = {
+                    HapticFeedbackHelper.performPinHapticTick(localView, "gps_start")
+                    viewModel.startFromMyLocation()
+                },
                 onCloseRouteLoop = { viewModel.closeRouteLoop() },
                 onAppendOutAndBack = { viewModel.appendOutAndBack() },
                 onOpenHowToGuide = { showHowToGuide = true }
@@ -389,7 +399,16 @@ fun RouteBuilderScreen(
                     },
                     onOpenTripSettings = { viewModel.openTripSettingsSheet() },
                     onOpenRundturDialog = { viewModel.openRundturDialog() },
-                    onOpenNearestPoiDialog = { viewModel.openNearestPoiDialog() },
+                    onOpenNearestPoiDialog = {
+                        val loc = getLastKnownLocation(context)
+                        val center = mapViewInstance?.mapCenter
+                        viewModel.openNearestPoiDialog(
+                            userLat = loc?.latitude,
+                            userLng = loc?.longitude,
+                            mapCenterLat = center?.latitude,
+                            mapCenterLng = center?.longitude
+                        )
+                    },
                     onShareRoute = { viewModel.shareRoute(context) },
                     onReplaceOvernight = { wpId -> viewModel.openReplaceOvernightDialog(wpId) },
                     onDeleteWaypoint = { wpId -> viewModel.deleteWaypointWithUndoSnackbar(wpId) },
@@ -443,15 +462,15 @@ fun RouteBuilderScreen(
                         compassButtonTestTag = "route_builder_compass_button",
                         myLocationButtonTestTag = "btn_my_location",
                         onMyLocationClick = { loc ->
+                            // Round 12A Item 4: ONLY centre the map on my position. Never change waypoints.
                             if (loc != null) {
-                                HapticFeedbackHelper.performPinHapticTick(localView, "gps_start")
-                                viewModel.setStartAtGps(loc.latitude, loc.longitude)
+                                viewModel.setCurrentPosition(loc.latitude, loc.longitude)
+                                mapViewInstance?.controller?.animateTo(GeoPoint(loc.latitude, loc.longitude), 14.5, 500L)
                             } else {
                                 val lastLoc = getLastKnownLocation(context)
                                 if (lastLoc != null) {
-                                    HapticFeedbackHelper.performPinHapticTick(localView, "gps_start")
-                                    viewModel.setStartAtGps(lastLoc.latitude, lastLoc.longitude)
-                                    mapViewInstance?.controller?.animateTo(GeoPoint(lastLoc.latitude, lastLoc.longitude))
+                                    viewModel.setCurrentPosition(lastLoc.latitude, lastLoc.longitude)
+                                    mapViewInstance?.controller?.animateTo(GeoPoint(lastLoc.latitude, lastLoc.longitude), 14.5, 500L)
                                 } else {
                                     Toast.makeText(context, "GPS-position ikke tilgængelig", Toast.LENGTH_SHORT).show()
                                 }
@@ -480,6 +499,10 @@ fun RouteBuilderScreen(
                             } else {
                                 viewModel.insertViaPointOnLine(lat, lng)
                             }
+                        },
+                        onStartFromMyLocationFromDropPin = {
+                            HapticFeedbackHelper.performPinHapticTick(localView, "gps_start")
+                            viewModel.startFromMyLocation()
                         },
                         onOvernightInPlannerFromPoiSheet = { poiData ->
                             viewModel.addDetourPoiToRoute(
@@ -707,52 +730,24 @@ fun RouteBuilderScreen(
             }
 
             if (useSidePanel) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .testTag("route_builder_side_panel_row")
-                ) {
-                    plannerSheetComposable(
-                        Modifier
-                            .width(380.dp)
-                            .widthIn(min = 360.dp, max = 420.dp)
-                            .fillMaxHeight(),
-                        true
-                    )
-                    mapAndOverlaysSection(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        true
-                    )
+                Row(modifier = Modifier.fillMaxSize().testTag("route_builder_side_panel_row")) {
+                    plannerSheetComposable(Modifier.width(380.dp).widthIn(min = 360.dp, max = 420.dp).fillMaxHeight(), true)
+                    mapAndOverlaysSection(Modifier.weight(1f).fillMaxHeight(), true)
                 }
             } else {
-                mapAndOverlaysSection(
-                    Modifier.fillMaxSize(),
-                    false
-                )
+                mapAndOverlaysSection(Modifier.fillMaxSize(), false)
             }
 
             RouteBuilderBasicDialogs(
-                uiState = uiState,
-                viewModel = viewModel,
-                showClearDialog = showClearDialog,
-                onDismissClearDialog = { showClearDialog = false },
-                showSaveDialog = showSaveDialog,
-                onDismissSaveDialog = { showSaveDialog = false },
-                renameRouteName = renameRouteName,
-                onRenameRouteNameChange = { renameRouteName = it },
+                uiState = uiState, viewModel = viewModel,
+                showClearDialog = showClearDialog, onDismissClearDialog = { showClearDialog = false },
+                showSaveDialog = showSaveDialog, onDismissSaveDialog = { showSaveDialog = false },
+                renameRouteName = renameRouteName, onRenameRouteNameChange = { renameRouteName = it },
                 onSavedSuccessfully = onSavedSuccessfully,
-                showRenameDialog = showRenameDialog,
-                onDismissRenameDialog = { showRenameDialog = false },
-                showRenameWaypointDialog = showRenameWaypointDialog,
-                renameWaypointTargetId = renameWaypointTargetId,
-                renameWaypointText = renameWaypointText,
-                onRenameWaypointTextChange = { renameWaypointText = it },
-                onDismissRenameWaypointDialog = {
-                    showRenameWaypointDialog = false
-                    renameWaypointTargetId = null
-                },
+                showRenameDialog = showRenameDialog, onDismissRenameDialog = { showRenameDialog = false },
+                showRenameWaypointDialog = showRenameWaypointDialog, renameWaypointTargetId = renameWaypointTargetId,
+                renameWaypointText = renameWaypointText, onRenameWaypointTextChange = { renameWaypointText = it },
+                onDismissRenameWaypointDialog = { showRenameWaypointDialog = false; renameWaypointTargetId = null },
                 availableHeightDp = availableHeightDp
             )
 

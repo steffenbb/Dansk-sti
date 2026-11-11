@@ -237,6 +237,20 @@ fun PlannerDaySummaryCard(
                 color = MaterialTheme.colorScheme.onSurface
             )
 
+            if (day.campExplanation.isNotBlank()) {
+                Text(
+                    text = day.campExplanation,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("day_card_explanation_${day.dayNumber}")
+                )
+            }
+
             if (day.overnightWaypointId != null) {
                 val typeLabel = when (day.overnightType) {
                     "FRI_TELTNING" -> stringResource(R.string.overnight_type_fri_teltning)

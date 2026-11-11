@@ -49,6 +49,19 @@ enum class PlannerSheetTab {
     DETALJER
 }
 
+enum class NearestSearchOriginType {
+    SELECTED_PIN,
+    MY_POSITION,
+    MAP_CENTER
+}
+
+data class NearestSearchOrigin(
+    val type: NearestSearchOriginType,
+    val lat: Double,
+    val lng: Double,
+    val labelResId: Int
+)
+
 data class SnapCandidateResult(
     val lat: Double,
     val lng: Double,
@@ -90,7 +103,19 @@ data class PlannerDaySummary(
     val campLng: Double,
     val estimatedHours: Double = 0.0,
     val overnightType: String = "SHELTER",
-    val bookingRequired: Boolean = false
+    val bookingRequired: Boolean = false,
+    val campExplanation: String = com.example.util.StagePlanner.buildCampExplanation(
+        stageKm = distanceKm,
+        dailyTargetKm = 15.0,
+        detourMeters = detourKm * 1000.0,
+        hasWaterNearby = true,
+        waterDistanceMeters = 200,
+        hasToiletNearby = true,
+        bookingRequired = bookingRequired,
+        isAfterSunset = isAfterSunset,
+        stopType = overnightType,
+        isLastDay = overnightWaypointId == null && overnightTypeLabel == "Mål"
+    )
 ) {
     val detourDistanceKm: Double?
         get() = detourKm.takeIf { it > 0.0 }
@@ -217,6 +242,11 @@ data class RouteBuilderState(
     val isLoadingWeather: Boolean = false,
     val isRoutingToNearest: Boolean = false,
     val showNearestPoiDialog: Boolean = false,
+    val showNearestShelterRoleChoice: Boolean = false,
+    val nearestPoiOriginLabelRes: Int = com.example.R.string.nearest_poi_origin_map_center,
+    val lastNearestExtraRouteMessage: String? = null,
+    val mapCenterLat: Double = 56.0,
+    val mapCenterLng: Double = 10.5,
     val routeQuality: com.example.data.model.RouteQualityBreakdown = com.example.data.model.RouteQualityBreakdown(),
     val customUserWaypoints: List<UserCustomWaypointEntity> = emptyList(),
     val showAddCustomWaypointDialog: Boolean = false,
@@ -238,6 +268,7 @@ data class RouteBuilderState(
     val plannerSearchQuery: String = "",
     val plannerSearchResults: com.example.data.remote.GroupedSearchResults = com.example.data.remote.GroupedSearchResults(),
     val currentGpsPosition: LatLng? = null,
+    val staleStartLocationMessage: String? = null,
     val showCoachMarks: Boolean = false,
     val coachMarkStep: Int = 0,
     val hasUnsavedChanges: Boolean = false,
@@ -267,3 +298,32 @@ data class RouteBuilderState(
     val isRoutingLegCount: Int
         get() = loadingLegKeys.size
 }
+
+internal fun TripStageEntity.toModel(): com.example.data.model.TripStage = com.example.data.model.TripStage(
+    dayNumber = dayNumber,
+    startKm = startKm,
+    endKm = endKm,
+    stageKm = stageKm,
+    stopName = stopName,
+    stopType = stopType,
+    stopLat = stopLat,
+    stopLng = stopLng,
+    bookingRequired = bookingRequired,
+    hasWaterNearby = hasWaterNearby,
+    hasToiletNearby = hasToiletNearby,
+    startTrailKm = startTrailKm,
+    endTrailKm = endTrailKm,
+    fromName = fromName,
+    toName = toName,
+    detourMeters = detourMeters,
+    ascentMeters = ascentMeters,
+    descentMeters = descentMeters,
+    estimatedWalkMinutes = estimatedWalkMinutes,
+    waterCount = waterCount,
+    shopCount = shopCount,
+    sunsetTime = sunsetTime,
+    isAfterSunset = isAfterSunset,
+    spotId = spotId,
+    isWarningNoOvernight = isWarningNoOvernight,
+    warningMessage = warningMessage
+)

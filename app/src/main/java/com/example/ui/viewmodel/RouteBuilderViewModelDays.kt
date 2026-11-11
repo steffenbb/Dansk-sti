@@ -278,37 +278,62 @@ internal suspend fun RouteBuilderViewModel.addStopOrDetourSuspend(
         return
     }
 
-    val cand = OvernightCandidate(
-        id = linkedPoiId ?: UUID.randomUUID().toString(),
-        name = name ?: "Overnatning",
-        type = "SHELTER",
+    val wps = _uiState.value.waypoints.toMutableList()
+    if (wps.size < 2) return
+
+    var bestIndex = -1
+    var minDistanceM = Double.MAX_VALUE
+
+    for (i in 0 until wps.size - 1) {
+        val legKey = "${wps[i].id}_to_${wps[i + 1].id}"
+        val leg = _uiState.value.legs[legKey]
+        val pts = leg?.points ?: listOf(RoutePoint3D(wps[i].lat, wps[i].lng), RoutePoint3D(wps[i + 1].lat, wps[i + 1].lng))
+
+        for (pt in pts) {
+            val d = haversineM(lat, lng, pt.lat, pt.lng)
+            if (d < minDistanceM) {
+                minDistanceM = d
+                bestIndex = i + 1
+            }
+        }
+    }
+
+    if (bestIndex == -1) {
+        bestIndex = wps.size - 1
+    }
+
+    val newWp = RouteWaypoint(
         lat = lat,
         lng = lng,
-        walkKm = 0.0,
-        detourMeters = 0.0,
-        bookingRequired = false,
-        hasWaterNearby = false,
-        hasToiletNearby = false
+        role = role,
+        legModeToNext = LegMode.SNAP,
+        name = name ?: if (role == WaypointRole.OVERNIGHT) "Overnatning" else "Via",
+        linkedPoiId = linkedPoiId
     )
-    insertOvernightCandidate(cand)
+
+    wps.add(bestIndex, newWp)
+    normalizeRoles(wps)
+    _uiState.update { it.copy(waypoints = wps) }
+
+    val prevWp = wps[bestIndex - 1]
+    val nextWp = wps[bestIndex + 1]
+
+    val oldKey = "${prevWp.id}_to_${nextWp.id}"
+    val updatedLegs = _uiState.value.legs.toMutableMap()
+    updatedLegs.remove(oldKey)
+    _uiState.update { it.copy(legs = updatedLegs) }
+
+    computeSingleLegSuspend(prevWp, newWp)
+    computeSingleLegSuspend(newWp, nextWp)
 }
 
-fun RouteBuilderViewModel.openReplaceOvernightDialog(waypointId: String) {
-    openReplaceOvernightSheet(waypointId)
-}
-
-fun RouteBuilderViewModel.dismissReplaceOvernightDialog() {
-    dismissReplaceOvernightSheet()
-}
-
+fun RouteBuilderViewModel.openReplaceOvernightDialog(waypointId: String) = openReplaceOvernightSheet(waypointId)
+fun RouteBuilderViewModel.dismissReplaceOvernightDialog() = dismissReplaceOvernightSheet()
 fun RouteBuilderViewModel.replaceOvernightWaypoint(waypointId: String, candidate: OvernightCandidate) {
     _uiState.update { it.copy(replaceOvernightWaypointId = waypointId) }
     replaceOvernightWithCandidate(candidate)
 }
-
-fun RouteBuilderViewModel.replaceOvernightWaypoint(candidate: OvernightCandidate) {
-    replaceOvernightWithCandidate(candidate)
-}
+fun RouteBuilderViewModel.replaceOvernightWaypoint(candidate: OvernightCandidate) = replaceOvernightWithCandidate(candidate)
 
 fun RouteBuilderViewModel.openReplaceOvernightSheet(waypointId: String) {
     val state = _uiState.value
@@ -325,53 +350,17 @@ fun RouteBuilderViewModel.openReplaceOvernightSheet(waypointId: String) {
         for (s in shelters) {
             val distM = haversineM(wp.lat, wp.lng, s.lat, s.lng)
             if (distM <= maxDetourM * 1.5) {
-                val hasWater = s.hasWaterNearby || waterPois.any {
-                    haversineM(s.lat, s.lng, it.lat, it.lng) <= 500.0
-                }
-                val hasToilet = s.hasToiletNearby || toiletPois.any {
-                    haversineM(s.lat, s.lng, it.lat, it.lng) <= 500.0
-                }
-                candidates.add(
-                    OvernightCandidate(
-                        id = s.id,
-                        name = s.name,
-                        type = "SHELTER",
-                        lat = s.lat,
-                        lng = s.lng,
-                        walkKm = wp.trailKm ?: 0.0,
-                        detourMeters = distM,
-                        bookingRequired = s.bookingRequired || !s.bookingUrl.isNullOrBlank(),
-                        hasWaterNearby = hasWater,
-                        hasToiletNearby = hasToilet,
-                        sourceEntity = s
-                    )
-                )
+                val hasWater = s.hasWaterNearby || waterPois.any { haversineM(s.lat, s.lng, it.lat, it.lng) <= 500.0 }
+                val hasToilet = s.hasToiletNearby || toiletPois.any { haversineM(s.lat, s.lng, it.lat, it.lng) <= 500.0 }
+                candidates.add(OvernightCandidate(s.id, s.name, "SHELTER", s.lat, s.lng, wp.trailKm ?: 0.0, distM, s.bookingRequired || !s.bookingUrl.isNullOrBlank(), hasWater, hasToilet, s))
             }
         }
         for (ft in friTeltning) {
             val distM = haversineM(wp.lat, wp.lng, ft.centerLat, ft.centerLng)
             if (distM <= maxDetourM * 1.5) {
-                val hasWater = ft.waterDistanceMeters <= 500 || waterPois.any {
-                    haversineM(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0
-                }
-                val hasToilet = ft.toiletDistanceMeters <= 500 || toiletPois.any {
-                    haversineM(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0
-                }
-                candidates.add(
-                    OvernightCandidate(
-                        id = ft.id,
-                        name = ft.name,
-                        type = "FRI_TELTNING",
-                        lat = ft.centerLat,
-                        lng = ft.centerLng,
-                        walkKm = wp.trailKm ?: 0.0,
-                        detourMeters = distM,
-                        bookingRequired = false,
-                        hasWaterNearby = hasWater,
-                        hasToiletNearby = hasToilet,
-                        sourceEntity = ft
-                    )
-                )
+                val hasWater = ft.waterDistanceMeters <= 500 || waterPois.any { haversineM(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0 }
+                val hasToilet = ft.toiletDistanceMeters <= 500 || toiletPois.any { haversineM(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0 }
+                candidates.add(OvernightCandidate(ft.id, ft.name, "FRI_TELTNING", ft.centerLat, ft.centerLng, wp.trailKm ?: 0.0, distM, false, hasWater, hasToilet, ft))
             }
         }
 
@@ -379,11 +368,7 @@ fun RouteBuilderViewModel.openReplaceOvernightSheet(waypointId: String) {
             it.copy(
                 replaceOvernightWaypointId = waypointId,
                 replaceOvernightCandidates = candidates
-                    .sortedWith(
-                        compareBy<OvernightCandidate> { c -> c.detourMeters }
-                            .thenByDescending { c -> c.hasWaterNearby }
-                            .thenByDescending { c -> c.hasToiletNearby }
-                    )
+                    .sortedWith(compareBy<OvernightCandidate> { c -> c.detourMeters }.thenByDescending { c -> c.hasWaterNearby }.thenByDescending { c -> c.hasToiletNearby })
                     .take(10)
             )
         }
@@ -391,25 +376,14 @@ fun RouteBuilderViewModel.openReplaceOvernightSheet(waypointId: String) {
 }
 
 fun RouteBuilderViewModel.dismissReplaceOvernightSheet() {
-    _uiState.update {
-        it.copy(
-            replaceOvernightWaypointId = null,
-            replaceOvernightCandidates = emptyList()
-        )
-    }
+    _uiState.update { it.copy(replaceOvernightWaypointId = null, replaceOvernightCandidates = emptyList()) }
 }
 
 fun RouteBuilderViewModel.replaceOvernightWithCandidate(candidate: OvernightCandidate) {
     val oldId = _uiState.value.replaceOvernightWaypointId ?: return
     dismissReplaceOvernightSheet()
     deleteWaypoint(oldId, showUndoSnackbar = false)
-    addStopOrDetour(
-        lat = candidate.lat,
-        lng = candidate.lng,
-        role = WaypointRole.OVERNIGHT,
-        name = candidate.name,
-        linkedPoiId = candidate.id
-    )
+    addStopOrDetour(candidate.lat, candidate.lng, WaypointRole.OVERNIGHT, candidate.name, candidate.id)
 }
 
 fun RouteBuilderViewModel.moveOvernightPinByChartWalkKm(waypointId: String, targetWalkKm: Double, finishDrag: Boolean = true) {
@@ -730,6 +704,46 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
             }
         }
 
+        val waterPois = state.nearbyPois.filter { it.type.lowercase().contains("water") }
+        val toiletPois = state.nearbyPois.filter { it.type.lowercase().contains("toilet") }
+        val nearestWaterPoiM = waterPois.minOfOrNull { haversineM(campLat, campLng, it.lat, it.lng) }?.roundToInt()
+        val waterDistM = when {
+            matchedFt != null && matchedFt.waterDistanceMeters in 1..2000 -> matchedFt.waterDistanceMeters
+            nearestWaterPoiM != null && nearestWaterPoiM <= 1000 -> nearestWaterPoiM
+            matchedShelter?.hasWaterNearby == true || stage.hasWaterNearby -> 200
+            else -> null
+        }
+        val hasWater = matchedShelter?.hasWaterNearby == true ||
+            (matchedFt != null && matchedFt.waterDistanceMeters <= 500) ||
+            stage.hasWaterNearby ||
+            (nearestWaterPoiM != null && nearestWaterPoiM <= 500)
+        val hasToilet = matchedShelter?.hasToiletNearby == true ||
+            (matchedFt != null && matchedFt.toiletDistanceMeters <= 500) ||
+            stage.hasToiletNearby ||
+            toiletPois.any { haversineM(campLat, campLng, it.lat, it.lng) <= 500.0 }
+        val isBookingReq = matchedShelter?.bookingRequired == true ||
+            !matchedShelter?.bookingUrl.isNullOrBlank() ||
+            stage.bookingRequired ||
+            toWp?.bookingRequired == true
+
+        val campExplanation = StagePlanner.buildCampExplanation(
+            stageKm = stage.stageKm,
+            dailyTargetKm = state.dailyTargetKm,
+            detourMeters = (detourKm * 1000.0).coerceAtLeast(stage.detourMeters),
+            hasWaterNearby = hasWater,
+            waterDistanceMeters = waterDistM,
+            hasToiletNearby = hasToilet,
+            bookingRequired = isBookingReq,
+            isAfterSunset = stage.isAfterSunset,
+            stopType = when {
+                isLastDay -> "END"
+                matchedFt != null -> "FRI_TELTNING"
+                matchedShelter != null -> "SHELTER"
+                else -> stage.stopType
+            },
+            isLastDay = isLastDay
+        )
+
         daySummaries.add(
             PlannerDaySummary(
                 dayNumber = stage.dayNumber,
@@ -753,68 +767,18 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
                 warnings = dayWarnings,
                 nightWeatherSummary = "Vejrudsigt indlæses...",
                 campLat = campLat,
-                campLng = campLng
+                campLng = campLng,
+                estimatedHours = stage.estimatedWalkMinutes / 60.0,
+                overnightType = when {
+                    matchedFt != null -> "FRI_TELTNING"
+                    matchedShelter != null -> "SHELTER"
+                    else -> stage.stopType.ifBlank { "SHELTER" }
+                },
+                bookingRequired = isBookingReq,
+                campExplanation = campExplanation
             )
         )
     }
     return daySummaries
-}
-
-internal suspend fun RouteBuilderViewModel.fetchNightWeatherForDay(
-    dayIndex: Int,
-    startDateMillis: Long,
-    lat: Double,
-    lng: Double
-): String {
-    val targetMillis = startDateMillis + TimeUnit.DAYS.toMillis(dayIndex.toLong())
-    val nowMillis = System.currentTimeMillis()
-    val diffDays = TimeUnit.MILLISECONDS.toDays(targetMillis - nowMillis)
-    if (diffDays < -1 || diffDays > 15) {
-        return "Vejrudsigt ikke tilgængelig endnu"
-    }
-
-    val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-    val targetDateStr = dateFormat.format(Date(targetMillis))
-    val cacheKey = "${String.format(Locale.US, "%.2f_%.2f", lat, lng)}_$targetDateStr"
-    nightWeatherCache[cacheKey]?.let { return it }
-
-    return withContext(Dispatchers.IO) {
-        try {
-            val response = weatherService.getTrailWeather(
-                lat = lat,
-                lon = lng
-            )
-            val daily = response.daily
-            val times = daily?.time ?: emptyList()
-            val idx = times.indexOf(targetDateStr)
-            if (idx == -1) {
-                "Vejrudsigt ikke tilgængelig endnu"
-            } else {
-                val minTemp = daily?.tempMin?.getOrNull(idx)
-                val maxTemp = daily?.tempMax?.getOrNull(idx)
-                val precip = daily?.precipitationSum?.getOrNull(idx) ?: 0.0
-                val wind = daily?.windSpeedMax?.getOrNull(idx)
-                val sunsetRaw = daily?.sunset?.getOrNull(idx)
-                if (!sunsetRaw.isNullOrBlank() && sunsetRaw.contains("T")) {
-                    sunsetTimeStr = sunsetRaw.substringAfter("T")
-                }
-                val summary = buildString {
-                    if (minTemp != null && maxTemp != null) {
-                        append("Nat ${minTemp.roundToInt()}°C / Dag ${maxTemp.roundToInt()}°C")
-                    } else if (minTemp != null) {
-                        append("Nat ${minTemp.roundToInt()}°C")
-                    }
-                    append(" · Nedbør ${String.format(Locale.GERMAN, "%.1f", precip)} mm")
-                    if (wind != null) {
-                        append(" · Vind ${wind.roundToInt()} m/s")
-                    }
-                }
-                nightWeatherCache[cacheKey] = summary
-                summary
-            }
-        } catch (_: Exception) {
-            "Vejrudsigt ikke tilgængelig endnu"
-        }
-    }
 }
 

@@ -57,6 +57,16 @@ class OfflineDownloadWorker(
         val repo = app.repository
         val db = app.database
 
+        runCatching {
+            val existingInProgress = db.dao().getOfflineDownloadInProgress(trailId)
+            db.dao().upsertOfflineDownloadInProgress(
+                com.example.data.model.OfflineDownloadInProgressEntity(
+                    trailId = trailId,
+                    startedAt = existingInProgress?.startedAt ?: System.currentTimeMillis()
+                )
+            )
+        }
+
         var archiveWriter: SqliteArchiveTileWriter? = null
         try {
             // 1. Download & cache trail geometry (Phase 1)
@@ -182,9 +192,19 @@ class OfflineDownloadWorker(
 
             for ((index, tileIndex) in tileIndices.withIndex()) {
                 if (isStopped || shouldInterruptAfterTileCount?.let { newlyFetchedTiles >= it } == true) {
-                    // Round 10B Item 14: Do NOT delete archiveFile when interrupted so next run resumes!
+                    // Round 10B Item 14 & Round 12A Item 1: Do NOT delete archiveFile or in-progress row when interrupted so next run resumes!
+                    // Only remove the in-progress row if the work was explicitly cancelled in WorkManager.
                     archiveWriter?.onDetach()
                     archiveWriter = null
+                    val wasExplicitlyCancelled = runCatching {
+                        androidx.work.WorkManager.getInstance(context)
+                            .getWorkInfosForUniqueWork("offline_download_$trailId")
+                            .get()
+                            .any { it.state == androidx.work.WorkInfo.State.CANCELLED }
+                    }.getOrDefault(false)
+                    if (wasExplicitlyCancelled) {
+                        runCatching { db.dao().deleteOfflineDownloadInProgress(trailId) }
+                    }
                     return@withContext Result.failure(
                         workDataOf(
                             "error" to "Download afbrudt (kan genoptages)",
@@ -244,6 +264,7 @@ class OfflineDownloadWorker(
                 maxZoom = 16
             )
             db.dao().insertDownloadedTrail(downloadedEntity)
+            db.dao().deleteOfflineDownloadInProgress(trailId)
 
             // Show completion notification
             try {

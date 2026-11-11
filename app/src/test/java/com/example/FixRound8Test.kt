@@ -82,93 +82,96 @@ class FixRound8Test {
     }
 
     @Test
-    fun item1_trailViewModelCountsUntaggedWaysAsUkendtAndHidesUkendtWhenZero(): Unit = runBlocking {
-        val geomRepo = TrailGeometryRepository(app)
-        val trailId = "trail_ohavsstien"
-        val pts = listOf(
-            GeoPointDto(55.0, 10.0, 5.0),
-            GeoPointDto(55.05, 10.05, 10.0),
-            GeoPointDto(55.10, 10.10, 15.0)
-        )
+    fun item1_trailViewModelCountsUntaggedWaysAsUkendtAndHidesUkendtWhenZero() {
+        val (mixWithUntagged, mixFullyTagged) = runBlocking {
+            val geomRepo = TrailGeometryRepository(app)
+            val trailId = "trail_ohavsstien"
+            val pts = listOf(
+                GeoPointDto(55.0, 10.0, 5.0),
+                GeoPointDto(55.05, 10.05, 10.0),
+                GeoPointDto(55.10, 10.10, 15.0)
+            )
 
-        // Case A: Trail with untagged ways (neither highway nor surface) -> shows Ukendt share
-        val geomWithUntagged = TrailGeometryDto(
-            trailId = trailId,
-            osmRelationId = 1202410L,
-            segments = listOf(
-                TrailSegmentDto(
-                    type = TrailSegmentType.WALK,
-                    points = pts,
-                    lengthKm = 100.0,
-                    highway = null,
-                    surface = null,
-                    wayTagRanges = listOf(
-                        WayTagRangeDto(fromKm = 0.0, toKm = 40.0, highway = "path", surface = "dirt"),
-                        WayTagRangeDto(fromKm = 40.0, toKm = 60.0, highway = "track", surface = "gravel"),
-                        WayTagRangeDto(fromKm = 60.0, toKm = 75.0, highway = "tertiary", surface = "asphalt"),
-                        WayTagRangeDto(fromKm = 75.0, toKm = 100.0, highway = null, surface = null)
+            // Case A: Trail with untagged ways (neither highway nor surface) -> shows Ukendt share
+            val geomWithUntagged = TrailGeometryDto(
+                trailId = trailId,
+                osmRelationId = 1202410L,
+                segments = listOf(
+                    TrailSegmentDto(
+                        type = TrailSegmentType.WALK,
+                        points = pts,
+                        lengthKm = 100.0,
+                        highway = null,
+                        surface = null,
+                        wayTagRanges = listOf(
+                            WayTagRangeDto(fromKm = 0.0, toKm = 40.0, highway = "path", surface = "dirt"),
+                            WayTagRangeDto(fromKm = 40.0, toKm = 60.0, highway = "track", surface = "gravel"),
+                            WayTagRangeDto(fromKm = 60.0, toKm = 75.0, highway = "tertiary", surface = "asphalt"),
+                            WayTagRangeDto(fromKm = 75.0, toKm = 100.0, highway = null, surface = null)
+                        )
                     )
-                )
-            ),
-            sideBranches = emptyList(),
-            gaps = emptyList(),
-            totalWalkingKm = 100.0,
-            totalAscentM = 100,
-            totalDescentM = 100,
-            gapsOver200mCount = 0,
-            bboxNorth = 55.10,
-            bboxSouth = 55.0,
-            bboxEast = 10.10,
-            bboxWest = 10.0
-        )
-        geomRepo.saveGeometry(geomWithUntagged)
+                ),
+                sideBranches = emptyList(),
+                gaps = emptyList(),
+                totalWalkingKm = 100.0,
+                totalAscentM = 100,
+                totalDescentM = 100,
+                gapsOver200mCount = 0,
+                bboxNorth = 55.10,
+                bboxSouth = 55.0,
+                bboxEast = 10.10,
+                bboxWest = 10.0
+            )
+            geomRepo.saveGeometry(geomWithUntagged)
 
-        val vm = TrailViewModel(app)
-        vm.loadTrail(trailId)
+            val vm = TrailViewModel(app)
+            vm.loadTrail(trailId)
 
-        val deadline = System.currentTimeMillis() + 5_000L
-        while (vm.surfaceMix.value.isEmpty() && System.currentTimeMillis() < deadline) {
-            shadowOf(android.os.Looper.getMainLooper()).idle()
-            Thread.sleep(20)
-        }
+            val deadline = System.currentTimeMillis() + 5_000L
+            while (vm.surfaceMix.value.isEmpty() && System.currentTimeMillis() < deadline) {
+                shadowOf(android.os.Looper.getMainLooper()).idle()
+                Thread.sleep(20)
+            }
 
-        val mixWithUntagged = vm.surfaceMix.value
-        assertEquals(40, mixWithUntagged["Sti"])
-        assertEquals(20, mixWithUntagged["Grus"])
-        assertEquals(15, mixWithUntagged["Asfalt"])
-        assertEquals(25, mixWithUntagged["Ukendt"])
+            val mixA = vm.surfaceMix.value
+            assertEquals(40, mixA["Sti"])
+            assertEquals(20, mixA["Grus"])
+            assertEquals(15, mixA["Asfalt"])
+            assertEquals(25, mixA["Ukendt"])
 
-        // Case B: Trail where all ways are tagged (Ukendt is 0%) -> Ukendt is omitted / hidden
-        val geomFullyTagged = geomWithUntagged.copy(
-            segments = listOf(
-                TrailSegmentDto(
-                    type = TrailSegmentType.WALK,
-                    points = pts,
-                    lengthKm = 100.0,
-                    highway = "path",
-                    surface = "dirt",
-                    wayTagRanges = listOf(
-                        WayTagRangeDto(fromKm = 0.0, toKm = 50.0, highway = "path", surface = "dirt"),
-                        WayTagRangeDto(fromKm = 50.0, toKm = 80.0, highway = "track", surface = "gravel"),
-                        WayTagRangeDto(fromKm = 80.0, toKm = 100.0, highway = "tertiary", surface = "asphalt")
+            // Case B: Trail where all ways are tagged (Ukendt is 0%) -> Ukendt is omitted / hidden
+            val geomFullyTagged = geomWithUntagged.copy(
+                segments = listOf(
+                    TrailSegmentDto(
+                        type = TrailSegmentType.WALK,
+                        points = pts,
+                        lengthKm = 100.0,
+                        highway = "path",
+                        surface = "dirt",
+                        wayTagRanges = listOf(
+                            WayTagRangeDto(fromKm = 0.0, toKm = 50.0, highway = "path", surface = "dirt"),
+                            WayTagRangeDto(fromKm = 50.0, toKm = 80.0, highway = "track", surface = "gravel"),
+                            WayTagRangeDto(fromKm = 80.0, toKm = 100.0, highway = "tertiary", surface = "asphalt")
+                        )
                     )
                 )
             )
-        )
-        geomRepo.saveGeometry(geomFullyTagged)
-        vm.loadTrail(trailId)
+            geomRepo.saveGeometry(geomFullyTagged)
+            vm.loadTrail(trailId)
 
-        val deadline2 = System.currentTimeMillis() + 5_000L
-        while (vm.surfaceMix.value["Sti"] != 50 && System.currentTimeMillis() < deadline2) {
-            shadowOf(android.os.Looper.getMainLooper()).idle()
-            Thread.sleep(20)
+            val deadline2 = System.currentTimeMillis() + 5_000L
+            while (vm.surfaceMix.value["Sti"] != 50 && System.currentTimeMillis() < deadline2) {
+                shadowOf(android.os.Looper.getMainLooper()).idle()
+                Thread.sleep(20)
+            }
+
+            val mixB = vm.surfaceMix.value
+            assertEquals(50, mixB["Sti"])
+            assertEquals(30, mixB["Grus"])
+            assertEquals(20, mixB["Asfalt"])
+            assertNull("Ukendt must be omitted when 0%", mixB["Ukendt"])
+            mixA to mixB
         }
-
-        val mixFullyTagged = vm.surfaceMix.value
-        assertEquals(50, mixFullyTagged["Sti"])
-        assertEquals(30, mixFullyTagged["Grus"])
-        assertEquals(20, mixFullyTagged["Asfalt"])
-        assertNull("Ukendt must be omitted when 0%", mixFullyTagged["Ukendt"])
 
         // Verify UI rendering in SurfaceMixBar: shows Ukendt when > 0% and hides Ukendt when 0%
         var currentMix by androidx.compose.runtime.mutableStateOf(mixWithUntagged)

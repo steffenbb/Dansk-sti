@@ -28,7 +28,9 @@ data class OvernightCandidate(
     val bookingRequired: Boolean,
     val hasWaterNearby: Boolean,
     val hasToiletNearby: Boolean,
-    val sourceEntity: Any? = null
+    val sourceEntity: Any? = null,
+    val waterDistanceMeters: Int? = null,
+    val toiletDistanceMeters: Int? = null
 )
 
 object StagePlanner {
@@ -134,11 +136,23 @@ object StagePlanner {
 
                 val (walkKm, detourMeters) = plannedRoute.projectPoint(sh.lat, sh.lng)
                 if (detourMeters <= maxDetourMeters) {
-                    val hasWater = sh.hasWaterNearby || localWaterPois.any {
-                        GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0
+                    val nearestWaterDist = localWaterPois.minOfOrNull {
+                        GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng)
+                    }?.roundToInt()
+                    val nearestToiletDist = localToiletPois.minOfOrNull {
+                        GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng)
+                    }?.roundToInt()
+                    val hasWater = sh.hasWaterNearby || (nearestWaterDist != null && nearestWaterDist <= 500)
+                    val hasToilet = sh.hasToiletNearby || (nearestToiletDist != null && nearestToiletDist <= 500)
+                    val waterDistM = when {
+                        nearestWaterDist != null && nearestWaterDist <= 1000 -> nearestWaterDist
+                        sh.hasWaterNearby -> 100
+                        else -> null
                     }
-                    val hasToilet = sh.hasToiletNearby || localToiletPois.any {
-                        GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0
+                    val toiletDistM = when {
+                        nearestToiletDist != null && nearestToiletDist <= 1000 -> nearestToiletDist
+                        sh.hasToiletNearby -> 100
+                        else -> null
                     }
 
                     candidates.add(
@@ -153,7 +167,9 @@ object StagePlanner {
                             bookingRequired = sh.bookingRequired,
                             hasWaterNearby = hasWater,
                             hasToiletNearby = hasToilet,
-                            sourceEntity = sh
+                            sourceEntity = sh,
+                            waterDistanceMeters = waterDistM,
+                            toiletDistanceMeters = toiletDistM
                         )
                     )
                 }
@@ -207,11 +223,25 @@ object StagePlanner {
                 val chosenPt = bestProjection.third
 
                 if (detourMeters <= maxDetourMeters) {
-                    val hasWater = ft.waterDistanceMeters <= 500 || localWaterPois.any {
-                        GeoUtils.distanceMeters(chosenPt.lat, chosenPt.lng, it.lat, it.lng) <= 500.0
+                    val nearestWaterDist = localWaterPois.minOfOrNull {
+                        GeoUtils.distanceMeters(chosenPt.lat, chosenPt.lng, it.lat, it.lng)
+                    }?.roundToInt()
+                    val nearestToiletDist = localToiletPois.minOfOrNull {
+                        GeoUtils.distanceMeters(chosenPt.lat, chosenPt.lng, it.lat, it.lng)
+                    }?.roundToInt()
+                    val hasWater = ft.waterDistanceMeters <= 500 || (nearestWaterDist != null && nearestWaterDist <= 500)
+                    val hasToilet = ft.toiletDistanceMeters <= 500 || (nearestToiletDist != null && nearestToiletDist <= 500)
+                    val waterDistM = when {
+                        ft.waterDistanceMeters in 1..2000 -> ft.waterDistanceMeters
+                        nearestWaterDist != null && nearestWaterDist <= 1000 -> nearestWaterDist
+                        ft.waterDistanceMeters == 0 -> 50
+                        else -> null
                     }
-                    val hasToilet = ft.toiletDistanceMeters <= 500 || localToiletPois.any {
-                        GeoUtils.distanceMeters(chosenPt.lat, chosenPt.lng, it.lat, it.lng) <= 500.0
+                    val toiletDistM = when {
+                        ft.toiletDistanceMeters in 1..2000 -> ft.toiletDistanceMeters
+                        nearestToiletDist != null && nearestToiletDist <= 1000 -> nearestToiletDist
+                        ft.toiletDistanceMeters == 0 -> 50
+                        else -> null
                     }
 
                     candidates.add(
@@ -226,7 +256,9 @@ object StagePlanner {
                             bookingRequired = false,
                             hasWaterNearby = hasWater,
                             hasToiletNearby = hasToilet,
-                            sourceEntity = ft
+                            sourceEntity = ft,
+                            waterDistanceMeters = waterDistM,
+                            toiletDistanceMeters = toiletDistM
                         )
                     )
                 }
@@ -260,19 +292,53 @@ object StagePlanner {
         return (targetKm - minusWindow) to (targetKm + plusWindow)
     }
 
+    fun computeStageAscentDescent(
+        plannedRoute: PlannedRoute?,
+        startKm: Double,
+        endKm: Double
+    ): Pair<Double, Double> {
+        if (plannedRoute == null || plannedRoute.points.isEmpty()) return 0.0 to 0.0
+        val stagePoints = plannedRoute.points.filter {
+            it.walkKm >= (startKm - 0.05) && it.walkKm <= (endKm + 0.05)
+        }
+        var ascentM = 0.0
+        var descentM = 0.0
+        for (i in 0 until stagePoints.size - 1) {
+            val e1 = stagePoints[i].ele
+            val e2 = stagePoints[i + 1].ele
+            if (e1 != null && e2 != null) {
+                val diff = e2 - e1
+                if (diff > 0) ascentM += diff else descentM += abs(diff)
+            }
+        }
+        return ascentM to descentM
+    }
+
+    /**
+     * Round 12A Item 3:
+     * Takes sunset as a nullable time value (null = unknown) instead of comparing against the text
+     * "Solnedgang ukendt", and includes climbing time (1 min per 10 m ascent) like the day cards do.
+     */
     fun wouldArriveAfterSunset(
         stageKm: Double,
         paceKmh: Double,
         startTime: String,
-        sunsetTime: String
+        sunsetTime: String?,
+        ascentMeters: Double = 0.0
     ): Boolean {
-        if (sunsetTime.isBlank() || sunsetTime == "Solnedgang ukendt") return false
+        if (sunsetTime == null || sunsetTime.isBlank()) return false
         val sunsetParts = sunsetTime.split(":").mapNotNull { it.toIntOrNull() }
         if (sunsetParts.size < 2) return false
         val startParts = startTime.split(":").mapNotNull { it.toIntOrNull() }
         val startMinutes = (startParts.getOrNull(0) ?: 9) * 60 + (startParts.getOrNull(1) ?: 0)
-        val effectivePace = paceKmh.coerceAtLeast(1.0)
-        val walkMinutes = ((stageKm / effectivePace) * 60.0).roundToInt()
+        val effectivePace = if (paceKmh > 0.5) {
+            paceKmh
+        } else {
+            com.example.data.local.SettingsRepository.cachedMitTempoKmh.coerceAtLeast(1.0)
+        }
+        val flatMinutes = (max(0.0, stageKm) / effectivePace) * 60.0
+        val elevationMinutes = max(0.0, ascentMeters) / 10.0
+        val walkMinutes = (flatMinutes + elevationMinutes).roundToInt()
         val arrivalMinutes = startMinutes + walkMinutes + 60
         val sunsetMinutes = sunsetParts[0] * 60 + sunsetParts[1]
         return arrivalMinutes > sunsetMinutes
@@ -294,13 +360,16 @@ object StagePlanner {
         sunsetTimeOverride: String? = null,
         allCandidates: List<OvernightCandidate> = emptyList(),
         isSecondToLastDayOrEarlier: Boolean = false,
-        totalWalkKm: Double = 0.0
+        totalWalkKm: Double = 0.0,
+        plannedRoute: PlannedRoute? = null,
+        ascentMeters: Double? = null
     ): Double {
         val baseScore = calculateScore(candidate, targetKm)
         val noToiletPenalty = if (!candidate.hasToiletNearby) 0.5 else 0.0
         val stageKm = max(0.0, candidate.walkKm - dayStartKm)
+        val stageAscentM = ascentMeters ?: computeStageAscentDescent(plannedRoute, dayStartKm, candidate.walkKm).first
         val daySunset = resolveDaySunset(dayNumber, candidate.lat, candidate.lng, startDateEpochMs, sunsetTimeOverride)
-        val afterSunsetPenalty = if (wouldArriveAfterSunset(stageKm, paceKmh, startTime, daySunset)) 3.5 else 0.0
+        val afterSunsetPenalty = if (wouldArriveAfterSunset(stageKm, paceKmh, startTime, daySunset, stageAscentM)) 3.5 else 0.0
 
         val lookAheadPenalty = if (isSecondToLastDayOrEarlier && allCandidates.isNotEmpty()) {
             val nextTargetKm = candidate.walkKm + dailyTargetKm
@@ -348,16 +417,16 @@ object StagePlanner {
         stopLng: Double,
         startDateEpochMs: Long?,
         sunsetTimeOverride: String?
-    ): String {
-        if (startDateEpochMs == null && !sunsetTimeOverride.isNullOrBlank() && sunsetTimeOverride != "Solnedgang ukendt") {
-            return sunsetTimeOverride
+    ): String? {
+        if (startDateEpochMs == null && sunsetTimeOverride != null) {
+            return sunsetTimeOverride.takeIf { it.isNotBlank() && it.contains(":") }
         }
         return computeSunsetForStageDay(
             dayNumber = dayNumber,
             stopLat = stopLat,
             stopLng = stopLng,
             startDateEpochMs = startDateEpochMs
-        )
+        ).takeIf { it.isNotBlank() && it.contains(":") }
     }
 
     /**
@@ -693,7 +762,8 @@ object StagePlanner {
                             sunsetTimeOverride = sunsetTime,
                             allCandidates = candidates,
                             isSecondToLastDayOrEarlier = day < daysCount,
-                            totalWalkKm = totalWalkKm
+                            totalWalkKm = totalWalkKm,
+                            plannedRoute = plannedRoute
                         )
                     }!!
                     val stageStartKm = prevEndWalkKm
@@ -928,7 +998,7 @@ object StagePlanner {
         plannedRoute: PlannedRoute,
         paceKmh: Double,
         startTime: String,
-        sunsetTime: String,
+        sunsetTime: String?,
         waterPois: List<PoiEntity>,
         shopPois: List<PoiEntity>,
         spotId: String? = null,
@@ -938,19 +1008,7 @@ object StagePlanner {
         val stageKm = max(0.0, endKm - startKm)
 
         // Elevation ascent & descent (Phase 2 elevation)
-        val stagePoints = plannedRoute.points.filter {
-            it.walkKm >= (startKm - 0.05) && it.walkKm <= (endKm + 0.05)
-        }
-        var ascentM = 0.0
-        var descentM = 0.0
-        for (i in 0 until stagePoints.size - 1) {
-            val e1 = stagePoints[i].ele
-            val e2 = stagePoints[i + 1].ele
-            if (e1 != null && e2 != null) {
-                val diff = e2 - e1
-                if (diff > 0) ascentM += diff else descentM += abs(diff)
-            }
-        }
+        val (ascentM, descentM) = computeStageAscentDescent(plannedRoute, startKm, endKm)
 
         // Estimated walking time from pace (+1 min per 10 m ascent - Requirement D)
         val effectivePace = if (paceKmh > 0.5) {
@@ -990,27 +1048,33 @@ object StagePlanner {
             }
         }
 
-        // Sunset warning: start time + walking time + 1 hour breaks > sunset (Requirement D)
-        val startParts = startTime.split(":").mapNotNull { it.toIntOrNull() }
-        val startHour = startParts.getOrNull(0) ?: 9
-        val startMin = startParts.getOrNull(1) ?: 0
-        val startTotalMinutes = startHour * 60 + startMin
+        // Sunset warning: start time + walking time (+ climbing time) + 1 hour breaks > sunset (Requirement D & Round 12A Item 3)
+        val isAfterSunset = wouldArriveAfterSunset(
+            stageKm = stageKm,
+            paceKmh = effectivePace,
+            startTime = startTime,
+            sunsetTime = sunsetTime,
+            ascentMeters = ascentM
+        )
 
-        val arrivalMinutes = startTotalMinutes + totalWalkMinutes + 60 // +1 hour breaks
+        val nearestWaterM = if (stopLat != 0.0 || stopLng != 0.0) {
+            waterPois.minOfOrNull {
+                GeoUtils.distanceMeters(stopLat, stopLng, it.lat, it.lng)
+            }?.roundToInt()?.takeIf { it <= 1000 }
+        } else null
 
-        val isAfterSunset = if (sunsetTime.isBlank() || sunsetTime == "Solnedgang ukendt") {
-            false
-        } else {
-            val sunsetParts = sunsetTime.split(":").mapNotNull { it.toIntOrNull() }
-            if (sunsetParts.size >= 2) {
-                val sunsetHour = sunsetParts[0]
-                val sunsetMin = sunsetParts[1]
-                val sunsetTotalMinutes = sunsetHour * 60 + sunsetMin
-                arrivalMinutes > sunsetTotalMinutes
-            } else {
-                false
-            }
-        }
+        val campExplanation = buildCampExplanation(
+            stageKm = stageKm,
+            dailyTargetKm = 15.0,
+            detourMeters = detourMeters,
+            hasWaterNearby = hasWaterNearby,
+            waterDistanceMeters = nearestWaterM ?: if (hasWaterNearby) 200 else null,
+            hasToiletNearby = hasToiletNearby,
+            bookingRequired = bookingRequired,
+            isAfterSunset = isAfterSunset,
+            stopType = stopType,
+            isLastDay = stopType == "END"
+        )
 
         return TripStage(
             dayNumber = dayNumber,
@@ -1034,12 +1098,79 @@ object StagePlanner {
             estimatedWalkMinutes = totalWalkMinutes,
             waterCount = waterPassed,
             shopCount = shopsPassed,
-            sunsetTime = sunsetTime,
+            sunsetTime = sunsetTime ?: "",
             isAfterSunset = isAfterSunset,
             spotId = spotId,
             isWarningNoOvernight = isWarningNoOvernight,
-            warningMessage = warningMessage
+            warningMessage = warningMessage,
+            campExplanation = campExplanation
         )
+    }
+
+    /**
+     * Round 12B Item 4: Builds a one-line explanation of why the camp was chosen,
+     * using the stage planner's scoring inputs (target distance, detour, water, toilet, booking, sunset).
+     */
+    fun buildCampExplanation(
+        stageKm: Double,
+        dailyTargetKm: Double = 15.0,
+        detourMeters: Double = 0.0,
+        hasWaterNearby: Boolean = true,
+        waterDistanceMeters: Int? = null,
+        hasToiletNearby: Boolean = true,
+        bookingRequired: Boolean = false,
+        isAfterSunset: Boolean = false,
+        stopType: String = "SHELTER",
+        isLastDay: Boolean = false
+    ): String {
+        val parts = mutableListOf<String>()
+
+        val safeTargetKm = dailyTargetKm.coerceAtLeast(1.0)
+        val targetDiffKm = abs(stageKm - safeTargetKm)
+        when {
+            isLastDay && stopType == "END" -> parts.add("Nær dagsmålet (ruteslut)")
+            targetDiffKm <= max(3.5, safeTargetKm * 0.25) -> parts.add("Nær dagsmålet")
+            stageKm < safeTargetKm -> parts.add(
+                String.format(Locale("da", "DK"), "%.1f km før dagsmålet", safeTargetKm - stageKm)
+            )
+            else -> parts.add(
+                String.format(Locale("da", "DK"), "%.1f km over dagsmålet", stageKm - safeTargetKm)
+            )
+        }
+
+        if (detourMeters >= 100.0) {
+            parts.add("afstikker ${detourMeters.roundToInt()} m")
+        }
+
+        if (hasWaterNearby) {
+            if (waterDistanceMeters != null && waterDistanceMeters > 0) {
+                parts.add("vand ${waterDistanceMeters} m")
+            } else {
+                parts.add("vand i nærheden")
+            }
+        } else {
+            parts.add("Ingen vand i nærheden")
+        }
+
+        if (hasToiletNearby) {
+            parts.add("toilet")
+        } else {
+            parts.add("Ingen toilet i nærheden")
+        }
+
+        if (!isLastDay) {
+            if (bookingRequired) {
+                parts.add("kræver booking")
+            }
+        }
+
+        if (!isAfterSunset) {
+            parts.add("ankomst før solnedgang")
+        } else {
+            parts.add("ankomst efter solnedgang")
+        }
+
+        return parts.joinToString(" · ")
     }
 
     private fun parsePolygonPoints(polygonJson: String): List<GeoPointDto> {

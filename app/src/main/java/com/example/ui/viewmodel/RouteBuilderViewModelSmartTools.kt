@@ -371,47 +371,193 @@ fun RouteBuilderViewModel.fetchWeatherAndSunset() {
     }
 }
 
-// --- Phase 12 Feature 4 & Requirement 12: Rute til nærmeste ---
+// --- Phase 12 Feature 4 & Round 12B Item 5: Rute til nærmeste ("Nærmeste") ---
 
-fun RouteBuilderViewModel.openNearestPoiDialog() {
-    _uiState.update { it.copy(showNearestPoiDialog = true) }
+private const val NEAR_ROUTE_THRESHOLD_METERS = 2000.0
+
+fun RouteBuilderViewModel.isPositionOnOrNearRoute(
+    lat: Double,
+    lng: Double,
+    state: RouteBuilderState = _uiState.value
+): Boolean {
+    val visibleWps = state.waypoints.filter { !it.isHelper }
+    val legPoints = state.legs.values.flatMap { it.points }
+    val baseTrailPts = state.baseTrailPoints
+    if (visibleWps.isEmpty() && legPoints.isEmpty() && baseTrailPts.isEmpty()) {
+        return false
+    }
+    if (visibleWps.any { GeoUtils.distanceMeters(lat, lng, it.lat, it.lng) <= NEAR_ROUTE_THRESHOLD_METERS }) {
+        return true
+    }
+    if (legPoints.any { GeoUtils.distanceMeters(lat, lng, it.lat, it.lng) <= NEAR_ROUTE_THRESHOLD_METERS }) {
+        return true
+    }
+    if (baseTrailPts.any { GeoUtils.distanceMeters(lat, lng, it.lat, it.lng) <= NEAR_ROUTE_THRESHOLD_METERS }) {
+        return true
+    }
+    return false
+}
+
+/**
+ * Round 12B Item 5:
+ * Search from, in order:
+ * 1. The selected pin ("Nærmest dit valgte punkt")
+ * 2. Otherwise my position if I am on or near the route ("Nærmest din position")
+ * 3. Otherwise the centre of the visible map ("Nærmest kortets midte")
+ */
+fun RouteBuilderViewModel.resolveNearestSearchOrigin(
+    userLat: Double? = null,
+    userLng: Double? = null,
+    mapCenterLat: Double? = null,
+    mapCenterLng: Double? = null
+): NearestSearchOrigin {
+    val state = _uiState.value
+    val visibleWps = state.waypoints.filter { !it.isHelper }
+
+    // 1. Selected pin
+    val selectedWp = state.selectedWaypointId?.let { selId ->
+        visibleWps.find { it.id == selId }
+    }
+    if (selectedWp != null) {
+        return NearestSearchOrigin(
+            type = NearestSearchOriginType.SELECTED_PIN,
+            lat = selectedWp.lat,
+            lng = selectedWp.lng,
+            labelResId = com.example.R.string.nearest_poi_origin_selected_pin
+        )
+    }
+
+    // 2. My position if on or near the route
+    val gpsPos = when {
+        userLat != null && userLng != null -> LatLng(userLat, userLng)
+        state.currentGpsPosition != null -> state.currentGpsPosition
+        else -> null
+    }
+    if (gpsPos != null && isPositionOnOrNearRoute(gpsPos.lat, gpsPos.lng, state)) {
+        return NearestSearchOrigin(
+            type = NearestSearchOriginType.MY_POSITION,
+            lat = gpsPos.lat,
+            lng = gpsPos.lng,
+            labelResId = com.example.R.string.nearest_poi_origin_my_position
+        )
+    }
+
+    // 3. Centre of the visible map
+    val centerLat = mapCenterLat ?: state.mapCenterLat
+    val centerLng = mapCenterLng ?: state.mapCenterLng
+    return NearestSearchOrigin(
+        type = NearestSearchOriginType.MAP_CENTER,
+        lat = centerLat,
+        lng = centerLng,
+        labelResId = com.example.R.string.nearest_poi_origin_map_center
+    )
+}
+
+fun RouteBuilderViewModel.openNearestPoiDialog(
+    userLat: Double? = null,
+    userLng: Double? = null,
+    mapCenterLat: Double? = null,
+    mapCenterLng: Double? = null
+) {
+    if (userLat != null && userLng != null) {
+        _uiState.update { it.copy(currentGpsPosition = LatLng(userLat, userLng)) }
+    }
+    if (mapCenterLat != null && mapCenterLng != null) {
+        _uiState.update { it.copy(mapCenterLat = mapCenterLat, mapCenterLng = mapCenterLng) }
+    }
+    val origin = resolveNearestSearchOrigin(userLat, userLng, mapCenterLat, mapCenterLng)
+    _uiState.update {
+        it.copy(
+            showNearestPoiDialog = true,
+            showNearestShelterRoleChoice = false,
+            nearestPoiOriginLabelRes = origin.labelResId
+        )
+    }
 }
 
 fun RouteBuilderViewModel.dismissNearestPoiDialog() {
-    _uiState.update { it.copy(showNearestPoiDialog = false) }
+    _uiState.update {
+        it.copy(
+            showNearestPoiDialog = false,
+            showNearestShelterRoleChoice = false
+        )
+    }
 }
 
-fun RouteBuilderViewModel.routeToNearest(category: NearestPoiCategory, startLat: Double? = null, startLng: Double? = null) {
-    val stateSnapshot = _uiState.value
-    val visibleWps = stateSnapshot.waypoints.filter { !it.isHelper }
-    val selectedWp = stateSnapshot.selectedWaypointId?.let { selId ->
-        visibleWps.find { it.id == selId }
+/**
+ * Round 12B Item 5:
+ * For a shelter, ask "Overnat her" or "Tilføj som stop" instead of always making it an overnight stop.
+ */
+fun RouteBuilderViewModel.onNearestCategorySelected(
+    category: NearestPoiCategory,
+    userLat: Double? = null,
+    userLng: Double? = null,
+    mapCenterLat: Double? = null,
+    mapCenterLng: Double? = null
+) {
+    if (userLat != null && userLng != null) {
+        _uiState.update { it.copy(currentGpsPosition = LatLng(userLat, userLng)) }
     }
-    val referenceWp = selectedWp ?: if (visibleWps.size >= 2) {
-        visibleWps[visibleWps.size / 2]
-    } else {
-        visibleWps.lastOrNull()
+    if (mapCenterLat != null && mapCenterLng != null) {
+        _uiState.update { it.copy(mapCenterLat = mapCenterLat, mapCenterLng = mapCenterLng) }
     }
-    val startPt = when {
-        startLat != null && startLng != null -> LatLng(startLat, startLng)
-        referenceWp != null -> LatLng(referenceWp.lat, referenceWp.lng)
-        else -> null
-    }
-
-    if (startPt == null) {
-        dismissNearestPoiDialog()
+    if (category == NearestPoiCategory.SHELTER) {
         _uiState.update {
             it.copy(
-                errorMessage = "Vælg et startpunkt på kortet først"
+                showNearestPoiDialog = true,
+                showNearestShelterRoleChoice = true
             )
         }
-        viewModelScope.launch {
-            _userMessage.emit("Vælg et startpunkt på kortet først")
-        }
-        return
+    } else {
+        routeToNearest(
+            category = category,
+            roleOverride = WaypointRole.VIA
+        )
     }
+}
 
-    _uiState.update { it.copy(isRoutingToNearest = true) }
+fun RouteBuilderViewModel.confirmNearestShelterRole(role: WaypointRole) {
+    _uiState.update { it.copy(showNearestShelterRoleChoice = false) }
+    routeToNearest(
+        category = NearestPoiCategory.SHELTER,
+        roleOverride = role
+    )
+}
+
+internal fun RouteBuilderViewModel.computeCurrentRouteTotalLengthKm(state: RouteBuilderState = _uiState.value): Double {
+    val wps = state.waypoints
+    if (wps.size < 2) return 0.0
+    var sumKm = 0.0
+    for (i in 0 until wps.size - 1) {
+        val key = "${wps[i].id}_to_${wps[i + 1].id}"
+        val leg = state.legs[key]
+        sumKm += leg?.lengthKm ?: (GeoUtils.distanceMeters(wps[i].lat, wps[i].lng, wps[i + 1].lat, wps[i + 1].lng) / 1000.0)
+    }
+    return sumKm
+}
+
+fun RouteBuilderViewModel.formatExtraRouteLengthDanish(extraKm: Double): String {
+    val clamped = extraKm.coerceAtLeast(0.0)
+    val formattedKm = String.format(Locale("da", "DK"), "%.1f", clamped)
+    return app.getString(com.example.R.string.nearest_route_extra_length_format, formattedKm)
+}
+
+fun RouteBuilderViewModel.routeToNearest(
+    category: NearestPoiCategory,
+    startLat: Double? = null,
+    startLng: Double? = null,
+    roleOverride: WaypointRole? = null
+) {
+    val origin = resolveNearestSearchOrigin(userLat = startLat, userLng = startLng)
+    val startPt = LatLng(origin.lat, origin.lng)
+
+    _uiState.update {
+        it.copy(
+            isRoutingToNearest = true,
+            nearestPoiOriginLabelRes = origin.labelResId,
+            showNearestShelterRoleChoice = false
+        )
+    }
     dismissNearestPoiDialog()
     viewModelScope.launch {
         try {
@@ -430,37 +576,33 @@ fun RouteBuilderViewModel.routeToNearest(category: NearestPoiCategory, startLat:
 
             if (match != null) {
                 val (poi, legResult) = match
+                val beforeTotalKm = computeCurrentRouteTotalLengthKm(_uiState.value)
                 val currentVisibleWps = _uiState.value.waypoints.filter { !it.isHelper }
                 if (currentVisibleWps.size >= 2) {
-                    val targetRole = if (category == NearestPoiCategory.SHELTER) {
+                    val targetRole = roleOverride ?: if (category == NearestPoiCategory.SHELTER) {
                         WaypointRole.OVERNIGHT
                     } else {
                         WaypointRole.VIA
                     }
-                    if (targetRole == WaypointRole.OVERNIGHT ||
-                        (_uiState.value.mode == PlannerMode.TRAIL && _uiState.value.baseTrailSegments.isNotEmpty())
-                    ) {
-                        pushHistory()
-                        addStopOrDetourSuspend(
-                            lat = poi.lat,
-                            lng = poi.lng,
-                            role = targetRole,
-                            name = poi.name,
-                            linkedPoiId = poi.id
-                        )
-                    } else {
-                        insertViaPointOnLine(
-                            lat = poi.lat,
-                            lng = poi.lng,
-                            name = poi.name,
-                            linkedPoiId = poi.id
+                    pushHistory()
+                    addStopOrDetourSuspend(
+                        lat = poi.lat,
+                        lng = poi.lng,
+                        role = targetRole,
+                        name = poi.name,
+                        linkedPoiId = poi.id
+                    )
+                    updateRouteStats()
+                    val afterTotalKm = computeCurrentRouteTotalLengthKm(_uiState.value)
+                    val extraKm = (afterTotalKm - beforeTotalKm).coerceAtLeast(0.0)
+                    val extraMsg = formatExtraRouteLengthDanish(extraKm)
+                    _uiState.update {
+                        it.copy(
+                            isRoutingToNearest = false,
+                            lastNearestExtraRouteMessage = extraMsg
                         )
                     }
-                    _uiState.update { it.copy(isRoutingToNearest = false) }
-                    updateRouteStats()
-                    _userMessage.emit(
-                        "Tilføjet til ruten: ${poi.name} (+${String.format(Locale.US, "%.1f", legResult.lengthKm)} km)"
-                    )
+                    _userMessage.emit(extraMsg)
                 } else {
                     pushHistory()
                     val wpStart = RouteWaypoint(
@@ -499,17 +641,19 @@ fun RouteBuilderViewModel.routeToNearest(category: NearestPoiCategory, startLat:
                     )
 
                     val legsMap = mapOf("${wpStart.id}_to_${wpDest.id}" to leg)
+                    val extraMsg = formatExtraRouteLengthDanish(legResult.lengthKm)
                     _uiState.update {
                         it.copy(
                             isRoutingToNearest = false,
                             waypoints = listOf(wpStart, wpDest),
                             legs = legsMap,
                             failedLegs = emptyMap(),
-                            routeName = "Rute til ${poi.name}"
+                            routeName = "Rute til ${poi.name}",
+                            lastNearestExtraRouteMessage = extraMsg
                         )
                     }
                     updateRouteStats()
-                    _userMessage.emit("Rute fundet til ${poi.name}: ${String.format(Locale.US, "%.1f", legResult.lengthKm)} km via rute")
+                    _userMessage.emit(extraMsg)
                 }
             } else {
                 _uiState.update { it.copy(isRoutingToNearest = false) }
@@ -519,6 +663,61 @@ fun RouteBuilderViewModel.routeToNearest(category: NearestPoiCategory, startLat:
             Log.e(TAG, "Error routing to nearest: ${e.message}", e)
             _uiState.update { it.copy(isRoutingToNearest = false) }
             _userMessage.emit("Fejl ved rutesøgning: ${e.message}")
+        }
+    }
+}
+
+internal suspend fun RouteBuilderViewModel.fetchNightWeatherForDay(
+    dayIndex: Int,
+    startDateMillis: Long,
+    lat: Double,
+    lng: Double
+): String {
+    val targetMillis = startDateMillis + java.util.concurrent.TimeUnit.DAYS.toMillis(dayIndex.toLong())
+    val nowMillis = System.currentTimeMillis()
+    val diffDays = java.util.concurrent.TimeUnit.MILLISECONDS.toDays(targetMillis - nowMillis)
+    if (diffDays < -1 || diffDays > 15) {
+        return "Vejrudsigt ikke tilgængelig endnu"
+    }
+
+    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    val targetDateStr = dateFormat.format(java.util.Date(targetMillis))
+    val cacheKey = "${String.format(Locale.US, "%.2f_%.2f", lat, lng)}_$targetDateStr"
+    nightWeatherCache[cacheKey]?.let { return it }
+
+    return kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            val response = weatherService.getTrailWeather(lat = lat, lon = lng)
+            val daily = response.daily
+            val times = daily?.time ?: emptyList()
+            val idx = times.indexOf(targetDateStr)
+            if (idx == -1) {
+                "Vejrudsigt ikke tilgængelig endnu"
+            } else {
+                val minTemp = daily?.tempMin?.getOrNull(idx)
+                val maxTemp = daily?.tempMax?.getOrNull(idx)
+                val precip = daily?.precipitationSum?.getOrNull(idx) ?: 0.0
+                val wind = daily?.windSpeedMax?.getOrNull(idx)
+                val sunsetRaw = daily?.sunset?.getOrNull(idx)
+                if (!sunsetRaw.isNullOrBlank() && sunsetRaw.contains("T")) {
+                    sunsetTimeStr = sunsetRaw.substringAfter("T")
+                }
+                val summary = buildString {
+                    if (minTemp != null && maxTemp != null) {
+                        append("Nat ${Math.round(minTemp)}°C / Dag ${Math.round(maxTemp)}°C")
+                    } else if (minTemp != null) {
+                        append("Nat ${Math.round(minTemp)}°C")
+                    }
+                    append(" · Nedbør ${String.format(Locale.GERMAN, "%.1f", precip)} mm")
+                    if (wind != null) {
+                        append(" · Vind ${Math.round(wind)} m/s")
+                    }
+                }
+                nightWeatherCache[cacheKey] = summary
+                summary
+            }
+        } catch (_: Exception) {
+            "Vejrudsigt ikke tilgængelig endnu"
         }
     }
 }

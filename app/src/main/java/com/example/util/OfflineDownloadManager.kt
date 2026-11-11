@@ -401,6 +401,21 @@ object OfflineDownloadManager {
         )
 
         runCatching {
+            val app = context.applicationContext as? DanskStiApp
+            if (app != null) {
+                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                    val existing = app.database.dao().getOfflineDownloadInProgress(trailId)
+                    app.database.dao().upsertOfflineDownloadInProgress(
+                        com.example.data.model.OfflineDownloadInProgressEntity(
+                            trailId = trailId,
+                            startedAt = existing?.startedAt ?: System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+        }
+
+        runCatching {
             WorkManager.getInstance(context).enqueueUniqueWork(
                 "offline_download_$trailId",
                 ExistingWorkPolicy.REPLACE,
@@ -413,6 +428,16 @@ object OfflineDownloadManager {
             estimatedSizeBytes = checkBytes,
             isAllowed = true
         )
+    }
+
+    suspend fun cancelDownload(context: Context, trailId: String) = withContext(Dispatchers.IO) {
+        runCatching {
+            WorkManager.getInstance(context).cancelUniqueWork("offline_download_$trailId")
+        }
+        runCatching {
+            val app = context.applicationContext as? DanskStiApp
+            app?.database?.dao()?.deleteOfflineDownloadInProgress(trailId)
+        }
     }
 
     /**
@@ -465,9 +490,13 @@ object OfflineDownloadManager {
     }
 
     suspend fun deleteOfflineTrail(context: Context, trailId: String) = withContext(Dispatchers.IO) {
+        runCatching {
+            WorkManager.getInstance(context).cancelUniqueWork("offline_download_$trailId")
+        }
         val archiveFile = getOfflineArchiveFile(context, trailId)
         DanskStiTileSourceHelper.detachOfflineArchiveAndDeleteFile(archiveFile)
         val app = context.applicationContext as DanskStiApp
+        app.database.dao().deleteOfflineDownloadInProgress(trailId)
         app.database.dao().deleteDownloadedTrail(trailId)
     }
 

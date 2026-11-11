@@ -106,30 +106,139 @@ class OsmPoiRepository(private val context: Context) {
         }
     }
 
+    var customPolylineChunkFetcher: (suspend (simplifiedChunk: List<GeoPointDto>) -> OsmPoiResult)? = null
+
     /**
-     * Requirement B: Fetch POIs along a custom route polyline using Overpass around:<m>,lat1,lon1,lat2,lon2,...
-     * Simplifies the route to about 1 point per 200 m, uses the exact same filters as Phase 2, and sends as POST.
+     * Requirement B & Round 12A Item 8:
+     * Fetch POIs along a custom route polyline using Overpass around:<m>,lat1,lon1,lat2,lon2,...
+     * Splits the corridor POI query into chunks of about 50 km (with 3 km overlap),
+     * simplifies each chunk to about 1 point per 200 m, and merges the results without duplicates.
      */
     suspend fun fetchPoisForPolyline(points: List<GeoPointDto>): OsmPoiResult = withContext(Dispatchers.IO) {
         if (points.isEmpty()) return@withContext OsmPoiResult()
 
-        val simplified = simplifyPointsForCorridor(points, minDistanceMeters = 200.0)
-        val query = buildOverpassPolylineQuery(simplified)
+        val chunks = splitPolylineIntoChunks(points, chunkLengthKm = 50.0, overlapKm = 3.0)
+        val mergedShelters = LinkedHashMap<String, ShelterEntity>()
+        val mergedPois = LinkedHashMap<String, PoiEntity>()
 
-        try {
-            val body = com.example.data.remote.OverpassClient.queryRawJson(
-                query = query,
-                label = "OsmPoiPolyline(${simplified.size})"
-            )
-            val parsed = parseOverpassJson(body)
-            if (parsed.shelters.isNotEmpty() || parsed.pois.isNotEmpty()) {
-                return@withContext parsed
+        for ((chunkIdx, chunkPoints) in chunks.withIndex()) {
+            val simplified = simplifyPointsForCorridor(chunkPoints, minDistanceMeters = 200.0)
+            if (simplified.isEmpty()) continue
+
+            val chunkResult = try {
+                val customFetcher = customPolylineChunkFetcher
+                if (customFetcher != null) {
+                    customFetcher(simplified)
+                } else {
+                    val query = buildOverpassPolylineQuery(simplified)
+                    val body = com.example.data.remote.OverpassClient.queryRawJson(
+                        query = query,
+                        label = "OsmPoiPolyline(chunk=${chunkIdx + 1}/${chunks.size},pts=${simplified.size})"
+                    )
+                    parseOverpassJson(body)
+                }
+            } catch (e: Exception) {
+                Log.w("OsmPoiRepo", "Overpass polyline corridor chunk ${chunkIdx + 1}/${chunks.size} failed: ${e.message}")
+                OsmPoiResult()
             }
-        } catch (e: Exception) {
-            Log.w("OsmPoiRepo", "Overpass polyline corridor query failed: ${e.message}")
+
+            for (shelter in chunkResult.shelters) {
+                val isDuplicate = mergedShelters.containsKey(shelter.id) || mergedShelters.values.any { existing ->
+                    com.example.util.GeoUtils.distanceMeters(existing.lat, existing.lng, shelter.lat, shelter.lng) <= 20.0
+                }
+                if (!isDuplicate) {
+                    mergedShelters[shelter.id] = shelter
+                }
+            }
+
+            for (poi in chunkResult.pois) {
+                val isDuplicate = mergedPois.containsKey(poi.id) || mergedPois.values.any { existing ->
+                    existing.type == poi.type &&
+                        com.example.util.GeoUtils.distanceMeters(existing.lat, existing.lng, poi.lat, poi.lng) <= 20.0
+                }
+                if (!isDuplicate) {
+                    mergedPois[poi.id] = poi
+                }
+            }
         }
 
-        OsmPoiResult()
+        OsmPoiResult(
+            shelters = mergedShelters.values.toList(),
+            pois = mergedPois.values.toList()
+        )
+    }
+
+    /**
+     * Round 12A Item 8:
+     * Splits a polyline into chunks of [chunkLengthKm] (default 50 km) with [overlapKm] (default 3 km) overlap.
+     */
+    fun splitPolylineIntoChunks(
+        points: List<GeoPointDto>,
+        chunkLengthKm: Double = 50.0,
+        overlapKm: Double = 3.0
+    ): List<List<GeoPointDto>> {
+        if (points.size <= 2) return if (points.isEmpty()) emptyList() else listOf(points)
+
+        val cumKm = DoubleArray(points.size)
+        var accKm = 0.0
+        cumKm[0] = 0.0
+        for (i in 1 until points.size) {
+            val prev = points[i - 1]
+            val curr = points[i]
+            accKm += com.example.util.GeoUtils.distanceMeters(prev.lat, prev.lng, curr.lat, curr.lng) / 1000.0
+            cumKm[i] = accKm
+        }
+
+        val totalKm = cumKm.last()
+        if (totalKm <= chunkLengthKm + 1e-6) {
+            return listOf(points)
+        }
+
+        val stepKm = (chunkLengthKm - overlapKm).coerceAtLeast(1.0)
+        val chunks = mutableListOf<List<GeoPointDto>>()
+
+        fun interpolateAtKm(targetKm: Double): GeoPointDto {
+            val clamped = targetKm.coerceIn(0.0, totalKm)
+            if (clamped <= 0.0) return points.first()
+            if (clamped >= totalKm) return points.last()
+            var segIdx = 0
+            while (segIdx < cumKm.size - 2 && cumKm[segIdx + 1] < clamped) {
+                segIdx++
+            }
+            val startD = cumKm[segIdx]
+            val endD = cumKm[segIdx + 1]
+            val span = endD - startD
+            if (span <= 1e-9) return points[segIdx]
+            val t = ((clamped - startD) / span).coerceIn(0.0, 1.0)
+            val p0 = points[segIdx]
+            val p1 = points[segIdx + 1]
+            return GeoPointDto(
+                lat = p0.lat + (p1.lat - p0.lat) * t,
+                lng = p0.lng + (p1.lng - p0.lng) * t,
+                ele = if (p0.ele != null && p1.ele != null) p0.ele + (p1.ele - p0.ele) * t else p0.ele ?: p1.ele
+            )
+        }
+
+        var startKm = 0.0
+        while (startKm < totalKm - 1e-6) {
+            val endKm = kotlin.math.min(totalKm, startKm + chunkLengthKm)
+            val chunk = mutableListOf<GeoPointDto>()
+            chunk.add(interpolateAtKm(startKm))
+            for (i in points.indices) {
+                val d = cumKm[i]
+                if (d > startKm + 1e-5 && d < endKm - 1e-5) {
+                    chunk.add(points[i])
+                }
+            }
+            chunk.add(interpolateAtKm(endKm))
+            if (chunk.size >= 2) {
+                chunks.add(chunk)
+            }
+            if (endKm >= totalKm - 1e-6) break
+            startKm += stepKm
+        }
+
+        return if (chunks.isEmpty()) listOf(points) else chunks
     }
 
     fun simplifyPointsForCorridor(points: List<GeoPointDto>, minDistanceMeters: Double = 200.0): List<GeoPointDto> {

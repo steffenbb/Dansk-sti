@@ -568,6 +568,8 @@ internal fun TrailBrowserNearbySheet(
     isSearchingNearby: Boolean,
     nearbySpots: List<com.example.data.model.NearbyOvernightSpot>,
     hasUserLocation: Boolean,
+    staleLocationMessage: String? = null,
+    onPickAnotherStart: () -> Unit = {},
     onDismiss: () -> Unit,
     onOpenRouteBuilder: (Double, Double, String) -> Unit
 ) {
@@ -599,6 +601,25 @@ internal fun TrailBrowserNearbySheet(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    staleLocationMessage?.let { staleMsg ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.s2)
+                        ) {
+                            Text(
+                                text = staleMsg,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.testTag("nearby_sheet_stale_location_message")
+                            )
+                            androidx.compose.material3.TextButton(
+                                onClick = onPickAnotherStart,
+                                modifier = Modifier.testTag("nearby_sheet_pick_another_start_button")
+                            ) {
+                                Text("Vælg andet startpunkt")
+                            }
+                        }
+                    }
                 }
                 IconButton(
                     onClick = onDismiss,

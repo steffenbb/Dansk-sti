@@ -2,9 +2,10 @@ package com.example
 
 import android.app.Application
 import android.content.Intent
-import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import com.example.data.local.DanskStiDatabase
 import com.example.data.local.MapLayersState
 import com.example.data.model.CustomRouteEntity
@@ -28,6 +29,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -40,6 +42,14 @@ import java.util.TimeZone
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = DanskStiApp::class)
 class FixRound11Test {
+
+    @get:Rule
+    val migrationHelper: MigrationTestHelper = MigrationTestHelper(
+        InstrumentationRegistry.getInstrumentation(),
+        DanskStiDatabase::class.java,
+        emptyList(),
+        FrameworkSQLiteOpenHelperFactory()
+    )
 
     @Test
     fun item1_trailGeometryRepository_neverCallsOpenStreetMapEditingApi_usesOverpassClient() {
@@ -80,67 +90,34 @@ class FixRound11Test {
         val schemaJson = schemaFile.readText()
         assertTrue("Schema 26.json must declare version 26", schemaJson.contains("\"version\": 26"))
         assertTrue("Schema 26.json must include planner_drafts table", schemaJson.contains("\"tableName\": \"planner_drafts\""))
+        assertTrue("Schema 26.json must include offline_downloads_in_progress table", schemaJson.contains("\"tableName\": \"offline_downloads_in_progress\""))
 
-        val context = ApplicationProvider.getApplicationContext<Application>()
         val dbName = "migration_test_25_26_${System.currentTimeMillis()}.db"
-        val callback = object : SupportSQLiteOpenHelper.Callback(25) {
-            override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
-                db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS `trails` (
-                        `id` TEXT NOT NULL,
-                        `name` TEXT NOT NULL,
-                        `description` TEXT NOT NULL,
-                        `region` TEXT NOT NULL,
-                        `parentRegion` TEXT NOT NULL,
-                        `osmRelationId` INTEGER,
-                        `computedWalkingKm` REAL NOT NULL,
-                        `gapsOver200m` INTEGER NOT NULL,
-                        `osmTimestamp` TEXT,
-                        `bboxNorth` REAL,
-                        `bboxSouth` REAL,
-                        `bboxEast` REAL,
-                        `bboxWest` REAL,
-                        `isGeometryDownloaded` INTEGER NOT NULL,
-                        `lastUpdated` INTEGER NOT NULL,
-                        `source` TEXT NOT NULL,
-                        PRIMARY KEY(`id`)
-                    )
-                    """.trimIndent()
+        migrationHelper.createDatabase(dbName, 25).apply {
+            execSQL(
+                """
+                INSERT INTO `trails` (
+                    `id`, `name`, `description`, `region`, `parentRegion`,
+                    `osmRelationId`, `computedWalkingKm`, `gapsOver200m`, `osmTimestamp`,
+                    `bboxNorth`, `bboxSouth`, `bboxEast`, `bboxWest`,
+                    `isGeometryDownloaded`, `lastUpdated`, `source`
+                ) VALUES (
+                    'camino_fyn', 'Øhavsstien', 'Vandrerute', 'Fyn', 'Fyn & Øerne',
+                    12345, 220.0, 0, NULL,
+                    55.5, 54.8, 10.9, 9.9,
+                    0, 1700000000000, 'OSM wiki Denmark Walking Routes'
                 )
-                db.execSQL(
-                    """
-                    INSERT INTO `trails` (
-                        `id`, `name`, `description`, `region`, `parentRegion`,
-                        `osmRelationId`, `computedWalkingKm`, `gapsOver200m`, `osmTimestamp`,
-                        `bboxNorth`, `bboxSouth`, `bboxEast`, `bboxWest`,
-                        `isGeometryDownloaded`, `lastUpdated`, `source`
-                    ) VALUES (
-                        'camino_fyn', 'Øhavsstien', 'Vandrerute', 'Fyn', 'Fyn & Øerne',
-                        12345, 220.0, 0, NULL,
-                        55.5, 54.8, 10.9, 9.9,
-                        0, 1700000000000, 'OSM wiki Denmark Walking Routes'
-                    )
-                    """.trimIndent()
-                )
-            }
-
-            override fun onUpgrade(
-                db: androidx.sqlite.db.SupportSQLiteDatabase,
-                oldVersion: Int,
-                newVersion: Int
-            ) {}
+                """.trimIndent()
+            )
+            close()
         }
 
-        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
-            .name(dbName)
-            .callback(callback)
-            .build()
-        val helper = FrameworkSQLiteOpenHelperFactory().create(config)
-        val db = helper.writableDatabase
-
-        // Run MIGRATION_25_26
-        DanskStiDatabase.MIGRATION_25_26.migrate(db)
+        val db = migrationHelper.runMigrationsAndValidate(
+            dbName,
+            26,
+            true,
+            DanskStiDatabase.MIGRATION_25_26
+        )
 
         // Verify existing trails row is preserved
         db.query("SELECT id, name, computedWalkingKm FROM trails WHERE id = 'camino_fyn'").use { cursor ->
@@ -170,9 +147,20 @@ class FixRound11Test {
             assertEquals(0, cursor.getInt(3))
         }
 
+        // Verify offline_downloads_in_progress table was created by MIGRATION_25_26
+        db.execSQL(
+            """
+            INSERT INTO `offline_downloads_in_progress` (`trailId`, `startedAt`)
+            VALUES ('camino_fyn', 1700000002000)
+            """.trimIndent()
+        )
+        db.query("SELECT trailId, startedAt FROM offline_downloads_in_progress WHERE trailId = 'camino_fyn'").use { cursor ->
+            assertTrue("Inserted offline_downloads_in_progress row must exist", cursor.moveToFirst())
+            assertEquals("camino_fyn", cursor.getString(0))
+            assertEquals(1700000002000L, cursor.getLong(1))
+        }
+
         db.close()
-        helper.close()
-        context.deleteDatabase(dbName)
     }
 
     @Test
@@ -223,7 +211,10 @@ class FixRound11Test {
         assertTrue(validCustomRouteId > 0L)
 
         val validOfflineFile = File(offlineDir, "trail_keep.sqlite").apply { writeText("tiles") }
-        val orphanOfflineFile = File(offlineDir, "trail_orphan.sqlite").apply { writeText("orphan_tiles") }
+        val orphanOfflineFile = File(offlineDir, "trail_orphan.sqlite").apply {
+            writeText("orphan_tiles")
+            setLastModified(System.currentTimeMillis() - 25L * 3600L * 1000L)
+        }
         dao.insertDownloadedTrail(
             DownloadedTrailEntity(
                 trailId = "trail_keep",
@@ -446,6 +437,7 @@ class FixRound11Test {
         assertEquals(77L, activity.pendingNavigationPlanId.value)
         activity.consumePendingNavigationPlanId()
         assertNull("After consumePendingNavigationPlanId, pendingNavigationPlanId must be null", activity.pendingNavigationPlanId.value)
+        controller.destroy()
     }
 
     @Test

@@ -158,6 +158,7 @@ fun DanskStiMap(
     onMapLongPressInterceptor: ((GeoPoint) -> Boolean)? = null,
     onAddToRouteFromDropPin: ((lat: Double, lng: Double, label: String) -> Unit)? = null,
     onRouteHereFromDropPin: ((lat: Double, lng: Double, label: String) -> Unit)? = null,
+    onStartFromMyLocationFromDropPin: (() -> Unit)? = null,
     onOvernightInPlannerFromPoiSheet: ((PoiInfoSheetData) -> Unit)? = null,
     onUseMarkedRouteInPlanner: ((MarkedRouteDto) -> Unit)? = null,
     onPoiTapped: ((PoiItem) -> Unit)? = null,
@@ -311,6 +312,7 @@ fun DanskStiMap(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            mapViewRef?.let { mv: MapView -> com.example.util.DanskStiTileSourceHelper.unregisterActiveMapView(mv) }
             mapViewRef?.onPause()
             mapViewRef?.onDetach()
         }
@@ -516,6 +518,7 @@ fun DanskStiMap(
                     }
 
                     onResume()
+                    com.example.util.DanskStiTileSourceHelper.registerActiveMapView(this)
                     mapViewRef = this
                     onMapReady?.invoke(this)
                     latestOnUpdateOverlays?.invoke(this, overlayManager, effectiveIsDark)
@@ -678,6 +681,12 @@ fun DanskStiMap(
             onRouteHere = { lat, lng, label ->
                 droppedPinLocation = null
                 (onRouteHereFromDropPin ?: onAddToRouteFromDropPin)?.invoke(lat, lng, label)
+            },
+            onStartFromMyLocation = onStartFromMyLocationFromDropPin?.let { cb ->
+                {
+                    droppedPinLocation = null
+                    cb()
+                }
             },
             onPointSaved = { savedWp ->
                 dbCustomWaypoints = dbCustomWaypoints + savedWp

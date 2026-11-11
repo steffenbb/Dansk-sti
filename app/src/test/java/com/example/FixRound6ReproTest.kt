@@ -57,6 +57,7 @@ class FixRound6ReproTest {
         app.repository.isOnlineOverrideForTests = false
         DanskStiTileSourceHelper.userConfirmedOsmFallback = true
         runBlocking {
+            DanskStiApp.getSettingsRepository(app).setHasSeenHowToGuide(true)
             app.repository.initializePreseededDataIfEmpty()
             val pts = (0..150).map { idx ->
                 GeoPointDto(
@@ -107,6 +108,13 @@ class FixRound6ReproTest {
                         )
                     )
                 )
+            }
+        }
+        runCatching {
+            composeTestRule.waitForIdle()
+            if (composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("how_to_guide_got_it_button")).fetchSemanticsNodes().isNotEmpty()) {
+                composeTestRule.onNode(androidx.compose.ui.test.hasTestTag("how_to_guide_got_it_button")).performClick()
+                composeTestRule.waitForIdle()
             }
         }
     }

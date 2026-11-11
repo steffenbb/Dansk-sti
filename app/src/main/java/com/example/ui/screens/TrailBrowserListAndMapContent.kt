@@ -81,6 +81,8 @@ internal fun TrailBrowserListContent(
     savedTrailIds: Set<String>,
     nearbyTrails: List<TrailEntity>,
     userLocation: Pair<Double, Double>?,
+    userLocationStaleMessage: String? = null,
+    onPickAnotherStart: () -> Unit = {},
     shelterCounts: Map<String, Int>,
     friTeltningCounts: Map<String, Int>,
     trailMetrics: Map<String, TrailCardMetrics>,
@@ -119,14 +121,36 @@ internal fun TrailBrowserListContent(
                 verticalArrangement = Arrangement.spacedBy(Spacing.s4)
             ) {
                 item(key = "section_near_you_header", span = { GridItemSpan(maxLineSpan) }) {
-                    Text(
-                        text = stringResource(R.string.explore_section_near_you),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier
-                            .padding(top = Spacing.s1)
-                            .testTag("section_near_you")
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.s1)) {
+                        Text(
+                            text = stringResource(R.string.explore_section_near_you),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier
+                                .padding(top = Spacing.s1)
+                                .testTag("section_near_you")
+                        )
+                        userLocationStaleMessage?.let { staleMsg ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = staleMsg,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.testTag("explore_stale_location_message")
+                                )
+                                androidx.compose.material3.TextButton(
+                                    onClick = onPickAnotherStart,
+                                    modifier = Modifier.testTag("explore_pick_another_start_button")
+                                ) {
+                                    Text("Vælg andet startpunkt")
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (userLocation == null) {
@@ -281,14 +305,36 @@ internal fun TrailBrowserListContent(
                 verticalArrangement = Arrangement.spacedBy(Spacing.s4)
             ) {
                 item(key = "section_near_you_header") {
-                    Text(
-                        text = stringResource(R.string.explore_section_near_you),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier
-                            .padding(top = Spacing.s1)
-                            .testTag("section_near_you")
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.s1)) {
+                        Text(
+                            text = stringResource(R.string.explore_section_near_you),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier
+                                .padding(top = Spacing.s1)
+                                .testTag("section_near_you")
+                        )
+                        userLocationStaleMessage?.let { staleMsg ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = staleMsg,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.testTag("explore_stale_location_message")
+                                )
+                                androidx.compose.material3.TextButton(
+                                    onClick = onPickAnotherStart,
+                                    modifier = Modifier.testTag("explore_pick_another_start_button")
+                                ) {
+                                    Text("Vælg andet startpunkt")
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (userLocation == null) {

@@ -235,6 +235,7 @@ fun DropPinBottomSheet(
     onDismiss: () -> Unit,
     onRouteHere: (lat: Double, lng: Double, label: String) -> Unit,
     onAddToRoute: ((lat: Double, lng: Double, label: String) -> Unit)? = null,
+    onStartFromMyLocation: (() -> Unit)? = null,
     onPointSaved: ((UserCustomWaypointEntity) -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -550,6 +551,26 @@ fun DropPinBottomSheet(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(stringResource(R.string.drop_pin_add_next_point), maxLines = 1)
+                }
+            }
+
+            if (onStartFromMyLocation != null) {
+                OutlinedButton(
+                    onClick = {
+                        onStartFromMyLocation()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("drop_pin_start_from_my_location")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MyLocation,
+                        contentDescription = null,
+                        tint = primaryColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Start fra min position", maxLines = 1)
                 }
             }
 

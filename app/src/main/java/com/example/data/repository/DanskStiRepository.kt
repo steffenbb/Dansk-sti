@@ -907,12 +907,16 @@ class DanskStiRepository(
 
             kotlinx.coroutines.yield()
 
+            // Re-read latest shelters & POIs from Room so any POIs inserted concurrently are preserved
+            val latestShelters = dao.getAllSheltersList()
+            val latestPois = dao.getAllPoisList()
+
             // 3. Compute hasWaterNearby / hasToiletNearby on shelters within 500m
-            val allWaterPois = existingPois.filter { it.type == "water" }
-            val allToiletPois = existingPois.filter { it.type == "toilet" }
+            val allWaterPois = latestPois.filter { it.type == "water" }
+            val allToiletPois = latestPois.filter { it.type == "toilet" }
 
             val reevaluatedShelters = mutableListOf<ShelterEntity>()
-            for (sh in existingShelters) {
+            for (sh in latestShelters) {
                 val hasWater = allWaterPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
                 val hasToilet = allToiletPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
                 if (sh.hasWaterNearby != hasWater || sh.hasToiletNearby != hasToilet) {
@@ -924,7 +928,7 @@ class DanskStiRepository(
             }
 
             // 4. Store in TrailPoiEntity with routeId
-            persistProjectedRoutePois(routeId, points, existingShelters, existingPois)
+            persistProjectedRoutePois(routeId, points, latestShelters, latestPois)
 
             if (!online) {
                 Result.failure(IllegalStateException("Offline: henter ikke interessepunkter fra OpenStreetMap"))
@@ -1426,8 +1430,12 @@ class DanskStiRepository(
      * Round 10C Item 1 & Item 5: Detach offline archive from every open map's tile provider before deleting the file, then refresh the map.
      */
     suspend fun commitDownloadedTrailPermanentDelete(trailId: String) = withContext(Dispatchers.IO) {
+        runCatching {
+            androidx.work.WorkManager.getInstance(context).cancelUniqueWork("offline_download_$trailId")
+        }
         val archiveFile = com.example.util.OfflineDownloadManager.getOfflineArchiveFile(context, trailId)
         com.example.util.DanskStiTileSourceHelper.detachOfflineArchiveAndDeleteFile(archiveFile)
+        dao.deleteOfflineDownloadInProgress(trailId)
         dao.deleteDownloadedTrail(trailId)
     }
 
@@ -2151,16 +2159,89 @@ class DanskStiRepository(
     }
 
     /**
-     * Round 11 Item 3:
-     * On app start, delete orphan files:
+     * Round 12A Item 1:
+     * Ensures WorkManager has re-queued any pending or interrupted offline downloads recorded in
+     * `offline_downloads_in_progress` before `cleanupOrphanFiles` runs.
+     */
+    suspend fun requeuePendingOfflineDownloads() = withContext(Dispatchers.IO) {
+        try {
+            val inProgressRecords = dao.getAllOfflineDownloadsInProgressList()
+            if (inProgressRecords.isEmpty()) return@withContext
+            val downloadedIds = dao.getAllDownloadedTrailsList().map { it.trailId }.toSet()
+            val wm = runCatching { androidx.work.WorkManager.getInstance(context) }.getOrNull()
+            for (record in inProgressRecords) {
+                val tid = record.trailId
+                if (tid in downloadedIds) {
+                    dao.deleteOfflineDownloadInProgress(tid)
+                    continue
+                }
+                val uniqueWorkName = "offline_download_$tid"
+                val workInfos = runCatching { wm?.getWorkInfosForUniqueWork(uniqueWorkName)?.get() }.getOrNull().orEmpty()
+                val isQueuedOrRunning = workInfos.any {
+                    it.state == androidx.work.WorkInfo.State.ENQUEUED ||
+                        it.state == androidx.work.WorkInfo.State.RUNNING ||
+                        it.state == androidx.work.WorkInfo.State.BLOCKED
+                }
+                val isExplicitlyCancelled = workInfos.isNotEmpty() && workInfos.all {
+                    it.state == androidx.work.WorkInfo.State.CANCELLED
+                }
+                if (isExplicitlyCancelled) {
+                    dao.deleteOfflineDownloadInProgress(tid)
+                    continue
+                }
+                if (!isQueuedOrRunning && wm != null) {
+                    val trail = dao.getTrailById(tid)
+                    val req = com.example.util.OfflineDownloadManager.buildWorkRequest(
+                        trailId = tid,
+                        trailName = trail?.name ?: tid,
+                        corridorKm = 1.0
+                    )
+                    runCatching {
+                        wm.enqueueUniqueWork(
+                            uniqueWorkName,
+                            androidx.work.ExistingWorkPolicy.KEEP,
+                            req
+                        ).result.get()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("DanskStiRepo", "Failed to requeue pending offline downloads: ${e.message}")
+        }
+    }
+
+    private fun isOfflineDownloadActiveOrResumableInWorkManager(candidateIds: Set<String>): Boolean {
+        if (!androidx.work.WorkManager.isInitialized()) return false
+        val wm = runCatching { androidx.work.WorkManager.getInstance(context) }.getOrNull() ?: return false
+        for (cid in candidateIds) {
+            val uniqueWorkName = "offline_download_$cid"
+            val infos = runCatching { wm.getWorkInfosForUniqueWork(uniqueWorkName).get() }.getOrNull().orEmpty()
+            val active = infos.any { info ->
+                info.state == androidx.work.WorkInfo.State.ENQUEUED ||
+                    info.state == androidx.work.WorkInfo.State.RUNNING ||
+                    info.state == androidx.work.WorkInfo.State.BLOCKED
+            }
+            if (active) return true
+        }
+        return false
+    }
+
+    /**
+     * Round 11 Item 3 & Round 12A Item 1:
+     * On app start (after WorkManager has re-queued pending work), delete orphan files:
      * - plans/ files with no matching database row in trip_plans
      * - routes/ (and custom_routes/) files with no matching database row in custom_routes (or trip_plans)
-     * - offline/ files with no matching database row in downloaded_trails
+     * - offline/ files:
+     *   - Never delete an offline/ archive while a download for that trail is queued or running in WorkManager,
+     *     and never delete archives belonging to an interrupted download that can resume.
+     *   - Only delete offline/ files with neither a downloaded_trails row nor an offline_downloads_in_progress record,
+     *     and only if older than 24 hours.
      * - photos/ files no saved point in user_custom_waypoints refers to
      */
     suspend fun cleanupOrphanFiles(
         baseFilesDir: java.io.File = context.filesDir,
-        maxLastModifiedEpochMs: Long = Long.MAX_VALUE
+        maxLastModifiedEpochMs: Long = Long.MAX_VALUE,
+        nowEpochMs: Long = System.currentTimeMillis()
     ) = withContext(Dispatchers.IO) {
         try {
             // 1. plans/
@@ -2229,20 +2310,47 @@ class DanskStiRepository(
                 }
             }
 
-            // 3. offline/
+            // 3. offline/ (Round 12A Item 1)
             val validDownloadedTrails = dao.getAllDownloadedTrailsList()
-            val validOfflineStems = buildSet {
+            val validDownloadedStems = buildSet {
                 validDownloadedTrails.forEach { dt ->
                     add(dt.trailId)
                     add(dt.trailId.replace(Regex("[^a-zA-Z0-9_-]"), "_"))
                 }
             }
+            val inProgressDownloads = dao.getAllOfflineDownloadsInProgressList()
+            val inProgressStems = buildSet {
+                inProgressDownloads.forEach { ip ->
+                    add(ip.trailId)
+                    add(ip.trailId.replace(Regex("[^a-zA-Z0-9_-]"), "_"))
+                }
+            }
+            val allKnownTrails = runCatching { dao.getAllTrailsList() }.getOrDefault(emptyList())
+            val safeIdToTrailIds = HashMap<String, MutableSet<String>>()
+            for (t in allKnownTrails) {
+                val safe = t.id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                safeIdToTrailIds.getOrPut(safe) { LinkedHashSet() }.add(t.id)
+            }
+
+            val twentyFourHoursMs = 24L * 60L * 60L * 1000L
+            val offlineAgeCutoffMs = kotlin.math.min(maxLastModifiedEpochMs, nowEpochMs - twentyFourHoursMs)
+
             val offlineDir = java.io.File(baseFilesDir, "offline")
             if (offlineDir.exists()) {
                 offlineDir.listFiles()?.forEach { file ->
-                    if (file.isFile && file.lastModified() <= maxLastModifiedEpochMs) {
+                    if (file.isFile) {
                         val baseName = file.name.substringBefore(".sqlite")
-                        if (baseName !in validOfflineStems && file.name !in validOfflineStems) {
+                        val hasDownloadedRow = baseName in validDownloadedStems || file.name in validDownloadedStems
+                        val hasInProgressRow = baseName in inProgressStems || file.name in inProgressStems
+                        val candidateTrailIds = buildSet {
+                            add(baseName)
+                            safeIdToTrailIds[baseName]?.let { addAll(it) }
+                        }
+                        val isQueuedOrRunningInWm = isOfflineDownloadActiveOrResumableInWorkManager(candidateTrailIds)
+                        val isOlderThan24Hours = file.lastModified() < (nowEpochMs - twentyFourHoursMs) &&
+                            file.lastModified() <= offlineAgeCutoffMs
+
+                        if (!hasDownloadedRow && !hasInProgressRow && !isQueuedOrRunningInWm && isOlderThan24Hours) {
                             runCatching {
                                 com.example.util.DanskStiTileSourceHelper.detachOfflineArchiveAndDeleteFile(file)
                                 if (file.exists()) file.delete()
@@ -2308,15 +2416,196 @@ class DanskStiRepository(
         markedRouteRepository.saveAndDownloadDiscoveredRoute(route, onProgress)
     }
 
-    suspend fun clearCachedTrailGeometries() = withContext(Dispatchers.IO) {
-        try {
-            val trailsDir = java.io.File(context.filesDir, "trails")
-            trailsDir.listFiles()?.forEach { it.delete() }
-            context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
-        } catch (_: Exception) {
+    suspend fun getProtectedTrailIdsForRouteLinesCache(): Set<String> = withContext(Dispatchers.IO) {
+        val protectedIds = mutableSetOf<String>()
+        dao.getAllDownloadedTrailsList().forEach { protectedIds.add(it.trailId) }
+        dao.getAllOfflineDownloadsInProgressList().forEach { protectedIds.add(it.trailId) }
+        dao.getAllTripPlansList().forEach { plan ->
+            if (plan.trailId.isNotBlank()) protectedIds.add(plan.trailId)
         }
-        dao.resetAllTrailsGeometryDownloaded()
+        dao.getPlannerDraft()?.baseTrailId?.takeIf { it.isNotBlank() }?.let { protectedIds.add(it) }
+        dao.getAllCustomRoutesList().forEach { custom ->
+            protectedIds.add("custom_${custom.id}")
+            protectedIds.add("route_${custom.id}")
+        }
+        protectedIds
+    }
+
+    private fun toSafeTrailFileKey(trailId: String): String =
+        trailId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+
+    private suspend fun getUnprotectedTrailGeometryFiles(): List<java.io.File> {
+        val protectedIds = getProtectedTrailIdsForRouteLinesCache()
+        val protectedSafeKeys = protectedIds.map { toSafeTrailFileKey(it) }.toSet()
+        val unprotected = mutableListOf<java.io.File>()
+
+        val trailsDir = java.io.File(context.filesDir, "trails")
+        if (trailsDir.exists()) {
+            trailsDir.listFiles()?.forEach { file ->
+                if (!file.isFile) return@forEach
+                val name = file.name
+                val rawId = when {
+                    name.endsWith(".json.gz") -> name.removeSuffix(".json.gz")
+                    name.endsWith(".json") -> name.removeSuffix(".json")
+                    else -> null
+                } ?: return@forEach
+                val strippedId = rawId.removePrefix("trail_")
+                if (rawId !in protectedIds &&
+                    strippedId !in protectedIds &&
+                    rawId !in protectedSafeKeys &&
+                    strippedId !in protectedSafeKeys
+                ) {
+                    unprotected.add(file)
+                }
+            }
+        }
+
+        context.filesDir.listFiles()?.forEach { file ->
+            if (!file.isFile) return@forEach
+            val name = file.name
+            if (name.startsWith("trail_geom_") && name.endsWith(".json")) {
+                val rawId = name.removePrefix("trail_geom_").removeSuffix(".json")
+                if (rawId !in protectedIds && rawId !in protectedSafeKeys) {
+                    unprotected.add(file)
+                }
+            }
+        }
+        return unprotected
+    }
+
+    /**
+     * Round 12B Item 2: Ensure trails table reflects accurate downloaded states
+     * after clearing cached route lines.
+     */
+    suspend fun syncTrailGeometryDownloadedStates() = withContext(Dispatchers.IO) {
+        val offlineTrailIds = dao.getAllDownloadedTrailsList().map { it.trailId }.toSet()
+        val allTrails = dao.getAllTrailsList()
+        for (trail in allTrails) {
+            val hasGeometryOnDisk = geometryRepository.isGeometryCached(trail.id)
+            val hasOfflineArchive = trail.id in offlineTrailIds &&
+                java.io.File(java.io.File(context.filesDir, "offline"), "${trail.id}.sqlite").exists()
+            val shouldBeDownloaded = hasGeometryOnDisk || hasOfflineArchive
+            if (trail.isGeometryDownloaded != shouldBeDownloaded) {
+                dao.setTrailGeometryDownloaded(trail.id, shouldBeDownloaded)
+            }
+        }
+    }
+
+    suspend fun computeCacheBreakdown(): CacheBreakdown = withContext(Dispatchers.IO) {
+        val mapTilesBytes = com.example.util.DanskStiTileSourceHelper.getBrowsingTileCacheSizeBytes(context)
+
+        val unprotectedTrailFilesBytes = getUnprotectedTrailGeometryFiles().sumOf { it.length() }
+        val routeLegsBytes = runCatching { dao.getCachedRouteLegsApproxBytes() }.getOrDefault(0L)
+        val routeLinesBytes = unprotectedTrailFilesBytes + routeLegsBytes
+
+        val waterAndAccessBytes = runCatching {
+            dao.getWaterFeaturesApproxBytes() +
+                dao.getWaterTileCacheApproxBytes() +
+                dao.getAccessPolygonsApproxBytes()
+        }.getOrDefault(0L)
+
+        val catalogueMetaFile = java.io.File(context.filesDir, "catalogue_relations_meta_cache.json")
+        val catalogueMetaBytes = if (catalogueMetaFile.exists() && catalogueMetaFile.isFile) catalogueMetaFile.length() else 0L
+        val markedRoutesBytes = runCatching {
+            dao.getMarkedRoutesApproxBytes() + dao.getMarkedRouteBoxesApproxBytes() + catalogueMetaBytes
+        }.getOrDefault(catalogueMetaBytes)
+
+        val placeSearchBytes = com.example.data.remote.PhotonPlaceSearchService(context).getCacheSizeBytes()
+
+        CacheBreakdown(
+            mapTilesBytes = mapTilesBytes,
+            routeLinesBytes = routeLinesBytes,
+            waterAndAccessBytes = waterAndAccessBytes,
+            markedRoutesBytes = markedRoutesBytes,
+            placeSearchBytes = placeSearchBytes
+        )
+    }
+
+    /**
+     * Round 12B Item 2:
+     * Selectively clears checked caches without ever touching offline downloads,
+     * saved routes, plans, photos, or BRouter routing data.
+     */
+    suspend fun clearSelectedCaches(selected: Set<CacheCategory>): Long = withContext(Dispatchers.IO) {
+        val breakdownBefore = computeCacheBreakdown()
+        val freedEstimate = breakdownBefore.totalBytesFor(selected)
+
+        if (CacheCategory.MAP_TILES in selected) {
+            com.example.util.DanskStiTileSourceHelper.detachDeleteAndReattachTileCache(context)
+        }
+
+        if (CacheCategory.ROUTE_LINES in selected) {
+            runCatching {
+                getUnprotectedTrailGeometryFiles().forEach { it.delete() }
+            }
+            runCatching {
+                dao.clearAllCachedRouteLegs()
+            }
+            syncTrailGeometryDownloadedStates()
+        }
+
+        if (CacheCategory.WATER_AND_ACCESS in selected) {
+            runCatching {
+                dao.clearAllWaterFeatures()
+                dao.clearAllWaterTileCache()
+                dao.clearAllAccessPolygons()
+            }
+        }
+
+        if (CacheCategory.MARKED_ROUTES in selected) {
+            runCatching {
+                dao.clearAllMarkedRoutes()
+                dao.clearAllMarkedRouteCacheBoxes()
+                val catalogueMetaFile = java.io.File(context.filesDir, "catalogue_relations_meta_cache.json")
+                if (catalogueMetaFile.exists()) catalogueMetaFile.delete()
+            }
+        }
+
+        if (CacheCategory.PLACE_SEARCH in selected) {
+            runCatching {
+                com.example.data.remote.PhotonPlaceSearchService(context).clearCache()
+            }
+        }
+
+        freedEstimate
+    }
+
+    suspend fun clearCachedTrailGeometries() = withContext(Dispatchers.IO) {
+        clearSelectedCaches(CacheCategory.entries.toSet())
     }
 }
+
+enum class CacheCategory {
+    MAP_TILES,
+    ROUTE_LINES,
+    WATER_AND_ACCESS,
+    MARKED_ROUTES,
+    PLACE_SEARCH
+}
+
+data class CacheBreakdown(
+    val mapTilesBytes: Long = 0L,
+    val routeLinesBytes: Long = 0L,
+    val waterAndAccessBytes: Long = 0L,
+    val markedRoutesBytes: Long = 0L,
+    val placeSearchBytes: Long = 0L
+) {
+    fun bytesFor(category: CacheCategory): Long = when (category) {
+        CacheCategory.MAP_TILES -> mapTilesBytes
+        CacheCategory.ROUTE_LINES -> routeLinesBytes
+        CacheCategory.WATER_AND_ACCESS -> waterAndAccessBytes
+        CacheCategory.MARKED_ROUTES -> markedRoutesBytes
+        CacheCategory.PLACE_SEARCH -> placeSearchBytes
+    }
+
+    fun sizeFor(category: CacheCategory): Long = bytesFor(category)
+
+    val entries: Map<CacheCategory, Long>
+        get() = CacheCategory.entries.associateWith { bytesFor(it) }
+
+    fun totalBytesFor(selected: Set<CacheCategory>): Long =
+        selected.sumOf { bytesFor(it) }
+}
+
 
 

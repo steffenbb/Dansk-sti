@@ -509,29 +509,20 @@ internal fun PlannerUnsavedChangesDialog(
 @Composable
 internal fun TripSettingsDialog(
     uiState: RouteBuilderState,
-    onUpdateSettings: (
-        paceKmh: Double,
-        dailyTargetKm: Double,
-        maxDetourKm: Double,
-        startHour: Int,
-        startDateEpochMs: Long,
-        overnightPref: String
-    ) -> Unit,
+    onUpdateSettings: (Double, Double, Double, String, Long, String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var pace by remember(uiState.paceKmh) { mutableStateOf(uiState.paceKmh) }
     var dailyKm by remember(uiState.dailyTargetKm) { mutableStateOf(uiState.dailyTargetKm) }
     var maxDetourKm by remember(uiState.maxDetourKm) { mutableStateOf(uiState.maxDetourKm) }
-    var startHour by remember(uiState.startHour) { mutableStateOf(uiState.startHour) }
+    var startTimeStr by remember(uiState.startTimeStr) { mutableStateOf(uiState.startTimeStr) }
+    var selectedEpochMs by remember(uiState.startDateEpochMs) { mutableStateOf(uiState.startDateEpochMs) }
     var startDateOffsetDays by remember(uiState.startDateEpochMs) {
         val diff = ((uiState.startDateEpochMs - System.currentTimeMillis()) / (24L * 3600_000L)).toInt().coerceIn(0, 30)
         mutableStateOf(diff)
     }
     var overnightPref by remember(uiState.overnightPreference) { mutableStateOf(uiState.overnightPreference.name) }
 
-    val selectedEpochMs = remember(startDateOffsetDays) {
-        System.currentTimeMillis() + startDateOffsetDays * 24L * 3600_000L
-    }
     val formattedStartDate = remember(selectedEpochMs) {
         SimpleDateFormat("d. MMM yyyy", Locale("da", "DK")).format(Date(selectedEpochMs))
     }
@@ -565,14 +556,18 @@ internal fun TripSettingsDialog(
                             text = String.format(Locale.GERMANY, "%.1f km/t", pace),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.testTag("trip_settings_pace_value")
                         )
                     }
                     Slider(
-                        value = pace.toFloat(),
-                        onValueChange = { pace = (Math.round(it * 2f) / 2.0) },
-                        valueRange = 2.5f..6.0f,
-                        steps = 6,
+                        value = pace.toFloat().coerceIn(
+                            com.example.data.local.HikingSettingsRanges.PACE_RANGE_FLOAT.start,
+                            com.example.data.local.HikingSettingsRanges.PACE_RANGE_FLOAT.endInclusive
+                        ),
+                        onValueChange = { pace = com.example.data.local.HikingSettingsRanges.clampPaceKmh(it.toDouble()) },
+                        valueRange = com.example.data.local.HikingSettingsRanges.PACE_RANGE_FLOAT,
+                        steps = com.example.data.local.HikingSettingsRanges.PACE_SLIDER_STEPS,
                         colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.testTag("slider_trip_pace")
                     )
@@ -588,14 +583,18 @@ internal fun TripSettingsDialog(
                             text = stringResource(R.string.ui_markedroutedetailsheet_km_19, dailyKm.toInt()),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.testTag("trip_settings_daily_km_value")
                         )
                     }
                     Slider(
-                        value = dailyKm.toFloat(),
-                        onValueChange = { dailyKm = it.toInt().toDouble() },
-                        valueRange = 5f..35f,
-                        steps = 29,
+                        value = dailyKm.toFloat().coerceIn(
+                            com.example.data.local.HikingSettingsRanges.DAILY_TARGET_RANGE_FLOAT.start,
+                            com.example.data.local.HikingSettingsRanges.DAILY_TARGET_RANGE_FLOAT.endInclusive
+                        ),
+                        onValueChange = { dailyKm = com.example.data.local.HikingSettingsRanges.clampDailyTargetKm(it.toDouble()) },
+                        valueRange = com.example.data.local.HikingSettingsRanges.DAILY_TARGET_RANGE_FLOAT,
+                        steps = com.example.data.local.HikingSettingsRanges.DAILY_TARGET_SLIDER_STEPS,
                         colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.testTag("slider_trip_daily_km")
                     )
@@ -615,7 +614,7 @@ internal fun TripSettingsDialog(
                         )
                     }
                     Slider(
-                        value = maxDetourKm.toFloat(),
+                        value = maxDetourKm.toFloat().coerceIn(0.2f, 2.5f),
                         onValueChange = { maxDetourKm = (Math.round(it * 10f) / 10.0) },
                         valueRange = 0.2f..2.5f,
                         steps = 22,
@@ -642,8 +641,11 @@ internal fun TripSettingsDialog(
                         )
                     }
                     Slider(
-                        value = startDateOffsetDays.toFloat(),
-                        onValueChange = { startDateOffsetDays = it.toInt() },
+                        value = startDateOffsetDays.toFloat().coerceIn(0f, 14f),
+                        onValueChange = {
+                            startDateOffsetDays = it.toInt()
+                            selectedEpochMs = System.currentTimeMillis() + startDateOffsetDays * 24L * 3600_000L
+                        },
                         valueRange = 0f..14f,
                         steps = 13,
                         colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary),
@@ -656,17 +658,18 @@ internal fun TripSettingsDialog(
                     ) {
                         Text(stringResource(R.string.setting_start_time), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            text = String.format(Locale.GERMANY, "kl. %02d:00", startHour),
+                            text = String.format(Locale.GERMANY, "kl. %s", startTimeStr),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.testTag("trip_settings_start_time_value")
                         )
                     }
                     Slider(
-                        value = startHour.toFloat(),
-                        onValueChange = { startHour = it.toInt() },
-                        valueRange = 6f..14f,
-                        steps = 7,
+                        value = com.example.data.local.HikingSettingsRanges.startTimeToSliderIndex(startTimeStr),
+                        onValueChange = { startTimeStr = com.example.data.local.HikingSettingsRanges.sliderIndexToStartTime(it) },
+                        valueRange = com.example.data.local.HikingSettingsRanges.START_TIME_SLIDER_RANGE,
+                        steps = com.example.data.local.HikingSettingsRanges.START_TIME_SLIDER_STEPS,
                         colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.testTag("slider_trip_start_hour")
                     )
@@ -713,7 +716,7 @@ internal fun TripSettingsDialog(
                         pace,
                         dailyKm,
                         maxDetourKm,
-                        startHour,
+                        startTimeStr,
                         selectedEpochMs,
                         overnightPref
                     )

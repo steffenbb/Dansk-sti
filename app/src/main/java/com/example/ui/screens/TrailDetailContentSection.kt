@@ -579,15 +579,33 @@ internal fun TrailDetailDetailsSection(
             }
         }
         startNowStatusMessage?.let { statusMsg ->
-            Text(
-                text = statusMsg,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .testTag("start_now_status_message")
-            )
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = statusMsg,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("start_now_status_message")
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                androidx.compose.material3.TextButton(
+                    onClick = { onPlanTrip(trailId) },
+                    modifier = Modifier.testTag("start_now_pick_another_start_button")
+                ) {
+                    Text(
+                        text = "Vælg andet startpunkt",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     }
 }

@@ -139,11 +139,14 @@ class DanskStiApp : Application() {
             databaseField = db
             repositoryField = DanskStiRepository(db.dao(), this)
             _databaseError.value = null
-            CoroutineScope(Dispatchers.IO).launch {
+            activeInitJob?.cancel()
+            activeInitJob = CoroutineScope(Dispatchers.IO).launch {
                 try {
                     migrateLegacyWaypointPhotosInDb(db.dao())
-                    repository.cleanupOrphanFiles(filesDir, maxLastModifiedEpochMs = startupCutoffMs)
                     repository.initializePreseededDataIfEmpty()
+                    // Round 12A Item 1: Run orphan clean-up AFTER WorkManager has re-queued pending work, not in parallel with it.
+                    repository.requeuePendingOfflineDownloads()
+                    repository.cleanupOrphanFiles(filesDir, maxLastModifiedEpochMs = startupCutoffMs)
                 } catch (t: Throwable) {
                     Log.e("DanskStiApp", "Failed to preseed database: ${t.message}", t)
                 }
@@ -155,6 +158,7 @@ class DanskStiApp : Application() {
     }
 
     suspend fun cleanupOrphanFilesNow() {
+        repository.requeuePendingOfflineDownloads()
         repository.cleanupOrphanFiles(filesDir)
     }
 
@@ -216,6 +220,14 @@ class DanskStiApp : Application() {
 
         lateinit var instance: DanskStiApp
             private set
+
+        @Volatile
+        private var activeInitJob: kotlinx.coroutines.Job? = null
+
+        fun cancelActiveInitJob() {
+            activeInitJob?.cancel()
+            activeInitJob = null
+        }
 
         @Volatile
         private var fallbackSettingsRepository: com.example.data.local.SettingsRepository? = null
