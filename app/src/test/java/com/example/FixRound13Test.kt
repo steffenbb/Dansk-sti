@@ -81,6 +81,7 @@ class FixRound13Test {
         OverpassClient.resetMetricsForTest()
         TrailGeometryRepository.resetDownloadDeduplicationForTest()
         TrailGeometryRepository.customRelationFetcher = null
+        TrailGeometryRepository.customElevationFetcher = { coords -> coords.map { 12.0 } }
     }
 
     @After
@@ -88,6 +89,7 @@ class FixRound13Test {
         OverpassClient.resetMetricsForTest()
         TrailGeometryRepository.resetDownloadDeduplicationForTest()
         TrailGeometryRepository.customRelationFetcher = null
+        TrailGeometryRepository.customElevationFetcher = null
     }
 
     // =========================================================================
@@ -903,12 +905,12 @@ class FixRound13Test {
 
         vmCancel.cancelTrailDownload()
         val cancelDeadline = System.currentTimeMillis() + 2_000L
-        while (trailId !in TrailGeometryRepository.cancelledTrailIds && System.currentTimeMillis() < cancelDeadline) {
+        while (TrailGeometryRepository.isDownloadInFlight(trailId) && System.currentTimeMillis() < cancelDeadline) {
             delay(20L)
         }
-        assertTrue(
-            "Shared download must stop and record cancelled trailId when no one else is waiting",
-            TrailGeometryRepository.cancelledTrailIds.contains(trailId)
+        assertFalse(
+            "Shared download must stop when no one else is waiting",
+            TrailGeometryRepository.isDownloadInFlight(trailId)
         )
         assertFalse("isFetchingLiveRoute must be false after cancelling", vmCancel.isFetchingLiveRoute.value)
         assertEquals("Download annulleret", vmCancel.routeError.value)

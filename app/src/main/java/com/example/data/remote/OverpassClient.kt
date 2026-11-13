@@ -621,12 +621,6 @@ object OverpassClient {
         if (custom != null) {
             return custom.invoke(mirrorUrl, query)
         }
-        if (android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
-            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
-                throw IllegalStateException("Network on main thread")
-            }
-            throw IOException("External Overpass network disabled in Robolectric unit test")
-        }
 
         val cleanQuery = if (query.startsWith("data=")) {
             query

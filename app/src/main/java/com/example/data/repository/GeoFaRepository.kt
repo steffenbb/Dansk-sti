@@ -180,20 +180,6 @@ class GeoFaRepository(private val context: Context) {
                 // Try next candidate path
             }
         }
-        val diskCandidates = listOf(
-            File("src/main/assets/geofa/$assetName"),
-            File("app/src/main/assets/geofa/$assetName")
-        )
-        for (file in diskCandidates) {
-            if (file.exists()) {
-                try {
-                    return file.inputStream().use { rawInput ->
-                        GZIPInputStream(rawInput).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                    }
-                } catch (_: Exception) {
-                }
-            }
-        }
         Log.w("GeoFaRepo", "Could not read asset geofa/$assetName")
         return null
     }

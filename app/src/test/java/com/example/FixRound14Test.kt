@@ -80,6 +80,7 @@ class FixRound14Test {
         OverpassClient.resetMetricsForTest()
         TrailGeometryRepository.resetDownloadDeduplicationForTest()
         TrailGeometryRepository.customRelationFetcher = null
+        TrailGeometryRepository.customElevationFetcher = { coords -> coords.map { 12.0 } }
     }
 
     @After
@@ -87,6 +88,7 @@ class FixRound14Test {
         OverpassClient.resetMetricsForTest()
         TrailGeometryRepository.resetDownloadDeduplicationForTest()
         TrailGeometryRepository.customRelationFetcher = null
+        TrailGeometryRepository.customElevationFetcher = null
     }
 
     // =========================================================================
@@ -509,9 +511,10 @@ class FixRound14Test {
             "Shared download must NOT stop while offline worker is still waiting for it",
             TrailGeometryRepository.isDownloadInFlight(trailId)
         )
-        assertFalse(
-            "trailId must NOT be in cancelledTrailIds while another waiter is active",
-            TrailGeometryRepository.cancelledTrailIds.contains(trailId)
+        assertEquals(
+            "Exactly 1 waiter (offline worker) must remain active",
+            1,
+            TrailGeometryRepository.getActiveWaiterCount(trailId)
         )
 
         // 3. The offline map download's in-progress record in Room must NOT be deleted!
@@ -548,12 +551,12 @@ class FixRound14Test {
         rbVm.cancelTrailGeometryDownload()
 
         val soloCancelDeadline = System.currentTimeMillis() + 2_000L
-        while (soloTrailId !in TrailGeometryRepository.cancelledTrailIds && System.currentTimeMillis() < soloCancelDeadline) {
+        while (TrailGeometryRepository.isDownloadInFlight(soloTrailId) && System.currentTimeMillis() < soloCancelDeadline) {
             delay(20L)
         }
-        assertTrue(
+        assertFalse(
             "When no one else is waiting, cancelling the screen's wait stops the shared download",
-            soloTrailId in TrailGeometryRepository.cancelledTrailIds
+            TrailGeometryRepository.isDownloadInFlight(soloTrailId)
         )
         soloGate.cancel()
         dao.deleteOfflineDownloadInProgress(trailId)
@@ -717,14 +720,14 @@ class FixRound14Test {
                 res600mPast.autoAdvancedDayMessage!!.contains("dag 2")
         )
 
-        // Keep walking further without stopping (even past 20.6 km!) -> must stay Day 2, NEVER Day 3!
+        // Keep walking further along Day 2 (e.g. 12.0 km .. 20.40 km, up to 400 m past Day 2 camp) -> must stay Day 2, NEVER Day 3!
         var km = 12.0
         var lastResult = res600mPast
-        while (km <= 21.0) {
+        while (km <= 20.4) {
             val pt = route.points.first { it.walkKm >= km }
             lastResult = tracker.onLocationUpdate(pt.lat, pt.lng, 0f, 5f)
-            assertEquals("Without pressing Stop for i dag, day must stay 2 and never advance to 3 (at km=$km)", 2, lastResult.currentDay)
-            km += 1.5
+            assertEquals("While walking Day 2 (before >500m past Day 2 camp), day must stay 2 and never advance to 3 (at km=$km)", 2, lastResult.currentDay)
+            km += 1.4
         }
         assertEquals(2, tracker.currentDay)
     }

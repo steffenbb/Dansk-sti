@@ -80,7 +80,8 @@ class RouteTracker(
 
     private var consecutiveOffRouteCount = 0
     private val consecutiveJumpCandidates = mutableListOf<SegmentProjection>()
-    private var hasAutoAdvancedPastCampWithoutStopping = false
+    var autoAdvancedFromDay: Int = 0
+        private set
 
     companion object {
         const val DETOUR_MUTE_DURATION_MS = 30L * 60L * 1000L // 30 minutes
@@ -245,9 +246,9 @@ class RouteTracker(
             val isCampStage = hasNextDay || !todayStage.stopType.equals("DESTINATION", ignoreCase = true)
 
             if (hasNextDay && walkedPastStageEndM > PAST_CAMP_AUTO_ADVANCE_THRESHOLD_M) {
-                if (!hasAutoAdvancedPastCampWithoutStopping) {
+                if (autoAdvancedFromDay != currentDay) {
                     val passedCampName = todayStage.stopName.ifBlank { "dagens lejr" }
-                    hasAutoAdvancedPastCampWithoutStopping = true
+                    autoAdvancedFromDay = currentDay
                     currentDay += 1
                     todayStage = stages.getOrNull(currentDay - 1) ?: stages.lastOrNull()
                     hasArrivedAtTonightCamp = false
@@ -341,7 +342,7 @@ class RouteTracker(
         currentDay = nextDay
         hasArrivedAtTonightCamp = false
         autoAdvancedDayMessage = null
-        hasAutoAdvancedPastCampWithoutStopping = false
+        autoAdvancedFromDay = 0
 
         val nextStage = stages.getOrNull(currentDay - 1)
 

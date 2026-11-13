@@ -67,7 +67,6 @@ class TrailGeometryRepository(private val context: Context) {
 
         val totalDownloadStarts = java.util.concurrent.atomic.AtomicInteger(0)
         val downloadStartCountByTrail = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
-        val cancelledTrailIds = CopyOnWriteArrayList<String>()
 
         /**
          * Optional hook for unit tests to supply relation elements and verify progress / name mismatch logging.
@@ -79,6 +78,13 @@ class TrailGeometryRepository(private val context: Context) {
             onChildProgress: ((downloaded: Int, total: Int) -> Unit)?
         ) -> Boolean)? = null
 
+        /**
+         * Optional injectable hook for Open-Meteo elevation lookups in tests.
+         * Given a list of (lat, lng) coordinates, returns a list of elevations (meters) of the same size, or null on failure.
+         */
+        @Volatile
+        var customElevationFetcher: ((coords: List<Pair<Double, Double>>) -> List<Double?>?)? = null
+
         fun resetDownloadDeduplicationForTest() {
             synchronized(inFlightLock) {
                 inFlightDownloads.values.forEach { it.deferred.cancel() }
@@ -86,7 +92,6 @@ class TrailGeometryRepository(private val context: Context) {
             }
             totalDownloadStarts.set(0)
             downloadStartCountByTrail.clear()
-            cancelledTrailIds.clear()
             _globalDownloadProgress.value = emptyMap()
         }
 
@@ -100,7 +105,6 @@ class TrailGeometryRepository(private val context: Context) {
             inFlightDownloads[trailId]?.waiterCount?.get() ?: 0
 
         fun cancelDownload(trailId: String) {
-            cancelledTrailIds.add(trailId)
             val removed = synchronized(inFlightLock) {
                 inFlightDownloads.remove(trailId)
             }
@@ -416,7 +420,6 @@ class TrailGeometryRepository(private val context: Context) {
                     inFlightDownloads.remove(trailId, inFlight)
                 }
                 if (!inFlight.deferred.isCompleted) {
-                    cancelledTrailIds.add(trailId)
                     inFlight.deferred.cancel(kotlinx.coroutines.CancellationException("Download annulleret"))
                 }
                 clearProgress(trailId)
@@ -798,11 +801,22 @@ class TrailGeometryRepository(private val context: Context) {
         toLat: Double,
         toLng: Double
     ): Pair<Double?, Double?> = withContext(Dispatchers.IO) {
+        val customFetcher = customElevationFetcher
+        if (customFetcher != null) {
+            return@withContext try {
+                val res = customFetcher.invoke(listOf(fromLat to fromLng, toLat to toLng))
+                if (res != null && res.size >= 2) {
+                    Pair(res[0], res[1])
+                } else {
+                    Pair(null, null)
+                }
+            } catch (e: Exception) {
+                Log.w("TrailGeometry", "Custom endpoint elevation lookup failed: ${e.message}")
+                Pair(null, null)
+            }
+        }
         val url = "https://api.open-meteo.com/v1/elevation?latitude=$fromLat,$toLat&longitude=$fromLng,$toLng"
         try {
-            if (android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
-                return@withContext Pair(null, null)
-            }
             val request = Request.Builder().url(url).header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT).build()
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
@@ -1252,14 +1266,29 @@ class TrailGeometryRepository(private val context: Context) {
             var lookupFailed = false
 
             for (chunk in resampled.chunked(100)) {
+                val customFetcher = customElevationFetcher
+                if (customFetcher != null) {
+                    try {
+                        val res = customFetcher.invoke(chunk.map { it.lat to it.lng })
+                        if (res != null && res.size == chunk.size && res.all { it != null }) {
+                            for (e in res) {
+                                elevations.add(e!!)
+                            }
+                        } else {
+                            lookupFailed = true
+                            break
+                        }
+                    } catch (e: Exception) {
+                        Log.w("TrailGeometry", "Custom elevation lookup failed: ${e.message}")
+                        lookupFailed = true
+                        break
+                    }
+                    continue
+                }
                 val lats = chunk.joinToString(",") { it.lat.toString() }
                 val lons = chunk.joinToString(",") { it.lng.toString() }
                 val url = "https://api.open-meteo.com/v1/elevation?latitude=$lats&longitude=$lons"
                 try {
-                    if (android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
-                        lookupFailed = true
-                        break
-                    }
                     val request = Request.Builder().url(url).header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT).build()
                     client.newCall(request).execute().use { response ->
                         if (response.isSuccessful) {
