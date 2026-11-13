@@ -581,7 +581,11 @@ class DanskStiRepository(
                     }
                     customGeom
                 } else null
-            } else if (isDeviceOnline() || TrailGeometryRepository.customRelationFetcher != null) {
+            } else if (isDeviceOnline() ||
+                TrailGeometryRepository.customRelationFetcher != null ||
+                com.example.data.remote.OverpassClient.customTransport != null ||
+                com.example.data.remote.OverpassClient.customSessionTransport != null
+            ) {
                 geometryRepository.fetchAndProcessTrail(trail.id, trail.name, trail.osmRelationId)?.takeIf {
                     it.segments.any { seg -> seg.points.isNotEmpty() }
                 }?.also {
@@ -608,6 +612,8 @@ class DanskStiRepository(
             } else {
                 null
             }
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
         } catch (t: Throwable) {
             Log.e("DanskStiRepo", "Error getting trail points for ${trail.name}: ${t.message}", t)
             null

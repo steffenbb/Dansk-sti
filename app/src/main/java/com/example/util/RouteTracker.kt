@@ -30,7 +30,9 @@ data class TrackingResult(
     val ignoredForProgress: Boolean,
     val shouldVibrate: Boolean,
     val shouldPersistToDb: Boolean,
-    val isDetourMuted: Boolean = false
+    val isDetourMuted: Boolean = false,
+    val hasArrivedAtTonightCamp: Boolean = false,
+    val autoAdvancedDayMessage: String? = null
 )
 
 data class SegmentProjection(
@@ -49,13 +51,19 @@ class RouteTracker(
     var currentWalkKm: Double = initialWalkKm
         private set
 
-    var currentDay: Int = initialDay
+    var currentDay: Int = initialDay.coerceAtLeast(1)
         private set
 
     var isOffRoute: Boolean = false
         private set
 
     var isCompleted: Boolean = false
+        private set
+
+    var hasArrivedAtTonightCamp: Boolean = false
+        private set
+
+    var autoAdvancedDayMessage: String? = null
         private set
 
     var lastPersistedWalkKm: Double = initialWalkKm
@@ -72,9 +80,12 @@ class RouteTracker(
 
     private var consecutiveOffRouteCount = 0
     private val consecutiveJumpCandidates = mutableListOf<SegmentProjection>()
+    private var hasAutoAdvancedPastCampWithoutStopping = false
 
     companion object {
         const val DETOUR_MUTE_DURATION_MS = 30L * 60L * 1000L // 30 minutes
+        const val CAMP_ARRIVAL_THRESHOLD_M = 150.0
+        const val PAST_CAMP_AUTO_ADVANCE_THRESHOLD_M = 500.0
     }
 
     /**
@@ -120,7 +131,9 @@ class RouteTracker(
                 isCompleted = false,
                 ignoredForProgress = true,
                 shouldVibrate = false,
-                shouldPersistToDb = false
+                shouldPersistToDb = false,
+                hasArrivedAtTonightCamp = false,
+                autoAdvancedDayMessage = null
             )
         }
 
@@ -217,13 +230,43 @@ class RouteTracker(
             GeoUtils.bearing(lat, lng, nearestAhead.lat, nearestAhead.lng)
         } else bearing
 
-        // 5. Stage calculations & auto-advance day
+        // 5. Stage calculations & Round 14 Item 4 multi-day navigation rules:
+        // - Do NOT auto-advance the day when currentWalkKm passes today's stage end.
+        //   Instead set "arrived at tonight's camp" and show the arrival card (using today's stage).
+        // - If the user keeps walking more than 500 m past tonight's camp without pressing "Stop for i dag",
+        //   advance one day once, and say so.
         val stages = plannedRoute.stages
         var todayStage = stages.getOrNull(currentDay - 1) ?: stages.lastOrNull()
 
-        if (todayStage != null && currentWalkKm >= todayStage.endWalkKm && currentDay < stages.size) {
-            currentDay++
-            todayStage = stages[currentDay - 1]
+        if (todayStage != null && todayStage.endWalkKm > 0.0) {
+            val remainingToStageEndM = (todayStage.endWalkKm - currentWalkKm) * 1000.0
+            val walkedPastStageEndM = (currentWalkKm - todayStage.endWalkKm) * 1000.0
+            val hasNextDay = currentDay < stages.size
+            val isCampStage = hasNextDay || !todayStage.stopType.equals("DESTINATION", ignoreCase = true)
+
+            if (hasNextDay && walkedPastStageEndM > PAST_CAMP_AUTO_ADVANCE_THRESHOLD_M) {
+                if (!hasAutoAdvancedPastCampWithoutStopping) {
+                    val passedCampName = todayStage.stopName.ifBlank { "dagens lejr" }
+                    hasAutoAdvancedPastCampWithoutStopping = true
+                    currentDay += 1
+                    todayStage = stages.getOrNull(currentDay - 1) ?: stages.lastOrNull()
+                    hasArrivedAtTonightCamp = false
+                    autoAdvancedDayMessage =
+                        "Du gik mere end 500 m forbi $passedCampName uden at stoppe for i dag – skiftede til dag $currentDay"
+                } else {
+                    hasArrivedAtTonightCamp = false
+                }
+            } else if (isCampStage &&
+                remainingToStageEndM <= CAMP_ARRIVAL_THRESHOLD_M &&
+                walkedPastStageEndM <= PAST_CAMP_AUTO_ADVANCE_THRESHOLD_M
+            ) {
+                // Keep currentDay and todayStage on today's stage!
+                hasArrivedAtTonightCamp = true
+            } else {
+                hasArrivedAtTonightCamp = false
+            }
+        } else {
+            hasArrivedAtTonightCamp = false
         }
 
         val stageStartWalk = todayStage?.startWalkKm ?: 0.0
@@ -273,7 +316,9 @@ class RouteTracker(
             ignoredForProgress = !isAccurate,
             shouldVibrate = shouldVibrate,
             shouldPersistToDb = shouldPersistToDb,
-            isDetourMuted = isDetourMuted(timestampMs)
+            isDetourMuted = isDetourMuted(timestampMs),
+            hasArrivedAtTonightCamp = hasArrivedAtTonightCamp,
+            autoAdvancedDayMessage = autoAdvancedDayMessage
         )
     }
 
@@ -282,10 +327,22 @@ class RouteTracker(
         lastPersistedTimeMs = timestampMs
     }
 
+    /**
+     * Round 14 Item 4:
+     * stopForToday advances exactly one day from the day being walked.
+     */
     fun stopForToday(): TripProgressEntity {
         val stages = plannedRoute.stages
-        val nextDay = min(stages.size, currentDay + 1)
+        val nextDay = if (stages.isNotEmpty()) {
+            min(stages.size, currentDay + 1)
+        } else {
+            currentDay + 1
+        }
         currentDay = nextDay
+        hasArrivedAtTonightCamp = false
+        autoAdvancedDayMessage = null
+        hasAutoAdvancedPastCampWithoutStopping = false
+
         val nextStage = stages.getOrNull(currentDay - 1)
 
         val remainingTripKm = max(0.0, plannedRoute.totalWalkKm - currentWalkKm)

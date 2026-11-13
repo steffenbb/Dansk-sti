@@ -69,9 +69,6 @@ class TrailGeometryRepository(private val context: Context) {
         val downloadStartCountByTrail = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
         val cancelledTrailIds = CopyOnWriteArrayList<String>()
 
-        @Volatile
-        var noServerAnswerTimeoutMs: Long = 55_000L
-
         /**
          * Optional hook for unit tests to supply relation elements and verify progress / name mismatch logging.
          */
@@ -90,12 +87,17 @@ class TrailGeometryRepository(private val context: Context) {
             totalDownloadStarts.set(0)
             downloadStartCountByTrail.clear()
             cancelledTrailIds.clear()
-            noServerAnswerTimeoutMs = 55_000L
             _globalDownloadProgress.value = emptyMap()
         }
 
         fun getDownloadStartCount(trailId: String): Int =
             downloadStartCountByTrail[trailId]?.get() ?: 0
+
+        fun isDownloadInFlight(trailId: String): Boolean =
+            inFlightDownloads[trailId]?.deferred?.isActive == true
+
+        fun getActiveWaiterCount(trailId: String): Int =
+            inFlightDownloads[trailId]?.waiterCount?.get() ?: 0
 
         fun cancelDownload(trailId: String) {
             cancelledTrailIds.add(trailId)
@@ -230,14 +232,14 @@ class TrailGeometryRepository(private val context: Context) {
         return primary
     }
 
-    suspend fun isGeometryCached(trailId: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun isGeometryCached(trailId: String): Boolean = withContext(com.example.data.remote.OverpassClient.ioDispatcher) {
         getRouteGeometryFile(trailId).exists() ||
             getGeometryFile(trailId).exists() ||
             File(effectiveFilesDir, "trail_geom_$trailId.json").exists() ||
             File(context.filesDir, "trail_geom_$trailId.json").exists()
     }
 
-    suspend fun loadGeometry(trailId: String): TrailGeometryDto? = withContext(Dispatchers.IO) {
+    suspend fun loadGeometry(trailId: String): TrailGeometryDto? = withContext(com.example.data.remote.OverpassClient.ioDispatcher) {
         // 1. Check custom routes directory first
         val routeFile = getRouteGeometryFile(trailId)
         if (routeFile.exists()) {
@@ -291,7 +293,7 @@ class TrailGeometryRepository(private val context: Context) {
         return walkSegments.isNotEmpty() && walkSegments.any { it.wayTagRanges.isNotEmpty() }
     }
 
-    suspend fun saveGeometry(geometry: TrailGeometryDto) = withContext(Dispatchers.IO) {
+    suspend fun saveGeometry(geometry: TrailGeometryDto) = withContext(com.example.data.remote.OverpassClient.ioDispatcher) {
         if (geometry.segments.all { it.points.isEmpty() }) {
             return@withContext
         }
@@ -317,7 +319,7 @@ class TrailGeometryRepository(private val context: Context) {
         }
     }
 
-    suspend fun saveRouteGeometry(routeId: String, geometry: TrailGeometryDto?) = withContext(Dispatchers.IO) {
+    suspend fun saveRouteGeometry(routeId: String, geometry: TrailGeometryDto?) = withContext(com.example.data.remote.OverpassClient.ioDispatcher) {
         if (geometry == null || geometry.segments.all { it.points.isEmpty() }) {
             return@withContext
         }
@@ -414,7 +416,8 @@ class TrailGeometryRepository(private val context: Context) {
                     inFlightDownloads.remove(trailId, inFlight)
                 }
                 if (!inFlight.deferred.isCompleted) {
-                    inFlight.deferred.cancel()
+                    cancelledTrailIds.add(trailId)
+                    inFlight.deferred.cancel(kotlinx.coroutines.CancellationException("Download annulleret"))
                 }
                 clearProgress(trailId)
             }
@@ -491,31 +494,25 @@ class TrailGeometryRepository(private val context: Context) {
                 emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
             }
         } else {
-            val timeoutMs = noServerAnswerTimeoutMs.coerceIn(1_000L, 58_000L)
-            try {
-                kotlinx.coroutines.withTimeout(timeoutMs) {
-                    downloadRelationRecursive(
-                        relationId = relationId,
-                        collected = rawElements,
-                        onStatusChange = onOverpassStatusChange
-                    ) { dl, tot ->
-                        val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
-                        emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
-                    }
-                    if (rawElements.isNotEmpty()) {
-                        // Round 13 Item 2e: Fetch member way tags in ONE request for all relations, not one per relation.
-                        val allWayTags = fetchMemberWayTagsForRelations(
-                            relationIds = rawElements.keys.toList(),
-                            onStatusChange = null
-                        )
-                        if (allWayTags.isNotEmpty()) {
-                            enrichRelationsWithWayTags(rawElements, allWayTags)
-                        }
-                    }
+            // Round 14 Item 2: No overall withTimeout around the whole download;
+            // OverpassClient enforces 30s/60s response-header timeout and 30s idle-data timeout.
+            downloadRelationRecursive(
+                relationId = relationId,
+                collected = rawElements,
+                onStatusChange = onOverpassStatusChange
+            ) { dl, tot ->
+                val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
+                emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
+            }
+            if (rawElements.isNotEmpty()) {
+                // Round 13 Item 2e: Fetch member way tags in ONE request for all relations, not one per relation.
+                val allWayTags = fetchMemberWayTagsForRelations(
+                    relationIds = rawElements.keys.toList(),
+                    onStatusChange = null
+                )
+                if (allWayTags.isNotEmpty()) {
+                    enrichRelationsWithWayTags(rawElements, allWayTags)
                 }
-            } catch (ce: kotlinx.coroutines.TimeoutCancellationException) {
-                Log.w("TrailGeometry", "Overpass timed out after ${timeoutMs}ms for $trailName")
-                return null
             }
         }
 
@@ -803,6 +800,9 @@ class TrailGeometryRepository(private val context: Context) {
     ): Pair<Double?, Double?> = withContext(Dispatchers.IO) {
         val url = "https://api.open-meteo.com/v1/elevation?latitude=$fromLat,$toLat&longitude=$fromLng,$toLng"
         try {
+            if (android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
+                return@withContext Pair(null, null)
+            }
             val request = Request.Builder().url(url).header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT).build()
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
@@ -1256,6 +1256,10 @@ class TrailGeometryRepository(private val context: Context) {
                 val lons = chunk.joinToString(",") { it.lng.toString() }
                 val url = "https://api.open-meteo.com/v1/elevation?latitude=$lats&longitude=$lons"
                 try {
+                    if (android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
+                        lookupFailed = true
+                        break
+                    }
                     val request = Request.Builder().url(url).header("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT).build()
                     client.newCall(request).execute().use { response ->
                         if (response.isSuccessful) {

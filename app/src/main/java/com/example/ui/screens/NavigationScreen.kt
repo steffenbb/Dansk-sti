@@ -461,12 +461,12 @@ fun NavigationScreen(
         }
     }
 
-    val campNameForArrival = liveState.currentStage?.stopName ?: nextOvernight?.name
-    val isNearTonightCamp = remember(distanceRemainingToday, campNameForArrival, currentDay, dismissedCampArrivalForDay, liveState.isTracking) {
+    val todayStageForArrival = liveState.currentStage ?: liveState.plannedRoute?.stages?.getOrNull(currentDay - 1) ?: liveState.plannedRoute?.stages?.lastOrNull()
+    val campNameForArrival = todayStageForArrival?.stopName?.takeIf { it.isNotBlank() } ?: nextOvernight?.name
+    val isNearTonightCamp = remember(liveState.hasArrivedAtTonightCamp, distanceRemainingToday, campNameForArrival, currentDay, dismissedCampArrivalForDay, liveState.isTracking) {
         liveState.isTracking &&
             !campNameForArrival.isNullOrBlank() &&
-            distanceRemainingToday > 0.0 &&
-            distanceRemainingToday * 1000.0 <= 150.0 &&
+            (liveState.hasArrivedAtTonightCamp || (distanceRemainingToday >= 0.0 && distanceRemainingToday * 1000.0 <= 150.0)) &&
             dismissedCampArrivalForDay != currentDay
     }
 

@@ -454,12 +454,10 @@ fun RouteBuilderViewModel.resolveNearestSearchOrigin(
 }
 
 fun RouteBuilderViewModel.cancelTrailGeometryDownload() {
-    val tid = _uiState.value.baseTrailId
-    trailGeometryDownloadJob?.cancel()
+    // Round 14 Item 3: Only cancel this screen's wait.
+    // The shared download stops only if no one else is waiting for it.
+    trailGeometryDownloadJob?.cancel(kotlinx.coroutines.CancellationException("Download annulleret"))
     trailGeometryDownloadJob = null
-    if (!tid.isNullOrBlank()) {
-        com.example.data.repository.TrailGeometryRepository.cancelDownload(tid)
-    }
     _uiState.update {
         it.copy(
             isDownloadingTrailGeometry = false,

@@ -77,7 +77,9 @@ data class NavigationLiveState(
     val locationPermissionMissing: Boolean = false,
     val deviceHeadingDegrees: Float? = null,
     val isBatterySaverMode: Boolean = false,
-    val activeGpsIntervalMs: Long = 2_000L
+    val activeGpsIntervalMs: Long = 2_000L,
+    val hasArrivedAtTonightCamp: Boolean = false,
+    val autoAdvancedDayMessage: String? = null
 )
 
 /**
@@ -461,7 +463,9 @@ class NavigationTrackingService : Service() {
             nearestPointAhead = trackResult.nearestPointAhead,
             bearingToPointAhead = trackResult.bearingToPointAhead,
             isCompleted = trackResult.isCompleted,
-            plannedRoute = plannedRoute
+            plannedRoute = plannedRoute,
+            hasArrivedAtTonightCamp = trackResult.hasArrivedAtTonightCamp,
+            autoAdvancedDayMessage = trackResult.autoAdvancedDayMessage
         )
 
         // Phase 7a: Save actual GPS track point per day (accuracy-filtered <= 30m) in Room
@@ -852,11 +856,15 @@ class NavigationTrackingService : Service() {
         return builder.build()
     }
 
+    @Volatile
+    internal var lastPersistProgressJob: kotlinx.coroutines.Job? = null
+        private set
+
     private fun persistFinalProgressAndStopService(
         progress: TripProgressEntity,
         onPersisted: (() -> Unit)? = null
     ) {
-        val writeBlock: suspend () -> Unit = {
+        lastPersistProgressJob = serviceScope.launch {
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
                 try {
                     DanskStiApp.instance.database.dao().saveTripProgress(progress)
@@ -865,17 +873,7 @@ class NavigationTrackingService : Service() {
                     Log.w("NavService", "Failed to save final trip progress: ${e.message}")
                 }
             }
-        }
-        if (Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
-            kotlinx.coroutines.runBlocking {
-                writeBlock()
-            }
             stopTracking()
-        } else {
-            serviceScope.launch {
-                writeBlock()
-                stopTracking()
-            }
         }
     }
 
@@ -883,12 +881,16 @@ class NavigationTrackingService : Service() {
         val tracker = routeTracker
         if (tracker != null && planId != 0L) {
             val progress = tracker.stopForToday()
+            val nextStage = tracker.plannedRoute.stages.getOrNull(progress.currentDay - 1)
             _liveState.value = _liveState.value.copy(
                 isTracking = false,
                 isPaused = true,
                 currentDay = progress.currentDay,
+                currentStage = nextStage,
                 distanceWalkedTodayKm = 0.0,
                 distanceRemainingTodayKm = progress.remainingDistanceTodayKm,
+                hasArrivedAtTonightCamp = false,
+                autoAdvancedDayMessage = null,
                 showContinueDayPrompt = true
             )
             persistFinalProgressAndStopService(progress = progress)

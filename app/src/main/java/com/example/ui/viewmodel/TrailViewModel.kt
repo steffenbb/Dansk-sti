@@ -305,18 +305,13 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     private var loadTrailJob: kotlinx.coroutines.Job? = null
 
     fun cancelTrailDownload() {
-        val tid = currentTrailId ?: _trail.value?.id
-        loadTrailJob?.cancel()
+        // Round 14 Item 3: Only cancel this screen's wait.
+        // The shared download stops only if no one else is waiting for it (handled in TrailGeometryRepository.fetchAndProcessTrail finally block).
+        // Never cancel an offline map download or delete its in-progress record from this button.
+        loadTrailJob?.cancel(kotlinx.coroutines.CancellationException("Download annulleret"))
         loadTrailJob = null
-        if (!tid.isNullOrBlank()) {
-            com.example.data.repository.TrailGeometryRepository.cancelDownload(tid)
-            viewModelScope.launch(Dispatchers.IO) {
-                com.example.util.OfflineDownloadManager.cancelDownload(getApplication(), tid)
-            }
-        }
         _isFetchingLiveRoute.value = false
         _isLoading.value = false
-        _isOfflineMapDownloading.value = false
         _routeError.value = "Download annulleret"
     }
 
@@ -352,6 +347,8 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 _isFetchingLiveRoute.value = !repository.geometryRepository.isGeometryCached(trailId)
                 val segments = try {
                     repository.getTrailPoints(entity)
+                } catch (ce: kotlinx.coroutines.CancellationException) {
+                    throw ce
                 } catch (e: Exception) {
                     android.util.Log.e("TrailViewModel", "Failed to get points for ${entity.name}: ${e.message}", e)
                     emptyList()

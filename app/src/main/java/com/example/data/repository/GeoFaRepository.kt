@@ -158,14 +158,44 @@ class GeoFaRepository(private val context: Context) {
     }
 
     internal fun readAssetGeoJsonGz(assetName: String): String? {
-        return try {
-            context.assets.open("geofa/$assetName").use { input ->
-                GZIPInputStream(input).bufferedReader(Charsets.UTF_8).use { it.readText() }
+        val candidateAssetPaths = buildList {
+            add("geofa/$assetName")
+            if (assetName.endsWith(".gz")) {
+                add("geofa/${assetName.removeSuffix(".gz")}")
             }
-        } catch (e: Exception) {
-            Log.e("GeoFaRepo", "Failed to read asset geofa/$assetName: ${e.message}")
-            null
         }
+        for (assetPath in candidateAssetPaths) {
+            try {
+                context.assets.open(assetPath).use { rawInput ->
+                    val buffered = java.io.BufferedInputStream(rawInput)
+                    buffered.mark(2)
+                    val b0 = buffered.read()
+                    val b1 = buffered.read()
+                    buffered.reset()
+                    val isGzip = (b0 == 0x1f && b1 == 0x8b)
+                    val stream = if (isGzip) GZIPInputStream(buffered) else buffered
+                    return stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                }
+            } catch (_: Exception) {
+                // Try next candidate path
+            }
+        }
+        val diskCandidates = listOf(
+            File("src/main/assets/geofa/$assetName"),
+            File("app/src/main/assets/geofa/$assetName")
+        )
+        for (file in diskCandidates) {
+            if (file.exists()) {
+                try {
+                    return file.inputStream().use { rawInput ->
+                        GZIPInputStream(rawInput).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
+        Log.w("GeoFaRepo", "Could not read asset geofa/$assetName")
+        return null
     }
 
     private suspend fun queryWithRetry(sql: String): String? = withContext(Dispatchers.IO) {

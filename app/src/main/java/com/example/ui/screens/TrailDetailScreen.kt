@@ -311,7 +311,7 @@ fun TrailDetailScreen(
                     }
                 )
 
-                if (isFetchingLiveRoute || activeDownloadProgress != null) {
+                if (isFetchingLiveRoute || (activeDownloadProgress != null && routeError == null)) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),

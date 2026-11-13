@@ -546,6 +546,11 @@ fun NavigationCampAndContinuePrompts(
     nextWater: NextStopInfo?,
     onDismissCampArrival: () -> Unit
 ) {
+    liveState.autoAdvancedDayMessage?.let { msg ->
+        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("nav_auto_advanced_day_banner")) {
+            Text(text = msg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.padding(12.dp))
+        }
+    }
     if (isNearTonightCamp && campNameForArrival != null) {
         Surface(
             shape = RoundedCornerShape(16.dp),

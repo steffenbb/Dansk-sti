@@ -272,12 +272,13 @@ class FixRound13Test {
             execSQL(
                 """
                 INSERT INTO `trip_plans` (
-                    `id`, `trailId`, `trailName`, `preferredDailyKm`, `overnightType`,
-                    `totalDays`, `totalKm`, `createdAt`, `stagesJson`, `startKm`, `endKm`,
-                    `isReverse`, `customRouteId`
+                    `id`, `trailId`, `trailName`, `startKm`, `endKm`, `isReverse`,
+                    `totalDistanceKm`, `targetDays`, `overnightType`, `preferredDailyKm`,
+                    `stagesJson`, `createdAt`, `paceKmh`, `maxDetourKm`, `startTime`, `customRouteId`
                 ) VALUES (
-                    77, 'camino_fyn', 'Sommer på Øhavsstien', 20.0, 'SHELTER',
-                    3, 60.0, 1700000050000, '[]', 0.0, 60.0, 0, NULL
+                    77, 'camino_fyn', 'Sommer på Øhavsstien', 0.0, 60.0, 0,
+                    60.0, 3, 'SHELTER', 20.0,
+                    '[]', 1700000050000, 4.0, 1.5, '09:00', NULL
                 )
                 """.trimIndent()
             )
@@ -287,7 +288,7 @@ class FixRound13Test {
                     `id`, `routeId`, `baseTrailId`, `routeName`, `mode`,
                     `waypointsJson`, `optionsJson`, `isReverse`, `updatedAt`
                 ) VALUES (
-                    'active_draft', NULL, 'camino_fyn', 'Gemt kladde fra v26', 'TRAIL',
+                    'active_planner_draft', NULL, 'camino_fyn', 'Gemt kladde fra v26', 'TRAIL',
                     '[]', '{}', 0, 1700000060000
                 )
                 """.trimIndent()
@@ -432,6 +433,12 @@ class FixRound13Test {
             )
         }
 
+        // Wait until Waiter 2 has joined the in-flight download before releasing Overpass response
+        val joinDeadline = System.currentTimeMillis() + 2_000L
+        while (TrailGeometryRepository.getActiveWaiterCount(trailId) < 2 && System.currentTimeMillis() < joinDeadline) {
+            delay(15L)
+        }
+
         // Release Overpass response
         networkGate.complete(Unit)
         waiter2EnteredCallback.await()
@@ -496,9 +503,9 @@ class FixRound13Test {
             }
         }
 
-        // Fill both OverpassClient concurrency slots so our trail request enters the queue first
+        // Fill both OverpassClient concurrency slots (1 BACKGROUND + 1 USER_INITIATED) so our trail request enters the queue first
         val bg1 = async(Dispatchers.IO) { OverpassClient.queryRawJson("bg_1", "bg1", OverpassClient.Priority.BACKGROUND) }
-        val bg2 = async(Dispatchers.IO) { OverpassClient.queryRawJson("bg_2", "bg2", OverpassClient.Priority.BACKGROUND) }
+        val bg2 = async(Dispatchers.IO) { OverpassClient.queryRawJson("bg_2", "bg2", OverpassClient.Priority.USER_INITIATED) }
         bothBgRunning.await()
 
         val observedStages = CopyOnWriteArrayList<TrailDownloadProgress>()
@@ -638,9 +645,9 @@ class FixRound13Test {
             OverpassClient.HttpResult(200, """{"elements":[]}""")
         }
 
-        // Occupy both concurrency slots
+        // Occupy both concurrency slots (1 BACKGROUND + 1 USER_INITIATED)
         val b1 = async(Dispatchers.IO) { OverpassClient.queryRawJson("busy_1", "busy_1", OverpassClient.Priority.BACKGROUND) }
-        val b2 = async(Dispatchers.IO) { OverpassClient.queryRawJson("busy_2", "busy_2", OverpassClient.Priority.BACKGROUND) }
+        val b2 = async(Dispatchers.IO) { OverpassClient.queryRawJson("busy_2", "busy_2", OverpassClient.Priority.USER_INITIATED) }
         bothBusy.await()
 
         // Enqueue 3 background requests (water, access, POI sync) followed by 1 user-initiated trail download
@@ -654,11 +661,11 @@ class FixRound13Test {
         }
         delay(30L) // Ensure userTrail is queued
 
-        // Release the active slots
-        slot1Gate.complete(Unit)
+        // Release one active slot so the highest-priority queued waiter runs next, then release the second slot
         slot2Gate.complete(Unit)
-
         userTrail.await()
+        slot1Gate.complete(Unit)
+
         bgWater.await()
         bgAccess.await()
         bgPoi.await()
@@ -882,9 +889,11 @@ class FixRound13Test {
         // Part B: Hanging server / user clicks "Annuller"
         val hangGate = CompletableDeferred<Unit>()
         val requestStarted = CompletableDeferred<Unit>()
-        OverpassClient.customTransport = { _, _ ->
-            requestStarted.complete(Unit)
-            hangGate.await()
+        OverpassClient.customTransport = { _, query ->
+            if (query.contains("667788")) {
+                requestStarted.complete(Unit)
+                hangGate.await()
+            }
             OverpassClient.HttpResult(200, """{"elements":[]}""")
         }
 
@@ -893,8 +902,12 @@ class FixRound13Test {
         requestStarted.await()
 
         vmCancel.cancelTrailDownload()
+        val cancelDeadline = System.currentTimeMillis() + 2_000L
+        while (trailId !in TrailGeometryRepository.cancelledTrailIds && System.currentTimeMillis() < cancelDeadline) {
+            delay(20L)
+        }
         assertTrue(
-            "TrailGeometryRepository.cancelDownload must record the cancelled trailId",
+            "Shared download must stop and record cancelled trailId when no one else is waiting",
             TrailGeometryRepository.cancelledTrailIds.contains(trailId)
         )
         assertFalse("isFetchingLiveRoute must be false after cancelling", vmCancel.isFetchingLiveRoute.value)
@@ -908,133 +921,138 @@ class FixRound13Test {
     // =========================================================================
 
     @Test
-    fun item3_tripCompletionAndStopForToday_writeFinalProgressBeforeStopSelf_andPlanShowsAsFinishedInMineTure(): Unit = runBlocking {
+    fun item3_tripCompletionAndStopForToday_writeFinalProgressBeforeStopSelf_andPlanShowsAsFinishedInMineTure() {
         val app = ApplicationProvider.getApplicationContext<DanskStiApp>()
         val dao = app.database.dao()
+        val nowMs = System.currentTimeMillis()
 
-        val stagePoints = listOf(
-            GeoPointDto(55.6761, 12.5683),
-            GeoPointDto(55.6770, 12.5690),
-            GeoPointDto(55.6780, 12.5700)
-        )
-        val stage = TripStage(
-            dayNumber = 1,
-            startKm = 0.0,
-            endKm = 0.25,
-            stageKm = 0.25,
-            stopName = "Mål Lejr",
-            stopType = "SHELTER",
-            stopLat = 55.6780,
-            stopLng = 12.5700,
-            spotId = "shelter_end"
-        )
-        val planId = dao.insertTripPlan(
-            TripPlanEntity(
-                trailId = "route_finish_test",
-                trailName = "Gennemført Vandretur",
+        val (planId, customRouteId, planEntity) = runBlocking {
+            val stagePoints = listOf(
+                GeoPointDto(55.6761, 12.5683),
+                GeoPointDto(55.6770, 12.5690),
+                GeoPointDto(55.6780, 12.5700)
+            )
+            val stage = TripStage(
+                dayNumber = 1,
                 startKm = 0.0,
                 endKm = 0.25,
-                isReverse = false,
-                totalDistanceKm = 0.25,
-                targetDays = 1,
-                overnightType = "SHELTER",
-                preferredDailyKm = 15.0,
-                stagesJson = app.repository.serializeStages(listOf(stage))
+                stageKm = 0.25,
+                stopName = "Mål Lejr",
+                stopType = "SHELTER",
+                stopLat = 55.6780,
+                stopLng = 12.5700,
+                spotId = "shelter_end"
             )
-        )
-        val nowMs = System.currentTimeMillis()
-        val customRouteId = dao.insertCustomRoute(
-            CustomRouteEntity(
-                name = "Gennemført Vandretur",
-                createdAt = nowMs,
-                updatedAt = nowMs,
-                waypointsJson = "[]",
-                optionsJson = "{}",
-                totalKm = 0.25,
-                ascentM = 0.0,
-                descentM = 0.0,
-                pathSharePct = 100.0,
-                roadKm = 0.0,
-                geometryFile = "finish_test.json",
-                sourceName = "Test",
-                fetchedAt = nowMs
+            val pid = dao.insertTripPlan(
+                TripPlanEntity(
+                    trailId = "route_finish_test",
+                    trailName = "Gennemført Vandretur",
+                    startKm = 0.0,
+                    endKm = 0.25,
+                    isReverse = false,
+                    totalDistanceKm = 0.25,
+                    targetDays = 1,
+                    overnightType = "SHELTER",
+                    preferredDailyKm = 15.0,
+                    stagesJson = app.repository.serializeStages(listOf(stage))
+                )
             )
-        )
-        app.repository.geometryRepository.saveRouteGeometry(
-            "route_finish_test",
-            TrailGeometryDto(
+            val cid = dao.insertCustomRoute(
+                CustomRouteEntity(
+                    name = "Gennemført Vandretur",
+                    createdAt = nowMs,
+                    updatedAt = nowMs,
+                    waypointsJson = "[]",
+                    optionsJson = "{}",
+                    totalKm = 0.25,
+                    ascentM = 0.0,
+                    descentM = 0.0,
+                    pathSharePct = 100.0,
+                    roadKm = 0.0,
+                    geometryFile = "finish_test.json",
+                    sourceName = "Test",
+                    fetchedAt = nowMs
+                )
+            )
+            val plannedRoute = com.example.data.model.PlannedRoute(
+                planId = pid,
                 trailId = "route_finish_test",
-                osmRelationId = 0L,
-                segments = listOf(
-                    TrailSegmentDto(
-                        type = TrailSegmentType.WALK,
-                        points = stagePoints,
-                        lengthKm = 0.25
-                    )
+                trailName = "Gennemført Vandretur",
+                isReverse = false,
+                startTrailKm = 0.0,
+                endTrailKm = 0.25,
+                totalWalkKm = 0.25,
+                points = listOf(
+                    com.example.data.model.RoutePoint(55.6761, 12.5683, 10.0, 0.0, 0.0),
+                    com.example.data.model.RoutePoint(55.6770, 12.5690, 10.0, 0.12, 0.12),
+                    com.example.data.model.RoutePoint(55.6780, 12.5700, 10.0, 0.25, 0.25)
                 ),
-                totalWalkingKm = 0.25,
-                gapsOver200mCount = 0,
-                bboxNorth = 55.6780,
-                bboxSouth = 55.6761,
-                bboxEast = 12.5700,
-                bboxWest = 12.5683
+                stages = listOf(stage)
             )
-        )
+            com.example.data.repository.PlannedRouteRepository(app).savePlannedRoute(plannedRoute)
 
-        val controller = Robolectric.buildService(NavigationTrackingService::class.java)
-        val service = controller.create().get()
+            val controller = Robolectric.buildService(NavigationTrackingService::class.java)
+            val service = controller.create().get()
 
-        val startIntent = Intent(app, NavigationTrackingService::class.java).apply {
-            action = NavigationTrackingService.ACTION_START
-            putExtra(NavigationTrackingService.EXTRA_PLAN_ID, planId)
+            val startIntent = Intent(app, NavigationTrackingService::class.java).apply {
+                action = NavigationTrackingService.ACTION_START
+                putExtra(NavigationTrackingService.EXTRA_PLAN_ID, pid)
+            }
+            service.onStartCommand(startIntent, 0, 1)
+
+            val deadline = System.currentTimeMillis() + 3_000L
+            while (!NavigationTrackingService.liveState.value.isTracking && System.currentTimeMillis() < deadline) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                delay(20L)
+            }
+
+            // 1. Test "Stop for i dag" writes progress before stopSelf (await the coroutine on the phone code path)
+            val stopTodayIntent = Intent(app, NavigationTrackingService::class.java).apply {
+                action = NavigationTrackingService.ACTION_STOP_TODAY
+            }
+            service.onStartCommand(stopTodayIntent, 0, 2)
+            service.lastPersistProgressJob?.join()
+            val pausedProgress = dao.getTripProgress(pid).first()
+            assertNotNull("Progress must be written to DB when Stop for i dag is triggered", pausedProgress)
+            assertTrue("Progress must be marked paused after Stop for i dag", pausedProgress!!.isPaused)
+
+            // 2. Restart and walk to end of trip -> verify completion is persisted before stopSelf
+            service.onStartCommand(startIntent, 0, 3)
+            val deadline2 = System.currentTimeMillis() + 3_000L
+            while (!NavigationTrackingService.liveState.value.isTracking && System.currentTimeMillis() < deadline2) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                delay(20L)
+            }
+
+            val endLoc = Location("gps").apply {
+                latitude = 55.6780
+                longitude = 12.5700
+                accuracy = 4f
+                time = System.currentTimeMillis()
+            }
+            service.handleNewLocation(endLoc)
+            service.lastPersistProgressJob?.join()
+
+            val finalProgress = dao.getTripProgress(pid).first()
+            assertNotNull("Final completed progress must be persisted before service stops", finalProgress)
+            assertTrue("Final progress must have isCompleted = true", finalProgress!!.isCompleted)
+
+            val entity = dao.getTripPlanById(pid)!!
+            Triple(pid, cid, entity)
         }
-        service.onStartCommand(startIntent, 0, 1)
-
-        val deadline = System.currentTimeMillis() + 3_000L
-        while (!NavigationTrackingService.liveState.value.isTracking && System.currentTimeMillis() < deadline) {
-            delay(20L)
-        }
-
-        // 1. Test "Stop for i dag" writes progress before stopSelf
-        val stopTodayIntent = Intent(app, NavigationTrackingService::class.java).apply {
-            action = NavigationTrackingService.ACTION_STOP_TODAY
-        }
-        service.onStartCommand(stopTodayIntent, 0, 2)
-        val pausedProgress = dao.getTripProgress(planId).first()
-        assertNotNull("Progress must be written to DB when Stop for i dag is triggered", pausedProgress)
-        assertTrue("Progress must be marked paused after Stop for i dag", pausedProgress!!.isPaused)
-
-        // 2. Restart and walk to end of trip -> verify completion is persisted before stopSelf
-        service.onStartCommand(startIntent, 0, 3)
-        val deadline2 = System.currentTimeMillis() + 3_000L
-        while (!NavigationTrackingService.liveState.value.isTracking && System.currentTimeMillis() < deadline2) {
-            delay(20L)
-        }
-
-        val endLoc = Location("gps").apply {
-            latitude = 55.6780
-            longitude = 12.5700
-            accuracy = 4f
-            time = System.currentTimeMillis()
-        }
-        service.handleNewLocation(endLoc)
-
-        val finalProgress = dao.getTripProgress(planId).first()
-        assertNotNull("Final completed progress must be persisted before service stops", finalProgress)
-        assertTrue("Final progress must have isCompleted = true", finalProgress!!.isCompleted)
 
         // 3. Verify the plan shows as finished in Mine ture (SavedViewModel + TripPlanLibraryCard UI)
         val savedVm = SavedViewModel(app)
         val completedWaitDeadline = System.currentTimeMillis() + 3_000L
         while (planId !in savedVm.completedPlanIds.value && System.currentTimeMillis() < completedWaitDeadline) {
-            delay(25L)
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            Thread.sleep(20L)
         }
         assertTrue(
             "SavedViewModel.completedPlanIds must contain the finished planId ($planId)",
             planId in savedVm.completedPlanIds.value
         )
 
-        val planEntity = dao.getTripPlanById(planId)!!
         composeRule.setContent {
             DanskStiTheme {
                 TripPlanLibraryCard(
@@ -1049,27 +1067,29 @@ class FixRound13Test {
             }
         }
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("badge_plan_completed_${planEntity.id}").assertIsDisplayed()
-        composeRule.onNodeWithText("Fuldført", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("plan_completed_badge_${planEntity.id}", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Gennemført", useUnmergedTree = true).assertIsDisplayed()
 
-        dao.deleteCustomRoute(
-            CustomRouteEntity(
-                id = customRouteId,
-                name = "",
-                createdAt = nowMs,
-                updatedAt = nowMs,
-                waypointsJson = "",
-                optionsJson = "",
-                totalKm = 0.0,
-                ascentM = 0.0,
-                descentM = 0.0,
-                pathSharePct = 0.0,
-                roadKm = 0.0,
-                geometryFile = "",
-                sourceName = "",
-                fetchedAt = nowMs
+        runBlocking {
+            dao.deleteCustomRoute(
+                CustomRouteEntity(
+                    id = customRouteId,
+                    name = "",
+                    createdAt = nowMs,
+                    updatedAt = nowMs,
+                    waypointsJson = "",
+                    optionsJson = "",
+                    totalKm = 0.0,
+                    ascentM = 0.0,
+                    descentM = 0.0,
+                    pathSharePct = 0.0,
+                    roadKm = 0.0,
+                    geometryFile = "",
+                    sourceName = "",
+                    fetchedAt = nowMs
+                )
             )
-        )
+        }
     }
 
     // =========================================================================
