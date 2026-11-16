@@ -124,7 +124,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     val downloadProgress: StateFlow<Map<String, com.example.data.model.TrailDownloadProgress>> =
         com.example.data.repository.TrailGeometryRepository.globalDownloadProgress
 
-    // Round 10C Item 3: Direct offline download state for this trail page
+    // Direct offline download state for this trail page
     private val _offlineEstimate = MutableStateFlow<com.example.util.OfflineEstimateResult?>(null)
     val offlineEstimate: StateFlow<com.example.util.OfflineEstimateResult?> = _offlineEstimate.asStateFlow()
 
@@ -142,7 +142,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
 
     private var offlineWorkObserverJob: kotlinx.coroutines.Job? = null
 
-    // Round 10C Item 8: "Start nu" fresh GPS fix state & test hooks
+    // "Start nu" fresh GPS fix state & test hooks
     private val _isStartingNow = MutableStateFlow(false)
     val isStartingNow: StateFlow<Boolean> = _isStartingNow.asStateFlow()
 
@@ -152,9 +152,12 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     private val _startNowUsedOldFix = MutableStateFlow(false)
     val startNowUsedOldFix: StateFlow<Boolean> = _startNowUsedOldFix.asStateFlow()
 
-    var startNowFreshLocationTimeoutMs: Long = com.example.ui.map.LiveMapLocationState.CURRENT_LOCATION_TIMEOUT_MS
-    var customFreshLocationFetcher: (suspend (timeoutMs: Long) -> android.location.Location?)? = null
-    var customLocationResolver: (suspend (timeoutMs: Long) -> com.example.ui.map.FreshLocationResolution)? = null
+    @androidx.annotation.VisibleForTesting
+    internal var startNowFreshLocationTimeoutMs: Long = com.example.ui.map.LiveMapLocationState.CURRENT_LOCATION_TIMEOUT_MS
+    @androidx.annotation.VisibleForTesting
+    internal var customFreshLocationFetcher: (suspend (timeoutMs: Long) -> android.location.Location?)? = null
+    @androidx.annotation.VisibleForTesting
+    internal var customLocationResolver: (suspend (timeoutMs: Long) -> com.example.ui.map.FreshLocationResolution)? = null
 
     private val settingsRepository = com.example.DanskStiApp.getSettingsRepository(application)
 
@@ -168,13 +171,14 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
         _startNowStatusMessage.value = null
     }
 
-    fun setOfflineMapProgressForTesting(isDownloading: Boolean, progressPct: Int) {
+    @androidx.annotation.VisibleForTesting
+    internal fun setOfflineMapProgressForTesting(isDownloading: Boolean, progressPct: Int) {
         _isOfflineMapDownloading.value = isDownloading
         _offlineMapProgressPct.value = progressPct.coerceIn(0, 100)
     }
 
     /**
-     * Round 10C Item 3: Estimate offline download size for this trail and show confirmation dialog.
+     * Estimate offline download size for this trail and show confirmation dialog.
      */
     fun requestOfflineDownloadEstimate(corridorKm: Double = 1.0) {
         val tid = currentTrailId ?: _trail.value?.id ?: return
@@ -213,7 +217,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Round 10C Item 3: Start the offline map download for this trail directly after confirmation
+     * Start the offline map download for this trail directly after confirmation
      * and observe progress for the button.
      */
     fun confirmAndStartOfflineDownload(corridorKm: Double = 1.0) {
@@ -265,7 +269,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun observeOfflineMapWork(trailId: String) {
         offlineWorkObserverJob?.cancel()
-        offlineWorkObserverJob = viewModelScope.launch(Dispatchers.IO) {
+        offlineWorkObserverJob = viewModelScope.launch {
             runCatching {
                 com.example.util.OfflineDownloadManager.observeDownloadProgress(getApplication(), trailId)
                     .collect { workInfo ->
@@ -303,9 +307,10 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private var loadTrailJob: kotlinx.coroutines.Job? = null
+    private var savedTrailObserverJob: kotlinx.coroutines.Job? = null
 
     fun cancelTrailDownload() {
-        // Round 14 Item 3: Only cancel this screen's wait.
+        // Only cancel this screen's wait.
         // The shared download stops only if no one else is waiting for it (handled in TrailGeometryRepository.fetchAndProcessTrail finally block).
         // Never cancel an offline map download or delete its in-progress record from this button.
         loadTrailJob?.cancel(kotlinx.coroutines.CancellationException("Download annulleret"))
@@ -323,6 +328,12 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     fun loadTrail(trailId: String) {
         currentTrailId = trailId
         observeOfflineMapWork(trailId)
+        savedTrailObserverJob?.cancel()
+        savedTrailObserverJob = viewModelScope.launch {
+            repository.isTrailSaved(trailId).collect { saved ->
+                _isSaved.value = saved
+            }
+        }
         loadTrailJob?.cancel()
         loadTrailJob = viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
@@ -335,13 +346,6 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 _trail.value = entity
                 _downloadedTrail.value = repository.getDownloadedTrail(trailId)
                 _osmRelationTags.value = repository.getRelationOsmTags(entity.id, entity.osmRelationId)
-
-                // Observe isSaved
-                launch {
-                    repository.isTrailSaved(trailId).collect { saved ->
-                        _isSaved.value = saved
-                    }
-                }
 
                 // Points & Geometry from OSM live or disk cache
                 _isFetchingLiveRoute.value = !repository.geometryRepository.isGeometryCached(trailId)
@@ -613,8 +617,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Round 10C Item 8:
-     * "Start nu": use a fresh GPS fix (as in Round 10A item 8) to choose the starting point on the trail;
+     * "Start nu": use a fresh GPS fix to choose the starting point on the trail;
      * if none within 15 s, start from the trail start and say so.
      */
     fun startTrailNow(

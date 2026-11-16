@@ -158,7 +158,7 @@ fun RouteBuilderViewModel.rerouteAroundPolygon(warning: com.example.util.access.
     }
 }
 
-// --- Phase 12 Feature 1 & Requirement 16: Vand og mad (Supply gaps) ---
+// --- Vand og mad (Supply gaps) ---
 
 fun RouteBuilderViewModel.analyzeSupplyGaps() {
     val wps = _uiState.value.waypoints
@@ -255,7 +255,7 @@ fun RouteBuilderViewModel.setMaxShopGapKm(km: Double) {
     analyzeSupplyGaps()
 }
 
-// --- Phase 12 Feature 2 & Requirement 12: Rundtur ---
+// --- Rundtur ---
 
 fun RouteBuilderViewModel.openRundturDialog() {
     _uiState.update { it.copy(showRundturDialog = true) }
@@ -314,7 +314,7 @@ fun RouteBuilderViewModel.generateRundtur(startLat: Double? = null, startLng: Do
         } catch (e: Exception) {
             Log.e(TAG, "Error generating rundtur: ${e.message}", e)
             _uiState.update { it.copy(isGeneratingRundtur = false) }
-            _userMessage.emit("Kunne ikke danne rundtur: ${e.message}")
+            _userMessage.emit("Kunne ikke danne rundtur: ${com.example.util.userMessageFor(e)}")
         }
     }
 }
@@ -371,7 +371,7 @@ fun RouteBuilderViewModel.fetchWeatherAndSunset() {
     }
 }
 
-// --- Phase 12 Feature 4 & Round 12B Item 5: Rute til nærmeste ("Nærmeste") ---
+// --- Rute til nærmeste ("Nærmeste") ---
 
 private const val NEAR_ROUTE_THRESHOLD_METERS = 2000.0
 
@@ -399,7 +399,6 @@ fun RouteBuilderViewModel.isPositionOnOrNearRoute(
 }
 
 /**
- * Round 12B Item 5:
  * Search from, in order:
  * 1. The selected pin ("Nærmest dit valgte punkt")
  * 2. Otherwise my position if I am on or near the route ("Nærmest din position")
@@ -454,7 +453,7 @@ fun RouteBuilderViewModel.resolveNearestSearchOrigin(
 }
 
 fun RouteBuilderViewModel.cancelTrailGeometryDownload() {
-    // Round 14 Item 3: Only cancel this screen's wait.
+    // Only cancel this screen's wait.
     // The shared download stops only if no one else is waiting for it.
     trailGeometryDownloadJob?.cancel(kotlinx.coroutines.CancellationException("Download annulleret"))
     trailGeometryDownloadJob = null
@@ -487,7 +486,6 @@ fun RouteBuilderViewModel.openNearestPoiDialog(
             nearestPoiOriginLabelRes = initialOrigin.labelResId
         )
     }
-    // Round 13 Item 4: Use the same fresh-position helper as Round 12A item 6 instead of getLastKnownLocation
     if (userLat == null || userLng == null) {
         viewModelScope.launch(Dispatchers.Main.immediate) {
             val res = resolveCurrentOrFallbackLocation()
@@ -516,7 +514,6 @@ fun RouteBuilderViewModel.dismissNearestPoiDialog() {
 }
 
 /**
- * Round 12B Item 5 & Round 13 Item 4:
  * For a shelter, ask "Overnat her" or "Tilføj som stop" instead of always making it an overnight stop.
  * Uses the fresh-position helper (resolveCurrentOrFallbackLocation) when userLat/userLng are not explicitly passed.
  */
@@ -720,7 +717,7 @@ fun RouteBuilderViewModel.routeToNearest(
         } catch (e: Exception) {
             Log.e(TAG, "Error routing to nearest: ${e.message}", e)
             _uiState.update { it.copy(isRoutingToNearest = false) }
-            _userMessage.emit("Fejl ved rutesøgning: ${e.message}")
+            _userMessage.emit("Fejl ved rutesøgning: ${com.example.util.userMessageFor(e)}")
         }
     }
 }

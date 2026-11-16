@@ -670,7 +670,7 @@ object TrailSlicer {
     }
 
     /**
-     * Requirement D & Fix Round 5 Item 8: Builds a TRAIL -> SNAP (exit to pin) -> SNAP (pin to rejoin) -> TRAIL detour
+     * Builds a TRAIL -> SNAP (exit to pin) -> SNAP (pin to rejoin) -> TRAIL detour
      * between [prevWp] and [nextWp] (both on the trail with trailKm != null).
      * Tests candidate exit/rejoin points on the trail (projected point, 500 m before, 500 m after)
      * with [routingEngine] and chooses ONLY among candidates that routed successfully.

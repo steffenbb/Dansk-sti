@@ -11,7 +11,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * Round 10B Item 16: Helper for capturing waypoint photos using ActivityResultContracts.TakePicture
+ * Helper for capturing waypoint photos using ActivityResultContracts.TakePicture
  * with a FileProvider URI in files/photos and saving a compressed full-size JPEG photo.
  */
 object WaypointPhotoHelper {

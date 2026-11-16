@@ -40,15 +40,6 @@ import org.osmdroid.views.overlay.TilesOverlay
 
 /**
  * Shared overlay manager for DanskStiMap across all 5 map screens.
- *
- * Enforces Fix Round 3 Part 3:
- * - Overlays are registered by a stable key ("terrain_hillshade", "terrain_contours", "access",
- *   "water", "marked_routes", "route", "pois", "drop_pin", "location", "scale_bar") and updated in place.
- * - Never calls `overlays.clear()`.
- * - Recreates markers and polygons only when their data actually changes.
- * - Clusters all 7 POI layers (shelters, fri teltning, water, toilets, shops, transit, my points) below zoom 13.
- * - Fetches and renders the "Vand" water overlay from zoom 12+, debounced 600 ms after map movement stops,
- *   cancelling the previous request.
  */
 class MapLayersOverlayManager(
     private val context: Context,
@@ -252,8 +243,9 @@ class MapLayersOverlayManager(
             name = key
             registerOverlay(key, this)
         }
-        folder.items.clear()
-        folder.items.addAll(children)
+        val folderItems = folder.items ?: return
+        folderItems.clear()
+        folderItems.addAll(children)
         requestMapInvalidate()
     }
 
@@ -315,21 +307,31 @@ class MapLayersOverlayManager(
 
         val map = mapView ?: return
 
+        val hasKey = DanskStiTileSource.hasValidKey
+        val effectiveBaseMap = if (!hasKey &&
+            (state.baseMap == com.example.data.local.BaseMapType.SKAERMKORT || state.baseMap == com.example.data.local.BaseMapType.LUFTFOTO)
+        ) {
+            com.example.data.local.BaseMapType.FRILUFTSKORT
+        } else {
+            state.baseMap
+        }
+        val effectiveShowTerrain = hasKey && state.showTerrain
+
         // 1. Base map & dark mode
-        if (lastAppliedBaseMap != state.baseMap || lastAppliedDark != isDark) {
-            lastAppliedBaseMap = state.baseMap
+        if (lastAppliedBaseMap != effectiveBaseMap || lastAppliedDark != isDark) {
+            lastAppliedBaseMap = effectiveBaseMap
             lastAppliedDark = isDark
             currentIsDark = isDark
-            DanskStiTileSource.applyBaseMapTo(map, state.baseMap, isDark)
+            DanskStiTileSource.applyBaseMapTo(map, effectiveBaseMap, isDark)
         }
 
         // 2. Terrain overlay ("Terræn": hillshade + contours from zoom 14)
         hillshadeOverlay?.let {
-            it.isEnabled = state.showTerrain
+            it.isEnabled = effectiveShowTerrain
             DanskStiTileSource.updateHillshadeDarkMode(it, isDark)
         }
         contourOverlay?.let {
-            it.isEnabled = state.showTerrain
+            it.isEnabled = effectiveShowTerrain
             DanskStiTileSource.updateContourDarkMode(it, isDark)
         }
 
@@ -372,7 +374,7 @@ class MapLayersOverlayManager(
     }
 
     /**
-     * Requirement D: Debounced 600 ms after the map stops moving; cancels the previous request.
+     * Debounced 600 ms after the map stops moving; cancels the previous request.
      */
     private fun scheduleWaterDebouncedFetch() {
         waterDebounceJob?.cancel()
@@ -531,7 +533,7 @@ class MapLayersOverlayManager(
             }
             ensureActive()
             cachedAccessPolygons = polygons
-            setLayerError("Adgang og ejerskab", isLiveZoom && polygons.isEmpty() && com.example.data.repository.AccessLandRepository.Companion.DiagnosticsState.isDataUnavailable)
+            setLayerError("Adgang og ejerskab", isLiveZoom && polygons.isEmpty() && AccessLandRepository.isAccessDataUnavailable)
             rebuildAccessOverlaysIfChanged()
         }
     }
@@ -539,15 +541,16 @@ class MapLayersOverlayManager(
     private fun rebuildAccessOverlaysIfChanged() {
         if (!currentState.showAccessLand) return
         val map = mapView ?: return
+        val accessItems = accessFolderOverlay.items ?: return
         var sig = cachedAccessPolygons.size
         for (p in cachedAccessPolygons) {
             sig = 31 * sig + p.id.hashCode()
         }
-        if (sig == lastAccessSignature && (cachedAccessPolygons.isEmpty() == accessFolderOverlay.items.isEmpty())) {
+        if (sig == lastAccessSignature && (cachedAccessPolygons.isEmpty() == accessItems.isEmpty())) {
             return
         }
         lastAccessSignature = sig
-        accessFolderOverlay.items.clear()
+        accessItems.clear()
         val osmdroidPolygons = cachedAccessPolygons.map { poly ->
             AccessMapOverlayHelper.createAccessPolygonOverlay(
                 mapView = map,
@@ -555,22 +558,23 @@ class MapLayersOverlayManager(
                 onPolygonClicked = { clickedPoly -> onAccessPolygonTapped?.invoke(clickedPoly) }
             )
         }
-        accessFolderOverlay.items.addAll(osmdroidPolygons)
+        accessItems.addAll(osmdroidPolygons)
         requestMapInvalidate()
     }
 
     private fun rebuildMarkedRouteOverlaysIfChanged() {
         if (!currentState.showMarkedRoutes) return
+        val markedItems = markedRoutesFolderOverlay.items ?: return
         val density = context.resources.displayMetrics.density
         var sig = cachedMarkedRoutes.size
         for (r in cachedMarkedRoutes) {
             sig = 31 * sig + r.osmRelationId.hashCode()
         }
-        if (sig == lastMarkedRoutesSignature && (cachedMarkedRoutes.isEmpty() == markedRoutesFolderOverlay.items.isEmpty())) {
+        if (sig == lastMarkedRoutesSignature && (cachedMarkedRoutes.isEmpty() == markedItems.isEmpty())) {
             return
         }
         lastMarkedRoutesSignature = sig
-        markedRoutesFolderOverlay.items.clear()
+        markedItems.clear()
 
         for (route in cachedMarkedRoutes) {
             val routeColor = try {
@@ -620,7 +624,7 @@ class MapLayersOverlayManager(
     private var cachedPlannerPois: List<com.example.ui.viewmodel.PlannerMapPoi> = emptyList()
 
     /**
-     * Round 11 Item 5: Updates planner-fetched POIs on the shared POI cluster layer,
+     * Updates planner-fetched POIs on the shared POI cluster layer,
      * deduplicated against the map's shelter/POI layers so there is only one marker per place.
      */
     fun setPlannerPois(plannerPois: List<com.example.ui.viewmodel.PlannerMapPoi>) {
@@ -662,7 +666,7 @@ class MapLayersOverlayManager(
         map.postInvalidate()
     }
 
-    fun getActiveMarkedRoutePolylinesCount(): Int = markedRoutesFolderOverlay.items.size
+    fun getActiveMarkedRoutePolylinesCount(): Int = markedRoutesFolderOverlay.items?.size ?: 0
 
     fun getActivePoiItemCount(): Int = poiClusterOverlay?.getItemCount() ?: 0
 
@@ -671,7 +675,7 @@ class MapLayersOverlayManager(
     fun getActiveWaterFeatureCount(): Int = waterLayerOverlay.currentFeatureCount
 
     /**
-     * Round 10A Item 2: If a shelter, fri teltning area, water, toilet, or shop is within [maxDistanceMeters] (30 m)
+     * If a shelter, fri teltning area, water, toilet, or shop is within [maxDistanceMeters] (30 m)
      * or the finger is on its marker, return its [PoiItem] so the caller can open [PoiInfoSheet].
      */
     fun findLongPressPoi(point: GeoPoint, maxDistanceMeters: Double = 30.0): PoiItem? {

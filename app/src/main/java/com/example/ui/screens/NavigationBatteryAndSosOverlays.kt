@@ -675,7 +675,6 @@ fun NavigationCampAndContinuePrompts(
 }
 
 /**
- * Round 10B Item 9:
  * Trip completion summary dialog displaying distance, time, ascent, and days when RouteTracker reports completed.
  */
 @Composable

@@ -63,7 +63,7 @@ data class DataCreditItem(
     val title: String,
     val subtitle: String,
     val license: String,
-    val dateInApp: String,
+    val dateInApp: String? = null,
     val description: String,
     val url: String,
     val icon: ImageVector,
@@ -89,8 +89,7 @@ fun DataCreditsScreen(
             title = "OpenStreetMap (ODbL)",
             subtitle = "Stinetværk, ruter og interessepunkter",
             license = "Open Database License (ODbL) © OpenStreetMap contributors",
-            dateInApp = "Oktober 2024 (Synkroniseret via OSM Overpass / 0.6 API)",
-            description = "Indeholder Danmarks officielle vandreruter (Hærvejen, Øhavsstien, Gendarmstien, Trækstien, Camønoen, m.fl.), stiklassifikationer (sti, grusvej, asfalt), rutespor og POI'er som vandposter, toiletter og togstationer.",
+            description = "Indeholder Danmarks officielle vandreruter (Hærvejen, Øhavsstien, Gendarmstien, Trækstien, Camønoen, m.fl.), stiklassifikationer (sti, grusvej, asfalt), rutespor og interessepunkter som vandposter, toiletter og togstationer.",
             url = "https://www.openstreetmap.org/copyright",
             icon = Icons.Default.Explore,
             iconTint = colorScheme.primary
@@ -99,7 +98,6 @@ fun DataCreditsScreen(
             title = "GeoFA / Naturstyrelsen",
             subtitle = "Shelters, primitive teltpladser & fri teltning",
             license = "Offentlige geodata / Fri anvendelse (Miljø- og Ligestillingsministeriet)",
-            dateInApp = "Oktober 2024 (GeoFA WFS datasæt gemt i appens Room-database)",
             description = "Officielle data for over 1.000 danske shelterpladser, bålpladser samt 275+ fri teltningszoner i statsskovene efter 1-2-3 reglen. Bookinghenvisninger åbnes via udbyderens link eller udinaturen.dk.",
             url = "https://udinaturen.dk",
             icon = Icons.Default.Forest,
@@ -108,9 +106,8 @@ fun DataCreditsScreen(
         DataCreditItem(
             title = "Copernicus DEM via Open-Meteo",
             subtitle = "Højdemodel & terrænprofiler",
-            license = "Copernicus Sentinel data (ESA) / Open-Meteo Elevation API",
-            dateInApp = "2024 (Copernicus GLO-30 30-meters højdegrid)",
-            description = "Benyttes til beregning af samlet stigning, fald og højdekurver langs ruterne. Giver præcise højdeprofiler på alle danske vandreetaper uden behov for tunge sensorer.",
+            license = "Copernicus Sentinel data (ESA) / Open-Meteo",
+            description = "Benyttes til beregning af samlet stigning, fald og højdekurver langs ruterne. Giver præcise højdeprofiler på alle danske vandreetaper.",
             url = "https://spacedata.copernicus.eu/",
             icon = Icons.Default.Landscape,
             iconTint = danskStiColors.success
@@ -119,61 +116,64 @@ fun DataCreditsScreen(
             title = "Open-Meteo Vejr",
             subtitle = "Lokale vejrudsigter & vejrvarsler",
             license = "Creative Commons Attribution 4.0 International (CC BY 4.0)",
-            dateInApp = "Hentet live ved planlægning (DMI ICON-D2 & ECMWF modeller)",
             description = "Time-for-time vejrudsigter specifikt for hver vandrerute og dags-etape i Danmark, inklusive temperatur, nedbørsmængder, vindhastighed, vindstød og beregning af solnedgangstidspunkt.",
             url = "https://open-meteo.com/",
             icon = Icons.Default.Cloud,
             iconTint = danskStiColors.plannedRoute
         ),
         DataCreditItem(
-            title = "Kortfliseudbydere (Dataforsyningen / OSM)",
-            subtitle = "Topografiske kortfliser & offline-cache",
-            license = "SDFI (Dataforsyningen) / OpenStreetMap",
-            dateInApp = "2024 (SDFI WMTS / WMS Skærmkort & OSM fliser)",
-            description = "Højtopløselige topografiske danmarkskort fra Styrelsen for Dataforsyning og Infrastruktur (SDFI) samt OpenStreetMap. Gemmes lokalt i appens SQLite-cache for 100% offline navigation i felten.",
+            title = "Klimadatastyrelsen / Dataforsyningen",
+            subtitle = "Topografiske kort, højdemodel og luftfoto",
+            license = "Klimadatastyrelsen / Styrelsen for Dataforsyning og Infrastruktur (Vilkår for frie geografiske data)",
+            description = "Højtopløselige topografiske danmarkskort (Skærmkortet), terrænhøjdemodel (DHM) og GeoDanmark forårsortofotos dækkende hele Danmark.",
             url = "https://dataforsyningen.dk/",
             icon = Icons.Default.Map,
             iconTint = colorScheme.primary
         ),
         DataCreditItem(
-            title = "GeoDanmark Ortofoto (Luftfoto)",
-            subtitle = "Højtopløselige forårsortofotos (SDFI WMS)",
-            license = "Dataforsyningen / GeoDanmark (Vilkår for frie geografiske data)",
-            dateInApp = "2024 (WMS 1.1.1 EPSG:3857 orto_foraar)",
-            description = "Officielle forårsortofotos dækkende hele Danmark fra GeoDanmark og Styrelsen for Dataforsyning og Infrastruktur. Giver et præcist luftfotobillede af skovlysninger, hegn og terræn.",
-            url = "https://dataforsyningen.dk/",
-            icon = Icons.Default.Landscape,
-            iconTint = danskStiColors.plannedRoute
-        ),
-        DataCreditItem(
             title = "Friluftskort (Thunderforest / OpenTopoMap)",
-            subtitle = "OSM outdoor-kort med trampestier og højdekurver",
-            license = "ODbL / Thunderforest Terms of Service (Tillader app-brug og offline cache)",
-            dateInApp = "2024 (OpenStreetMap & SRTM konturlinjer)",
-            description = "Specialiseret friluftskort beregnet til vandring og trekking. Viser små skovstier, trampestier og højdekurver, der ikke altid optræder på officielle matrikel- og topokort.",
+            subtitle = "Udendørskort med trampestier og højdekurver",
+            license = "Open Database License (ODbL) © OpenStreetMap contributors • CC-BY-SA OpenTopoMap • Thunderforest Terms of Service",
+            description = "Specialiseret friluftskort beregnet til vandring og trekking. Viser små skovstier, trampestier og højdekurver i hele Danmark.",
             url = "https://www.thunderforest.com/maps/outdoors/",
             icon = Icons.Default.Explore,
             iconTint = danskStiColors.success
         ),
         DataCreditItem(
-            title = "Afmærkede ruter (Overpass API)",
-            subtitle = "Danske vandreruter (hiking/foot relations)",
+            title = "Afmærkede ruter (OpenStreetMap)",
+            subtitle = "Danske vandreruter",
             license = "Open Database License (ODbL) © OpenStreetMap-bidragydere",
-            dateInApp = "Live Overpass forespørgsler med 7-dages lokal Room-cache",
-            description = "Forespørger dynamisk på alle afmærkede ruter og stier i synsfeltet ved zoom 10 eller tættere. Rutedata kan gemmes med 1 klik som permanente vandreruter via appens Phase 1 geometri-pipeline.",
+            description = "Viser afmærkede vandreruter og stier i kortudsnittet ved zoom 10 eller tættere. Rutedata kan gemmes som vandreruter i appen.",
             url = "https://wiki.openstreetmap.org/wiki/Tag:route%3Dhiking",
             icon = Icons.Default.Explore,
             iconTint = danskStiColors.warning
         ),
         DataCreditItem(
             title = "Danmarks Miljøportal",
-            subtitle = "Naturstyrelsens arealoversigt (WFS)",
+            subtitle = "Naturstyrelsens arealoversigt og fredninger",
             license = "Betingelser for brug af data fra Danmarks Miljøportal (Åbne data)",
-            dateInApp = "2024 (Live WFS synkronisering & Room-cache)",
-            description = "Officielle grænser for statsejede skove og naturarealer administreret af Naturstyrelsen. Anvendes til adgangsklassifikation (Naturbeskyttelsesloven kapitel 4) og supplerer OpenStreetMap med præcise statsskove.",
+            description = "Officielle grænser for statsejede skove, fredede områder og naturarealer. Anvendes til visning af adgangsforhold efter Naturbeskyttelsesloven.",
             url = "https://arealdata.miljoeportal.dk/",
             icon = Icons.Default.Forest,
             iconTint = colorScheme.primary
+        ),
+        DataCreditItem(
+            title = "BRouter",
+            subtitle = "Ruteberegning langs stier og vandreveje",
+            license = "MIT License © Arndt Brenschede / BRouter contributors (data © OpenStreetMap ODbL)",
+            description = "Beregner vandreruter langs stier, skovveje og trampestier i Danmark både online og offline.",
+            url = "https://brouter.de/",
+            icon = Icons.Default.Explore,
+            iconTint = colorScheme.primary
+        ),
+        DataCreditItem(
+            title = "Photon (Komoot)",
+            subtitle = "Stedsøgning og adresser",
+            license = "Apache License 2.0 • Kortdata © OpenStreetMap-bidragydere (ODbL)",
+            description = "Søgetjeneste til opslag af danske stednavne, skove, stationer og adresser baseret på OpenStreetMap.",
+            url = "https://photon.komoot.io/",
+            icon = Icons.Default.Map,
+            iconTint = danskStiColors.plannedRoute
         )
     )
 
@@ -279,27 +279,28 @@ fun DataCreditsScreen(
                             }
                         }
 
-                        // Date in app tag
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                        if (!credit.dateInApp.isNullOrBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    text = stringResource(R.string.ui_datacreditsscreen_datering_i_appen_47),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = credit.dateInApp,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.ui_datacreditsscreen_datering_i_appen_47),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = credit.dateInApp,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
                         }
 

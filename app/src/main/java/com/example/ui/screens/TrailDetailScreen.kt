@@ -57,10 +57,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
 import com.example.data.model.TrailSegmentDto
 import com.example.data.model.TrailSegmentType
-import com.example.ui.components.ApiKeyPromptDialog
 import com.example.ui.theme.DanskStiTheme
 import com.example.ui.viewmodel.TrailViewModel
-import com.example.util.DanskStiTileSource
 import com.example.util.GeoUtils
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
@@ -75,7 +73,6 @@ fun TrailDetailScreen(
     onStartNavigation: (Long) -> Unit,
     onOpenFullscreenMap: (String) -> Unit,
     onDownloadOffline: (String) -> Unit,
-    onOpenDiagnostics: () -> Unit = {},
     onOpenRouteBuilder: (destLat: Double?, destLng: Double?, destName: String?) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
@@ -112,19 +109,8 @@ fun TrailDetailScreen(
         }
     }
 
-    var showApiKeyPrompt by remember { mutableStateOf(!DanskStiTileSource.hasValidKey && !DanskStiTileSource.userConfirmedOsmFallback) }
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     val isDark = DanskStiTheme.isDark
-
-    if (showApiKeyPrompt) {
-        ApiKeyPromptDialog(
-            onDismiss = { showApiKeyPrompt = false },
-            onUseOsmFallback = {
-                DanskStiTileSource.userConfirmedOsmFallback = true
-                showApiKeyPrompt = false
-            }
-        )
-    }
 
     LaunchedEffect(trailId) {
         viewModel.loadTrail(trailId)
@@ -468,32 +454,6 @@ fun TrailDetailScreen(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = stringResource(R.string.btn_back),
                                 tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                        shadowElevation = 4.dp,
-                        modifier = Modifier.clickable { onOpenDiagnostics() }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Explore,
-                                contentDescription = stringResource(R.string.ui_traildetailscreen_api_status_192),
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = stringResource(R.string.ui_traildetailscreen_netv_rk_193),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }

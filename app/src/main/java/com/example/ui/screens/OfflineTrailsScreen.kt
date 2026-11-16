@@ -272,7 +272,7 @@ fun OfflineTrailsScreen(
                 }
             }
 
-            // Round 9 B Item 1: "Udseende" (Følg telefonen / Lyst / Mørkt) + "Kortet følger appen"
+            // "Udseende" (Følg telefonen / Lyst / Mørkt) + "Kortet følger appen"
             item(key = "appearance_mode_card") {
                 val settingsRepository = remember(context) { com.example.DanskStiApp.getSettingsRepository(context) }
                 val layersState by settingsRepository.mapLayersFlow.collectAsState(

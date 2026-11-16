@@ -75,7 +75,6 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * UI Round 1 Item 6:
  * Crosshair placement: a "+" button shows a fixed crosshair in the map centre and a "Tilføj her" button;
  * it adds a point exactly at the centre (snapping as in 4). "Annuller" closes it.
  */
@@ -225,7 +224,6 @@ fun CrosshairPlacementOverlay(
 }
 
 /**
- * UI Round 1 Item 7:
  * Pin selection: tapping a pin selects it (larger icon with ring, rest of the route at 60 % opacity)
  * and shows a slim action bar above the planner sheet:
  * Slet, Overnat her / Almindeligt punkt, Følg stier / Lige linje, Flyt til nærmeste sti, Navngiv.
@@ -372,7 +370,6 @@ fun PinSelectionActionBar(
 }
 
 /**
- * UI Round 1 Item 9:
  * Tapping the route line selects that leg and shows a leg card:
  * length, ascent, mode (Følg stier / Lige linje), "Vis alternativer" (alternatives 1-3 for that leg only).
  */
@@ -519,7 +516,6 @@ fun SelectedLegCard(
 }
 
 /**
- * UI Round 1 Item 11:
  * TalkBack: every pin and leg has a contentDescription like
  * "Punkt 3, overnatning, Shelter Skovbo, km 32,1".
  * Exposes accessible semantic nodes in the Compose tree for screen readers and UI tests.
@@ -578,7 +574,6 @@ fun TalkBackRouteSemanticsOverlay(
 }
 
 /**
- * UI Round 4 Item 1:
  * First-run coach marks in the planner (3 tips: tap to add, drag a point, drag the middle of a leg),
  * stored as seen in DataStore.
  */

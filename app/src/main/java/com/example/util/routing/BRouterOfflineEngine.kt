@@ -41,8 +41,9 @@ class BRouterOfflineEngine(
         private const val MAX_RUNNING_TIME_MS = 15000L
         const val VERSION_MISMATCH_MESSAGE = "Rutedata skal opdateres"
 
+        @androidx.annotation.VisibleForTesting
         @Volatile
-        var simulateVersionMismatchForTests: Boolean = false
+        internal var simulateVersionMismatchForTests: Boolean = false
 
         fun isDataOrLookupVersionMismatch(message: String?, throwable: Throwable? = null): Boolean {
             val combined = buildString {

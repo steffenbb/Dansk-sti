@@ -68,7 +68,6 @@ class FixRound7Test {
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
         app.repository.isOnlineOverrideForTests = false
-        DanskStiTileSourceHelper.userConfirmedOsmFallback = true
         runBlocking {
             DanskStiApp.getSettingsRepository(app).setHasSeenHowToGuide(true)
             app.repository.initializePreseededDataIfEmpty()

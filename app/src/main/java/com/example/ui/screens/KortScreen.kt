@@ -445,7 +445,7 @@ fun KortScreen(
                     }
                 }
 
-                // Floating tool row at the bottom: "Planlæg rute", "Gem punkt", "Mål afstand", "Offline-kort" (Requirement E & Round 10A Item 9)
+                // Floating tool row at the bottom: "Planlæg rute", "Gem punkt", "Mål afstand", "Offline-kort"
                 val toolScrollState = rememberScrollState()
                 Surface(
                     shape = RoundedCornerShape(24.dp),

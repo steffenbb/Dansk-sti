@@ -292,7 +292,7 @@ class OfflineViewModel(application: Application) : AndroidViewModel(application)
                 repository.commitDownloadedTrailPermanentDelete(previous.trailId)
             }
             _lastDeletedTrail.value = trail
-            // Round 10C Item 1: Hide in DB first; delete archive only after snackbar closes without Fortryd
+            // Hide in DB first; delete archive only after snackbar closes without Fortryd
             repository.hideDownloadedTrailInDb(trail.trailId)
         }
     }

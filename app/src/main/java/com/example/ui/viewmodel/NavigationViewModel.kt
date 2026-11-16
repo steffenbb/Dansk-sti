@@ -105,7 +105,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private val _routeHazards = MutableStateFlow<List<UserHazardNoteEntity>>(emptyList())
     val routeHazards: StateFlow<List<UserHazardNoteEntity>> = _routeHazards.asStateFlow()
 
-    // Round 11 Item 7: Error state and retry support for corridor POIs
+    // Error state and retry support for corridor POIs
     private val _corridorPoisErrorMessage = MutableStateFlow<String?>(null)
     val corridorPoisErrorMessage: StateFlow<String?> = _corridorPoisErrorMessage.asStateFlow()
 
@@ -326,11 +326,13 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         lastCorridorPoisRoute = route
         _corridorPoisErrorMessage.value = null
         corridorPoiObserverJob?.cancel()
-        corridorPoiObserverJob = viewModelScope.launch(Dispatchers.IO) {
+        corridorPoiObserverJob = viewModelScope.launch {
             try {
                 val customLoader = corridorPoiLoaderOverride
                 if (customLoader != null) {
-                    customLoader(route)
+                    withContext(Dispatchers.IO) {
+                        customLoader(route)
+                    }
                     refreshNavigationSunset()
                     return@launch
                 }
@@ -338,50 +340,52 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 val trailId = route.trailId
                 val geoPoints = route.points.map { GeoPointDto(it.lat, it.lng, it.ele) }
 
-                val initialShelters = repository.getSheltersForTrail(trailId)
-                val initialPois = repository.getPoisForTrail(trailId)
-                applyRouteCorridorSheltersAndPois(route, initialShelters, initialPois)
+                withContext(Dispatchers.IO) {
+                    val initialShelters = repository.getSheltersForTrail(trailId)
+                    val initialPois = repository.getPoisForTrail(trailId)
+                    applyRouteCorridorSheltersAndPois(route, initialShelters, initialPois)
 
-                if (initialShelters.isEmpty() && initialPois.isEmpty() && geoPoints.isNotEmpty()) {
-                    if (trailId.startsWith("route_")) {
-                        val routeId = trailId.removePrefix("route_")
-                        if (repository.getActiveRoutePoiSyncJob(routeId)?.isActive != true) {
-                            repository.enqueueRouteCorridorPoiSync(routeId, geoPoints)
-                        }
-                    } else {
-                        launch {
-                            try {
-                                repository.getTrailById(trailId)?.let { repository.syncCorridorPois(it) }
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                Log.w("NavigationViewModel", "Failed to sync corridor POIs for $trailId", e)
-                                _corridorPoisErrorMessage.value =
-                                    getApplication<Application>().getString(R.string.nav_corridor_pois_error)
+                    if (initialShelters.isEmpty() && initialPois.isEmpty() && geoPoints.isNotEmpty()) {
+                        if (trailId.startsWith("route_")) {
+                            val routeId = trailId.removePrefix("route_")
+                            if (repository.getActiveRoutePoiSyncJob(routeId)?.isActive != true) {
+                                repository.enqueueRouteCorridorPoiSync(routeId, geoPoints)
+                            }
+                        } else {
+                            viewModelScope.launch(Dispatchers.IO) {
+                                try {
+                                    repository.getTrailById(trailId)?.let { repository.syncCorridorPois(it) }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    Log.w("NavigationViewModel", "Failed to sync corridor POIs for $trailId", e)
+                                    _corridorPoisErrorMessage.value =
+                                        getApplication<Application>().getString(R.string.nav_corridor_pois_error)
+                                }
                             }
                         }
                     }
-                }
 
-                val allFri = repository.getAllFriTeltningList()
-                val corridorFri = if (geoPoints.isNotEmpty()) {
-                    allFri.filter { ft ->
-                        val (_, detourM) = GeoUtils.projectPointOnPolyline(
-                            GeoPointDto(ft.centerLat, ft.centerLng),
-                            geoPoints
-                        )
-                        detourM <= 3000.0
+                    val allFri = repository.getAllFriTeltningList()
+                    val corridorFri = if (geoPoints.isNotEmpty()) {
+                        allFri.filter { ft ->
+                            val (_, detourM) = GeoUtils.projectPointOnPolyline(
+                                GeoPointDto(ft.centerLat, ft.centerLng),
+                                geoPoints
+                            )
+                            detourM <= 3000.0
+                        }
+                    } else emptyList()
+
+                    _routeFriTeltning.value = corridorFri.map { ft ->
+                        ft to parseFriTeltningPolygonCoords(ft.polygonJson)
                     }
-                } else emptyList()
 
-                _routeFriTeltning.value = corridorFri.map { ft ->
-                    ft to parseFriTeltningPolygonCoords(ft.polygonJson)
+                    val hazards = repository.getHazardNotesForTrail(trailId).firstOrNull() ?: emptyList()
+                    _routeHazards.value = hazards
                 }
 
-                val hazards = repository.getHazardNotesForTrail(trailId).firstOrNull() ?: emptyList()
-                _routeHazards.value = hazards
-
-                // Round 11 Item 4: Compute navigation sunset from current position or tonight's overnight point,
+                // Compute navigation sunset from current position or tonight's overnight point,
                 // never from the route's midpoint.
                 refreshNavigationSunset()
 
@@ -688,15 +692,20 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private val _currentDayStat = MutableStateFlow<com.example.data.model.RecordedDayStatEntity?>(null)
     val currentDayStat: StateFlow<com.example.data.model.RecordedDayStatEntity?> = _currentDayStat.asStateFlow()
 
+    private var dayStatsObserverJob: Job? = null
+
     init {
         viewModelScope.launch {
             liveState.collect { state ->
                 val pId = state.planId
                 val day = state.currentDay
+                dayStatsObserverJob?.cancel()
                 if (pId > 0L) {
-                    repository.getAllRecordedDayStats(pId).collect { stats ->
-                        _allRecordedDayStats.value = stats
-                        _currentDayStat.value = stats.find { it.dayNumber == day }
+                    dayStatsObserverJob = viewModelScope.launch {
+                        repository.getAllRecordedDayStats(pId).collect { stats ->
+                            _allRecordedDayStats.value = stats
+                            _currentDayStat.value = stats.find { it.dayNumber == day }
+                        }
                     }
                 }
             }

@@ -2,20 +2,15 @@ package com.example.data.repository
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.example.data.model.GeoPointDto
 import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
-import com.example.util.network.applyDebugMainThreadCheck
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 data class OsmPoiResult(
     val shelters: List<ShelterEntity> = emptyList(),
@@ -23,19 +18,7 @@ data class OsmPoiResult(
 )
 
 class OsmPoiRepository(private val context: Context) {
-    companion object {
-        val OVERPASS_ENDPOINTS = listOf(
-            "https://overpass-api.de/api/interpreter",
-            "https://lz4.overpass-api.de/api/interpreter",
-            "https://overpass.kumi.systems/api/interpreter"
-        )
-    }
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS)
-        .applyDebugMainThreadCheck()
-        .build()
 
     private val cacheDir: File
         get() = File(context.filesDir, "osm_pois").apply { if (!exists()) mkdirs() }
@@ -55,7 +38,7 @@ class OsmPoiRepository(private val context: Context) {
                     query = query,
                     label = "OsmPoiTrail($trailId)"
                 )
-                if (jsonStr.isNotBlank()) {
+                if (jsonStr.isNotBlank() && com.example.data.remote.OverpassClient.extractErrorRemark(jsonStr) == null) {
                     cacheFile.writeText(jsonStr)
                     val parsed = parseOverpassJson(jsonStr)
                     if (parsed.shelters.isNotEmpty() || parsed.pois.isNotEmpty()) {
@@ -106,10 +89,10 @@ class OsmPoiRepository(private val context: Context) {
         }
     }
 
-    var customPolylineChunkFetcher: (suspend (simplifiedChunk: List<GeoPointDto>) -> OsmPoiResult)? = null
+    @VisibleForTesting
+    internal var customPolylineChunkFetcher: (suspend (simplifiedChunk: List<GeoPointDto>) -> OsmPoiResult)? = null
 
     /**
-     * Requirement B & Round 12A Item 8:
      * Fetch POIs along a custom route polyline using Overpass around:<m>,lat1,lon1,lat2,lon2,...
      * Splits the corridor POI query into chunks of about 50 km (with 3 km overlap),
      * simplifies each chunk to about 1 point per 200 m, and merges the results without duplicates.
@@ -169,7 +152,6 @@ class OsmPoiRepository(private val context: Context) {
     }
 
     /**
-     * Round 12A Item 8:
      * Splits a polyline into chunks of [chunkLengthKm] (default 50 km) with [overlapKm] (default 3 km) overlap.
      */
     fun splitPolylineIntoChunks(

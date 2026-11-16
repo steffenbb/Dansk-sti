@@ -26,7 +26,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * Requirement G: Gem builds the TripPlan, the stages (from OVERNIGHT pins) and the PlannedRoute
+ * Gem builds the TripPlan, the stages (from OVERNIGHT pins) and the PlannedRoute
  * in ONE place (PlannedRouteRepository) from the composed legs.
  */
 fun RouteBuilderViewModel.saveRoute(onSuccess: (Long) -> Unit, forceResetProgress: Boolean = false) {
@@ -202,7 +202,8 @@ internal fun RouteBuilderViewModel.saveRouteInternal(
 
             draftAutosaveJob?.cancel()
             try {
-                app.database.danskStiDao().clearPlannerDraft()
+                val draftKey = computePlannerDraftKey(currentState.routeId, currentState.baseTrailId)
+                app.database.danskStiDao().deletePlannerDraftByKey(draftKey)
             } catch (_: Exception) {}
 
             val stageEntities = stages.map { it.toEntity(planId = savedPlanId) }
@@ -230,7 +231,7 @@ internal fun RouteBuilderViewModel.saveRouteInternal(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save route/plan: ${e.message}")
-            val errMsg = "Fejl ved gemning af tur: ${e.message}"
+            val errMsg = "Fejl ved gemning af tur: ${com.example.util.userMessageFor(e)}"
             _uiState.update {
                 it.copy(
                     isSaving = false,
@@ -249,8 +250,35 @@ fun RouteBuilderViewModel.setShowUnsavedChangesDialog(show: Boolean) {
     _uiState.update { it.copy(showUnsavedChangesDialog = show) }
 }
 
-fun RouteBuilderViewModel.scheduleDraftAutosave(debounceMs: Long = 2000L) {
+fun computePlannerDraftKey(routeId: Long?, baseTrailId: String?): String = when {
+    routeId != null && routeId > 0L -> routeId.toString()
+    !baseTrailId.isNullOrBlank() -> "trail_$baseTrailId"
+    else -> "free_new"
+}
+
+fun RouteBuilderViewModel.currentPlannerDraftKey(): String {
+    val s = _uiState.value
+    return computePlannerDraftKey(s.routeId, s.baseTrailId)
+}
+
+fun RouteBuilderViewModel.deleteCurrentDraftFromRoomNow(explicitKey: String? = null) {
     draftAutosaveJob?.cancel()
+    val key = explicitKey ?: currentPlannerDraftKey()
+    runCatching {
+        kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+            app.database.danskStiDao().deletePlannerDraftByKey(key)
+        }
+    }
+}
+
+fun RouteBuilderViewModel.scheduleDraftAutosave(debounceMs: Long = 50L) {
+    draftAutosaveJob?.cancel()
+    val snapshotState = _uiState.value
+    if (snapshotState.waypoints.isEmpty()) {
+        val key = computePlannerDraftKey(snapshotState.routeId, snapshotState.baseTrailId)
+        deleteCurrentDraftFromRoomNow(key)
+        return
+    }
     draftAutosaveJob = viewModelScope.launch(Dispatchers.IO) {
         if (debounceMs > 0L) {
             kotlinx.coroutines.delay(debounceMs)
@@ -261,7 +289,13 @@ fun RouteBuilderViewModel.scheduleDraftAutosave(debounceMs: Long = 2000L) {
 
 suspend fun RouteBuilderViewModel.saveDraftToRoomNow() {
     val state = _uiState.value
-    if (state.waypoints.isEmpty()) return
+    val key = computePlannerDraftKey(state.routeId, state.baseTrailId)
+    if (state.waypoints.isEmpty()) {
+        try {
+            app.database.danskStiDao().deletePlannerDraftByKey(key)
+        } catch (_: Exception) {}
+        return
+    }
     try {
         val optionsJson = JSONObject().apply {
             put("avoidRoads", state.options.avoidRoads)
@@ -269,7 +303,7 @@ suspend fun RouteBuilderViewModel.saveDraftToRoomNow() {
             put("allowFerries", state.options.allowFerries)
         }.toString()
         val draft = com.example.data.model.PlannerDraftEntity(
-            id = "active_planner_draft",
+            id = key,
             routeId = state.routeId,
             baseTrailId = state.baseTrailId,
             routeName = state.routeName,
@@ -285,14 +319,25 @@ suspend fun RouteBuilderViewModel.saveDraftToRoomNow() {
     }
 }
 
-internal fun RouteBuilderViewModel.checkForExistingDraft() {
-    viewModelScope.launch(Dispatchers.IO) {
-        try {
-            val draft = app.database.danskStiDao().getPlannerDraft()
-            if (draft != null && RouteWaypoint.listFromJson(draft.waypointsJson).isNotEmpty()) {
-                _uiState.update { it.copy(pendingDraftToRestore = draft) }
-            }
-        } catch (_: Exception) {}
+internal fun RouteBuilderViewModel.checkForExistingDraft(
+    expectedKey: String = currentPlannerDraftKey()
+) {
+    if (suppressDraftRestore) {
+        _uiState.update { it.copy(pendingDraftToRestore = null) }
+        return
+    }
+    _uiState.update { it.copy(pendingDraftToRestore = null) }
+    val matchingDraft = runCatching {
+        kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+            app.database.danskStiDao().getPlannerDraftByKey(expectedKey)
+        }
+    }.getOrNull()
+    if (!suppressDraftRestore &&
+        matchingDraft != null &&
+        matchingDraft.id == expectedKey &&
+        RouteWaypoint.listFromJson(matchingDraft.waypointsJson).isNotEmpty()
+    ) {
+        _uiState.update { it.copy(pendingDraftToRestore = matchingDraft) }
     }
 }
 
@@ -303,8 +348,82 @@ fun RouteBuilderViewModel.continueDraft() {
     val restoredMode = try {
         PlannerMode.valueOf(draft.mode)
     } catch (_: Exception) {
-        PlannerMode.FREE
+        if (!draft.baseTrailId.isNullOrBlank()) PlannerMode.TRAIL else PlannerMode.FREE
     }
+    val trailId = draft.baseTrailId?.takeIf { it.isNotBlank() }
+
+    if (restoredMode == PlannerMode.TRAIL && trailId != null) {
+        trailGeometryDownloadJob?.cancel()
+        val existingSegments = _uiState.value.baseTrailSegments.takeIf {
+            _uiState.value.baseTrailId == trailId && it.isNotEmpty()
+        }
+        if (existingSegments != null) {
+            applyRestoredTrailDraft(
+                draft = draft,
+                trailId = trailId,
+                trail = _uiState.value.baseTrail,
+                segments = existingSegments,
+                restoredWps = restoredWps,
+                restoredOptions = restoredOptions
+            )
+            return
+        }
+
+        val preseededTrail = com.example.data.local.PreseededData.getInitialTrails().find { it.id == trailId }
+        _uiState.update {
+            it.copy(
+                mode = PlannerMode.TRAIL,
+                routeName = draft.routeName.ifBlank { preseededTrail?.name ?: it.routeName },
+                baseTrailId = trailId,
+                baseTrail = preseededTrail ?: it.baseTrail,
+                routeId = draft.routeId,
+                waypoints = emptyList(),
+                legs = emptyMap(),
+                options = restoredOptions,
+                isReverse = draft.isReverse,
+                pendingDraftToRestore = null,
+                isDownloadingTrailGeometry = true,
+                trailGeometryDownloadFailed = false,
+                waitingForStartPointTap = false,
+                errorMessage = null
+            )
+        }
+
+        trailGeometryDownloadJob = viewModelScope.launch(Dispatchers.Default) {
+            val trail = repository.getTrailById(trailId) ?: preseededTrail
+            if (trail == null) {
+                _uiState.update {
+                    it.copy(
+                        isDownloadingTrailGeometry = false,
+                        trailGeometryDownloadFailed = true,
+                        errorMessage = "Ruten kunne ikke hentes"
+                    )
+                }
+                return@launch
+            }
+            val segments = repository.getTrailPoints(trail)
+            if (segments.isEmpty()) {
+                _uiState.update {
+                    it.copy(
+                        isDownloadingTrailGeometry = false,
+                        trailGeometryDownloadFailed = true,
+                        errorMessage = "Ruten kunne ikke hentes"
+                    )
+                }
+                return@launch
+            }
+            applyRestoredTrailDraft(
+                draft = draft,
+                trailId = trailId,
+                trail = trail,
+                segments = segments,
+                restoredWps = restoredWps,
+                restoredOptions = restoredOptions
+            )
+        }
+        return
+    }
+
     _uiState.update {
         it.copy(
             mode = restoredMode,
@@ -327,7 +446,88 @@ fun RouteBuilderViewModel.continueDraft() {
     }
 }
 
+internal fun RouteBuilderViewModel.applyRestoredTrailDraft(
+    draft: com.example.data.model.PlannerDraftEntity,
+    trailId: String,
+    trail: com.example.data.model.TrailEntity?,
+    segments: List<com.example.data.model.TrailSegmentDto>,
+    restoredWps: List<RouteWaypoint>,
+    restoredOptions: RouteOptions
+) {
+    val kmMarkers = com.example.util.routing.TrailSlicer.generateKmMarkers(
+        segments = segments,
+        stepKm = 5.0,
+        isReverse = draft.isReverse
+    )
+    val resolvedWps = restoredWps.map { wp ->
+        if (wp.trailKm != null) {
+            wp
+        } else {
+            val proj = com.example.util.routing.TrailSlicer.projectOntoTrail(
+                segments = segments,
+                lat = wp.lat,
+                lng = wp.lng,
+                isReverse = draft.isReverse
+            )
+            if (proj != null && (wp.legModeToNext == com.example.util.routing.LegMode.TRAIL || proj.distanceMeters <= 500.0)) {
+                wp.copy(trailKm = proj.trailKm)
+            } else {
+                wp
+            }
+        }
+    }.toMutableList()
+    normalizeRoles(resolvedWps)
+
+    val initialLegs = mutableMapOf<String, com.example.util.routing.LegGeometryData>()
+    var hasNonTrailLeg = false
+    for (i in 0 until resolvedWps.size - 1) {
+        val from = resolvedWps[i]
+        val to = resolvedWps[i + 1]
+        if (from.trailKm != null && to.trailKm != null && from.legModeToNext == com.example.util.routing.LegMode.TRAIL) {
+            val leg = com.example.util.routing.TrailSlicer.buildTrailLegGeometry(
+                fromWaypointId = from.id,
+                toWaypointId = to.id,
+                segments = segments,
+                fromKm = from.trailKm,
+                toKm = to.trailKm,
+                isReverse = draft.isReverse
+            )
+            initialLegs[leg.legKey] = leg
+        } else {
+            hasNonTrailLeg = true
+        }
+    }
+
+    updateRouteStats { current ->
+        current.copy(
+            mode = PlannerMode.TRAIL,
+            routeName = draft.routeName.ifBlank { trail?.name ?: current.routeName },
+            baseTrailId = trailId,
+            baseTrail = trail ?: current.baseTrail,
+            baseTrailSegments = segments,
+            baseTrailKmMarkers = kmMarkers,
+            routeId = draft.routeId,
+            waypoints = resolvedWps,
+            legs = initialLegs,
+            failedLegs = emptyMap(),
+            options = restoredOptions,
+            isReverse = draft.isReverse,
+            pendingDraftToRestore = null,
+            isDownloadingTrailGeometry = false,
+            trailGeometryDownloadFailed = false,
+            hasUnsavedChanges = true,
+            waitingForStartPointTap = false,
+            errorMessage = null
+        )
+    }
+
+    if (hasNonTrailLeg && resolvedWps.size >= 2) {
+        recomputeAllLegs()
+    }
+}
+
 fun RouteBuilderViewModel.discardDraft() {
+    val draftKey = _uiState.value.pendingDraftToRestore?.id ?: currentPlannerDraftKey()
     draftAutosaveJob?.cancel()
     _uiState.update {
         it.copy(
@@ -336,11 +536,7 @@ fun RouteBuilderViewModel.discardDraft() {
             hasUnsavedChanges = false
         )
     }
-    viewModelScope.launch(Dispatchers.IO) {
-        try {
-            app.database.danskStiDao().clearPlannerDraft()
-        } catch (_: Exception) {}
-    }
+    deleteCurrentDraftFromRoomNow(draftKey)
 }
 
 fun RouteBuilderViewModel.confirmResetProgressAndSave() {
@@ -501,7 +697,7 @@ fun RouteBuilderViewModel.shareRoute(context: Context) {
 
     com.example.util.GpxExporter.exportAndShareGpxWithSummary(
         context = context,
-        fileName = "${name.replace(" ", "_")}.gpx",
+        fileName = com.example.util.GpxExporter.buildSafeGpxFileName(name),
         gpxContent = gpxStr,
         shareTitle = context.getString(com.example.R.string.share_route_title, name),
         textSummary = summary
@@ -548,128 +744,5 @@ internal fun RouteBuilderViewModel.haversineM(lat1: Double, lon1: Double, lat2: 
     return r * c
 }
 
-internal suspend fun RouteBuilderViewModel.computeSingleLegSuspend(from: RouteWaypoint, to: RouteWaypoint) {
-    val legKey = "${from.id}_to_${to.id}"
-    val state = _uiState.value
-
-    if (from.trailKm != null && to.trailKm != null && state.baseTrailSegments.isNotEmpty()) {
-        val trailLeg = com.example.util.routing.TrailSlicer.buildTrailLegGeometry(
-            fromWaypointId = from.id,
-            toWaypointId = to.id,
-            segments = state.baseTrailSegments,
-            fromKm = from.trailKm,
-            toKm = to.trailKm,
-            isReverse = state.isReverse
-        )
-        _uiState.update { current ->
-            val updatedLegs = current.legs.toMutableMap().apply { put(legKey, trailLeg) }
-            val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
-            val updatedLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
-            current.copy(
-                legs = updatedLegs,
-                failedLegs = updatedFailed,
-                loadingLegKeys = updatedLoading
-            )
-        }
-        withContext(Dispatchers.IO) {
-            RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, trailLeg)
-        }
-        return
-    }
-
-    val legMode = from.legModeToNext
-    if (legMode == com.example.util.routing.LegMode.STRAIGHT) {
-        val distKm = haversineM(from.lat, from.lng, to.lat, to.lng) / 1000.0
-        val straightLeg = LegGeometryData(
-            fromWaypointId = from.id,
-            toWaypointId = to.id,
-            legMode = com.example.util.routing.LegMode.STRAIGHT,
-            points = listOf(com.example.util.routing.RoutePoint3D(from.lat, from.lng, null), com.example.util.routing.RoutePoint3D(to.lat, to.lng, null)),
-            lengthKm = distKm,
-            ascentM = 0.0,
-            descentM = 0.0,
-            pathSharePct = null,
-            roadKm = 0.0,
-            hasAccessWarning = false,
-            sourceName = "Straight",
-            wayInfo = emptyList()
-        )
-        _uiState.update { current ->
-            val updatedLegs = current.legs.toMutableMap().apply { put(legKey, straightLeg) }
-            val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
-            val doneLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
-            current.copy(
-                legs = updatedLegs,
-                loadingLegKeys = doneLoading,
-                failedLegs = updatedFailed
-            )
-        }
-        withContext(Dispatchers.IO) {
-            RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, straightLeg)
-        }
-        return
-    }
-
-    _uiState.update { current ->
-        val currentLoading = current.loadingLegKeys.toMutableSet().apply { add(legKey) }
-        current.copy(loadingLegKeys = currentLoading)
-    }
-
-    try {
-        val fromCoord = com.example.util.routing.LatLng(from.lat, from.lng)
-        val toCoord = com.example.util.routing.LatLng(to.lat, to.lng)
-        val options = _uiState.value.options
-        val result = routingEngine.routeLeg(fromCoord, toCoord, options, alternative = 0)
-        val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet().apply { remove(legKey) }
-
-        when (result) {
-            is com.example.util.routing.RouteLegResult.Success -> {
-                val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(
-                    result.points,
-                    result.perPointWayInfo
-                )
-                val legData = LegGeometryData(
-                    fromWaypointId = from.id,
-                    toWaypointId = to.id,
-                    legMode = com.example.util.routing.LegMode.SNAP,
-                    points = result.points,
-                    lengthKm = result.lengthKm,
-                    ascentM = result.ascentM,
-                    descentM = result.descentM,
-                    pathSharePct = pathShare,
-                    roadKm = roadKm,
-                    hasAccessWarning = false,
-                    sourceName = result.sourceName,
-                    fetchedAt = result.fetchedAt,
-                    wayInfo = result.perPointWayInfo,
-                    turnCues = result.turnCues
-                )
-                _uiState.update { current ->
-                    val updatedLegs = current.legs.toMutableMap().apply { put(legKey, legData) }
-                    val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
-                    val doneLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
-                    current.copy(
-                        legs = updatedLegs,
-                        failedLegs = updatedFailed,
-                        loadingLegKeys = doneLoading,
-                        isBuiltinFallbackInUse = com.example.util.routing.BRouterOnlineEngine.isBuiltinFallbackInUse(),
-                        errorMessage = result.warningMessage ?: if (updatedFailed.isEmpty()) null else current.errorMessage
-                    )
-                }
-                withContext(Dispatchers.IO) {
-                    RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, legData)
-                }
-            }
-            is com.example.util.routing.RouteLegResult.ServerBusy -> recordFailedLeg(legKey, result.message, updatedLoading)
-            is com.example.util.routing.RouteLegResult.Offline -> recordFailedLeg(legKey, result.message, updatedLoading)
-            is com.example.util.routing.RouteLegResult.NoRoute -> recordFailedLeg(legKey, result.message, updatedLoading)
-            is com.example.util.routing.RouteLegResult.Failure -> recordFailedLeg(legKey, result.message, updatedLoading)
-        }
-    } catch (e: Exception) {
-        val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet().apply { remove(legKey) }
-        val daMsg = com.example.util.routing.BRouterOnlineEngine.translateBRouterError(e.message)
-        recordFailedLeg(legKey, daMsg, updatedLoading)
-    }
-}
 
 

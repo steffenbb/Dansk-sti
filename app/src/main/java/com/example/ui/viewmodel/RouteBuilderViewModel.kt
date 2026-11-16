@@ -95,6 +95,7 @@ class RouteBuilderViewModel(
     internal var pendingSaveCallback: ((Long) -> Unit)? = null
     internal var pendingSaveIsStarting: Boolean = false
     internal var lastComputedStagesSignature: String? = null
+    internal var suppressDraftRestore: Boolean = false
 
     internal enum class LastDeleteType {
         ROUTE_WAYPOINT,
@@ -203,7 +204,7 @@ class RouteBuilderViewModel(
                 )
             }
         }
-        checkForExistingDraft()
+        checkForExistingDraft("free_new")
     }
 
     fun nextCoachMarkStep() {
@@ -232,6 +233,8 @@ class RouteBuilderViewModel(
     }
 
     fun initTrailMode(trailId: String) {
+        suppressDraftRestore = false
+        checkForExistingDraft(computePlannerDraftKey(null, trailId))
         initializeTrailMode(trailId)
     }
 
@@ -262,7 +265,6 @@ class RouteBuilderViewModel(
         trailId: String? = null,
         existingPlanId: Long? = null
     ) {
-        checkForExistingDraft()
         val effTrailId = baseTrailId?.takeIf { it.isNotBlank() } ?: trailId?.takeIf { it.isNotBlank() }
         val routeIdFromTrail = effTrailId?.takeIf { it.startsWith("route_") }?.removePrefix("route_")?.toLongOrNull()
         val effectiveRouteId = routeId?.takeIf { it > 0 }
@@ -276,6 +278,20 @@ class RouteBuilderViewModel(
         val effGpsLng = gpsLng ?: currentGpsLng
         val computedStaleMessage = staleLocationMessage ?: gpsFixTimeMs?.let {
             com.example.ui.map.LiveMapLocationState.formatOldFixMessage(it)
+        }
+
+        val isRouteToDestination = effDestLat != null && effDestLng != null
+        val isSpecificSavedPlan = existingPlanId != null && existingPlanId > 0L
+        if (isRouteToDestination || isSpecificSavedPlan) {
+            suppressDraftRestore = true
+            _uiState.update { it.copy(pendingDraftToRestore = null) }
+        } else {
+            suppressDraftRestore = false
+            val draftKey = computePlannerDraftKey(
+                routeId = effectiveRouteId,
+                baseTrailId = if (effectiveRouteId != null && effectiveRouteId > 0L) null else effTrailId
+            )
+            checkForExistingDraft(draftKey)
         }
 
         if (existingPlanId != null && existingPlanId > 0L) {
@@ -729,59 +745,5 @@ class RouteBuilderViewModel(
             )
         }
     }
-
-    fun undo() {
-        if (undoStack.isEmpty()) return
-        val previous = undoStack.removeAt(undoStack.lastIndex)
-        val current = HistorySnapshot(
-            waypoints = _uiState.value.waypoints,
-            legs = _uiState.value.legs,
-            options = _uiState.value.options,
-            isReverse = _uiState.value.isReverse
-        )
-        redoStack.add(current)
-        if (redoStack.size > MAX_HISTORY) {
-            redoStack.removeAt(0)
-        }
-
-        _uiState.update {
-            it.copy(
-                waypoints = previous.waypoints,
-                legs = previous.legs,
-                failedLegs = emptyMap(),
-                options = previous.options,
-                isReverse = previous.isReverse,
-                hasUnsavedChanges = undoStack.isNotEmpty() || previous.waypoints.isNotEmpty()
-            )
-        }
-        updateUndoRedoAvailability()
-        updateRouteStats()
-        scheduleDraftAutosave()
-    }
-
-    fun redo() {
-        if (redoStack.isEmpty()) return
-        val next = redoStack.removeAt(redoStack.lastIndex)
-        val current = HistorySnapshot(
-            waypoints = _uiState.value.waypoints,
-            legs = _uiState.value.legs,
-            options = _uiState.value.options,
-            isReverse = _uiState.value.isReverse
-        )
-        undoStack.add(current)
-
-        _uiState.update {
-            it.copy(
-                waypoints = next.waypoints,
-                legs = next.legs,
-                failedLegs = emptyMap(),
-                options = next.options,
-                isReverse = next.isReverse,
-                hasUnsavedChanges = true
-            )
-        }
-        updateUndoRedoAvailability()
-        updateRouteStats()
-        scheduleDraftAutosave()
-    }
 }
+

@@ -38,7 +38,6 @@ import kotlin.coroutines.resume
 import kotlin.math.max
 
 /**
- * Round 10A Item 8:
  * - While a map screen is visible, request location updates (FusedLocationProviderClient, balanced accuracy, every 5 s)
  *   and stop them in onPause.
  * - Show the dot greyed out with "sidst set X min siden" when the fix is older than 2 minutes.
@@ -127,7 +126,6 @@ class LiveMapLocationState(
         }
 
         /**
-         * Round 12A Item 6:
          * - Requests a fresh fix (getCurrentLocation, up to 15 s).
          * - If only an old fix exists, returns it with isOldFix = true and staleMessage = "Position fra for X min siden".
          */
@@ -181,7 +179,7 @@ class LiveMapLocationState(
         }
 
         /**
-         * Round 10C Item 8: Request a fresh GPS fix (as in Round 10A Item 8) with a 15 s timeout.
+         * Request a fresh GPS fix with a 15 s timeout.
          * Returns null if no fix arrives within timeoutMs.
          */
         @SuppressLint("MissingPermission")

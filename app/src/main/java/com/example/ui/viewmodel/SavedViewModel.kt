@@ -274,7 +274,6 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     /**
-     * Round 10C Item 1 & Round 11 Item 3:
      * Called when the undo snackbar closes without "Fortryd", or when Mine ture is left
      * or the app goes to the background with an undo pending.
      * Permanently deletes files, POIs, progress, stages, track points, and offline archives.
@@ -598,10 +597,9 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
                 trailPoints = points,
                 shelters = shelters
             )
-            val safeName = plan.trailName.replace(" ", "_")
             GpxExporter.exportAndShareGpxFile(
                 context = context,
-                fileName = "${safeName}_${plan.targetDays}dage.gpx",
+                fileName = GpxExporter.buildSafeGpxFileName(plan.trailName, "${plan.targetDays}dage"),
                 gpxContent = gpxContent,
                 shareTitle = context.getString(com.example.R.string.share_trip_plan_gpx_title)
             )

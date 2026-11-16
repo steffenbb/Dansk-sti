@@ -55,8 +55,6 @@ class UiRound4PolishTest {
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
         app.repository.isOnlineOverrideForTests = false
-        DanskStiTileSource.userConfirmedOsmFallback = true
-        DanskStiTileSourceHelper.userConfirmedOsmFallback = true
         runBlocking {
             app.repository.initializePreseededDataIfEmpty()
             app.settingsRepository.setPlannerCoachMarksSeen(false)
@@ -94,7 +92,7 @@ class UiRound4PolishTest {
         composeTestRule.onNodeWithText("Træk i midten af en strækning", substring = true).assertIsDisplayed()
 
         // Dismiss coach marks
-        composeTestRule.onNodeWithTag("coach_marks_dismiss_button").performScrollTo().performClick()
+        composeTestRule.onNodeWithTag("coach_marks_dismiss_button").performClick()
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             composeTestRule.onAllNodesWithTag("planner_coach_marks").fetchSemanticsNodes().isEmpty() &&
                 runBlocking { app.settingsRepository.settingsFlow.first().plannerCoachMarksSeen }

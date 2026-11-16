@@ -420,7 +420,7 @@ abstract class DanskStiDatabase : RoomDatabase() {
                         fetchedAt INTEGER NOT NULL
                     )
                 """.trimIndent())
-                // Requirement 1: Delete cached baseline access polygons
+                // Delete cached baseline access polygons
                 db.execSQL("DELETE FROM access_polygons WHERE id LIKE 'baseline_%'")
                 db.execSQL("ALTER TABLE access_polygons ADD COLUMN tileId TEXT NOT NULL DEFAULT ''")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_access_polygons_tileId ON access_polygons(tileId)")

@@ -30,7 +30,6 @@ object GpxImporter {
     const val MAX_VIA_POINTS = 60
 
     /**
-     * Round 10B Item 13:
      * Parses a GPX stream, extracting original track/route points and simplifying with
      * Douglas-Peucker to at most about 60 via points while keeping turns and junctions.
      */

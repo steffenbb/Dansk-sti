@@ -101,7 +101,7 @@ fun formatDownloadedDateDanish(epochMillis: Long): String {
 }
 
 /**
- * UI Round 4 (Item 5): "Offline" pill shown on maps and lists without connection.
+ * "Offline" pill shown on maps and lists without connection.
  */
 @Composable
 fun OfflineStatusPill(
@@ -143,15 +143,17 @@ fun OfflineStatusPill(
 }
 
 /**
- * Requirement A: Haptic tick when a pin is added, snapped or dropped.
+ * Haptic tick when a pin is added, snapped or dropped.
  */
 object HapticFeedbackHelper {
+    @androidx.annotation.VisibleForTesting
     @Volatile
-    var tickCountForTesting: Int = 0
+    internal var tickCountForTesting: Int = 0
         private set
 
+    @androidx.annotation.VisibleForTesting
     @Volatile
-    var lastEventReason: String = ""
+    internal var lastEventReason: String = ""
         private set
 
     fun performPinHapticTick(view: View?, reason: String = "pin") {
@@ -165,14 +167,15 @@ object HapticFeedbackHelper {
         } catch (_: Exception) {}
     }
 
-    fun resetForTesting() {
+    @androidx.annotation.VisibleForTesting
+    internal fun resetForTesting() {
         tickCountForTesting = 0
         lastEventReason = ""
     }
 }
 
 /**
- * Requirement A: 48 dp circular map button with shadow and mandatory contentDescription.
+ * 48 dp circular map button with shadow and mandatory contentDescription.
  */
 @Composable
 fun MapCircleButton(
@@ -214,7 +217,7 @@ fun MapCircleButton(
 }
 
 /**
- * Requirement J: Loading state (skeleton cards).
+ * Loading state (skeleton cards).
  */
 @Composable
 fun SkeletonLoadingList(
@@ -281,7 +284,7 @@ fun SkeletonLoadingList(
 }
 
 /**
- * Requirement J: Empty state (one sentence + one action).
+ * Empty state (one sentence + one action).
  */
 @Composable
 fun EmptyStateView(
@@ -343,7 +346,7 @@ fun EmptyStateView(
 }
 
 /**
- * Requirement J: Error state (Danish message + Prøv igen).
+ * Error state (Danish message + Prøv igen).
  */
 @Composable
 fun ErrorStateView(
@@ -409,7 +412,7 @@ fun ErrorStateView(
 }
 
 /**
- * Requirement C: Map thumbnail of the trail drawn from its real geometry.
+ * Map thumbnail of the trail drawn from its real geometry.
  */
 @Composable
 fun TrailGeometryThumbnail(

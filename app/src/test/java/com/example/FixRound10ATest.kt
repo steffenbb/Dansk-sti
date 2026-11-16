@@ -60,7 +60,6 @@ import com.example.ui.navigation.DanskStiBottomBar
 import com.example.ui.navigation.MapLayersOverlayManager
 import com.example.ui.navigation.PoiItem
 import com.example.ui.navigation.Screen
-import com.example.ui.screens.ApiDiagnosticsScreen
 import com.example.ui.screens.DataCreditsScreen
 import com.example.ui.screens.PlannerUnsavedChangesDialog
 import com.example.ui.screens.RouteBuilderTopAppBar
@@ -446,9 +445,6 @@ class FixRound10ATest {
                             "credits" -> {
                                 DataCreditsScreen(onBack = {})
                             }
-                            "diagnostics" -> {
-                                ApiDiagnosticsScreen(onBack = {})
-                            }
                             else -> {
                                 Box(
                                     modifier = Modifier
@@ -465,7 +461,7 @@ class FixRound10ATest {
             }
         }
 
-        val screens = listOf("explore", "kort", "saved", "profile", "planner", "credits", "diagnostics")
+        val screens = listOf("explore", "kort", "saved", "profile", "planner", "credits")
         var screenshotCount = 0
 
         for (scr in screens) {
@@ -494,7 +490,7 @@ class FixRound10ATest {
                 screenshotCount++
             }
         }
-        assertEquals(14, screenshotCount)
+        assertEquals(12, screenshotCount)
     }
 
     // =========================================================================

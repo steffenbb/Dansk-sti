@@ -60,7 +60,6 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 
 /**
- * UI Round 1 Item 1:
  * Add a Kig / Tegn toggle at the top of the planner (segmented button, 48 dp).
  */
 @Composable
@@ -152,11 +151,10 @@ fun KigTegnSegmentedToggle(
 }
 
 /**
- * Round 9A Item 7 & 8:
  * Encapsulates pin drag and ghost handle drag state transitions:
- * - Item 7: Ghost handles insert the via point ONLY when the drag passes touch slop;
+ * - Ghost handles insert the via point ONLY when the drag passes touch slop;
  *   if the gesture is cancelled, it removes the via point again.
- * - Item 8: If a second finger goes down during a pin drag, it cancels the drag
+ * - If a second finger goes down during a pin drag, it cancels the drag
  *   (the pin returns to its old place) and lets the map zoom.
  */
 class PlannerDragGestureSession(
@@ -255,7 +253,6 @@ data class ActivePinDragState(
 )
 
 /**
- * Round 10A Item 3:
  * osmdroid [org.osmdroid.views.overlay.Overlay] that handles pin and ghost-handle dragging.
  * Its [onTouchEvent] returns `true` ONLY when a visible waypoint pin or ghost handle is hit,
  * allowing all other touches (pan, fling, pinch-zoom, double-tap zoom in Kig and Tegn mode)
@@ -506,7 +503,6 @@ class PlannerPinDragMapOverlay(
 }
 
 /**
- * Round 10A Item 3:
  * Non-touch drawing layer for pin/ghost-handle drag feedback:
  * - Draws the pin 48 dp above the finger
  * - Shows a 64 dp magnifier circle

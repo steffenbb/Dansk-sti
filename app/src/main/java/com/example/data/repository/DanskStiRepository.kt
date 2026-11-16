@@ -70,7 +70,7 @@ class DanskStiRepository(
         routePoiSyncJobs[routeId.removePrefix("route_")]
 
     /**
-     * Round 10C Item 4: Run the corridor POI sync for a route as one cancellable job per route
+     * Run the corridor POI sync for a route as one cancellable job per route
      * (with a per-route Mutex); a new save cancels the previous sync.
      */
     fun enqueueRouteCorridorPoiSync(
@@ -90,7 +90,8 @@ class DanskStiRepository(
         return job
     }
 
-    var isOnlineOverrideForTests: Boolean? = null
+    @androidx.annotation.VisibleForTesting
+    internal var isOnlineOverrideForTests: Boolean? = null
 
     fun isDeviceOnline(): Boolean {
         isOnlineOverrideForTests?.let { return it }
@@ -118,7 +119,7 @@ class DanskStiRepository(
     }
 
     /**
-     * Round 10B Item 4: Fetch tags and bounding boxes for all catalogue relations in one Overpass request
+     * Fetch tags and bounding boxes for all catalogue relations in one Overpass request
      * (`relation(id:...); out tags bb;`), cached 30 days; compute the region from the bounding box centre.
      */
     suspend fun fetchOrLoadCatalogueRelationsMetadata(
@@ -154,7 +155,7 @@ class DanskStiRepository(
         }
 
         val idsCsv = relationIds.joinToString(",")
-        val query = "[out:json][timeout:25];relation(id:$idsCsv); out tags bb;"
+        val query = "[out:json][timeout:25][maxsize:67108864];relation(id:$idsCsv); out tags bb;"
         val rawJson = com.example.data.remote.OverpassClient.queryRawJson(query)
         if (rawJson.isNullOrBlank()) {
             return@withContext inMemoryCatalogueMeta.toMap()
@@ -347,7 +348,7 @@ class DanskStiRepository(
                     }
                 }
 
-                // Round 10B Item 4: Fetch or load 30-day cached tags & bounding boxes for catalogue relations
+                // Fetch or load 30-day cached tags & bounding boxes for catalogue relations
                 try {
                     fetchOrLoadCatalogueRelationsMetadata(forceRefresh = false)
                 } catch (e: Exception) {
@@ -434,7 +435,7 @@ class DanskStiRepository(
             return@withContext preseeded
         }
 
-        // Custom route support: custom routes work everywhere a trail works (Phase 11 Requirement E)
+        // Custom route support
         val cleanRouteId = id.removePrefix("custom_route_").removePrefix("route_").toLongOrNull()
         if (cleanRouteId != null) {
             val cr = dao.getCustomRouteById(cleanRouteId)
@@ -650,7 +651,6 @@ class DanskStiRepository(
             val points = getTrailPoints(trail).flatMap { it.points }
             if (points.isEmpty()) return@withContext Result.success(Unit)
 
-            // If this is a custom route, delegate to syncCorridorPoisForRoute (Phase 11 Requirement B)
             if (trail.id.startsWith("route_")) {
                 val cleanRouteId = trail.id.removePrefix("route_")
                 return@withContext syncCorridorPoisForRoute(cleanRouteId, points)
@@ -804,11 +804,6 @@ class DanskStiRepository(
     }
 
     /**
-     * Requirement B & Fix Round 5 Item 5: Sync POIs along a custom route polyline using GeoFA and Overpass around corridor.
-     * Always fetches OSM corridor POIs when online; skips only when offline.
-     */
-    /**
-     * Requirement B, Fix Round 5 Item 5 & Round 10C Item 4:
      * Sync POIs along a custom route polyline using GeoFA and Overpass around corridor.
      * Protected by per-route Mutex and supports coroutine cancellation when a newer save supersedes it.
      */
@@ -1174,7 +1169,7 @@ class DanskStiRepository(
     }
 
     /**
-     * Requirement D, G & Fix Round 5 Item 7: Saves a trip plan for a route (TRAIL or FREE mode) linked via customRouteId.
+     * Saves a trip plan for a route (TRAIL or FREE mode) linked via customRouteId.
      * Updates the existing plan (same id) instead of inserting a new one, and deletes older plans with the same customRouteId.
      */
     suspend fun saveTripPlanForRoute(
@@ -1270,8 +1265,8 @@ class DanskStiRepository(
     }
 
     /**
-     * Requirement G: Gem builds the TripPlan, the stages (from OVERNIGHT pins) and the PlannedRoute
-     * in ONE place (PlannedRouteRepository) from the composed legs.
+     * Builds the TripPlan, the stages (from OVERNIGHT pins) and the PlannedRoute
+     * in PlannedRouteRepository from the composed legs.
      */
     suspend fun ensureTripPlanForCustomRoute(
         route: com.example.data.model.CustomRouteEntity,
@@ -1299,7 +1294,6 @@ class DanskStiRepository(
             legs[key]?.let { orderedLegs.add(it) }
         }
 
-        // Save geometry to routes/<id>.json.gz (Requirement A)
         val geom = com.example.util.routing.RouteGeometryStorageManager.convertCustomRouteToTrailGeometry(route.id.toString(), orderedLegs, route.name)
         if (geom != null) {
             geometryRepository.saveRouteGeometry(route.id.toString(), geom)
@@ -1390,7 +1384,7 @@ class DanskStiRepository(
     }
 
     /**
-     * Round 10C Item 1: Hide trip plan in DB view only (keep files, stages, progress, recorded stats/tracks intact until undo snackbar closes).
+     * Hide trip plan in DB view only (keep files, stages, progress, recorded stats/tracks intact until undo snackbar closes).
      */
     suspend fun hideTripPlanInDb(id: Long) = withContext(Dispatchers.IO) {
         stopNavigationIfActiveForPlan(id)
@@ -1398,7 +1392,7 @@ class DanskStiRepository(
     }
 
     /**
-     * Round 10C Item 1: Permanently delete trip plan files, progress, stages, and recorded stats/tracks after undo snackbar closes.
+     * Permanently delete trip plan files, progress, stages, and recorded stats/tracks after undo snackbar closes.
      */
     suspend fun commitTripPlanPermanentDelete(id: Long) = withContext(Dispatchers.IO) {
         stopNavigationIfActiveForPlan(id)
@@ -1426,14 +1420,14 @@ class DanskStiRepository(
     }
 
     /**
-     * Round 10C Item 1: Hide offline downloaded trail in DB view only (keep .sqlite archive intact until undo snackbar closes).
+     * Hide offline downloaded trail in DB view only (keep .sqlite archive intact until undo snackbar closes).
      */
     suspend fun hideDownloadedTrailInDb(trailId: String) = withContext(Dispatchers.IO) {
         dao.deleteDownloadedTrail(trailId)
     }
 
     /**
-     * Round 10C Item 1 & Item 5: Detach offline archive from every open map's tile provider before deleting the file, then refresh the map.
+     * Detach offline archive from every open map's tile provider before deleting the file, then refresh the map.
      */
     suspend fun commitDownloadedTrailPermanentDelete(trailId: String) = withContext(Dispatchers.IO) {
         runCatching {
@@ -2072,7 +2066,7 @@ class DanskStiRepository(
     }
 
     /**
-     * Round 10C Item 1: Hide custom route and its associated plans in DB view only
+     * Hide custom route and its associated plans in DB view only
      * (keep geometry files, route files, POIs, progress, stages, and recorded tracks intact until undo snackbar closes).
      */
     suspend fun hideCustomRouteInDb(id: Long, associatedPlanIds: List<Long>) = withContext(Dispatchers.IO) {
@@ -2083,7 +2077,7 @@ class DanskStiRepository(
     }
 
     /**
-     * Round 10C Item 1: Permanently delete custom route files, POIs, and associated plans' files/progress after undo snackbar closes.
+     * Permanently delete custom route files, POIs, and associated plans' files/progress after undo snackbar closes.
      */
     suspend fun commitCustomRoutePermanentDelete(
         route: com.example.data.model.CustomRouteEntity,
@@ -2165,7 +2159,6 @@ class DanskStiRepository(
     }
 
     /**
-     * Round 12A Item 1:
      * Ensures WorkManager has re-queued any pending or interrupted offline downloads recorded in
      * `offline_downloads_in_progress` before `cleanupOrphanFiles` runs.
      */
@@ -2233,7 +2226,6 @@ class DanskStiRepository(
     }
 
     /**
-     * Round 11 Item 3 & Round 12A Item 1:
      * On app start (after WorkManager has re-queued pending work), delete orphan files:
      * - plans/ files with no matching database row in trip_plans
      * - routes/ (and custom_routes/) files with no matching database row in custom_routes (or trip_plans)
@@ -2316,7 +2308,7 @@ class DanskStiRepository(
                 }
             }
 
-            // 3. offline/ (Round 12A Item 1)
+            // 3. offline/
             val validDownloadedTrails = dao.getAllDownloadedTrailsList()
             val validDownloadedStems = buildSet {
                 validDownloadedTrails.forEach { dt ->
@@ -2408,7 +2400,7 @@ class DanskStiRepository(
         markedRouteRepository.saveMarkedRouteAsTrail(markedRoute)
     }
 
-    // Round 9 C Requirement 2: "Flere afmærkede ruter"
+    // "Flere afmærkede ruter"
     suspend fun getMoreMarkedHikingRoutes(
         forceRefresh: Boolean = false
     ): List<com.example.data.model.DiscoveredHikingRouteDto> = withContext(Dispatchers.IO) {
@@ -2429,7 +2421,9 @@ class DanskStiRepository(
         dao.getAllTripPlansList().forEach { plan ->
             if (plan.trailId.isNotBlank()) protectedIds.add(plan.trailId)
         }
-        dao.getPlannerDraft()?.baseTrailId?.takeIf { it.isNotBlank() }?.let { protectedIds.add(it) }
+        dao.getAllPlannerDrafts().forEach { draft ->
+            draft.baseTrailId?.takeIf { it.isNotBlank() }?.let { protectedIds.add(it) }
+        }
         dao.getAllCustomRoutesList().forEach { custom ->
             protectedIds.add("custom_${custom.id}")
             protectedIds.add("route_${custom.id}")
@@ -2481,7 +2475,7 @@ class DanskStiRepository(
     }
 
     /**
-     * Round 12B Item 2: Ensure trails table reflects accurate downloaded states
+     * Ensure trails table reflects accurate downloaded states
      * after clearing cached route lines.
      */
     suspend fun syncTrailGeometryDownloadedStates() = withContext(Dispatchers.IO) {
@@ -2529,7 +2523,6 @@ class DanskStiRepository(
     }
 
     /**
-     * Round 12B Item 2:
      * Selectively clears checked caches without ever touching offline downloads,
      * saved routes, plans, photos, or BRouter routing data.
      */

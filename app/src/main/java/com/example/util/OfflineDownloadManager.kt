@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.StatFs
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -12,7 +13,9 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.WorkRequest
 import androidx.work.workDataOf
+import java.util.concurrent.TimeUnit
 import com.example.DanskStiApp
 import com.example.data.local.SettingsRepository
 import com.example.data.model.GeoPointDto
@@ -79,7 +82,7 @@ object OfflineDownloadManager {
     }
 
     /**
-     * Round 10B Item 14: Check free storage before every download (map tiles and routing data)
+     * Check free storage before every download (map tiles and routing data)
      * and refuse with the size needed.
      */
     fun checkFreeStorage(context: Context?, requiredBytes: Long): StorageCheckResult {
@@ -103,7 +106,7 @@ object OfflineDownloadManager {
     }
 
     /**
-     * Round 10B Item 14: Map tile downloads require a network connection, with an optional "Kun på Wi-Fi" setting.
+     * Map tile downloads require a network connection, with an optional "Kun på Wi-Fi" setting.
      */
     fun checkNetworkRequirement(context: Context?, wifiOnly: Boolean): Pair<Boolean, String?> {
         val status = networkStatusProviderOverride?.invoke() ?: run {
@@ -348,6 +351,11 @@ object OfflineDownloadManager {
 
         return OneTimeWorkRequestBuilder<OfflineDownloadWorker>()
             .setConstraints(constraints)
+            .setBackoffCriteria(
+                BackoffPolicy.EXPONENTIAL,
+                WorkRequest.MIN_BACKOFF_MILLIS,
+                TimeUnit.MILLISECONDS
+            )
             .setInputData(
                 workDataOf(
                     OfflineDownloadWorker.KEY_TRAIL_ID to trailId,
@@ -441,7 +449,7 @@ object OfflineDownloadManager {
     }
 
     /**
-     * Round 10B Item 14: Reads already downloaded tile keys from an existing SQLite tile archive
+     * Reads already downloaded tile keys from an existing SQLite tile archive
      * so interrupted map tile downloads can resume without re-downloading existing tiles.
      */
     fun getExistingTileKeysInArchive(archiveFile: File, providerName: String? = null): Set<Long> {

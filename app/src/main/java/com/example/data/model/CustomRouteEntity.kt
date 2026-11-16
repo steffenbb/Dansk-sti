@@ -38,7 +38,6 @@ data class CustomRouteEntity(
 }
 
 /**
- * Round 10A Item 7:
  * Autosaved planner draft in Room (debounced 2 s after every change).
  * When the planner opens and a draft exists, offers "Fortsæt kladde" / "Kassér".
  */

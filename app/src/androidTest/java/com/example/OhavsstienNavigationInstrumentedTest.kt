@@ -45,7 +45,6 @@ class OhavsstienNavigationInstrumentedTest {
             }
         } catch (_: Exception) {
         }
-        DanskStiTileSource.userConfirmedOsmFallback = true
         val app = instrumentation.targetContext.applicationContext as DanskStiApp
         runBlocking {
             app.repository.initializePreseededDataIfEmpty()

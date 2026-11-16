@@ -244,7 +244,7 @@ internal fun TrailDetailDetailsSection(
                                 )
                                 com.example.util.GpxExporter.exportAndShareGpxFile(
                                     context = context,
-                                    fileName = "${t.name.replace(" ", "_")}.gpx",
+                                    fileName = com.example.util.GpxExporter.buildSafeGpxFileName(t.name),
                                     gpxContent = gpxContent,
                                     shareTitle = context.getString(R.string.trail_detail_export_gpx_title_fmt, t.name)
                                 )
@@ -273,7 +273,7 @@ internal fun TrailDetailDetailsSection(
                     )
                 }
 
-                // Round 10C Item 3: Only open the Offline screen from a "Se offline-kort" link
+                // Only open the Offline screen from a "Se offline-kort" link
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -366,7 +366,7 @@ internal fun TrailDetailDetailsSection(
                                 )
                             }
 
-                            // Round 10B Item 6: Show relation's description, note, operator, website and distance tags when present, labelled "Ifølge OpenStreetMap"
+                            // Show relation's description, note, operator, website and distance tags when present, labelled "Ifølge OpenStreetMap"
                             OsmRelationTagsCard(osmTags = osmRelationTags)
 
                             if (points.any { it.ele != null }) {
@@ -611,7 +611,7 @@ internal fun TrailDetailDetailsSection(
 }
 
 /**
- * Round 10B Item 6: Show the relation's description, note, operator, website and distance tags when present,
+ * Show the relation's description, note, operator, website and distance tags when present,
  * labelled "Ifølge OpenStreetMap".
  */
 @Composable

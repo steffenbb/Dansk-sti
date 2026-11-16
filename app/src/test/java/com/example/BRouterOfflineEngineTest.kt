@@ -154,8 +154,9 @@ class BRouterOfflineEngineTest {
         val nexo = LatLng(55.061, 15.133)
         val options = RouteOptions(avoidRoads = 0.5, preferNature = true, allowFerries = false)
 
-        // 1. Route Offline using BRouterOfflineEngine
+        // 1. Route Offline using BRouterOfflineEngine (warm up JIT first)
         val offlineEngine = BRouterOfflineEngine(app, dao = null, storageManager = storageManager)
+        offlineEngine.routeLeg(svaneke, nexo, options, alternative = 0)
         val startMs = System.currentTimeMillis()
         val offlineResult = offlineEngine.routeLeg(svaneke, nexo, options, alternative = 0)
         val elapsedMs = System.currentTimeMillis() - startMs

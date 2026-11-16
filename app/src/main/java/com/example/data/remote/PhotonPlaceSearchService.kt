@@ -3,7 +3,7 @@ package com.example.data.remote
 import android.content.Context
 import android.util.Log
 import com.example.util.network.NetworkConstants
-import com.example.util.network.applyDebugMainThreadCheck
+import com.example.util.network.applyDanskStiDefaults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -71,7 +71,7 @@ class PhotonPlaceSearchService(private val context: Context) {
         const val PHOTON_BASE_URL = "https://photon.komoot.io/api/"
 
         const val PHOTON_USAGE_TERMS =
-            "Photon (https://photon.komoot.io) OpenStreetMap place search usage terms: " +
+            "Photon (photon.komoot.io) OpenStreetMap place search usage terms: " +
                 "(1) Public API is for interactive user search only — no bulk/automated geocoding; " +
                 "(2) Requests must include a descriptive User-Agent header; " +
                 "(3) Data © OpenStreetMap contributors (ODbL); " +
@@ -159,15 +159,11 @@ class PhotonPlaceSearchService(private val context: Context) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
-        .applyDebugMainThreadCheck()
+        .applyDanskStiDefaults()
         .build()
 
     private val cacheLock = Any()
     private var memoryCache: MutableList<PlaceSearchResult>? = null
-
-    init {
-        Log.i(TAG, PHOTON_USAGE_TERMS)
-    }
 
     private val cacheFile: File
         get() = File(context.filesDir, CACHE_FILE_NAME)

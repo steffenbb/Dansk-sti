@@ -233,6 +233,42 @@ object GpxExporter {
     }
 
     /**
+     * Safe GPX file-name helper:
+     * - Replaces `/ \ : * ? " < > |` and control characters with `"_"`
+     * - Trims to 80 characters
+     * - Falls back to `"rute"` if empty
+     */
+    fun sanitizeGpxBaseName(rawName: String): String {
+        val withoutExt = if (rawName.endsWith(".gpx", ignoreCase = true)) {
+            rawName.dropLast(4)
+        } else {
+            rawName
+        }
+        val replaced = buildString(withoutExt.length) {
+            for (ch in withoutExt) {
+                if (ch.isISOControl() || ch in "/\\:*?\"<>|") {
+                    append('_')
+                } else {
+                    append(ch)
+                }
+            }
+        }.trim()
+        val trimmed = if (replaced.length > 80) replaced.take(80).trim() else replaced
+        return if (trimmed.isEmpty() || trimmed.all { it == '_' }) "rute" else trimmed
+    }
+
+    fun buildSafeGpxFileName(rawName: String, suffix: String = ""): String {
+        val cleanSuffix = suffix.trim().removePrefix("_")
+        val combined = if (cleanSuffix.isNotEmpty()) {
+            val base = sanitizeGpxBaseName(rawName)
+            sanitizeGpxBaseName("${base}_$cleanSuffix")
+        } else {
+            sanitizeGpxBaseName(rawName)
+        }
+        return "$combined.gpx"
+    }
+
+    /**
      * Writes GPX content to a file in cache/exports and shares it via Android Share Sheet using FileProvider.
      * Mime type: application/gpx+xml
      */
@@ -244,7 +280,7 @@ object GpxExporter {
     ) {
         try {
             val exportDir = java.io.File(context.cacheDir, "exports").apply { if (!exists()) mkdirs() }
-            val cleanFileName = if (fileName.endsWith(".gpx")) fileName else "$fileName.gpx"
+            val cleanFileName = buildSafeGpxFileName(fileName)
             val file = java.io.File(exportDir, cleanFileName)
             file.writeText(gpxContent, Charsets.UTF_8)
 
@@ -285,7 +321,8 @@ object GpxExporter {
     ) {
         try {
             val exportDir = java.io.File(context.cacheDir, "exports").apply { if (!exists()) mkdirs() }
-            val file = java.io.File(exportDir, fileName)
+            val cleanFileName = buildSafeGpxFileName(fileName)
+            val file = java.io.File(exportDir, cleanFileName)
             file.writeText(gpxContent, Charsets.UTF_8)
 
             val authority = "${context.packageName}.fileprovider"

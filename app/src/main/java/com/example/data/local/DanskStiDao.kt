@@ -388,7 +388,7 @@ interface DanskStiDao {
     @Query("DELETE FROM marked_route_cache_boxes WHERE fetchedAt < :expiredTimestamp")
     suspend fun deleteExpiredMarkedRouteCacheBoxes(expiredTimestamp: Long)
 
-    // Water Features (Fix Round 3 Part 3 Requirement D: Vand overlay per 0.05x0.05 tile, 30 days cache)
+    // Water Features (Vand overlay per 0.05x0.05 tile, 30 days cache)
     @Query("SELECT * FROM water_features WHERE minLat <= :maxLat AND maxLat >= :minLat AND minLng <= :maxLng AND maxLng >= :minLng")
     suspend fun getWaterFeaturesInBbox(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double): List<com.example.data.model.WaterFeatureEntity>
 
@@ -423,17 +423,26 @@ interface DanskStiDao {
 
     suspend fun insertUserCustomWaypoint(waypoint: com.example.data.model.UserCustomWaypointEntity) = insertCustomWaypoint(waypoint)
 
-    // Round 10A Item 7: Planner Drafts in Room
-    @Query("SELECT * FROM planner_drafts WHERE id = 'active_planner_draft' LIMIT 1")
+    // Planner Drafts in Room (keyed per context)
+    @Query("SELECT * FROM planner_drafts WHERE id = :id LIMIT 1")
+    suspend fun getPlannerDraftByKey(id: String): com.example.data.model.PlannerDraftEntity?
+
+    @Query("SELECT * FROM planner_drafts ORDER BY updatedAt DESC LIMIT 1")
     suspend fun getPlannerDraft(): com.example.data.model.PlannerDraftEntity?
+
+    @Query("SELECT * FROM planner_drafts")
+    suspend fun getAllPlannerDrafts(): List<com.example.data.model.PlannerDraftEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPlannerDraft(draft: com.example.data.model.PlannerDraftEntity)
 
+    @Query("DELETE FROM planner_drafts WHERE id = :id")
+    suspend fun deletePlannerDraftByKey(id: String)
+
     @Query("DELETE FROM planner_drafts")
     suspend fun clearPlannerDraft()
 
-    // Round 12A Item 1: Offline Downloads in Progress
+    // Offline Downloads in Progress
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertOfflineDownloadInProgress(record: com.example.data.model.OfflineDownloadInProgressEntity)
 

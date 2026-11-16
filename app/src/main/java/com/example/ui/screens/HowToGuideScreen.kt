@@ -158,7 +158,6 @@ object HowToGuideDefinitions {
 
 /**
  * Interactive How-To Guide screen & full-screen first-open onboarding overlay.
- * Round 12B Item 1:
  * - First-open guide is a full-screen overlay above everything (bottom bar included).
  * - Only "Forstået" or the close button marks it as seen.
  * - Opened from the planner or navigation, opens at the matching section.

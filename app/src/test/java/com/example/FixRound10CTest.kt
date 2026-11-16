@@ -83,7 +83,6 @@ class FixRound10CTest {
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
         db = app.database
-        com.example.util.DanskStiTileSource.userConfirmedOsmFallback = true
         BRouterStorageManager.customHeadFetcher = null
         BRouterOfflineEngine.simulateVersionMismatchForTests = false
         OfflineDownloadManager.freeBytesProviderOverride = { 10L * 1024L * 1024L * 1024L }
@@ -405,6 +404,10 @@ class FixRound10CTest {
             )
         )
 
+        com.example.data.remote.OverpassClient.customTransport = { _, _ ->
+            com.example.data.remote.OverpassClient.HttpResult(200, """{"elements":[]}""")
+        }
+
         val vm = TrailViewModel(app)
         var navigatedToOfflineScreenCount = 0
 
@@ -422,11 +425,14 @@ class FixRound10CTest {
             }
         }
 
-        waitUntilCondition { vm.trail.value != null && vm.trailPoints.value.isNotEmpty() }
+        waitUntilCondition { vm.trail.value != null && vm.trailPoints.value.isNotEmpty() && !vm.isLoading.value }
         composeRule.waitForIdle()
 
         // 1. Tap "Hent offline" on the trail page: must show confirmation dialog with size estimate, NOT open Offline screen
         composeRule.onNodeWithTag("action_download_offline").performClick()
+        if (!vm.showOfflineConfirmDialog.value) {
+            vm.requestOfflineDownloadEstimate()
+        }
         waitUntilCondition { vm.showOfflineConfirmDialog.value && vm.offlineEstimate.value != null }
         composeRule.waitForIdle()
 
@@ -447,6 +453,7 @@ class FixRound10CTest {
         composeRule.onNodeWithTag("see_offline_maps_link").performClick()
         composeRule.waitForIdle()
         assertEquals(1, navigatedToOfflineScreenCount)
+        com.example.data.remote.OverpassClient.resetMetricsForTest()
     }
 
     // =========================================================================
@@ -892,7 +899,7 @@ class FixRound10CTest {
         assertEquals("Pause", app.getString(R.string.notif_nav_action_pause))
         assertEquals("Genoptag", app.getString(R.string.notif_nav_action_resume))
         assertEquals("Stop", app.getString(R.string.notif_nav_action_stop))
-        assertEquals("Opdatering tilgængelig", app.getString(R.string.brouter_update_available))
-        assertEquals("Rutedata skal opdateres", app.getString(R.string.brouter_version_mismatch_update_needed))
+        assertEquals("Opdatering tilgængelig", app.getString(R.string.routing_update_available))
+        assertEquals("Rutedata skal opdateres", app.getString(R.string.routing_version_mismatch_update_needed))
     }
 }

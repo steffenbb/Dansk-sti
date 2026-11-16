@@ -23,7 +23,7 @@ import java.util.Locale
 import kotlin.math.floor
 
 /**
- * Requirement D: Water overlay "Vand" (on by default from zoom 12)
+ * Water overlay "Vand" (on by default from zoom 12):
  * - Overpass, per 0.05 x 0.05 degree tile, cached 30 days:
  *   natural=water, water=*, waterway=river|stream|canal|ditch|drain, natural=wetland, natural=spring.
  * - Supports coroutine cancellation when the previous debounced request is superseded.
@@ -61,7 +61,7 @@ class WaterLayerRepository(
         fun buildOverpassQuery(south: Double, west: Double, north: Double, east: Double): String {
             val bbox = String.format(Locale.US, "%.5f,%.5f,%.5f,%.5f", south, west, north, east)
             return """
-                [out:json][timeout:25];
+                [out:json][timeout:25][maxsize:67108864];
                 (
                   way["natural"="water"]($bbox);
                   relation["natural"="water"]($bbox);

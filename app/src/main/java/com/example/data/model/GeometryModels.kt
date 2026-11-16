@@ -85,11 +85,3 @@ data class TrailDownloadProgress(
     val message: String get() = stageMessage
 }
 
-@JsonClass(generateAdapter = true)
-data class TrailNameMismatchEntry(
-    val trailId: String,
-    val osmRelationId: Long,
-    val catalogueName: String,
-    val osmRelationName: String,
-    val detectedAtEpochMs: Long = System.currentTimeMillis()
-)

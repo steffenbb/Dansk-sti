@@ -83,7 +83,6 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * Round 10A Item 1 & Round 11 Item 9/10:
  * Shared PoiInfoSheet component used on every map (Kort, Udforsk map, trail page, full-screen map, navigation, planner).
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -532,7 +531,6 @@ fun PoiInfoSheet(
 }
 
 /**
- * Round 10A Item 1:
  * Tapping an Adgang area shows its access rules on every map, not only in the planner.
  */
 @Composable

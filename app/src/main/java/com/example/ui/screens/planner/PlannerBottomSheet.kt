@@ -415,7 +415,7 @@ fun PlannerBottomSheet(
                 }
             }
 
-            // Round 12B Item 3: Icon-over-label buttons in a grid that wraps to more rows when needed
+            // Icon-over-label buttons in a grid that wraps to more rows when needed
             PlannerSheetActionButtonGrid(
                 uiState = uiState,
                 visibleWaypointsCount = visibleWaypoints.size,

@@ -611,7 +611,7 @@ object RouteSmartTools {
     }
 
     /**
-     * Phase 12 Feature 3 & Round 10B Item 3: Vejr og dagslys.
+     * Vejr og dagslys.
      * Every day uses its own date (trip start date + day index) and that night's overnight coordinates.
      */
     suspend fun calculateWaypointWeatherEtas(

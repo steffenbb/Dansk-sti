@@ -1,12 +1,11 @@
 package com.example.data.remote
 
-import com.example.util.network.applyDebugMainThreadCheck
+import com.example.util.network.applyDanskStiDefaults
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.GET
@@ -85,12 +84,8 @@ interface WeatherApiService {
         private const val BASE_URL = "https://api.open-meteo.com/"
 
         fun create(): WeatherApiService {
-            val logging = HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BASIC
-            }
             val client = OkHttpClient.Builder()
-                .addInterceptor(logging)
-                .applyDebugMainThreadCheck()
+                .applyDanskStiDefaults()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
                 .build()

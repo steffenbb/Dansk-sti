@@ -2,15 +2,15 @@ package com.example.data.repository
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.example.data.model.GeoPointDto
 import com.example.data.model.TrailDownloadProgress
 import com.example.data.model.TrailGeometryDto
 import com.example.data.model.TrailGapDto
-import com.example.data.model.TrailNameMismatchEntry
 import com.example.data.model.TrailSegmentDto
 import com.example.data.model.TrailSegmentType
+import com.example.util.network.applyDanskStiDefaults
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -19,10 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okio.buffer
 import okio.sink
 import okio.source
@@ -38,19 +36,13 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-import com.example.util.network.applyDebugMainThreadCheck
-
 class TrailGeometryRepository(private val context: Context) {
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     private val geometryAdapter = moshi.adapter(TrailGeometryDto::class.java)
-    private val mismatchListType = Types.newParameterizedType(List::class.java, TrailNameMismatchEntry::class.java)
-    private val mismatchListAdapter = moshi.adapter<List<TrailNameMismatchEntry>>(mismatchListType)
 
     companion object {
         private val _globalDownloadProgress = MutableStateFlow<Map<String, TrailDownloadProgress>>(emptyMap())
         val globalDownloadProgress: StateFlow<Map<String, TrailDownloadProgress>> = _globalDownloadProgress.asStateFlow()
-
-        private val inMemoryNameMismatches = CopyOnWriteArrayList<TrailNameMismatchEntry>()
 
         private class InFlightTrailDownload(
             val trailId: String,
@@ -65,27 +57,26 @@ class TrailGeometryRepository(private val context: Context) {
             kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
         )
 
-        val totalDownloadStarts = java.util.concurrent.atomic.AtomicInteger(0)
-        val downloadStartCountByTrail = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+        @VisibleForTesting
+        internal val totalDownloadStarts = java.util.concurrent.atomic.AtomicInteger(0)
 
-        /**
-         * Optional hook for unit tests to supply relation elements and verify progress / name mismatch logging.
-         */
+        @VisibleForTesting
+        internal val downloadStartCountByTrail = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+
+        @VisibleForTesting
         @Volatile
-        var customRelationFetcher: ((
+        internal var customRelationFetcher: ((
             relationId: Long,
             collected: MutableMap<Long, Map<String, Any>>,
             onChildProgress: ((downloaded: Int, total: Int) -> Unit)?
         ) -> Boolean)? = null
 
-        /**
-         * Optional injectable hook for Open-Meteo elevation lookups in tests.
-         * Given a list of (lat, lng) coordinates, returns a list of elevations (meters) of the same size, or null on failure.
-         */
+        @VisibleForTesting
         @Volatile
-        var customElevationFetcher: ((coords: List<Pair<Double, Double>>) -> List<Double?>?)? = null
+        internal var customElevationFetcher: ((coords: List<Pair<Double, Double>>) -> List<Double?>?)? = null
 
-        fun resetDownloadDeduplicationForTest() {
+        @VisibleForTesting
+        internal fun resetDownloadDeduplicationForTest() {
             synchronized(inFlightLock) {
                 inFlightDownloads.values.forEach { it.deferred.cancel() }
                 inFlightDownloads.clear()
@@ -95,13 +86,15 @@ class TrailGeometryRepository(private val context: Context) {
             _globalDownloadProgress.value = emptyMap()
         }
 
-        fun getDownloadStartCount(trailId: String): Int =
+        @VisibleForTesting
+        internal fun getDownloadStartCount(trailId: String): Int =
             downloadStartCountByTrail[trailId]?.get() ?: 0
 
         fun isDownloadInFlight(trailId: String): Boolean =
             inFlightDownloads[trailId]?.deferred?.isActive == true
 
-        fun getActiveWaiterCount(trailId: String): Int =
+        @VisibleForTesting
+        internal fun getActiveWaiterCount(trailId: String): Int =
             inFlightDownloads[trailId]?.waiterCount?.get() ?: 0
 
         fun cancelDownload(trailId: String) {
@@ -123,22 +116,6 @@ class TrailGeometryRepository(private val context: Context) {
                 current - trailId
             }
         }
-
-        fun getRecordedNameMismatches(): List<TrailNameMismatchEntry> {
-            return inMemoryNameMismatches.toList()
-        }
-
-        fun clearRecordedNameMismatches(filesDir: File? = null) {
-            inMemoryNameMismatches.clear()
-            if (filesDir != null) {
-                File(filesDir, "diagnostics_name_mismatches.json").delete()
-            }
-        }
-
-        fun recordNameMismatchInternal(entry: TrailNameMismatchEntry) {
-            inMemoryNameMismatches.removeAll { it.trailId == entry.trailId && it.osmRelationId == entry.osmRelationId }
-            inMemoryNameMismatches.add(entry)
-        }
     }
 
     val downloadProgress: StateFlow<Map<String, TrailDownloadProgress>> = globalDownloadProgress
@@ -147,7 +124,7 @@ class TrailGeometryRepository(private val context: Context) {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .callTimeout(20, TimeUnit.SECONDS)
-        .applyDebugMainThreadCheck()
+        .applyDanskStiDefaults()
         .build()
 
     private val effectiveFilesDir: File
@@ -163,61 +140,6 @@ class TrailGeometryRepository(private val context: Context) {
 
     val routesDir: File
         get() = File(effectiveFilesDir, "routes").apply { if (!exists()) mkdirs() }
-
-    private val mismatchesFile: File
-        get() = File(effectiveFilesDir, "diagnostics_name_mismatches.json")
-
-    fun getNameMismatches(): List<TrailNameMismatchEntry> {
-        val diskEntries = try {
-            if (mismatchesFile.exists()) {
-                mismatchListAdapter.fromJson(mismatchesFile.readText()).orEmpty()
-            } else {
-                emptyList()
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
-        val combined = LinkedHashMap<String, TrailNameMismatchEntry>()
-        for (e in diskEntries) {
-            combined["${e.trailId}_${e.osmRelationId}"] = e
-        }
-        for (e in inMemoryNameMismatches) {
-            combined["${e.trailId}_${e.osmRelationId}"] = e
-        }
-        return combined.values.sortedByDescending { it.detectedAtEpochMs }
-    }
-
-    fun verifyAndRecordRelationNameMismatch(
-        trailId: String,
-        osmRelationId: Long,
-        catalogueName: String,
-        osmRelationName: String?
-    ): TrailNameMismatchEntry? {
-        val actual = osmRelationName?.trim() ?: return null
-        val expected = catalogueName.trim()
-        if (actual.isEmpty() || expected.isEmpty()) return null
-        if (actual == expected) return null
-
-        val entry = TrailNameMismatchEntry(
-            trailId = trailId,
-            osmRelationId = osmRelationId,
-            catalogueName = expected,
-            osmRelationName = actual,
-            detectedAtEpochMs = System.currentTimeMillis()
-        )
-        Log.w(
-            "Diagnostics",
-            "OSM relation name mismatch for $trailId (#$osmRelationId): catalogue=\"$expected\" vs OSM name=\"$actual\""
-        )
-        recordNameMismatchInternal(entry)
-        try {
-            val all = getNameMismatches()
-            mismatchesFile.writeText(mismatchListAdapter.toJson(all))
-        } catch (e: Exception) {
-            Log.w("Diagnostics", "Failed to persist name mismatch entry: ${e.message}")
-        }
-        return entry
-    }
 
     fun getGeometryFile(trailId: String): File {
         val primary = File(trailsDir, "$trailId.json.gz")
@@ -497,8 +419,6 @@ class TrailGeometryRepository(private val context: Context) {
                 emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
             }
         } else {
-            // Round 14 Item 2: No overall withTimeout around the whole download;
-            // OverpassClient enforces 30s/60s response-header timeout and 30s idle-data timeout.
             downloadRelationRecursive(
                 relationId = relationId,
                 collected = rawElements,
@@ -508,7 +428,6 @@ class TrailGeometryRepository(private val context: Context) {
                 emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
             }
             if (rawElements.isNotEmpty()) {
-                // Round 13 Item 2e: Fetch member way tags in ONE request for all relations, not one per relation.
                 val allWayTags = fetchMemberWayTagsForRelations(
                     relationIds = rawElements.keys.toList(),
                     onStatusChange = null
@@ -528,15 +447,6 @@ class TrailGeometryRepository(private val context: Context) {
         val dto = processRelationData(trailId, relationId, rawElements) { frac, km, msg ->
             emitProg(frac, rawElements.size, rawElements.size.coerceAtLeast(1), km, msg)
         }
-
-        // Round 9 C Requirement 1: On first download, compare the relation's name tag with the catalogue name
-        // and log any mismatch in Diagnostics.
-        verifyAndRecordRelationNameMismatch(
-            trailId = trailId,
-            osmRelationId = relationId,
-            catalogueName = trailName,
-            osmRelationName = dto.osmRelationName
-        )
 
         if (dto.segments.any { it.points.isNotEmpty() }) {
             saveGeometry(dto)
@@ -558,7 +468,7 @@ class TrailGeometryRepository(private val context: Context) {
     ): Long? {
         val cleanName = name.replace(Regex("\\s*\\(.*\\)"), "").trim()
         val query = """
-            [out:json][timeout:10];
+            [out:json][timeout:10][maxsize:67108864];
             relation["type"="route"]["route"~"hiking|foot"]["name"~"$cleanName",i](54.5,7.5,58.0,15.5);
             out tags bb;
         """.trimIndent()
@@ -574,7 +484,6 @@ class TrailGeometryRepository(private val context: Context) {
             @Suppress("UNCHECKED_CAST")
             val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
 
-            Log.i("TrailGeometry", "=== Overpass search matches for \"$name\" (${elements.size} found) ===")
             if (elements.size == 1) {
                 (elements[0]["id"] as? Number)?.toLong()
             } else {
@@ -633,8 +542,6 @@ class TrailGeometryRepository(private val context: Context) {
                         }
                         collected[id] = mutableEl
                         if (childRelIds.isNotEmpty()) {
-                            // Round 13 Item 2e: Before downloading a child relation's geometry, fetch the children's
-                            // tags and bounding boxes in one request (relation(r); out tags bb;) and skip children outside Denmark.
                             val danishChildIds = filterDanishChildRelations(id, childRelIds)
                             for ((idx, cid) in danishChildIds.withIndex()) {
                                 onChildProgress?.invoke(idx + 1, danishChildIds.size)
@@ -655,7 +562,6 @@ class TrailGeometryRepository(private val context: Context) {
     }
 
     /**
-     * Round 13 Item 2e:
      * Before downloading a child relation's geometry, fetch the children's tags and bounding boxes
      * in one request (`relation($parentRelationId); relation(r); out tags bb;`) and skip children outside Denmark.
      */
@@ -665,7 +571,7 @@ class TrailGeometryRepository(private val context: Context) {
     ): List<Long> {
         if (childRelIds.isEmpty()) return emptyList()
         val query = """
-            [out:json][timeout:30];
+            [out:json][timeout:30][maxsize:67108864];
             relation($parentRelationId);
             relation(r);
             out tags bb;
@@ -740,7 +646,6 @@ class TrailGeometryRepository(private val context: Context) {
     }
 
     /**
-     * Requirement 22 & Round 13 Item 2e:
      * Fetches member way tags in one request for all relations, not one per relation,
      * so ways with `route=ferry` are detected and marked as FERRY segments.
      */
@@ -755,7 +660,7 @@ class TrailGeometryRepository(private val context: Context) {
             "relation(id:${relationIds.joinToString(",")});"
         }
         val query = """
-            [out:json][timeout:30];
+            [out:json][timeout:30][maxsize:67108864];
             $relSelector
             way(r);
             out tags;
@@ -792,8 +697,8 @@ class TrailGeometryRepository(private val context: Context) {
     }
 
     /**
-     * Requirement 13: Look up elevation for both ends of a STRAIGHT leg with Open-Meteo;
-     * if that fails, return null. Never 15.0.
+     * Look up elevation for both ends of a STRAIGHT leg with Open-Meteo;
+     * if that fails, return null.
      */
     suspend fun fetchEndpointElevations(
         fromLat: Double,

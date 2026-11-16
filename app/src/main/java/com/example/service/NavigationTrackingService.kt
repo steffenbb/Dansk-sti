@@ -83,7 +83,6 @@ data class NavigationLiveState(
 )
 
 /**
- * Round 10B Item 10:
  * GPS power profiles:
  * - HIGH_ACCURACY_2S: High accuracy every 2 s only while moving with the screen on.
  * - BALANCED_10S: Balanced accuracy every 10 s (battery-saver screen, screen off, or stationary).
@@ -121,7 +120,7 @@ class NavigationTrackingService : Service() {
     private var alerted150CueWalkKm: Double? = null
     private var alerted30CueWalkKm: Double? = null
 
-    // Round 12A Item 5: Ongoing notification throttling & single off-route alert state
+    // Ongoing notification throttling & single off-route alert state
     internal var lastOngoingNotificationMs: Long = 0L
     internal var lastOngoingNotificationTitle: String = ""
     internal var lastOngoingNotificationContent: String = ""
@@ -375,7 +374,7 @@ class NavigationTrackingService : Service() {
         val speedKmh = smoothedSpeedMps * 3.6
         isMovingRecently = speedKmh >= 1.0 || currentSpeedMps >= 0.28
 
-        // Round 10B Item 10: When paused, run low power every 60s, and automatically resume normal
+        // When paused, run low power every 60s, and automatically resume normal
         // tracking when movement is detected!
         if (_liveState.value.isPaused) {
             val anchor = pausedAnchorLocation
@@ -488,7 +487,7 @@ class NavigationTrackingService : Service() {
             }
         }
 
-        // Round 10B Item 9 & Round 13 Item 3: Write the final progress before stopping the service
+        // Write the final progress before stopping the service
         // (withContext(NonCancellable) awaited before stopSelf).
         if (trackResult.isCompleted) {
             val completedProgress = TripProgressEntity(
@@ -511,7 +510,7 @@ class NavigationTrackingService : Service() {
             return
         }
 
-        // 5. Off-route single alert on CHANNEL_ALERTS_ID & throttled ongoing notification on CHANNEL_NAVIGATION_ID (Round 12A Item 5)
+        // 5. Off-route single alert on CHANNEL_ALERTS_ID & throttled ongoing notification on CHANNEL_NAVIGATION_ID
         val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
         if (!trackResult.isOffRoute) {
             if (hasSentOffRouteAlert) {
@@ -821,7 +820,7 @@ class NavigationTrackingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Round 12A Item 5: Always post ongoing notification on low-importance navigation channel with setOnlyAlertOnce(true)
+        // Always post ongoing notification on low-importance navigation channel with setOnlyAlertOnce(true)
         val channelId = DanskStiApp.CHANNEL_NAVIGATION_ID
         val pauseActionLabel = getString(
             if (isPaused) com.example.R.string.notif_nav_action_resume else com.example.R.string.notif_nav_action_pause
@@ -1027,7 +1026,6 @@ class NavigationTrackingService : Service() {
         val liveState: StateFlow<NavigationLiveState> = _liveState.asStateFlow()
 
         /**
-         * Round 10B Item 10:
          * Determines the active GPS power profile:
          * - Paused: low power every 60 s (`LOW_POWER_60S`).
          * - Battery-saver screen (or stationary or screen off): balanced accuracy every 10 s (`BALANCED_10S`).

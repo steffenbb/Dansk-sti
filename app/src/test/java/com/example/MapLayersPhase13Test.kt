@@ -37,6 +37,7 @@ class MapLayersPhase13Test {
     @Before
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
+        com.example.util.DanskStiTileSourceHelper.hasValidKeyOverrideForTests = true
         database = DanskStiDatabase.getInstance(app)
         repository = DanskStiRepository(database.dao(), app)
         settingsRepository = SettingsRepository(app)
@@ -44,6 +45,7 @@ class MapLayersPhase13Test {
 
     @After
     fun tearDown() {
+        com.example.util.DanskStiTileSourceHelper.hasValidKeyOverrideForTests = null
         database.close()
         DanskStiDatabase.resetInstance()
     }

@@ -1,14 +1,8 @@
 package com.example.util.network
 
 import android.os.Looper
-import com.example.BuildConfig
 import okhttp3.Interceptor
-import okhttp3.OkHttpClient
 import okhttp3.Response
-
-object NetworkConstants {
-    const val USER_AGENT = "DanskSti/${BuildConfig.VERSION_NAME} (easysidedk.brydskov@gmail.com)"
-}
 
 /**
  * Interceptor that enforces a single canonical User-Agent header on every HTTP request.
@@ -34,12 +28,4 @@ class MainThreadNetworkInterceptor : Interceptor {
         }
         return chain.proceed(chain.request())
     }
-}
-
-fun OkHttpClient.Builder.applyDebugMainThreadCheck(): OkHttpClient.Builder {
-    addInterceptor(UserAgentInterceptor())
-    if (BuildConfig.DEBUG) {
-        addInterceptor(MainThreadNetworkInterceptor())
-    }
-    return this
 }

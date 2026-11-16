@@ -555,7 +555,6 @@ internal fun TurnCueDirectionIcon(
 }
 
 /**
- * Round 10B Item 2:
  * Remaps the rotation matrix from the rotation vector sensor using [android.hardware.SensorManager.remapCoordinateSystem]
  * according to the current display rotation (`ROTATION_0`, `ROTATION_90`, `ROTATION_180`, `ROTATION_270`)
  * and returns the compass azimuth in `[0, 360)`.
@@ -609,7 +608,6 @@ fun computeRemappedCompassAzimuthFromMatrix(
 }
 
 /**
- * Round 10B Item 2:
  * Single heading source shared by the heading-up map and the off-route arrow:
  * - Uses the compass below 1.5 km/h or when there is no GPS course.
  * - Uses the GPS course otherwise (at >= 1.5 km/h with a valid GPS course).
@@ -629,7 +627,6 @@ fun resolveNavigationHeadingDegrees(
 }
 
 /**
- * Round 9A Item 4:
  * Computes the off-route arrow rotation (or null if device heading is unavailable)
  * and the Danish compass direction text (e.g., "mod NØ").
  */

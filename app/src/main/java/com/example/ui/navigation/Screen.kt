@@ -1,7 +1,7 @@
 package com.example.ui.navigation
 
 sealed class Screen(val route: String) {
-    // 4 Bottom Bar Tabs (Requirement B)
+    // 4 Bottom Bar Tabs
     object Explore : Screen("explore")
     object Map : Screen("kort")
     object Saved : Screen("saved")
@@ -21,7 +21,6 @@ sealed class Screen(val route: String) {
         fun createRoute(trailId: String) = "map/$trailId"
     }
 
-    object Diagnostics : Screen("diagnostics")
     object DataCredits : Screen("credits")
 
     object RouteBuilder : Screen("route_builder?routeId={routeId}&baseTrailId={baseTrailId}&planId={planId}&destLat={destLat}&destLng={destLng}&destName={destName}") {

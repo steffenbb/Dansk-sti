@@ -315,7 +315,6 @@ object StagePlanner {
     }
 
     /**
-     * Round 12A Item 3:
      * Takes sunset as a nullable time value (null = unknown) instead of comparing against the text
      * "Solnedgang ukendt", and includes climbing time (1 min per 10 m ascent) like the day cards do.
      */
@@ -390,7 +389,7 @@ object StagePlanner {
     }
 
     /**
-     * Round 10B Item 3: Every day uses its own date (trip start date + day index)
+     * Every day uses its own date (trip start date + day index)
      * and that night's overnight coordinates.
      */
     fun computeSunsetForStageDay(
@@ -430,7 +429,7 @@ object StagePlanner {
     }
 
     /**
-     * Round 10C Item 6: Single unified stage planning function used by trails, custom routes,
+     * Single unified stage planning function used by trails, custom routes,
      * overnight suggestions, and single-night recomputation.
      * - When [overnightWaypoints] is non-empty (custom routes with OVERNIGHT pins), OVERNIGHT pins define
      *   exact day boundaries in order and the final day ends at END.
@@ -1048,7 +1047,7 @@ object StagePlanner {
             }
         }
 
-        // Sunset warning: start time + walking time (+ climbing time) + 1 hour breaks > sunset (Requirement D & Round 12A Item 3)
+        // Sunset warning: start time + walking time (+ climbing time) + 1 hour breaks > sunset
         val isAfterSunset = wouldArriveAfterSunset(
             stageKm = stageKm,
             paceKmh = effectivePace,
@@ -1108,7 +1107,7 @@ object StagePlanner {
     }
 
     /**
-     * Round 12B Item 4: Builds a one-line explanation of why the camp was chosen,
+     * Builds a one-line explanation of why the camp was chosen,
      * using the stage planner's scoring inputs (target distance, detour, water, toilet, booking, sunset).
      */
     fun buildCampExplanation(

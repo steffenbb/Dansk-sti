@@ -66,14 +66,15 @@ class WaterLayerOverlay : FolderOverlay() {
         isDark: Boolean,
         density: Float
     ): Boolean {
+        val itemList = items ?: return false
         val safeDensity = density.coerceAtLeast(1f)
         val signature = computeSignature(features, isDark, safeDensity)
-        if (signature == lastSignature && (features.isEmpty() == items.isEmpty())) {
+        if (signature == lastSignature && (features.isEmpty() == itemList.isEmpty())) {
             return false
         }
         lastSignature = signature
         currentFeatureCount = features.size
-        items.clear()
+        itemList.clear()
 
         if (features.isEmpty()) {
             return true
@@ -106,7 +107,7 @@ class WaterLayerOverlay : FolderOverlay() {
                             outlinePaint.isAntiAlias = true
                             setOnClickListener { _, _, _ -> false }
                         }
-                        items.add(poly)
+                        itemList.add(poly)
                     }
                 }
                 WaterFeatureType.WETLAND -> {
@@ -128,7 +129,7 @@ class WaterLayerOverlay : FolderOverlay() {
                             )
                             setOnClickListener { _, _, _ -> false }
                         }
-                        items.add(poly)
+                        itemList.add(poly)
                     }
                 }
                 else -> {}
@@ -153,7 +154,7 @@ class WaterLayerOverlay : FolderOverlay() {
                             outlinePaint.isAntiAlias = true
                             setOnClickListener { _, _, _ -> false }
                         }
-                        items.add(line)
+                        itemList.add(line)
                     }
                 }
                 WaterFeatureType.STREAM -> {
@@ -171,7 +172,7 @@ class WaterLayerOverlay : FolderOverlay() {
                             outlinePaint.isAntiAlias = true
                             setOnClickListener { _, _, _ -> false }
                         }
-                        items.add(line)
+                        itemList.add(line)
                     }
                 }
                 WaterFeatureType.SPRING -> {
@@ -186,7 +187,7 @@ class WaterLayerOverlay : FolderOverlay() {
 
         // 3. Springs as small blue dots
         if (springPoints.isNotEmpty()) {
-            items.add(
+            itemList.add(
                 SpringDotsOverlay(
                     springs = springPoints,
                     dotColor = baseBlue,

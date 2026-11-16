@@ -136,6 +136,24 @@ fun MapLayersBottomSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val primaryColor = MaterialTheme.colorScheme.primary
     val stiColors = DanskStiTheme.colors
+    val hasKey = com.example.util.DanskStiTileSourceHelper.hasValidKey
+
+    androidx.compose.runtime.LaunchedEffect(hasKey, layersState.baseMap, layersState.showTerrain) {
+        if (!hasKey) {
+            if (layersState.baseMap == BaseMapType.SKAERMKORT || layersState.baseMap == BaseMapType.LUFTFOTO) {
+                onBaseMapChanged(BaseMapType.FRILUFTSKORT)
+            }
+            if (layersState.showTerrain) {
+                onToggleTerrain(false)
+            }
+        }
+    }
+
+    val effectiveBaseMap = if (!hasKey && (layersState.baseMap == BaseMapType.SKAERMKORT || layersState.baseMap == BaseMapType.LUFTFOTO)) {
+        BaseMapType.FRILUFTSKORT
+    } else {
+        layersState.baseMap
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -198,36 +216,40 @@ fun MapLayersBottomSheet(
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            BaseMapOptionCard(
-                title = stringResource(R.string.map_layer_base_topo_title),
-                subtitle = stringResource(R.string.map_layer_base_topo_subtitle),
-                icon = Icons.Default.Map,
-                isSelected = layersState.baseMap == BaseMapType.SKAERMKORT,
-                onClick = { onBaseMapChanged(BaseMapType.SKAERMKORT) },
-                testTag = "base_map_skaermkort"
-            )
+            if (hasKey) {
+                BaseMapOptionCard(
+                    title = stringResource(R.string.map_layer_base_topo_title),
+                    subtitle = stringResource(R.string.map_layer_base_topo_subtitle),
+                    icon = Icons.Default.Map,
+                    isSelected = effectiveBaseMap == BaseMapType.SKAERMKORT,
+                    onClick = { onBaseMapChanged(BaseMapType.SKAERMKORT) },
+                    testTag = "base_map_skaermkort"
+                )
 
-            Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             BaseMapOptionCard(
                 title = stringResource(R.string.map_layer_base_outdoor_title),
                 subtitle = stringResource(R.string.map_layer_base_outdoor_subtitle),
                 icon = Icons.Default.Terrain,
-                isSelected = layersState.baseMap == BaseMapType.FRILUFTSKORT,
+                isSelected = effectiveBaseMap == BaseMapType.FRILUFTSKORT,
                 onClick = { onBaseMapChanged(BaseMapType.FRILUFTSKORT) },
                 testTag = "base_map_friluftskort"
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            if (hasKey) {
+                Spacer(modifier = Modifier.height(8.dp))
 
-            BaseMapOptionCard(
-                title = stringResource(R.string.map_layer_base_aerial_title),
-                subtitle = stringResource(R.string.map_layer_base_aerial_subtitle),
-                icon = Icons.Default.PhotoCamera,
-                isSelected = layersState.baseMap == BaseMapType.LUFTFOTO,
-                onClick = { onBaseMapChanged(BaseMapType.LUFTFOTO) },
-                testTag = "base_map_luftfoto"
-            )
+                BaseMapOptionCard(
+                    title = stringResource(R.string.map_layer_base_aerial_title),
+                    subtitle = stringResource(R.string.map_layer_base_aerial_subtitle),
+                    icon = Icons.Default.PhotoCamera,
+                    isSelected = effectiveBaseMap == BaseMapType.LUFTFOTO,
+                    onClick = { onBaseMapChanged(BaseMapType.LUFTFOTO) },
+                    testTag = "base_map_luftfoto"
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -350,15 +372,17 @@ fun MapLayersBottomSheet(
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            LayerToggleRow(
-                title = stringResource(R.string.map_layer_terrain_title),
-                subtitle = stringResource(R.string.map_layer_terrain_subtitle),
-                icon = Icons.Default.Landscape,
-                iconTint = primaryColor,
-                checked = layersState.showTerrain,
-                onCheckedChange = onToggleTerrain,
-                testTag = "toggle_layer_terrain"
-            )
+            if (hasKey) {
+                LayerToggleRow(
+                    title = stringResource(R.string.map_layer_terrain_title),
+                    subtitle = stringResource(R.string.map_layer_terrain_subtitle),
+                    icon = Icons.Default.Landscape,
+                    iconTint = primaryColor,
+                    checked = layersState.showTerrain,
+                    onCheckedChange = onToggleTerrain,
+                    testTag = "toggle_layer_terrain"
+                )
+            }
 
             LayerToggleRow(
                 title = stringResource(R.string.map_layer_water_bodies_title),

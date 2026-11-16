@@ -38,3 +38,7 @@
 -dontwarn retrofit2.**
 -dontwarn okhttp3.**
 -dontwarn okio.**
+
+-assumenosideeffects class android.util.Log { public static int d(...); public static int v(...); public static int i(...); }
+-dontoptimize
+-dontobfuscate

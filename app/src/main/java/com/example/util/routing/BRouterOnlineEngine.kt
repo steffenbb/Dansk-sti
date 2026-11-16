@@ -5,7 +5,7 @@ import android.util.Log
 import com.example.data.local.DanskStiDao
 import com.example.data.local.DanskStiDatabase
 import com.example.util.network.NetworkConstants
-import com.example.util.network.applyDebugMainThreadCheck
+import com.example.util.network.applyDanskStiDefaults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -91,7 +91,8 @@ class BRouterOnlineEngine(
 
         fun getProfileSyntaxError(): String? = lastProfileSyntaxError
 
-        fun resetStateForTesting() {
+        @androidx.annotation.VisibleForTesting
+        internal fun resetStateForTesting() {
             uploadedServerProfileId = null
             profileUploadAttempted = false
             lastProfileUploadFailureMs = 0L
@@ -105,7 +106,7 @@ class BRouterOnlineEngine(
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(25, TimeUnit.SECONDS)
                 .writeTimeout(15, TimeUnit.SECONDS)
-                .applyDebugMainThreadCheck()
+                .applyDanskStiDefaults()
                 .build()
         }
 
@@ -354,7 +355,7 @@ class BRouterOnlineEngine(
                 if (code == 400) {
                     Log.w(TAG, "BRouter HTTP 400 with profile '$profileName': $bodyStr")
 
-                    // Requirement 4: Re-upload the profile and retry ONLY when the server's error text
+                    // Re-upload the profile and retry ONLY when the server's error text
                     // says the profile is unknown/missing. Any other HTTP 400 returns NoRoute without a second request.
                     if (profileName != FALLBACK_PROFILE_NAME && isUnknownProfileError(bodyStr)) {
                         Log.i(TAG, "Server reported unknown/missing profile '$profileName'. Re-uploading and retrying once.")

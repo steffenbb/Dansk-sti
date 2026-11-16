@@ -144,8 +144,9 @@ class BRouterStorageManager private constructor(context: Context) {
         /**
          * Test hook for intercepting HEAD requests per segment filename.
          */
+        @androidx.annotation.VisibleForTesting
         @Volatile
-        var customHeadFetcher: ((filename: String) -> RemoteSegmentHeader?)? = null
+        internal var customHeadFetcher: ((filename: String) -> RemoteSegmentHeader?)? = null
 
         @Volatile
         private var instance: BRouterStorageManager? = null
@@ -200,7 +201,7 @@ class BRouterStorageManager private constructor(context: Context) {
     }
 
     /**
-     * Round 10C Item 7: Read real file sizes and Last-Modified with HEAD requests before download.
+     * Read real file sizes and Last-Modified with HEAD requests before download.
      */
     suspend fun fetchRemoteSegmentsMetadata(client: OkHttpClient = defaultHeadClient): List<BRouterSegmentInfo> =
         withContext(Dispatchers.IO) {
@@ -284,7 +285,7 @@ class BRouterStorageManager private constructor(context: Context) {
     }
 
     /**
-     * Round 10C Item 7: Returns true when downloaded local segment files are older than
+     * Returns true when downloaded local segment files are older than
      * the server's Last-Modified timestamps read via HEAD.
      */
     fun isUpdateAvailable(): Boolean {
@@ -315,7 +316,8 @@ class BRouterStorageManager private constructor(context: Context) {
         _remoteMetadataUpdatedTrigger.value = System.currentTimeMillis()
     }
 
-    fun clearRemoteMetadataCacheForTests() {
+    @androidx.annotation.VisibleForTesting
+    internal fun clearRemoteMetadataCacheForTests() {
         remoteHeadersCache.clear()
         val editor = prefs.edit()
         for (seg in BRouterSegments.DENMARK_SEGMENTS) {

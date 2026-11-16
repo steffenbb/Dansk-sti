@@ -64,11 +64,13 @@ class BRouterSegmentDownloadWorker(
          * Test hook for simulating segment HTTP responses (including HTTP 206 Partial Content).
          * Takes (segmentFilename, rangeStartBytes) and returns Pair(httpStatusCode, responseBodyBytes).
          */
+        @androidx.annotation.VisibleForTesting
         @Volatile
-        var customSegmentFetcher: ((segmentFilename: String, rangeStartBytes: Long) -> Pair<Int, ByteArray>)? = null
+        internal var customSegmentFetcher: ((segmentFilename: String, rangeStartBytes: Long) -> Pair<Int, ByteArray>)? = null
 
+        @androidx.annotation.VisibleForTesting
         @Volatile
-        var shouldInterruptAfterBytes: Long? = null
+        internal var shouldInterruptAfterBytes: Long? = null
 
         fun calculateRemainingBytesNeeded(context: Context, forceUpdate: Boolean = false): Long {
             val storageManager = BRouterStorageManager.getInstance(context)
@@ -156,7 +158,7 @@ class BRouterSegmentDownloadWorker(
             return@withContext Result.failure(workDataOf("error" to (netMsg ?: "Ingen netværksforbindelse")))
         }
 
-        // Round 10C Item 7: Read real file sizes and Last-Modified with HEAD requests before download
+        // Read real file sizes and Last-Modified with HEAD requests before download
         val realSegments = storageManager.fetchRemoteSegmentsMetadata(client)
 
         val storageCheck = checkStorageForBRouterDownload(context, forceUpdate)
@@ -173,7 +175,7 @@ class BRouterSegmentDownloadWorker(
         try {
             setForeground(
                 createForegroundInfo(
-                    context.getString(R.string.notif_brouter_preparing),
+                    context.getString(R.string.notif_routing_preparing),
                     0,
                     100
                 )
@@ -198,7 +200,7 @@ class BRouterSegmentDownloadWorker(
             val targetFile = File(segmentsDir, segment.filename)
             val tmpFile = File(segmentsDir, "${segment.filename}.tmp")
 
-            // Round 10B Item 14: Skip already completed segments when resuming an interrupted multi-segment download
+            // Skip already completed segments when resuming an interrupted multi-segment download
             if (!forceUpdate && targetFile.exists() && targetFile.length() > 1024L && !tmpFile.exists()) {
                 accumulatedDownloadedBytes += segment.sizeBytes
                 continue
@@ -206,7 +208,7 @@ class BRouterSegmentDownloadWorker(
 
             val existingTmpBytes = if (tmpFile.exists() && tmpFile.length() > 0L) tmpFile.length() else 0L
             val url = "${BRouterSegments.DOWNLOAD_BASE_URL}${segment.filename}"
-            Log.i(TAG, "Downloading segment ${segment.filename} from $url (resume offset=$existingTmpBytes)")
+            Log.i(TAG, "Downloading segment ${segment.filename} (resume offset=$existingTmpBytes)")
 
             try {
                 val customFetcher = customSegmentFetcher
@@ -238,7 +240,7 @@ class BRouterSegmentDownloadWorker(
                         response.close()
                         Log.e(TAG, "Failed downloading ${segment.filename}: HTTP $statusCode")
                         return@withContext Result.failure(
-                            workDataOf("error" to "HTTP $statusCode ved hentning af ${segment.filename}")
+                            workDataOf("error" to "Rutedata kunne ikke hentes lige nu. Prøv igen om lidt.")
                         )
                     }
                     val body = response.body ?: run {
@@ -259,7 +261,7 @@ class BRouterSegmentDownloadWorker(
                     outputStream.use { out ->
                         while (stream.read(buffer).also { read = it } != -1) {
                             if (isStopped || shouldInterruptAfterBytes?.let { sessionNewBytes >= it } == true) {
-                                // Round 10B Item 14: Keep tmpFile on disk so interrupted downloads can resume!
+                                // Keep tmpFile on disk so interrupted downloads can resume!
                                 out.flush()
                                 return@withContext Result.failure(
                                     workDataOf(
@@ -294,7 +296,7 @@ class BRouterSegmentDownloadWorker(
                                         NOTIFICATION_ID,
                                         buildNotification(
                                             context.getString(
-                                                R.string.notif_brouter_progress_text,
+                                                R.string.notif_routing_progress_text,
                                                 segment.filename,
                                                 progressMb,
                                                 totalMb
@@ -332,9 +334,9 @@ class BRouterSegmentDownloadWorker(
             notificationManager.notify(
                 NOTIFICATION_ID,
                 NotificationCompat.Builder(context, CHANNEL_ID)
-                    .setContentTitle(context.getString(R.string.notif_brouter_ready_title))
-                    .setContentText(context.getString(R.string.notif_brouter_ready_text))
-                    .setSmallIcon(R.drawable.ic_launcher_foreground)
+                    .setContentTitle(context.getString(R.string.notif_routing_ready_title))
+                    .setContentText(context.getString(R.string.notif_routing_ready_text))
+                    .setSmallIcon(R.drawable.ic_notif_navigation)
                     .setAutoCancel(true)
                     .build()
             )
@@ -351,10 +353,10 @@ class BRouterSegmentDownloadWorker(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                context.getString(R.string.notif_brouter_channel_name),
+                context.getString(R.string.notif_routing_channel_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = context.getString(R.string.notif_brouter_channel_desc)
+                description = context.getString(R.string.notif_routing_channel_desc)
             }
             notificationManager.createNotificationChannel(channel)
         }
@@ -362,9 +364,9 @@ class BRouterSegmentDownloadWorker(
 
     private fun buildNotification(text: String, progress: Int, max: Int) =
         NotificationCompat.Builder(context, CHANNEL_ID)
-            .setContentTitle(context.getString(R.string.notif_brouter_downloading_title))
+            .setContentTitle(context.getString(R.string.notif_routing_downloading_title))
             .setContentText(text)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notif_navigation)
             .setProgress(max, progress, false)
             .setOngoing(true)
             .build()

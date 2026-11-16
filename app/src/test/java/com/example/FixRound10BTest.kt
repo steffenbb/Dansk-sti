@@ -804,7 +804,6 @@ class FixRound10BTest {
                 DanskStiTheme {
                     ProfileScreen(
                         onOpenCredits = {},
-                        onOpenDiagnostics = {},
                         onOpenOfflineMaps = {}
                     )
                 }

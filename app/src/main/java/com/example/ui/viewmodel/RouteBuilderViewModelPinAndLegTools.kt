@@ -181,6 +181,7 @@ fun RouteBuilderViewModel.deleteWaypoint(waypointId: String, showUndoSnackbar: B
                 deletedPinSnackbarMessage = if (showUndoSnackbar) "Punkt slettet · Fortryd" else it.deletedPinSnackbarMessage
             )
         }
+        if (mutableWps.isEmpty()) deleteCurrentDraftFromRoomNow() else scheduleDraftAutosave()
         updateRouteStats()
         return
     }
@@ -206,6 +207,7 @@ fun RouteBuilderViewModel.deleteWaypoint(waypointId: String, showUndoSnackbar: B
         )
     }
 
+    if (wps.isEmpty()) deleteCurrentDraftFromRoomNow() else scheduleDraftAutosave()
     if (index > 0 && index < wps.size) {
         computeSingleLeg(wps[index - 1], wps[index])
     } else {
@@ -247,7 +249,7 @@ fun RouteBuilderViewModel.toggleLegMode(waypointId: String) {
 }
 
 /**
- * Requirement 6: "Prøv igen" re-runs only that failed leg.
+ * "Prøv igen" re-runs only that failed leg.
  */
 fun RouteBuilderViewModel.retryFailedLeg(legKey: String) {
     val parts = legKey.split("_to_")
@@ -259,7 +261,7 @@ fun RouteBuilderViewModel.retryFailedLeg(legKey: String) {
 }
 
 /**
- * Requirement 6: "Tegn lige linje" sets only that failed leg to STRAIGHT and computes it.
+ * "Tegn lige linje" sets only that failed leg to STRAIGHT and computes it.
  */
 fun RouteBuilderViewModel.setFailedLegStraight(legKey: String) {
     val parts = legKey.split("_to_")
@@ -284,7 +286,7 @@ fun RouteBuilderViewModel.setFailedLegStraight(legKey: String) {
 }
 
 /**
- * Requirement 6: "Flyt punkt" selects the endpoint of the failed leg for moving (by tap or drag).
+ * "Flyt punkt" selects the endpoint of the failed leg for moving (by tap or drag).
  */
 fun RouteBuilderViewModel.activateMovePointForFailedLeg(legKey: String) {
     val parts = legKey.split("_to_")
@@ -317,7 +319,7 @@ fun RouteBuilderViewModel.renameWaypoint(waypointId: String, newName: String) {
 }
 
 /**
- * Requirement C: "Vend rute" - Reverses the direction (`isReverse` in TRAIL mode) and recomputes everything.
+ * "Vend rute" - Reverses the direction (`isReverse` in TRAIL mode) and recomputes everything.
  */
 fun RouteBuilderViewModel.reverseRoute() {
     val state = _uiState.value
@@ -375,6 +377,7 @@ fun RouteBuilderViewModel.clearRoute() {
     val state = _uiState.value
     if (state.mode == PlannerMode.TRAIL && state.baseTrailId != null) {
         pushHistory()
+        deleteCurrentDraftFromRoomNow()
         initializeTrailMode(state.baseTrailId)
         return
     }
@@ -400,6 +403,7 @@ fun RouteBuilderViewModel.clearRoute() {
             dayBoundaryWalkKms = emptyList()
         )
     }
+    deleteCurrentDraftFromRoomNow()
 }
 
 /**
@@ -501,7 +505,6 @@ fun RouteBuilderViewModel.selectLeg(legKey: String?) {
 }
 
 /**
- * UI Round 1 Item 4:
  * Snap to the trail line, a shelter or a fri teltning area within 25 m.
  */
 fun RouteBuilderViewModel.snapCoordinateWithin25m(lat: Double, lng: Double): SnapCandidateResult {
@@ -568,7 +571,6 @@ fun RouteBuilderViewModel.snapCoordinateWithin25m(lat: Double, lng: Double): Sna
 }
 
 /**
- * UI Round 1 Item 4:
  * While dragging, compute the length change ("+0,8 km") for the two neighbouring legs.
  */
 fun RouteBuilderViewModel.computeDragLengthDeltaKm(waypointId: String, candidateLat: Double, candidateLng: Double): Double {

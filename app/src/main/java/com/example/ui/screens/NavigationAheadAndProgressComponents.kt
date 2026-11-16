@@ -79,7 +79,7 @@ import com.example.ui.viewmodel.DayProgressStopIcon
 import com.example.ui.viewmodel.NavigationViewModel
 
 /**
- * Requirement 4: Navigation screen in landscape:
+ * Navigation screen in landscape:
  * cue banner top-left, stats in a column on the right, map in the middle.
  */
 @Composable

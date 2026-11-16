@@ -69,7 +69,6 @@ class FixRound5PartBTest {
     @Before
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
-        DanskStiTileSource.userConfirmedOsmFallback = true
         runBlocking {
             DanskStiApp.getSettingsRepository(app).setHasSeenHowToGuide(true)
             app.repository.initializePreseededDataIfEmpty()
@@ -421,6 +420,10 @@ class FixRound5PartBTest {
         }
         composeTestRule.waitUntil(10_000) {
             composeTestRule.onAllNodesWithTag("start_plan_$savedPlanId").fetchSemanticsNodes().isNotEmpty()
+        }
+        runCatching {
+            composeTestRule.onNodeWithTag("library_plans_list")
+                .performScrollToNode(hasTestTag("start_plan_$savedPlanId"))
         }
         composeTestRule.onNodeWithTag("start_plan_$savedPlanId").performClick()
         composeTestRule.waitForIdle()

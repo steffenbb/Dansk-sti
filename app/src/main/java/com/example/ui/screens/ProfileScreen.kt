@@ -84,20 +84,14 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * Requirement I: Profil
- * - Settings: Mit tempo, daily target, start time, voice guidance & Danish TTS check,
- *   "Udseende" + "Kortet følger appen", units,
- *   data and storage (offline maps size, routing data, clear cache),
- *   API keys, Om appen / data credits.
- * - Diagnostics only in debug builds or behind "Om appen" tapped 7 times.
+ * Profil settings: Mit tempo, daily target, start time, voice guidance & Danish TTS check,
+ * "Udseende" + "Kortet følger appen", data and storage, Om appen / data credits / privacy.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ProfileScreen(
     onOpenCredits: () -> Unit,
-    onOpenDiagnostics: () -> Unit,
     onOpenOfflineMaps: () -> Unit = {},
-    isDebugBuild: Boolean = BuildConfig.DEBUG,
     offlineViewModel: OfflineViewModel = viewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -117,8 +111,6 @@ fun ProfileScreen(
         DanishTtsChecker.checkDanishVoiceAvailability(context)
     }
 
-    var aboutTapCount by rememberSaveable { mutableIntStateOf(0) }
-    val showDiagnostics = isDebugBuild || aboutTapCount >= 7
     var showPrivacyScreen by rememberSaveable { mutableStateOf(false) }
     var showHowToGuideScreen by rememberSaveable { mutableStateOf(false) }
 
@@ -170,15 +162,6 @@ fun ProfileScreen(
     }
     val brouterTotalMb = remember(brouterState.totalBytes) {
         brouterState.totalBytes / (1024.0 * 1024.0)
-    }
-
-    val hasDataforsyningenKey = remember {
-        BuildConfig.DATAFORSYNINGEN_API_KEY.isNotBlank() &&
-            !BuildConfig.DATAFORSYNINGEN_API_KEY.startsWith("YOUR_", ignoreCase = true)
-    }
-    val hasThunderforestKey = remember {
-        BuildConfig.THUNDERFOREST_API_KEY.isNotBlank() &&
-            !BuildConfig.THUNDERFOREST_API_KEY.startsWith("YOUR_", ignoreCase = true)
     }
 
     LazyColumn(
@@ -415,7 +398,7 @@ fun ProfileScreen(
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
 
-                // Round 10B Item 17: Stemmeguidning + Danish TTS voice check
+                // Stemmeguidning + Danish TTS voice check
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -604,23 +587,12 @@ fun ProfileScreen(
             )
         }
 
-        // Section 4: API-nøgler
-        item {
-            ProfileApiKeysSectionCard(
-                hasDataforsyningenKey = hasDataforsyningenKey,
-                hasThunderforestKey = hasThunderforestKey
-            )
-        }
-
-        // Section 5: Om appen / Datakreditter & Kilder / Diagnostik
+        // Section 4: Om appen / Datakreditter & Kilder
         item {
             ProfileAboutSectionCard(
-                showDiagnostics = showDiagnostics,
-                onTapVersionRow = { aboutTapCount++ },
                 onOpenHowToGuide = { showHowToGuideScreen = true },
                 onOpenCredits = onOpenCredits,
-                onOpenPrivacy = { showPrivacyScreen = true },
-                onOpenDiagnostics = onOpenDiagnostics
+                onOpenPrivacy = { showPrivacyScreen = true }
             )
         }
     }

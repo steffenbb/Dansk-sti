@@ -450,7 +450,7 @@ object GeoUtils {
     }
 
     /**
-     * Round 9 C: Computes the Danish region from a route's geographic centre:
+     * Computes the Danish region from a route's geographic centre:
      * - Jylland
      * - Fyn & Øerne
      * - Sjælland & Lolland-Falster
@@ -510,7 +510,7 @@ object GeoUtils {
     }
 
     /**
-     * Round 9 C: Computes the region of a TrailEntity strictly from its downloaded geometry / bounding box centre.
+     * Computes the region of a TrailEntity strictly from its downloaded geometry / bounding box centre.
      * Returns empty string if no geometry/bbox has been computed yet.
      */
     fun computeDanishRegionForTrail(trail: com.example.data.model.TrailEntity): String {

@@ -433,7 +433,7 @@ fun DanskStiMap(
 
                         override fun longPressHelper(p: GeoPoint?): Boolean {
                             if (p != null) {
-                                // Round 10A Item 2: If a shelter, fri teltning area, water, toilet, or shop is
+                                // If a shelter, fri teltning area, water, toilet, or shop is
                                 // within 30 m (or finger is on its marker), open its PoiInfoSheet!
                                 val hitPoi = overlayManager.findLongPressPoi(p, maxDistanceMeters = 30.0)
                                 if (hitPoi != null) {
@@ -629,7 +629,7 @@ fun DanskStiMap(
         )
     }
 
-    // Shared PoiInfoSheet for all maps (Round 10A Item 1 & Item 2)
+    // Shared PoiInfoSheet for all maps
     selectedPoiForInfoSheet?.let { poiData ->
         PoiInfoSheet(
             poiData = poiData,
@@ -656,7 +656,7 @@ fun DanskStiMap(
         )
     }
 
-    // Shared AccessPolygonRulesDialog for all maps (Round 10A Item 1)
+    // Shared AccessPolygonRulesDialog for all maps
     selectedAccessPolygonForRules?.let { poly ->
         AccessPolygonRulesDialog(
             polygon = poly,
@@ -664,7 +664,7 @@ fun DanskStiMap(
         )
     }
 
-    // Requirement F: Long-press anywhere on any map (onX-style "drop pin")
+    // Long-press anywhere on any map (onX-style "drop pin")
     droppedPinLocation?.let { pin ->
         DropPinBottomSheet(
             point = pin,

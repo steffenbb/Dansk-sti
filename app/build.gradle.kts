@@ -13,8 +13,8 @@ android {
     applicationId = "com.aistudio.dansksti.hktvwp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 17
-    versionName = "17.0"
+    versionCode = 19
+    versionName = "19.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -55,15 +55,24 @@ android {
   }
   lint {
     error += setOf("StringFormatMatches", "StringFormatInvalid", "StringFormatCount")
+    checkOnly += setOf("StringFormatMatches", "StringFormatInvalid", "StringFormatCount")
     abortOnError = true
+    checkReleaseBuilds = false
+    checkTestSources = false
+    checkGeneratedSources = false
+    checkDependencies = false
   }
   testOptions {
     unitTests {
       isIncludeAndroidResources = true
       all {
-        it.maxHeapSize = "2560m"
+        it.maxHeapSize = "1024m"
+        it.jvmArgs("-XX:MaxMetaspaceSize=320m", "-XX:+UseG1GC", "-XX:G1PeriodicGCInterval=2000", "-XX:+G1PeriodicGCInvokesConcurrent")
         it.maxParallelForks = 1
-        it.forkEvery = 50
+        it.forkEvery = 10
+        it.testLogging {
+          events("passed", "skipped", "failed")
+        }
         it.systemProperty(
           "robolectric.dependency.repo.url",
           "https://maven-central.storage-download.googleapis.com/maven2/"

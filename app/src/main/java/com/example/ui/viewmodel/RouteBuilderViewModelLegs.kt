@@ -368,6 +368,13 @@ internal fun RouteBuilderViewModel.updateRouteStats(transform: ((RouteBuilderSta
     } else {
         lastComputedStagesSignature = null
     }
+    if (updatedForSig?.hasUnsavedChanges == true) {
+        if (updatedForSig?.waypoints.isNullOrEmpty()) {
+            deleteCurrentDraftFromRoomNow()
+        } else {
+            scheduleDraftAutosave()
+        }
+    }
     loadAccessPolygonsForRouteCorridor()
     evaluateAccessRules()
     analyzeSupplyGaps()
@@ -666,13 +673,12 @@ fun RouteBuilderViewModel.importGpx(inputStream: InputStream) {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error importing GPX: ${e.message}")
-            _userMessage.emit("Fejl ved GPX-import: ${e.message}")
+            _userMessage.emit("Fejl ved GPX-import: ${com.example.util.userMessageFor(e)}")
         }
     }
 }
 
 /**
- * Round 10B Item 13:
  * "Behold GPX-linjen" — uses the original GPX geometry directly without routing legs.
  */
 fun RouteBuilderViewModel.keepOriginalGpxGeometry() {
@@ -707,4 +713,82 @@ fun RouteBuilderViewModel.keepOriginalGpxGeometry() {
     updateRouteStats()
     scheduleDraftAutosave()
 }
+
+internal suspend fun RouteBuilderViewModel.computeSingleLegSuspend(from: RouteWaypoint, to: RouteWaypoint) {
+    val legKey = "${from.id}_to_${to.id}"
+    val state = _uiState.value
+
+    if (from.trailKm != null && to.trailKm != null && state.baseTrailSegments.isNotEmpty()) {
+        val trailLeg = TrailSlicer.buildTrailLegGeometry(
+            fromWaypointId = from.id,
+            toWaypointId = to.id,
+            segments = state.baseTrailSegments,
+            fromKm = from.trailKm,
+            toKm = to.trailKm,
+            isReverse = state.isReverse
+        )
+        _uiState.update { current ->
+            val updatedLegs = current.legs.toMutableMap().apply { put(legKey, trailLeg) }
+            val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
+            val updatedLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+            current.copy(legs = updatedLegs, failedLegs = updatedFailed, loadingLegKeys = updatedLoading)
+        }
+        withContext(Dispatchers.IO) { RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, trailLeg) }
+        return
+    }
+
+    if (from.legModeToNext == LegMode.STRAIGHT) {
+        val distKm = haversineM(from.lat, from.lng, to.lat, to.lng) / 1000.0
+        val straightLeg = LegGeometryData(
+            fromWaypointId = from.id, toWaypointId = to.id, legMode = LegMode.STRAIGHT,
+            points = listOf(RoutePoint3D(from.lat, from.lng, null), RoutePoint3D(to.lat, to.lng, null)),
+            lengthKm = distKm, ascentM = 0.0, descentM = 0.0, pathSharePct = null, roadKm = 0.0,
+            hasAccessWarning = false, sourceName = "Straight", wayInfo = emptyList()
+        )
+        _uiState.update { current ->
+            val updatedLegs = current.legs.toMutableMap().apply { put(legKey, straightLeg) }
+            val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
+            val doneLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+            current.copy(legs = updatedLegs, loadingLegKeys = doneLoading, failedLegs = updatedFailed)
+        }
+        withContext(Dispatchers.IO) { RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, straightLeg) }
+        return
+    }
+
+    _uiState.update { current -> current.copy(loadingLegKeys = current.loadingLegKeys.toMutableSet().apply { add(legKey) }) }
+    try {
+        val result = routingEngine.routeLeg(LatLng(from.lat, from.lng), LatLng(to.lat, to.lng), _uiState.value.options, alternative = 0)
+        val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+        when (result) {
+            is RouteLegResult.Success -> {
+                val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(result.points, result.perPointWayInfo)
+                val legData = LegGeometryData(
+                    fromWaypointId = from.id, toWaypointId = to.id, legMode = LegMode.SNAP, points = result.points,
+                    lengthKm = result.lengthKm, ascentM = result.ascentM, descentM = result.descentM,
+                    pathSharePct = pathShare, roadKm = roadKm, hasAccessWarning = false, sourceName = result.sourceName,
+                    fetchedAt = result.fetchedAt, wayInfo = result.perPointWayInfo, turnCues = result.turnCues
+                )
+                _uiState.update { current ->
+                    val updatedLegs = current.legs.toMutableMap().apply { put(legKey, legData) }
+                    val updatedFailed = current.failedLegs.toMutableMap().apply { remove(legKey) }
+                    val doneLoading = current.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+                    current.copy(
+                        legs = updatedLegs, failedLegs = updatedFailed, loadingLegKeys = doneLoading,
+                        isBuiltinFallbackInUse = BRouterOnlineEngine.isBuiltinFallbackInUse(),
+                        errorMessage = result.warningMessage ?: if (updatedFailed.isEmpty()) null else current.errorMessage
+                    )
+                }
+                withContext(Dispatchers.IO) { RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, legData) }
+            }
+            is RouteLegResult.ServerBusy -> recordFailedLeg(legKey, result.message, updatedLoading)
+            is RouteLegResult.Offline -> recordFailedLeg(legKey, result.message, updatedLoading)
+            is RouteLegResult.NoRoute -> recordFailedLeg(legKey, result.message, updatedLoading)
+            is RouteLegResult.Failure -> recordFailedLeg(legKey, result.message, updatedLoading)
+        }
+    } catch (e: Exception) {
+        val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet().apply { remove(legKey) }
+        recordFailedLeg(legKey, BRouterOnlineEngine.translateBRouterError(e.message), updatedLoading)
+    }
+}
+
 

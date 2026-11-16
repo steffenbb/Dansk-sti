@@ -139,7 +139,7 @@ internal object MapLayersPoiBuilder {
             }
         }
 
-        // Round 11 Item 5: Include planner POIs only when not already shown by the map's shelter/POI layer
+        // Include planner POIs only when not already shown by the map's shelter/POI layer
         for (pp in plannerPois) {
             val normalized = pp.type.lowercase()
             val (typeKey, enabled) = when {

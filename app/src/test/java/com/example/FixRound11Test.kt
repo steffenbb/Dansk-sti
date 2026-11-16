@@ -70,15 +70,6 @@ class FixRound11Test {
             "TrailGeometryRepository must use OverpassClient.queryRawJson",
             content.contains("OverpassClient.queryRawJson")
         )
-
-        val healthFile = File("src/main/java/com/example/util/network/ApiHealthChecker.kt")
-            .takeIf { it.exists() }
-            ?: File("app/src/main/java/com/example/util/network/ApiHealthChecker.kt")
-        assertTrue("ApiHealthChecker.kt must exist", healthFile.exists())
-        assertFalse(
-            "ApiHealthChecker must not reference api.openstreetmap.org",
-            healthFile.readText().contains("api.openstreetmap.org")
-        )
     }
 
     @Test

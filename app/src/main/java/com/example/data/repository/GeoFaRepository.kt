@@ -7,7 +7,7 @@ import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
-import com.example.util.network.applyDebugMainThreadCheck
+import com.example.util.network.applyDanskStiDefaults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -23,7 +23,7 @@ class GeoFaRepository(private val context: Context) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(25, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
-        .applyDebugMainThreadCheck()
+        .applyDanskStiDefaults()
         .build()
 
     private val cacheDir: File

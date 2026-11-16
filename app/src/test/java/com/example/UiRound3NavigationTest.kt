@@ -54,7 +54,6 @@ class UiRound3NavigationTest {
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
         app.repository.isOnlineOverrideForTests = false
-        DanskStiTileSourceHelper.userConfirmedOsmFallback = true
         runBlocking {
             app.repository.initializePreseededDataIfEmpty()
         }

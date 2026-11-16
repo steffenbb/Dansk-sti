@@ -99,7 +99,7 @@ enum class LibrarySegment(val titleRes: Int, val tag: String) {
 }
 
 /**
- * Requirement H: Mine ture (library)
+ * Mine ture (library):
  * - Segmented: Planer, Ruter, Punkter, Optagelser, Offline.
  * - Each item opens in the planner or on the map.
  * - Swipe to delete with "Fortryd" snackbar.
@@ -241,7 +241,7 @@ fun SavedPlansScreen(
                 }
             }
 
-            // Segmented bar: Planer, Ruter, Punkter, Optagelser, Offline (Requirement H)
+            // Segmented bar: Planer, Ruter, Punkter, Optagelser, Offline
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -593,7 +593,7 @@ fun SavedPlansScreen(
                                                     val date = brouterState.lastUpdatedDate ?: "Opdateret"
                                                     "Klar til offline ruteplanlægning • $date"
                                                 } else {
-                                                    "BRouter routing data (5 segmenter, ${brouterState.totalSizeMb} MB)"
+                                                    stringResource(R.string.offline_routing_data_denmark_mb_format, brouterState.totalSizeMb)
                                                 },
                                                 style = TabularLabelStyle,
                                                 color = if (brouterState.isAllDownloaded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -727,7 +727,7 @@ fun SavedPlansScreen(
                                             ) {
                                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                                                 Spacer(modifier = Modifier.width(8.dp))
-                                                Text(stringResource(R.string.storage_brouter_update))
+                                                Text(stringResource(R.string.storage_routing_update))
                                             }
                                         } else {
                                             Button(

@@ -20,10 +20,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.annotation.VisibleForTesting
 import com.example.BuildConfig
 import com.example.data.local.BaseMapType
 import com.example.data.local.MapLayersState
-import com.example.util.network.applyDebugMainThreadCheck
+import com.example.util.network.applyDanskStiDefaults
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -58,7 +59,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.roundToInt
 
 /**
- * Result of parsing Skærmkortet WMS GetCapabilities (Requirement B).
+ * Result of parsing Skærmkortet WMS GetCapabilities.
  */
 data class SkaermkortCapabilities(
     val allLayerNames: List<String>,
@@ -67,7 +68,7 @@ data class SkaermkortCapabilities(
 )
 
 /**
- * Result of parsing Dataforsyningen DHM ("dhm" / "dhm_DAF") WMS GetCapabilities (Requirement C).
+ * Result of parsing Dataforsyningen DHM ("dhm" / "dhm_DAF") WMS GetCapabilities.
  */
 data class DhmCapabilities(
     val serviceEndpoint: String,
@@ -81,14 +82,6 @@ data class DhmCapabilities(
 /**
  * Shared Danish Skærmkortet tile provider for all MapViews in Dansk Sti.
  * Uses official Dataforsyningen / SDFI WMS in Web Mercator (EPSG:3857).
- *
- * Round 9B Item 5:
- * - No `createHuePreservingDarkColorMatrix` on the Skærmkort layer.
- * - In `getDrawable(InputStream)`, when `isDarkMode` is on, pixels are recoloured on a background thread
- *   using reusable bitmaps while keeping the downloaded/cached bytes unchanged:
- *   - colours close to the map's water colour -> dark-mode water blue (`#1F4E6E`)
- *   - light land -> dark neutral grey (`#24282B`)
- *   - dark text and lines -> light grey (`#DCE0E3`)
  */
 class DanskStiTileSource(
     private val apiKey: String,
@@ -176,36 +169,26 @@ class DanskStiTileSource(
         val instance: DanskStiTileSource
             get() = DanskStiTileSourceHelper.skaermkortInstance
 
-        var userConfirmedOsmFallback: Boolean
-            get() = DanskStiTileSourceHelper.userConfirmedOsmFallback
-            set(value) {
-                DanskStiTileSourceHelper.userConfirmedOsmFallback = value
-            }
-
         fun applyTo(
             mapView: MapView,
-            isDarkMode: Boolean = false,
-            allowOsmFallback: Boolean = userConfirmedOsmFallback
+            isDarkMode: Boolean = false
         ) {
             DanskStiTileSourceHelper.applyTo(
                 mapView = mapView,
                 baseMap = BaseMapType.SKAERMKORT,
-                isDarkMode = isDarkMode,
-                allowOsmFallback = allowOsmFallback
+                isDarkMode = isDarkMode
             )
         }
 
         fun applyTo(
             mapView: MapView,
             baseMap: BaseMapType,
-            isDarkMode: Boolean = false,
-            allowOsmFallback: Boolean = userConfirmedOsmFallback
+            isDarkMode: Boolean = false
         ) {
             DanskStiTileSourceHelper.applyTo(
                 mapView = mapView,
                 baseMap = baseMap,
-                isDarkMode = isDarkMode,
-                allowOsmFallback = allowOsmFallback
+                isDarkMode = isDarkMode
             )
         }
     }
@@ -296,7 +279,7 @@ class DanskStiFriluftskortTileSource(
 /**
  * Luftfoto tile provider:
  * Official GeoDanmark Ortofoto (forår) from Dataforsyningen / Klimadatastyrelsen in EPSG:3857.
- * Round 9B Item 8: Aerial photos stay completely unfiltered in both light and dark mode.
+ * Aerial photos stay completely unfiltered in both light and dark mode.
  */
 class DanskStiLuftfotoTileSource(
     private val apiKey: String
@@ -319,7 +302,7 @@ class DanskStiLuftfotoTileSource(
 }
 
 /**
- * Requirement C & Round 9B Item 7: Dataforsyningen DHM Terrain Hillshade tile source ("dhm_terraen_skyggekort").
+ * Dataforsyningen DHM Terrain Hillshade tile source ("dhm_terraen_skyggekort").
  * Uses WMS 1.1.1 in EPSG:3857 with transparent PNG.
  * Skips hillshade pixels with no data / sea / flat grey so the terrain overlay is never opaque over sea.
  */
@@ -381,7 +364,7 @@ class DanskStiDhmHillshadeTileSource(
 }
 
 /**
- * Requirement C: Dataforsyningen DHM Contour tile source ("dhm_kurve_traditionel").
+ * Dataforsyningen DHM Contour tile source ("dhm_kurve_traditionel").
  * Uses WMS 1.1.1 in EPSG:3857 with transparent PNG from zoom 14+.
  */
 class DanskStiDhmContourTileSource(
@@ -403,13 +386,8 @@ class DanskStiDhmContourTileSource(
 }
 
 /**
- * Requirement C & Round 9B Item 7: Custom TilesOverlay for DHM Hillshade (alpha 30% light / 45% dark)
+ * Custom TilesOverlay for DHM Hillshade (alpha 30% light / 45% dark)
  * and DHM Contours (from zoom 14 with alpha 60%).
- *
- * Notice: The previous `hillshadeReliefFilter` had `+455f` on the alpha row (`-0.8*R - 0.8*G - 0.8*B + 455`),
- * which turned transparent `(0,0,0,0)` sea pixels into opaque black `ARGB(255,0,0,0)`!
- * Now `DanskStiDhmHillshadeTileSource` skips no-data/sea/flat pixels directly in `processHillshadeBitmap`,
- * and `TerrainTilesOverlay` never applies a blackening ColorMatrix over sea.
  */
 class TerrainTilesOverlay(
     tileProvider: MapTileProviderBase,
@@ -470,7 +448,7 @@ object DanskStiTileSourceHelper {
     private const val TAG = "DanskStiTileSource"
     const val ATTRIBUTION_TEXT = "Klimadatastyrelsen / Skærmkortet • © OpenStreetMap-bidragydere"
 
-    /** Theme water colours (Round 9B Items 3, 5, 6 & Round 10B Item 1) */
+    /** Theme water colours */
     const val LIGHT_WATER_COLOR_INT: Int = 0xFFA3CDE3.toInt() // #A3CDE3
     const val DARK_WATER_COLOR_INT: Int = 0xFF1F4E6E.toInt()  // #1F4E6E
     const val DARK_LAND_COLOR_INT: Int = 0xFF24282B.toInt()   // #24282B dark neutral grey (lum 165)
@@ -523,16 +501,7 @@ object DanskStiTileSourceHelper {
     }
 
     /**
-     * Round 10B Item 1:
-     * Recolours a single ARGB pixel for the dark map with base-map-specific rules:
-     * - Colours close to the map's water colour -> dark-mode water blue (`#1F4E6E`)
-     * - Forest / green areas -> only when clearly green (saturation above threshold per base map),
-     *   so towns on "Udendørs" (`BaseMapType.FRILUFTSKORT`) are never painted as forest.
-     * - Saturated colours (roads, coloured areas) -> darker version of the same hue
-     *   (brightness ~45%, saturation ~80%).
-     * - Light land (`lum 165..255`) -> mapped linearly to `#24282B..#4A5056`, keeping strict order
-     *   so road fills stand out against surrounding land.
-     * - Dark text and lines -> light grey (`#DCE0E3`).
+     * Recolours a single ARGB pixel for the dark map with base-map-specific rules.
      */
     fun recolorPixelForDarkMap(
         color: Int,
@@ -668,7 +637,6 @@ object DanskStiTileSourceHelper {
     }
 
     /**
-     * Round 9B Item 7:
      * Processes a DHM hillshade tile bitmap so that sea / no-data / flat pixels are skipped (transparent `0x00000000`),
      * preventing the terrain overlay from ever turning the sea black or opaque.
      */
@@ -711,7 +679,7 @@ object DanskStiTileSourceHelper {
         OkHttpClient.Builder()
             .connectTimeout(12, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
-            .applyDebugMainThreadCheck()
+            .applyDanskStiDefaults()
             .build()
     }
 
@@ -743,8 +711,12 @@ object DanskStiTileSourceHelper {
         }
     }
 
+    @VisibleForTesting
+    @Volatile
+    internal var hasValidKeyOverrideForTests: Boolean? = null
+
     val hasValidKey: Boolean
-        get() = sharedKey.isNotBlank()
+        get() = hasValidKeyOverrideForTests ?: sharedKey.isNotBlank()
 
     // Discovered WMS layer names from GetCapabilities (with verified defaults before async discovery finishes)
     @Volatile
@@ -800,8 +772,6 @@ object DanskStiTileSourceHelper {
     val dhmContourInstance: DanskStiDhmContourTileSource?
         get() = selectedContourLayer?.let { DanskStiDhmContourTileSource(sharedKey, it) }
 
-    var userConfirmedOsmFallback: Boolean = false
-
     fun computeWebMercatorBbox(pMapTileIndex: Long): String {
         val zoom = MapTileIndex.getZoom(pMapTileIndex)
         val x = MapTileIndex.getX(pMapTileIndex)
@@ -818,7 +788,7 @@ object DanskStiTileSourceHelper {
     }
 
     /**
-     * Requirement B: Parses Skærmkortet WMS GetCapabilities XML, logs every layer name,
+     * Parses Skærmkortet WMS GetCapabilities XML, logs every layer name,
      * and picks a muted or grey variant (name containing "daempet" or "graa") for metadata discovery.
      */
     fun parseSkaermkortCapabilitiesXml(xml: String): SkaermkortCapabilities {
@@ -855,7 +825,7 @@ object DanskStiTileSourceHelper {
     }
 
     /**
-     * Requirement C: Parses Dataforsyningen "dhm" WMS GetCapabilities XML, logs all layer names,
+     * Parses Dataforsyningen "dhm" WMS GetCapabilities XML, logs all layer names,
      * picks the terrain hillshade layer ("skyggekort", terrain not surface) and a contour layer ("kurve"),
      * and confirms EPSG:3857 and transparent PNG support.
      */
@@ -992,7 +962,7 @@ object DanskStiTileSourceHelper {
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "DHM GetCapabilities attempt on $endpoint failed: ${e.message}")
+                Log.w(TAG, "DHM GetCapabilities attempt failed: ${e.message}")
             }
         }
         null
@@ -1028,7 +998,6 @@ object DanskStiTileSourceHelper {
     }
 
     /**
-     * Round 9B Item 6:
      * Applies the theme's water colour to `tilesOverlay.loadingBackgroundColor`,
      * `tilesOverlay.loadingLineColor`, and the `MapView` background.
      */
@@ -1043,38 +1012,30 @@ object DanskStiTileSourceHelper {
     fun applyTo(
         mapView: MapView,
         baseMap: BaseMapType = BaseMapType.SKAERMKORT,
-        isDarkMode: Boolean = false,
-        allowOsmFallback: Boolean = userConfirmedOsmFallback
+        isDarkMode: Boolean = false
     ) {
         ensureCapabilitiesLoadedAsync()
         val offlineWithArchives = !isNetworkAvailable(mapView.context) && hasOfflineSqliteArchives(mapView.context)
 
-        // Round 9B Item 6: Always set loadingBackgroundColor, loadingLineColor, and MapView background to water colour
         applyThemeWaterBackground(mapView, isDarkMode)
-        // Round 9B Item 5 & 8: Never apply a ColorMatrix filter on the base map TilesOverlay
         mapView.overlayManager.tilesOverlay.setColorFilter(null)
 
-        when (baseMap) {
+        val effectiveBaseMap = if (!hasValidKey && !offlineWithArchives &&
+            (baseMap == BaseMapType.SKAERMKORT || baseMap == BaseMapType.LUFTFOTO)
+        ) {
+            BaseMapType.FRILUFTSKORT
+        } else {
+            baseMap
+        }
+
+        when (effectiveBaseMap) {
             BaseMapType.SKAERMKORT -> {
                 val targetSource = if (isDarkMode) skaermkortDarkInstance else skaermkortInstance
-                if (offlineWithArchives || hasValidKey) {
-                    if (mapView.tileProvider.tileSource?.name() != targetSource.name()) {
-                        mapView.setTileSource(targetSource)
-                    }
-                    mapView.overlayManager.tilesOverlay.isEnabled = true
-                    mapView.overlays.removeAll { it is NoKeyOverlay }
-                } else if (allowOsmFallback) {
-                    if (mapView.tileProvider.tileSource?.name() != TileSourceFactory.MAPNIK.name()) {
-                        mapView.setTileSource(TileSourceFactory.MAPNIK)
-                    }
-                    mapView.overlayManager.tilesOverlay.isEnabled = true
-                    mapView.overlays.removeAll { it is NoKeyOverlay }
-                } else {
-                    mapView.overlayManager.tilesOverlay.isEnabled = false
-                    if (mapView.overlays.none { it is NoKeyOverlay }) {
-                        mapView.overlays.add(NoKeyOverlay())
-                    }
+                if (mapView.tileProvider.tileSource?.name() != targetSource.name()) {
+                    mapView.setTileSource(targetSource)
                 }
+                mapView.overlayManager.tilesOverlay.isEnabled = true
+                mapView.overlays.removeAll { it is NoKeyOverlay }
             }
 
             BaseMapType.FRILUFTSKORT -> {
@@ -1087,36 +1048,21 @@ object DanskStiTileSourceHelper {
             }
 
             BaseMapType.LUFTFOTO -> {
-                if (hasValidKey) {
-                    if (mapView.tileProvider.tileSource?.name() != luftfotoInstance.name()) {
-                        mapView.setTileSource(luftfotoInstance)
-                    }
-                    mapView.overlayManager.tilesOverlay.isEnabled = true
-                    mapView.overlays.removeAll { it is NoKeyOverlay }
-                    // Round 9B Item 8: Aerial photos stay unfiltered
-                    mapView.overlayManager.tilesOverlay.setColorFilter(null)
-                } else if (allowOsmFallback) {
-                    if (mapView.tileProvider.tileSource?.name() != TileSourceFactory.MAPNIK.name()) {
-                        mapView.setTileSource(TileSourceFactory.MAPNIK)
-                    }
-                    mapView.overlayManager.tilesOverlay.isEnabled = true
-                    mapView.overlays.removeAll { it is NoKeyOverlay }
-                } else {
-                    mapView.overlayManager.tilesOverlay.isEnabled = false
-                    if (mapView.overlays.none { it is NoKeyOverlay }) {
-                        mapView.overlays.add(NoKeyOverlay("Luftfoto kræver Dataforsyningen API-nøgle"))
-                    }
+                if (mapView.tileProvider.tileSource?.name() != luftfotoInstance.name()) {
+                    mapView.setTileSource(luftfotoInstance)
                 }
+                mapView.overlayManager.tilesOverlay.isEnabled = true
+                mapView.overlays.removeAll { it is NoKeyOverlay }
+                mapView.overlayManager.tilesOverlay.setColorFilter(null)
             }
         }
 
-        // Requirement 18 & Round 10C Item 5: Register open MapView and attach downloaded SQLite tile archives
         registerOpenMapView(mapView)
         attachOfflineSqliteArchives(mapView.context, mapView.tileProvider)
 
         // Maintain copyright attribution overlay
         val existingCopyright = mapView.overlays.filterIsInstance<CopyrightOverlay>().firstOrNull()
-        val attributionText = getAttributionForBaseMap(baseMap)
+        val attributionText = getAttributionForBaseMap(effectiveBaseMap)
         if (existingCopyright == null) {
             val copyright = CopyrightOverlay(mapView.context).apply {
                 setCopyrightNotice(attributionText)
@@ -1145,14 +1091,12 @@ object DanskStiTileSourceHelper {
     fun applyBaseMapTo(
         mapView: MapView,
         baseMap: BaseMapType = BaseMapType.SKAERMKORT,
-        isDark: Boolean = false,
-        allowOsmFallback: Boolean = userConfirmedOsmFallback
+        isDark: Boolean = false
     ) {
         applyTo(
             mapView = mapView,
             baseMap = baseMap,
-            isDarkMode = isDark,
-            allowOsmFallback = allowOsmFallback
+            isDarkMode = isDark
         )
     }
 
@@ -1302,7 +1246,6 @@ object DanskStiTileSourceHelper {
     }
 
     /**
-     * Round 10C Item 5:
      * Detaches [archiveFile] from every open map's tile provider (closing its SQLite handle)
      * BEFORE deleting the file on disk.
      */
@@ -1353,7 +1296,7 @@ object DanskStiTileSourceHelper {
     }
 
     /**
-     * Round 10C Item 5: Refreshes every open map after an offline archive has been detached and deleted.
+     * Refreshes every open map after an offline archive has been detached and deleted.
      */
     fun refreshAllOpenMaps() {
         val mapsSnapshot = synchronized(archiveLock) {
@@ -1369,7 +1312,7 @@ object DanskStiTileSourceHelper {
     }
 
     /**
-     * Round 10C Item 5: Detaches [archiveFile] from all open map tile providers, deletes the file,
+     * Detaches [archiveFile] from all open map tile providers, deletes the file,
      * and refreshes all open maps.
      */
     fun detachOfflineArchiveAndDeleteFile(archiveFile: File): Boolean {
@@ -1542,7 +1485,6 @@ object DanskStiTileSourceHelper {
     }
 
     /**
-     * Round 12B Item 2:
      * Close or detach the map tile cache before deleting it, then reattach, so open maps keep working.
      * Never touches offline downloads (/files/offline).
      */
@@ -1617,9 +1559,6 @@ object DanskStiTileSourceHelper {
     }
 }
 
-/**
- * Overlay shown when no Dataforsyningen API key is configured.
- */
 class NoKeyOverlay(
     private val customMessage: String? = null
 ) : org.osmdroid.views.overlay.Overlay() {
@@ -1638,12 +1577,6 @@ class NoKeyOverlay(
         isAntiAlias = true
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
-    private val subTextPaint = android.graphics.Paint().apply {
-        color = android.graphics.Color.parseColor("#D0D0D0")
-        textSize = 28f
-        textAlign = android.graphics.Paint.Align.CENTER
-        isAntiAlias = true
-    }
 
     override fun draw(canvas: android.graphics.Canvas, pProjection: org.osmdroid.views.Projection) {
         val width = canvas.width.toFloat()
@@ -1653,18 +1586,16 @@ class NoKeyOverlay(
         val boxWidth = (width - 80f).coerceAtMost(700f)
         val left = (width - boxWidth) / 2f
         val right = left + boxWidth
-        val top = height / 2f - 110f
-        val bottom = height / 2f + 110f
+        val top = height / 2f - 70f
+        val bottom = height / 2f + 70f
         val rect = android.graphics.RectF(left, top, right, bottom)
 
         canvas.drawRoundRect(rect, 24f, 24f, bgPaint)
         canvas.drawRoundRect(rect, 24f, 24f, borderPaint)
 
         val centerX = width / 2f
-        val title = customMessage ?: "Dataforsyningen API-nøgle mangler"
-        canvas.drawText(title, centerX, height / 2f - 30f, titlePaint)
-        canvas.drawText("Kortfliser kan ikke hentes uden gyldig nøgle.", centerX, height / 2f + 20f, subTextPaint)
-        canvas.drawText("Konfigurer DATAFORSYNINGEN_API_KEY i Secrets.", centerX, height / 2f + 65f, subTextPaint)
+        val title = customMessage ?: "Kortlaget er ikke tilgængeligt"
+        canvas.drawText(title, centerX, height / 2f + 12f, titlePaint)
     }
 }
 

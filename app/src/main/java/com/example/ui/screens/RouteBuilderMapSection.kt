@@ -233,7 +233,7 @@ internal fun refreshMapOverlays(
         }
     }
 
-    // Round 11 Item 5: Do not draw the planner's own shelter/POI markers where the map's shelter/POI layer
+    // Do not draw the planner's own shelter/POI markers where the map's shelter/POI layer
     // already shows them. Delegate planner POIs to overlayManager so there is strictly one marker per place.
     overlayManager.setPlannerPois(state.nearbyPoisForPlan)
 

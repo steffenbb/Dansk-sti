@@ -52,6 +52,7 @@ class DanskStiApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        com.example.data.remote.OverpassClient.init(this)
 
         migrateLegacyWaypointPhotosFiles()
 
@@ -128,8 +129,7 @@ class DanskStiApp : Application() {
     }
 
     /**
-     * Requirement 17: Never delete the database.
-     * If it fails to open, record the error text for the UI error screen + "Prøv igen" button and log the exception.
+     * Never delete the database on open failure; expose error state for retry.
      */
     fun initDatabaseSafely() {
         try {
@@ -144,7 +144,7 @@ class DanskStiApp : Application() {
                 try {
                     migrateLegacyWaypointPhotosInDb(db.dao())
                     repository.initializePreseededDataIfEmpty()
-                    // Round 12A Item 1: Run orphan clean-up AFTER WorkManager has re-queued pending work, not in parallel with it.
+                    // Run orphan clean-up after WorkManager has re-queued pending work.
                     repository.requeuePendingOfflineDownloads()
                     repository.cleanupOrphanFiles(filesDir, maxLastModifiedEpochMs = startupCutoffMs)
                 } catch (t: Throwable) {

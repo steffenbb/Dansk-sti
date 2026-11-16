@@ -219,20 +219,14 @@ class FixRound3Part4UiRevampTest {
         assertTrue(bookmarkClicked)
     }
 
-    /**
-     * Requirement I:
-     * Profil screen hides Diagnostics when isDebugBuild = false until "Om appen" is tapped 7 times.
-     */
     @Test
-    fun testProfileScreenSevenTapsUnlocksDiagnostics() {
-        var diagnosticsOpened = false
+    fun testProfileScreenAboutRowAndCredits() {
+        var creditsOpened = false
 
         composeTestRule.setContent {
             DanskStiTheme {
                 ProfileScreen(
-                    onOpenCredits = {},
-                    onOpenDiagnostics = { diagnosticsOpened = true },
-                    isDebugBuild = false
+                    onOpenCredits = { creditsOpened = true }
                 )
             }
         }
@@ -243,17 +237,10 @@ class FixRound3Part4UiRevampTest {
         composeTestRule.onNodeWithTag("profile_about_app_row").assertIsDisplayed()
         composeTestRule.onNodeWithTag("profile_diagnostics_button").assertDoesNotExist()
 
-        // Tap "Om appen" 7 times
-        repeat(7) {
-            composeTestRule.onNodeWithTag("profile_about_app_row").performClick()
-        }
-
-        // Diagnostics button is now unlocked and clickable
         composeTestRule.onNodeWithTag("profile_screen_list")
-            .performScrollToNode(hasTestTag("profile_diagnostics_button"))
-        composeTestRule.onNodeWithTag("profile_diagnostics_button").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("profile_diagnostics_button").performClick()
-        assertTrue(diagnosticsOpened)
+            .performScrollToNode(hasTestTag("profile_data_credits_button"))
+        composeTestRule.onNodeWithTag("profile_data_credits_button").performClick()
+        assertTrue(creditsOpened)
     }
 
     /**

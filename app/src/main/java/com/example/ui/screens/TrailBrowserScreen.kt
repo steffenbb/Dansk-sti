@@ -100,7 +100,6 @@ import org.osmdroid.views.MapView
 @Composable
 fun TrailBrowserScreen(
     onTrailClick: (String) -> Unit,
-    onOpenDiagnostics: () -> Unit = {},
     onOpenCredits: () -> Unit = {},
     onOpenRouteBuilder: (lat: Double, lng: Double, label: String) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier,

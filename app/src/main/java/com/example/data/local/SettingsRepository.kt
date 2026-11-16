@@ -191,7 +191,6 @@ data class AppSettings(
 }
 
 /**
- * Round 12A Item 7:
  * Shared definition of pace (2.0-7.0 km/h), daily target (5-40 km) and start time (05:00-20:00, 30 min steps),
  * used in Profil, the planner's trip settings and the stage planner.
  */
@@ -364,7 +363,6 @@ class SettingsRepository(context: Context) {
     }
 
     /**
-     * Round 10B Item 7 & 8:
      * Loads stored Udseende and settings synchronously before the first frame using SharedPreferences
      * and a short-timeout DataStore read, without starting any per-instance never-ending collector.
      */
@@ -473,7 +471,6 @@ class SettingsRepository(context: Context) {
     private val safeDataFlow: Flow<Preferences> = memoryPrefsFlow
 
     /**
-     * Round 10B Item 7 & 8:
      * Updates in-memory state + SharedPreferences mirror immediately and writes to DataStore
      * in an application-scope coroutine without the 300 ms timeout, so writes are never cancelled.
      */
@@ -494,23 +491,37 @@ class SettingsRepository(context: Context) {
         runCatching { writeJob.join() }
     }
 
-    private fun parseMapLayers(prefs: Preferences): MapLayersState = MapLayersState(
-        baseMap = BaseMapType.fromString(prefs[KEY_BASE_MAP]),
-        showTerrain = prefs[KEY_OVERLAY_TERRAIN] ?: true,
-        showWaterLayer = prefs[KEY_OVERLAY_WATER_BODIES] ?: true,
-        showMarkedRoutes = prefs[KEY_OVERLAY_MARKED_ROUTES] ?: true,
-        showAccess = prefs[KEY_OVERLAY_ACCESS] ?: true,
-        showShelters = prefs[KEY_OVERLAY_SHELTERS] ?: true,
-        showFriTeltning = prefs[KEY_OVERLAY_FRI_TELTNING] ?: true,
-        showWater = prefs[KEY_OVERLAY_WATER] ?: true,
-        showToilets = prefs[KEY_OVERLAY_TOILETS] ?: true,
-        showShops = prefs[KEY_OVERLAY_SHOPS] ?: false,
-        showTransport = prefs[KEY_OVERLAY_TRANSPORT] ?: false,
-        showMyPoints = prefs[KEY_OVERLAY_MY_POINTS] ?: true,
-        mapDarkMode = MapDarkMode.fromString(prefs[KEY_MAP_DARK_MODE]),
-        mapFollowsApp = prefs[KEY_MAP_FOLLOWS_APP] ?: true,
-        mapThemeOverride = MapThemeOverride.fromString(prefs[KEY_MAP_THEME_OVERRIDE])
-    )
+    private fun parseMapLayers(prefs: Preferences): MapLayersState {
+        val hasKey = com.example.util.DanskStiTileSourceHelper.hasValidKey
+        val savedBaseMap = BaseMapType.fromString(prefs[KEY_BASE_MAP])
+        val effectiveBaseMap = if (!hasKey && (savedBaseMap == BaseMapType.SKAERMKORT || savedBaseMap == BaseMapType.LUFTFOTO)) {
+            BaseMapType.FRILUFTSKORT
+        } else {
+            savedBaseMap
+        }
+        val effectiveShowTerrain = if (!hasKey) {
+            false
+        } else {
+            prefs[KEY_OVERLAY_TERRAIN] ?: true
+        }
+        return MapLayersState(
+            baseMap = effectiveBaseMap,
+            showTerrain = effectiveShowTerrain,
+            showWaterLayer = prefs[KEY_OVERLAY_WATER_BODIES] ?: true,
+            showMarkedRoutes = prefs[KEY_OVERLAY_MARKED_ROUTES] ?: true,
+            showAccess = prefs[KEY_OVERLAY_ACCESS] ?: true,
+            showShelters = prefs[KEY_OVERLAY_SHELTERS] ?: true,
+            showFriTeltning = prefs[KEY_OVERLAY_FRI_TELTNING] ?: true,
+            showWater = prefs[KEY_OVERLAY_WATER] ?: true,
+            showToilets = prefs[KEY_OVERLAY_TOILETS] ?: true,
+            showShops = prefs[KEY_OVERLAY_SHOPS] ?: false,
+            showTransport = prefs[KEY_OVERLAY_TRANSPORT] ?: false,
+            showMyPoints = prefs[KEY_OVERLAY_MY_POINTS] ?: true,
+            mapDarkMode = MapDarkMode.fromString(prefs[KEY_MAP_DARK_MODE]),
+            mapFollowsApp = prefs[KEY_MAP_FOLLOWS_APP] ?: true,
+            mapThemeOverride = MapThemeOverride.fromString(prefs[KEY_MAP_THEME_OVERRIDE])
+        )
+    }
 
     private fun parseSettings(prefs: Preferences): AppSettings {
         val tempo = prefs[KEY_MIT_TEMPO] ?: cachedMitTempoKmh

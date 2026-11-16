@@ -11,7 +11,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Normalized data model for the shared [PoiInfoSheet] (Round 10A Item 1).
+ * Normalized data model for the shared [PoiInfoSheet].
  */
 data class PoiInfoSheetData(
     val id: String,

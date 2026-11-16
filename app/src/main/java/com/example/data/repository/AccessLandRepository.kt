@@ -6,14 +6,12 @@ import com.example.data.model.AccessPolygonEntity
 import com.example.data.model.access.AccessClassifier
 import com.example.data.model.access.AccessLandType
 import com.example.data.model.access.AccessPolygon
-import com.example.util.network.applyDebugMainThreadCheck
+import com.example.util.network.applyDanskStiDefaults
 import com.example.util.routing.LatLng
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -30,19 +28,14 @@ class AccessLandRepository(
         const val TILE_SIZE_DEG = 0.1
         const val CACHE_TTL_MS = 30L * 24 * 3600 * 1000L
 
-        object DiagnosticsState {
-            @Volatile var wfsAnswered: Boolean = false
-            @Volatile var wfsPolygonCount: Int = 0
-            @Volatile var lastWfsTimestamp: Long = 0L
-            @Volatile var lastError: String? = null
-            @Volatile var isDataUnavailable: Boolean = false
-        }
+        @Volatile
+        var isAccessDataUnavailable: Boolean = false
 
         fun defaultClient(): OkHttpClient {
             return OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(25, TimeUnit.SECONDS)
-                .applyDebugMainThreadCheck()
+                .applyDanskStiDefaults()
                 .build()
         }
 
@@ -112,7 +105,7 @@ class AccessLandRepository(
                         val model = entityToModel(ent)
                         resultById[model.id] = model
                     }
-                    DiagnosticsState.isDataUnavailable = false
+                    isAccessDataUnavailable = false
                     continue
                 }
 
@@ -144,7 +137,7 @@ class AccessLandRepository(
                         )
                         dao.insertAccessPolygons(listOf(sentinel))
                     }
-                    DiagnosticsState.isDataUnavailable = false
+                    isAccessDataUnavailable = false
                 } else {
                     // Both WFS and Overpass failed for this tile: use stale tile cache if available
                     val stale = cachedTile.filter { it.type != "EMPTY_TILE_SENTINEL" }
@@ -153,7 +146,7 @@ class AccessLandRepository(
                             val model = entityToModel(ent)
                             resultById[model.id] = model
                         }
-                        DiagnosticsState.isDataUnavailable = false
+                        isAccessDataUnavailable = false
                     } else {
                         val bboxFallback = dao.getAccessPolygonsInBoundingBox(tile.minLat, tile.maxLat, tile.minLng, tile.maxLng)
                             .filter { it.type != "EMPTY_TILE_SENTINEL" }
@@ -162,7 +155,7 @@ class AccessLandRepository(
                                 val model = entityToModel(ent)
                                 resultById[model.id] = model
                             }
-                            DiagnosticsState.isDataUnavailable = false
+                            isAccessDataUnavailable = false
                         } else {
                             anyTileFailedWithNoData = true
                         }
@@ -178,7 +171,7 @@ class AccessLandRepository(
         }
 
         if (resultById.isEmpty() && anyTileFailedWithNoData) {
-            DiagnosticsState.isDataUnavailable = true
+            isAccessDataUnavailable = true
         }
         resultById.values.toList()
     }
@@ -194,15 +187,10 @@ class AccessLandRepository(
         val wfsStatePolygons = try {
             val statePolys = fetchFromMiljoeportalWfs(tile.minLat, tile.maxLat, tile.minLng, tile.maxLng)
             wfsSucceeded = true
-            DiagnosticsState.wfsAnswered = true
-            DiagnosticsState.wfsPolygonCount = statePolys.size
-            DiagnosticsState.lastWfsTimestamp = System.currentTimeMillis()
             statePolys
         } catch (e: Exception) {
             if (e is IllegalStateException && e.message == "Network on main thread") throw e
             Log.w(TAG, "Miljøportal WFS fetch failed for ${tile.tileId}: ${e.message}")
-            DiagnosticsState.wfsAnswered = false
-            DiagnosticsState.lastError = e.message
             emptyList()
         }
 
@@ -403,7 +391,7 @@ class AccessLandRepository(
         maxLng: Double
     ): List<AccessPolygon> = withContext(Dispatchers.IO) {
         val query = """
-            [out:json][timeout:20];
+            [out:json][timeout:20][maxsize:67108864];
             (
               way["landuse"~"^(forest|farmland|meadow)$"]($minLat,$minLng,$maxLat,$maxLng);
               relation["landuse"~"^(forest|farmland|meadow)$"]($minLat,$minLng,$maxLat,$maxLng);

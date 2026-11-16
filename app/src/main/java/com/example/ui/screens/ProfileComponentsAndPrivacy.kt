@@ -93,63 +93,13 @@ internal fun ProfileSectionCard(
     }
 }
 
-@Composable
-internal fun ApiKeyStatusRow(
-    title: String,
-    isConfigured: Boolean,
-    testTag: String
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = MinTouchTargetSize)
-            .testTag(testTag),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-            Icon(
-                imageVector = Icons.Default.Key,
-                contentDescription = null,
-                tint = if (isConfigured) DanskStiTheme.colors.success else DanskStiTheme.colors.warning,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(Spacing.s2))
-            Column {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = if (isConfigured) {
-                        stringResource(R.string.api_key_configured)
-                    } else {
-                        stringResource(R.string.api_key_missing)
-                    },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (isConfigured) DanskStiTheme.colors.success else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        if (isConfigured) {
-            Icon(
-                imageVector = Icons.Default.CheckCircle,
-                contentDescription = stringResource(R.string.api_key_configured),
-                tint = DanskStiTheme.colors.success,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PrivacyScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     BackHandler {
         onBack()
     }
@@ -285,6 +235,23 @@ fun PrivacyScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (serviceDesc.contains("https://private.coffee/legal.html")) {
+                            Spacer(modifier = Modifier.height(Spacing.s1))
+                            OutlinedButton(
+                                onClick = {
+                                    runCatching {
+                                        val intent = android.content.Intent(
+                                            android.content.Intent.ACTION_VIEW,
+                                            android.net.Uri.parse("https://private.coffee/legal.html")
+                                        )
+                                        context.startActivity(intent)
+                                    }
+                                },
+                                modifier = Modifier.testTag("privacy_private_coffee_legal_link")
+                            ) {
+                                Text(text = "https://private.coffee/legal.html")
+                            }
+                        }
                     }
                 }
             }
@@ -397,10 +364,10 @@ internal fun ProfileStorageSectionCard(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     val statusSub = if (brouterState.isAllDownloaded) {
-                        stringResource(R.string.storage_brouter_all_downloaded)
+                        stringResource(R.string.storage_routing_all_downloaded)
                     } else {
                         stringResource(
-                            R.string.storage_brouter_segments_format,
+                            R.string.storage_routing_segments_format,
                             brouterState.downloadedSegments.size,
                             brouterState.segments.size
                         )
@@ -446,9 +413,9 @@ internal fun ProfileStorageSectionCard(
                 Spacer(modifier = Modifier.width(Spacing.s2))
                 Text(
                     text = if (brouterState.isAllDownloaded) {
-                        stringResource(R.string.storage_brouter_update)
+                        stringResource(R.string.storage_routing_update)
                     } else {
-                        stringResource(R.string.storage_brouter_download)
+                        stringResource(R.string.storage_routing_download)
                     }
                 )
             }
@@ -484,36 +451,10 @@ internal fun ProfileStorageSectionCard(
 }
 
 @Composable
-internal fun ProfileApiKeysSectionCard(
-    hasDataforsyningenKey: Boolean,
-    hasThunderforestKey: Boolean
-) {
-    ProfileSectionCard(title = stringResource(R.string.profile_section_api_keys)) {
-        ApiKeyStatusRow(
-            title = stringResource(R.string.api_key_dataforsyningen),
-            isConfigured = hasDataforsyningenKey,
-            testTag = "profile_api_key_dataforsyningen"
-        )
-        HorizontalDivider(
-            modifier = Modifier.padding(vertical = Spacing.s2),
-            color = MaterialTheme.colorScheme.outlineVariant
-        )
-        ApiKeyStatusRow(
-            title = stringResource(R.string.api_key_thunderforest),
-            isConfigured = hasThunderforestKey,
-            testTag = "profile_api_key_thunderforest"
-        )
-    }
-}
-
-@Composable
 internal fun ProfileAboutSectionCard(
-    showDiagnostics: Boolean,
-    onTapVersionRow: () -> Unit,
     onOpenHowToGuide: () -> Unit = {},
     onOpenCredits: () -> Unit,
-    onOpenPrivacy: () -> Unit,
-    onOpenDiagnostics: () -> Unit
+    onOpenPrivacy: () -> Unit
 ) {
     ProfileSectionCard(title = stringResource(R.string.profile_section_about)) {
         Row(
@@ -563,7 +504,6 @@ internal fun ProfileAboutSectionCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = MinTouchTargetSize)
-                .clickable(onClick = onTapVersionRow)
                 .testTag("profile_about_app_row"),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -576,19 +516,12 @@ internal fun ProfileAboutSectionCard(
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(Spacing.s2))
-                Column {
-                    Text(
-                        text = stringResource(R.string.ui_profilescreen_dansk_sti_v_100, BuildConfig.VERSION_NAME),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = stringResource(R.string.about_version_tap_hint),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = stringResource(R.string.ui_profilescreen_dansk_sti_v_100, BuildConfig.VERSION_NAME),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
         }
 
@@ -653,43 +586,6 @@ internal fun ProfileAboutSectionCard(
                 contentDescription = stringResource(R.string.about_privacy),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-
-        if (showDiagnostics) {
-            HorizontalDivider(
-                modifier = Modifier.padding(vertical = Spacing.s2),
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = MinTouchTargetSize)
-                    .clickable(onClick = onOpenDiagnostics)
-                    .testTag("profile_diagnostics_button"),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.BugReport,
-                        contentDescription = null,
-                        tint = DanskStiTheme.colors.warning,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(Spacing.s2))
-                    Text(
-                        text = stringResource(R.string.about_diagnostics),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = stringResource(R.string.about_diagnostics),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
         }
     }
 }

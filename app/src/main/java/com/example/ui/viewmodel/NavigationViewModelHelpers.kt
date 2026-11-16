@@ -142,7 +142,6 @@ internal fun computeRouteStopsAndAhead(
 }
 
 /**
- * Round 11 Item 4:
  * Computes navigation sunset using the current GPS position (or tonight's overnight point when known),
  * never the route's midpoint, and updates when the day changes.
  */
@@ -234,7 +233,7 @@ internal suspend fun exportDayGpxForPlan(
     )
     com.example.util.GpxExporter.exportAndShareGpxFile(
         context = context,
-        fileName = "${trailName.replace(" ", "_")}_dag_$dayNumber.gpx",
+        fileName = com.example.util.GpxExporter.buildSafeGpxFileName(trailName, "dag_$dayNumber"),
         gpxContent = gpx,
         shareTitle = context.getString(com.example.R.string.share_gps_track_day_title, dayNumber)
     )
@@ -259,7 +258,7 @@ internal suspend fun exportWholeTripGpxForPlan(
     )
     com.example.util.GpxExporter.exportAndShareGpxFile(
         context = context,
-        fileName = "${trailName.replace(" ", "_")}_hel_tur.gpx",
+        fileName = com.example.util.GpxExporter.buildSafeGpxFileName(trailName, "hel_tur"),
         gpxContent = gpx,
         shareTitle = context.getString(com.example.R.string.share_gps_track_trip_title)
     )

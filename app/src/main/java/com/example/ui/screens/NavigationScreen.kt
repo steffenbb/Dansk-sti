@@ -110,7 +110,7 @@ fun NavigationScreen(
     val sunsetTime by viewModel.sunsetTime.collectAsState()
     val corridorPoisErrorMessage by viewModel.corridorPoisErrorMessage.collectAsState()
 
-    // Round 9A Item 4 & Round 10B Item 2: Read device heading from the rotation vector sensor
+    // Read device heading from the rotation vector sensor
     // and remap coordinate system according to display rotation.
     ObserveCompassSensorHeading(
         context = context,
@@ -118,7 +118,7 @@ fun NavigationScreen(
         onHeadingDegrees = { azimuthDeg -> viewModel.updateDeviceHeading(azimuthDeg) }
     )
 
-    // Round 10B Item 2: Unified heading source for heading-up map and off-route arrow
+    // Unified heading source for heading-up map and off-route arrow
     val unifiedHeadingDegrees = remember(
         liveState.speedKmh,
         liveState.bearing,
@@ -696,7 +696,7 @@ fun NavigationScreen(
             }
 
             if (isLandscape) {
-                // Requirement 4: Navigation screen in landscape: cue banner top-left, stats in a column on the right, map in the middle
+                // Navigation screen in landscape: cue banner top-left, stats in a column on the right, map in the middle
                 NavigationLandscapeScaffoldBox(
                     mapContent = { navigationMapSection(12.dp, 12.dp, 16.dp) },
                     topLeftCueContent = { mod -> topCueOverlay(mod) },

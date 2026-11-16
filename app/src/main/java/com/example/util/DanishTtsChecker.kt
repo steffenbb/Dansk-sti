@@ -8,20 +8,22 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 
 /**
- * Round 10B Item 17: Before using voice guidance, check that a Danish TTS voice is installed;
+ * Before using voice guidance, check that a Danish TTS voice is installed;
  * if not, say so in settings.
  */
 object DanishTtsChecker {
 
     val DANISH_LOCALE: Locale = Locale("da", "DK")
 
+    @androidx.annotation.VisibleForTesting
     @Volatile
-    var isDanishVoiceInstalledOverrideForTests: Boolean? = null
+    internal var isDanishVoiceInstalledOverrideForTests: Boolean? = null
 
     private val _isDanishVoiceInstalled = MutableStateFlow<Boolean?>(null)
     val isDanishVoiceInstalled: StateFlow<Boolean?> = _isDanishVoiceInstalled.asStateFlow()
 
-    fun setDanishVoiceInstalledForTesting(installed: Boolean?) {
+    @androidx.annotation.VisibleForTesting
+    internal fun setDanishVoiceInstalledForTesting(installed: Boolean?) {
         isDanishVoiceInstalledOverrideForTests = installed
         _isDanishVoiceInstalled.value = installed
     }

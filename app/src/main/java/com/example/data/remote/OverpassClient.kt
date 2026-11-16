@@ -1,15 +1,19 @@
 package com.example.data.remote
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.example.util.network.NetworkConstants
-import com.example.util.network.applyDebugMainThreadCheck
+import com.example.util.network.applyDanskStiDefaults
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines. async
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -32,19 +36,36 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.random.Random
 
-/**
- * Round 10B Item 11, Round 13 Item 2 & Round 14 Item 2:
- * One shared client for every Overpass request (trails, POIs, access, water, marked routes)
- * with at most 2 concurrent requests, 1 slot reserved for USER_INITIATED requests so background
- * requests never block a trail download, queue time excluded from all timeouts, 30 s per-mirror
- * response-header timeout, 60 s total no-answer timeout, and 30 s idle-data timeout once a
- * server is answering.
- */
+class NoInternetException(
+    message: String = "Ingen internetforbindelse."
+) : IOException(message)
+
+class OverpassQueryException(
+    val httpCode: Int = 400,
+    message: String = "Kortdata kan ikke hentes lige nu. Prøv igen om lidt."
+) : IOException(message)
+
+class OverpassUnavailableException(
+    message: String = "Kortdata kan ikke hentes lige nu. Prøv igen om lidt.",
+    cause: Throwable? = null
+) : IOException(message, cause)
+
 object OverpassClient {
     private const val TAG = "OverpassClient"
     const val MAX_CONCURRENT_REQUESTS = 2
     const val MAX_CONCURRENT_BACKGROUND_REQUESTS = 1
+
+    const val PRIMARY = "https://overpass-api.de/api/interpreter"
+    const val FALLBACK = "https://overpass.private.coffee/api/interpreter"
+    val SERVERS: List<String> = listOf(PRIMARY, FALLBACK)
+
+    private const val BASE_COOLDOWN_MS = 2L * 60_000L
+    private const val MAX_COOLDOWN_MS = 15L * 60_000L
+    private const val PRIMARY_HEADER_TIMEOUT_MS = 20_000L
+    private const val USER_INITIATED_BUDGET_MS = 60_000L
+    private const val BACKGROUND_BUDGET_MS = 90_000L
 
     enum class Priority {
         USER_INITIATED,
@@ -79,12 +100,6 @@ object OverpassClient {
         }
     }
 
-    val MIRRORS = listOf(
-        "https://overpass-api.de/api/interpreter",
-        "https://lz4.overpass-api.de/api/interpreter",
-        "https://overpass.kumi.systems/api/interpreter"
-    )
-
     data class HttpResult(
         val code: Int,
         val body: String?,
@@ -93,6 +108,13 @@ object OverpassClient {
         val isSuccessful: Boolean
             get() = code in 200..299
     }
+
+    data class ServerState(
+        var consecutiveFailures: Int = 0,
+        var cooldownUntilMs: Long = 0L,
+        var probeInFlight: Boolean = false,
+        var lastCooldownDurationMs: Long = 0L
+    )
 
     private class QueueWaiter(
         val priority: Priority,
@@ -108,62 +130,108 @@ object OverpassClient {
     private val waitQueue = mutableListOf<QueueWaiter>()
     private val waiterSequence = AtomicLong(0L)
 
-    private val mirrorCursor = AtomicInteger(0)
-
-    val activeRequests = AtomicInteger(0)
-    val maxObservedConcurrent = AtomicInteger(0)
-    val queuedRequests = AtomicInteger(0)
-    val totalRequestsCompleted = AtomicInteger(0)
-    val backoffEventsCount = AtomicInteger(0)
-    val lastUsedReadTimeoutSeconds = AtomicLong(45L)
-    val observedReadTimeoutsByLabel = ConcurrentHashMap<String, Long>()
+    private val circuitLock = Any()
+    private val serverStates = mapOf(
+        PRIMARY to ServerState(),
+        FALLBACK to ServerState()
+    )
 
     @Volatile
-    var backoffBaseDelayMs: Long = 600L
+    private var appContext: Context? = null
 
-    @Volatile
-    var maxAttemptsPerMirror: Int = 2
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
 
-    /**
-     * Round 14 Item 2:
-     * - If a server sends no response headers within 30 s after the request actually starts, move to next mirror.
-     * - If no mirror has answered within 60 s of the request starting, show the error.
-     * - Once a server is answering, let the download finish; only fail if no data arrives for 30 s.
-     */
-    @Volatile
-    var noAnswerMirrorTimeoutMs: Long = 30_000L
+    @VisibleForTesting
+    internal val activeRequests = AtomicInteger(0)
 
-    @Volatile
-    var noAnswerTotalTimeoutMs: Long = 60_000L
+    @VisibleForTesting
+    internal val maxObservedConcurrent = AtomicInteger(0)
 
-    @Volatile
-    var idleDataTimeoutMs: Long = 30_000L
+    @VisibleForTesting
+    internal val queuedRequests = AtomicInteger(0)
 
-    @Volatile
-    var customTransport: (suspend (mirrorUrl: String, query: String) -> HttpResult)? = null
+    @VisibleForTesting
+    internal val totalRequestsCompleted = AtomicInteger(0)
 
-    @Volatile
-    var customSessionTransport: (suspend (mirrorUrl: String, query: String, session: TransferSession) -> HttpResult)? = null
+    @VisibleForTesting
+    internal val backoffEventsCount = AtomicInteger(0)
 
-    @Volatile
-    var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    @VisibleForTesting
+    internal val lastUsedReadTimeoutSeconds = AtomicLong(45L)
 
+    @VisibleForTesting
+    internal val observedReadTimeoutsByLabel = ConcurrentHashMap<String, Long>()
+
+    @VisibleForTesting
     @Volatile
-    var currentTimeMillisProvider: () -> Long = { System.currentTimeMillis() }
+    internal var noAnswerMirrorTimeoutMs: Long = PRIMARY_HEADER_TIMEOUT_MS
+
+    @VisibleForTesting
+    @Volatile
+    internal var noAnswerTotalTimeoutMs: Long = USER_INITIATED_BUDGET_MS
+
+    @VisibleForTesting
+    @Volatile
+    internal var customTransport: (suspend (mirrorUrl: String, query: String) -> HttpResult)? = null
+
+    @VisibleForTesting
+    @Volatile
+    internal var customSessionTransport: (suspend (mirrorUrl: String, query: String, session: TransferSession) -> HttpResult)? = null
+
+    @VisibleForTesting
+    @Volatile
+    internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+
+    @VisibleForTesting
+    @Volatile
+    internal var currentTimeMillisProvider: () -> Long = { System.currentTimeMillis() }
+
+    @VisibleForTesting
+    @Volatile
+    internal var connectivityChecker: () -> Boolean = { checkSystemConnectivity() }
+
+    @VisibleForTesting
+    @Volatile
+    internal var cooldownJitterFactorProvider: () -> Double = { Random.Default.nextDouble(0.9, 1.1) }
+
+    @VisibleForTesting
+    @Volatile
+    internal var interServerBackoffMsProvider: () -> Long = { 1_000L + Random.Default.nextLong(0L, 501L) }
 
     private fun nowMs(): Long = currentTimeMillisProvider.invoke()
 
+    private fun checkSystemConnectivity(): Boolean {
+        if (customTransport != null || customSessionTransport != null) {
+            return true
+        }
+        val ctx = appContext ?: return true
+        val repoOverride = runCatching {
+            (ctx.applicationContext as? com.example.DanskStiApp)?.repository?.isOnlineOverrideForTests
+        }.getOrNull()
+        if (repoOverride != null) {
+            return repoOverride
+        }
+        return try {
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return true
+            val network = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(network) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Exception) {
+            true
+        }
+    }
+
     private val SERVER_TIMEOUT_REGEX = Regex("""\[timeout:(\d+)\]""")
+    private val MAXSIZE_REGEX = Regex("""\[maxsize:\d+\]""")
+    private val REMARK_REGEX = Regex(""""remark"\s*:\s*"([^"]*)"""", RegexOption.IGNORE_CASE)
 
     fun parseServerTimeoutSeconds(query: String): Long? {
         return SERVER_TIMEOUT_REGEX.find(query)?.groupValues?.getOrNull(1)?.toLongOrNull()
     }
 
-    /**
-     * Round 13 Item 2c:
-     * Set the client read timeout per query to the query's server timeout + 15 s
-     * (relation geometry: [timeout:90] -> 105 s; corridor POIs: [timeout:120] -> 135 s).
-     */
     fun computeClientReadTimeoutSeconds(query: String, defaultServerTimeoutSec: Long = 30L): Long {
         val serverTimeout = parseServerTimeoutSeconds(query) ?: defaultServerTimeoutSec
         return serverTimeout + 15L
@@ -171,9 +239,9 @@ object OverpassClient {
 
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .applyDebugMainThreadCheck()
+            .connectTimeout(PRIMARY_HEADER_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            .readTimeout(45, TimeUnit.SECONDS)
+            .applyDanskStiDefaults()
             .build()
     }
 
@@ -187,12 +255,28 @@ object OverpassClient {
         moshi.adapter(OverpassResponse::class.java)
     }
 
-    fun resetMetricsForTest() {
+    @VisibleForTesting
+    internal fun getServerStateSnapshot(serverUrl: String): ServerState {
+        synchronized(circuitLock) {
+            return serverStates.getValue(serverUrl).copy()
+        }
+    }
+
+    @VisibleForTesting
+    internal fun resetMetricsForTest() {
         synchronized(queueLock) {
             waitQueue.forEach { it.gate.cancel() }
             waitQueue.clear()
             activePermits = 0
             activeBackgroundPermits = 0
+        }
+        synchronized(circuitLock) {
+            serverStates.values.forEach { state ->
+                state.consecutiveFailures = 0
+                state.cooldownUntilMs = 0L
+                state.probeInFlight = false
+                state.lastCooldownDurationMs = 0L
+            }
         }
         activeRequests.set(0)
         maxObservedConcurrent.set(0)
@@ -201,22 +285,141 @@ object OverpassClient {
         backoffEventsCount.set(0)
         lastUsedReadTimeoutSeconds.set(45L)
         observedReadTimeoutsByLabel.clear()
-        mirrorCursor.set(0)
-        backoffBaseDelayMs = 600L
-        maxAttemptsPerMirror = 2
-        noAnswerMirrorTimeoutMs = 30_000L
-        noAnswerTotalTimeoutMs = 60_000L
-        idleDataTimeoutMs = 30_000L
+        noAnswerMirrorTimeoutMs = PRIMARY_HEADER_TIMEOUT_MS
+        noAnswerTotalTimeoutMs = USER_INITIATED_BUDGET_MS
         customTransport = null
         customSessionTransport = null
         ioDispatcher = Dispatchers.IO
         currentTimeMillisProvider = { System.currentTimeMillis() }
+        connectivityChecker = { checkSystemConnectivity() }
+        cooldownJitterFactorProvider = { Random.Default.nextDouble(0.9, 1.1) }
+        interServerBackoffMsProvider = { 1_000L + Random.Default.nextLong(0L, 501L) }
+    }
+
+    /**
+     * Picks the server order for a request and reserves a probe slot if the first chosen
+     * server has just finished its cooldown.
+     * - Tries PRIMARY first unless PRIMARY is in cooldown (or already being probed), then FALLBACK.
+     * - Only one probe at a time per server: while a probe is in flight, other requests skip it.
+     * - If both PRIMARY and FALLBACK are in cooldown, still tries PRIMARY then FALLBACK once.
+     */
+    internal fun selectServerOrder(now: Long = nowMs()): Pair<List<String>, String?> {
+        synchronized(circuitLock) {
+            val available = mutableListOf<String>()
+            var reservedProbeServer: String? = null
+            for (server in SERVERS) {
+                val state = serverStates.getValue(server)
+                val inCooldown = now < state.cooldownUntilMs
+                if (!inCooldown && !state.probeInFlight) {
+                    if (available.isEmpty() && state.consecutiveFailures > 0) {
+                        state.probeInFlight = true
+                        reservedProbeServer = server
+                    }
+                    available.add(server)
+                }
+            }
+            if (available.isNotEmpty()) {
+                return available to reservedProbeServer
+            }
+            val anyProbeInFlight = SERVERS.any { serverStates.getValue(it).probeInFlight }
+            if (anyProbeInFlight) {
+                val nonProbing = SERVERS.filter { !serverStates.getValue(it).probeInFlight }
+                if (nonProbing.isNotEmpty()) {
+                    return nonProbing to null
+                }
+            }
+            return SERVERS to null
+        }
+    }
+
+    private fun tryAcquireServerForFollowUpAttempt(serverUrl: String, now: Long): Pair<Boolean, Boolean> {
+        synchronized(circuitLock) {
+            val state = serverStates.getValue(serverUrl)
+            if (state.probeInFlight) {
+                return false to false
+            }
+            if (state.consecutiveFailures > 0 && now >= state.cooldownUntilMs) {
+                state.probeInFlight = true
+                return true to true
+            }
+            return true to false
+        }
+    }
+
+    private fun releaseProbeIfUnresolved(serverUrl: String?) {
+        if (serverUrl == null) return
+        synchronized(circuitLock) {
+            serverStates[serverUrl]?.probeInFlight = false
+        }
+    }
+
+    private fun onServerSuccess(serverUrl: String) {
+        synchronized(circuitLock) {
+            val state = serverStates.getValue(serverUrl)
+            state.consecutiveFailures = 0
+            state.cooldownUntilMs = 0L
+            state.probeInFlight = false
+            state.lastCooldownDurationMs = 0L
+        }
+    }
+
+    internal fun computeBaseCooldownMs(consecutiveFailures: Int): Long {
+        val exp = (consecutiveFailures - 1).coerceIn(0, 10)
+        return minOf(MAX_COOLDOWN_MS, BASE_COOLDOWN_MS * (1L shl exp))
+    }
+
+    private fun onServerFailure(
+        serverUrl: String,
+        httpCode: Int? = null,
+        retryAfterSeconds: Long? = null
+    ) {
+        val now = nowMs()
+        synchronized(circuitLock) {
+            val state = serverStates.getValue(serverUrl)
+            state.consecutiveFailures += 1
+            state.probeInFlight = false
+            val baseCooldownMs = computeBaseCooldownMs(state.consecutiveFailures)
+            val jitter = cooldownJitterFactorProvider.invoke().coerceIn(0.9, 1.1)
+            val jitteredCooldownMs = (baseCooldownMs * jitter).toLong().coerceAtMost(MAX_COOLDOWN_MS)
+            val finalCooldownMs = if ((httpCode == 429 || httpCode == 406) && retryAfterSeconds != null && retryAfterSeconds > 0L) {
+                val cappedRetryMs = minOf(retryAfterSeconds * 1_000L, MAX_COOLDOWN_MS)
+                maxOf(jitteredCooldownMs, cappedRetryMs)
+            } else {
+                jitteredCooldownMs
+            }
+            state.lastCooldownDurationMs = finalCooldownMs
+            state.cooldownUntilMs = now + finalCooldownMs
+        }
+    }
+
+    private fun hostOf(url: String): String {
+        return url.substringAfter("://").substringBefore("/")
+    }
+
+    internal fun extractErrorRemark(body: String): String? {
+        val window = if (body.length <= 4096) {
+            body
+        } else {
+            body.take(2048) + "\n" + body.takeLast(2048)
+        }
+        for (match in REMARK_REGEX.findAll(window)) {
+            val remark = match.groupValues.getOrNull(1) ?: continue
+            val lower = remark.lowercase()
+            if (lower.contains("runtime error") ||
+                lower.contains("timed out") ||
+                lower.contains("out of memory") ||
+                lower.contains("dispatcher")
+            ) {
+                return remark
+            }
+        }
+        return null
     }
 
     private fun insertWaiterByPriorityLocked(waiter: QueueWaiter): Int {
-        if (waiter.priority == Priority.USER_INITIATED) {
+        return if (waiter.priority == Priority.USER_INITIATED) {
             val firstBackgroundIdx = waitQueue.indexOfFirst { it.priority == Priority.BACKGROUND }
-            return if (firstBackgroundIdx >= 0) {
+            if (firstBackgroundIdx >= 0) {
                 waitQueue.add(firstBackgroundIdx, waiter)
                 firstBackgroundIdx
             } else {
@@ -225,21 +428,15 @@ object OverpassClient {
             }
         } else {
             waitQueue.add(waiter)
-            return waitQueue.lastIndex
+            waitQueue.lastIndex
         }
     }
 
     private fun canAcquireImmediatelyLocked(priority: Priority): Boolean {
         if (activePermits >= MAX_CONCURRENT_REQUESTS) return false
         return when (priority) {
-            Priority.USER_INITIATED -> {
-                // Round 14 Item 2: 1 of the 2 slots is reserved for USER_INITIATED requests,
-                // so aUSER_INITIATED request can start immediately even if background requests are queued.
-                waitQueue.none { it.priority == Priority.USER_INITIATED }
-            }
-            Priority.BACKGROUND -> {
-                activeBackgroundPermits < MAX_CONCURRENT_BACKGROUND_REQUESTS && waitQueue.isEmpty()
-            }
+            Priority.USER_INITIATED -> waitQueue.none { it.priority == Priority.USER_INITIATED }
+            Priority.BACKGROUND -> activeBackgroundPermits < MAX_CONCURRENT_BACKGROUND_REQUESTS && waitQueue.isEmpty()
         }
     }
 
@@ -254,9 +451,7 @@ object OverpassClient {
     }
 
     private fun notifyWaitQueuePositionsLocked(): List<Pair<QueueWaiter, Int>> {
-        return waitQueue.mapIndexed { idx, w ->
-            w to computeAheadCountLocked(idx)
-        }
+        return waitQueue.mapIndexed { idx, w -> w to computeAheadCountLocked(idx) }
     }
 
     private suspend fun acquirePermit(
@@ -330,7 +525,6 @@ object OverpassClient {
                 activeBackgroundPermits = (activeBackgroundPermits - 1).coerceAtLeast(0)
             }
 
-            // 1. Grant available slots to USER_INITIATED waiters first
             val iterator = waitQueue.iterator()
             while (iterator.hasNext() && activePermits < MAX_CONCURRENT_REQUESTS) {
                 val candidate = iterator.next()
@@ -342,8 +536,6 @@ object OverpassClient {
                 }
             }
 
-            // 2. Grant up to MAX_CONCURRENT_BACKGROUND_REQUESTS (1) to BACKGROUND waiters
-            // only if there are no USER_INITIATED waiters left waiting
             val hasWaitingUserRequest = waitQueue.any { it.priority == Priority.USER_INITIATED }
             if (!hasWaitingUserRequest &&
                 activePermits < MAX_CONCURRENT_REQUESTS &&
@@ -380,12 +572,15 @@ object OverpassClient {
         onStatusChange: ((RequestState) -> Unit)? = null
     ): String = withContext(ioDispatcher) {
         currentCoroutineContext().ensureActive()
-        // Round 14 Item 2: Time spent waiting in the OverpassClient queue never counts towards any timeout.
+        if (!connectivityChecker.invoke()) {
+            throw NoInternetException("Ingen internetforbindelse.")
+        }
+
         acquirePermit(priority = priority, label = label, onStatusChange = onStatusChange)
         val currentActive = activeRequests.incrementAndGet()
         maxObservedConcurrent.updateAndGet { prev -> maxOf(prev, currentActive) }
         try {
-            executeWithMirrorsAndBackoff(query = query, label = label)
+            executeWithCircuitBreaker(query = query, label = label, priority = priority)
         } finally {
             activeRequests.decrementAndGet()
             totalRequestsCompleted.incrementAndGet()
@@ -406,137 +601,183 @@ object OverpassClient {
             onStatusChange = onStatusChange
         )
         return responseAdapter.fromJson(raw)
-            ?: throw IOException("Failed to parse Overpass response for $label")
+            ?: throw OverpassUnavailableException("Kortdata kan ikke hentes lige nu. Prøv igen om lidt.")
     }
 
-    private fun isReadTimeoutException(e: Throwable): Boolean {
-        if (e is SocketTimeoutException) return true
-        val msg = e.message?.lowercase() ?: ""
-        return msg.contains("read timed out") || msg.contains("socket timeout") || msg.contains("timeout")
-    }
-
-    private suspend fun executeWithMirrorsAndBackoff(
+    private suspend fun executeWithCircuitBreaker(
         query: String,
-        label: String
+        label: String,
+        priority: Priority
     ): String {
-        val readTimeoutSec = computeClientReadTimeoutSeconds(query)
+        if (!connectivityChecker.invoke()) {
+            throw NoInternetException("Ingen internetforbindelse.")
+        }
+
+        var activeQuery = query
+        var retriedWithoutMaxsize = false
+
+        val readTimeoutSec = computeClientReadTimeoutSeconds(activeQuery)
         lastUsedReadTimeoutSeconds.set(readTimeoutSec)
         observedReadTimeoutsByLabel[label] = readTimeoutSec
 
-        // Request actually starts NOW (after leaving the queue)
+        val totalNoAnswerBudgetMs = if (priority == Priority.BACKGROUND && noAnswerTotalTimeoutMs == USER_INITIATED_BUDGET_MS) {
+            BACKGROUND_BUDGET_MS
+        } else {
+            noAnswerTotalTimeoutMs
+        }
+
         val requestStartMs = nowMs()
         val anyServerAnswered = AtomicBoolean(false)
 
-        val startMirrorIdx = mirrorCursor.getAndUpdate { (it + 1) % MIRRORS.size }
-        var lastException: Exception? = null
-        var hadReadTimeoutOnPreviousMirror = false
+        val (serverOrder, initialReservedProbe) = selectServerOrder(requestStartMs)
+        var currentProbeServer: String? = initialReservedProbe
+        var lastCause: Throwable? = null
 
-        outer@ for (mirrorOffset in MIRRORS.indices) {
-            val mirrorIdx = (startMirrorIdx + mirrorOffset) % MIRRORS.size
-            val mirrorUrl = MIRRORS[mirrorIdx]
-
-            for (attempt in 0 until maxAttemptsPerMirror) {
+        try {
+            for ((index, serverUrl) in serverOrder.withIndex()) {
                 currentCoroutineContext().ensureActive()
-                if (!anyServerAnswered.get()) {
-                    val elapsedNoAnswerMs = (nowMs() - requestStartMs).coerceAtLeast(0L)
-                    if (elapsedNoAnswerMs >= noAnswerTotalTimeoutMs) {
-                        throw NoAnswerTimeoutException(
-                            "Ingen Overpass-server svarede inden for ${noAnswerTotalTimeoutMs / 1000} sekunder ($label)"
-                        )
+
+                if (index > 0) {
+                    val backoffMs = interServerBackoffMsProvider.invoke().coerceIn(0L, 1_500L)
+                    backoffEventsCount.incrementAndGet()
+                    if (backoffMs > 0L) {
+                        delay(backoffMs)
+                    }
+                    val (canTry, isProbe) = tryAcquireServerForFollowUpAttempt(serverUrl, nowMs())
+                    if (!canTry) {
+                        continue
+                    }
+                    if (isProbe) {
+                        currentProbeServer = serverUrl
                     }
                 }
 
-                try {
-                    val result = performHttpCallWithTimeouts(
-                        mirrorUrl = mirrorUrl,
-                        query = query,
-                        label = label,
-                        requestStartMs = requestStartMs,
-                        anyServerAnswered = anyServerAnswered
-                    )
-                    if (result.isSuccessful) {
-                        val body = result.body
-                        if (!body.isNullOrBlank()) {
-                            return body
-                        }
-                        throw IOException("Empty response body from $mirrorUrl ($label)")
-                    }
+                var trySameServerAgain = true
+                while (trySameServerAgain) {
+                    trySameServerAgain = false
+                    currentCoroutineContext().ensureActive()
 
-                    val code = result.code
-                    if (code == 429 || code == 504 || code == 502 || code == 503) {
-                        if (hadReadTimeoutOnPreviousMirror) {
-                            lastException = IOException("Overpass HTTP $code from $mirrorUrl ($label)")
-                            break@outer
-                        }
-                        backoffEventsCount.incrementAndGet()
-                        val retryMs = result.retryAfterSeconds?.let { it * 1000L }
-                            ?: (backoffBaseDelayMs * (1L shl attempt))
-                        Log.w(TAG, "Overpass $mirrorUrl returned HTTP $code for $label (attempt ${attempt + 1}); backing off ${retryMs}ms")
-                        if (retryMs > 0L) {
-                            delay(retryMs)
-                        }
-                        lastException = IOException("Overpass HTTP $code from $mirrorUrl ($label)")
-                        if (attempt + 1 >= maxAttemptsPerMirror) {
-                            break
-                        }
-                    } else {
-                        lastException = IOException("Overpass HTTP $code from $mirrorUrl ($label)")
-                        if (hadReadTimeoutOnPreviousMirror) {
-                            break@outer
-                        }
-                        break
-                    }
-                } catch (ce: CancellationException) {
-                    throw ce
-                } catch (e: Exception) {
-                    if (e is IllegalStateException && e.message == "Network on main thread") {
-                        throw e
-                    }
-                    lastException = e
-                    Log.w(TAG, "Overpass mirror $mirrorUrl failed for $label (attempt ${attempt + 1}): ${e.message}")
-
-                    if (e is NoAnswerTimeoutException) {
-                        // Round 14 Item 2: If a server sends no response headers within 30 s, move to the next mirror;
-                        // if no mirror has answered within 60 s of the request starting, show the error.
+                    if (!anyServerAnswered.get()) {
                         val elapsedNoAnswerMs = (nowMs() - requestStartMs).coerceAtLeast(0L)
-                        if (elapsedNoAnswerMs >= noAnswerTotalTimeoutMs) {
-                            break@outer
+                        if (elapsedNoAnswerMs >= totalNoAnswerBudgetMs) {
+                            releaseProbeIfUnresolved(currentProbeServer)
+                            currentProbeServer = null
+                            throw OverpassUnavailableException(
+                                "Kortdata kan ikke hentes lige nu. Prøv igen om lidt.",
+                                lastCause
+                            )
                         }
-                        break // Move to next mirror immediately without retrying same server
                     }
 
-                    if (isReadTimeoutException(e)) {
-                        // Round 13 Item 2c: Do NOT retry a request that failed with a read timeout on the same server;
-                        // move to the next mirror once, then fail.
-                        if (hadReadTimeoutOnPreviousMirror) {
-                            break@outer
+                    val idleLimitMs = computeClientReadTimeoutSeconds(activeQuery) * 1_000L
+
+                    try {
+                        val result = performHttpCallWithTimeouts(
+                            serverUrl = serverUrl,
+                            query = activeQuery,
+                            requestStartMs = requestStartMs,
+                            totalNoAnswerBudgetMs = totalNoAnswerBudgetMs,
+                            idleTimeoutMs = idleLimitMs,
+                            anyServerAnswered = anyServerAnswered
+                        )
+
+                        if (result.code == 400) {
+                            releaseProbeIfUnresolved(currentProbeServer)
+                            currentProbeServer = null
+                            throw OverpassQueryException(
+                                httpCode = 400,
+                                message = "Kortdata kan ikke hentes lige nu. Prøv igen om lidt."
+                            )
                         }
-                        hadReadTimeoutOnPreviousMirror = true
-                        break
-                    }
-                    if (hadReadTimeoutOnPreviousMirror) {
-                        break@outer
-                    }
-                    if (attempt + 1 < maxAttemptsPerMirror && backoffBaseDelayMs > 0L) {
-                        delay(backoffBaseDelayMs)
+
+                        if (result.isSuccessful) {
+                            val trimmedBody = result.body?.trim()
+                            if (trimmedBody.isNullOrEmpty() || !trimmedBody.startsWith("{")) {
+                                runCatching { Log.w(TAG, "Server ${hostOf(serverUrl)} returned non-JSON body on HTTP 200") }
+                                onServerFailure(serverUrl)
+                                currentProbeServer = null
+                                lastCause = IOException("Invalid body from ${hostOf(serverUrl)}")
+                                break
+                            }
+
+                            val remark = extractErrorRemark(trimmedBody)
+                            if (remark != null) {
+                                val isOom = remark.lowercase().contains("out of memory")
+                                if (isOom && !retriedWithoutMaxsize && MAXSIZE_REGEX.containsMatchIn(activeQuery)) {
+                                    retriedWithoutMaxsize = true
+                                    activeQuery = activeQuery.replace(MAXSIZE_REGEX, "")
+                                    runCatching { Log.w(TAG, "Server ${hostOf(serverUrl)} reported out of memory with maxsize; retrying once without maxsize") }
+                                    trySameServerAgain = true
+                                    continue
+                                }
+                                runCatching { Log.w(TAG, "Server ${hostOf(serverUrl)} returned error remark on HTTP 200: $remark") }
+                                onServerFailure(serverUrl)
+                                currentProbeServer = null
+                                lastCause = IOException("Overpass error remark from ${hostOf(serverUrl)}")
+                                break
+                            }
+
+                            onServerSuccess(serverUrl)
+                            currentProbeServer = null
+                            return result.body!!
+                        }
+
+                        val code = result.code
+                        runCatching { Log.w(TAG, "Server ${hostOf(serverUrl)} returned HTTP $code") }
+                        onServerFailure(
+                            serverUrl = serverUrl,
+                            httpCode = code,
+                            retryAfterSeconds = result.retryAfterSeconds
+                        )
+                        currentProbeServer = null
+                        lastCause = IOException("HTTP $code from ${hostOf(serverUrl)}")
+                    } catch (ce: CancellationException) {
+                        throw ce
+                    } catch (qe: OverpassQueryException) {
+                        throw qe
+                    } catch (nie: NoInternetException) {
+                        throw nie
+                    } catch (e: Exception) {
+                        if (e is IllegalStateException && e.message == "Network on main thread") {
+                            throw e
+                        }
+                        if (!connectivityChecker.invoke()) {
+                            releaseProbeIfUnresolved(currentProbeServer)
+                            currentProbeServer = null
+                            throw NoInternetException("Ingen internetforbindelse.")
+                        }
+                        runCatching { Log.w(TAG, "Server ${hostOf(serverUrl)} failed: ${e.javaClass.simpleName}") }
+                        onServerFailure(serverUrl)
+                        currentProbeServer = null
+                        lastCause = e
                     }
                 }
             }
+        } finally {
+            releaseProbeIfUnresolved(currentProbeServer)
         }
 
-        throw (lastException ?: IOException("All Overpass mirrors failed for $label"))
+        throw OverpassUnavailableException(
+            "Kortdata kan ikke hentes lige nu. Prøv igen om lidt.",
+            lastCause
+        )
     }
 
     private suspend fun performHttpCallWithTimeouts(
-        mirrorUrl: String,
+        serverUrl: String,
         query: String,
-        label: String,
         requestStartMs: Long,
+        totalNoAnswerBudgetMs: Long,
+        idleTimeoutMs: Long,
         anyServerAnswered: AtomicBoolean
     ): HttpResult = coroutineScope {
-        val elapsedBeforeMirrorMs = (nowMs() - requestStartMs).coerceAtLeast(0L)
-        val remainingNoAnswerMs = (noAnswerTotalTimeoutMs - elapsedBeforeMirrorMs).coerceAtLeast(1L)
-        val mirrorHeaderLimitMs = minOf(noAnswerMirrorTimeoutMs, remainingNoAnswerMs).coerceAtLeast(1L)
+        val elapsedBeforeServerMs = (nowMs() - requestStartMs).coerceAtLeast(0L)
+        val remainingNoAnswerMs = (totalNoAnswerBudgetMs - elapsedBeforeServerMs).coerceAtLeast(1L)
+        val headerLimitMs = if (serverUrl == PRIMARY) {
+            minOf(noAnswerMirrorTimeoutMs, remainingNoAnswerMs).coerceAtLeast(1L)
+        } else {
+            remainingNoAnswerMs
+        }
 
         val headersGate = CompletableDeferred<Unit>()
         val lastDataTimestampMs = AtomicLong(nowMs())
@@ -555,11 +796,17 @@ object OverpassClient {
         )
 
         val callDeferred = async {
-            executeTransportCall(mirrorUrl, query, session, mirrorHeaderLimitMs)
+            executeTransportCall(
+                serverUrl = serverUrl,
+                query = query,
+                session = session,
+                connectAndHeaderTimeoutMs = headerLimitMs,
+                readTimeoutMs = idleTimeoutMs
+            )
         }
 
         val watchdogJob = launch {
-            val headersArrived = withTimeoutOrNull(mirrorHeaderLimitMs) {
+            val headersArrived = withTimeoutOrNull(headerLimitMs) {
                 headersGate.await()
                 true
             } ?: session.headersReceived.get()
@@ -570,13 +817,11 @@ object OverpassClient {
                 return@launch
             }
 
-            // Round 14 Item 2: Once a server is answering, let the download finish;
-            // only fail if no data arrives for 30 s (idleDataTimeoutMs).
-            val pollIntervalMs = minOf(200L, (idleDataTimeoutMs / 4L).coerceAtLeast(10L))
+            val pollIntervalMs = minOf(200L, (idleTimeoutMs / 4L).coerceAtLeast(10L))
             while (isActive && callDeferred.isActive) {
                 delay(pollIntervalMs)
                 val idleMs = (nowMs() - lastDataTimestampMs.get()).coerceAtLeast(0L)
-                if (idleMs >= idleDataTimeoutMs && !callDeferred.isCompleted) {
+                if (idleMs >= idleTimeoutMs && !callDeferred.isCompleted) {
                     timedOutIdleData.set(true)
                     callDeferred.cancel(CancellationException("IDLE_DATA_TIMEOUT"))
                     return@launch
@@ -589,17 +834,12 @@ object OverpassClient {
             session.onHeadersReceived()
             result
         } catch (ce: CancellationException) {
-            // If outer scope was cancelled (e.g. user pressed "Annuller"), propagate CancellationException
             currentCoroutineContext().ensureActive()
             if (timedOutNoAnswer.get()) {
-                throw NoAnswerTimeoutException(
-                    "Intet svar fra $mirrorUrl inden for ${mirrorHeaderLimitMs}ms ($label)"
-                )
+                throw NoAnswerTimeoutException("Intet svar fra ${hostOf(serverUrl)}")
             }
             if (timedOutIdleData.get()) {
-                throw IdleDataTimeoutException(
-                    "Ingen data modtaget fra $mirrorUrl i ${idleDataTimeoutMs}ms ($label)"
-                )
+                throw IdleDataTimeoutException("Ingen data fra ${hostOf(serverUrl)}")
             }
             throw ce
         } finally {
@@ -608,18 +848,19 @@ object OverpassClient {
     }
 
     private suspend fun executeTransportCall(
-        mirrorUrl: String,
+        serverUrl: String,
         query: String,
         session: TransferSession,
-        connectAndHeaderTimeoutMs: Long
+        connectAndHeaderTimeoutMs: Long,
+        readTimeoutMs: Long
     ): HttpResult {
         val sessionTransport = customSessionTransport
         if (sessionTransport != null) {
-            return sessionTransport.invoke(mirrorUrl, query, session)
+            return sessionTransport.invoke(serverUrl, query, session)
         }
         val custom = customTransport
         if (custom != null) {
-            return custom.invoke(mirrorUrl, query)
+            return custom.invoke(serverUrl, query)
         }
 
         val cleanQuery = if (query.startsWith("data=")) {
@@ -629,14 +870,14 @@ object OverpassClient {
         }
         val body = cleanQuery.toRequestBody("application/x-www-form-urlencoded; charset=utf-8".toMediaType())
         val request = Request.Builder()
-            .url(mirrorUrl)
+            .url(serverUrl)
             .header("User-Agent", NetworkConstants.USER_AGENT)
             .post(body)
             .build()
 
         val callClient = okHttpClient.newBuilder()
             .connectTimeout(connectAndHeaderTimeoutMs, TimeUnit.MILLISECONDS)
-            .readTimeout(idleDataTimeoutMs, TimeUnit.MILLISECONDS)
+            .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
             .build()
 
         val call = callClient.newCall(request)
@@ -646,7 +887,6 @@ object OverpassClient {
             }
             try {
                 call.execute().use { response ->
-                    // Response headers have arrived!
                     session.onHeadersReceived()
                     val retryAfter = response.header("Retry-After")?.toLongOrNull()
                     val responseBody = response.body

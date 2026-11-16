@@ -62,7 +62,6 @@ class ProductionReadinessCujTest {
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
         database = app.database
-        DanskStiTileSource.userConfirmedOsmFallback = true
         runBlocking {
             app.repository.initializePreseededDataIfEmpty()
             val ohavsGeom = com.example.data.model.TrailGeometryDto(
@@ -356,9 +355,7 @@ class ProductionReadinessCujTest {
             ) {
                 DanskStiTheme(darkTheme = true) {
                     ProfileScreen(
-                        onOpenCredits = {},
-                        onOpenDiagnostics = {},
-                        isDebugBuild = true
+                        onOpenCredits = {}
                     )
                 }
             }

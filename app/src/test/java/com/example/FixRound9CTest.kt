@@ -42,7 +42,6 @@ class FixRound9CTest {
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
         database = app.database
-        TrailGeometryRepository.clearRecordedNameMismatches(app.filesDir)
         TrailGeometryRepository.customRelationFetcher = null
         MarkedRouteRepository.customMoreMarkedRoutesFetcher = null
         File(app.filesDir, "trails").deleteRecursively()
@@ -60,7 +59,6 @@ class FixRound9CTest {
     fun tearDown() {
         TrailGeometryRepository.customRelationFetcher = null
         MarkedRouteRepository.customMoreMarkedRoutesFetcher = null
-        TrailGeometryRepository.clearRecordedNameMismatches(app.filesDir)
     }
 
     /**
@@ -168,16 +166,6 @@ class FixRound9CTest {
         val updatedBryrup = database.danskStiDao().getTrailById("trail_bryrupbanestien")!!
         assertTrue("Length must be computed from downloaded geometry", updatedBryrup.computedWalkingKm > 10.0)
         assertEquals("Region must be computed from route centre", "Jylland", updatedBryrup.region)
-
-        val mismatches = app.repository.geometryRepository.getNameMismatches()
-        assertTrue(
-            "Mismatch between 'Bryrupbanestien' and 'Horsens-Silkeborg Naturstien (Bryrupbanestien)' must be logged",
-            mismatches.any {
-                it.trailId == "trail_bryrupbanestien" &&
-                    it.catalogueName == "Bryrupbanestien" &&
-                    it.osmRelationName == "Horsens-Silkeborg Naturstien (Bryrupbanestien)"
-            }
-        )
     }
 
     /**

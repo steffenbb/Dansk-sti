@@ -80,7 +80,7 @@ object PreseededData {
                 osmRelationId = 3481232L,
                 source = CATALOGUE_SOURCE
             ),
-            // Round 9 C: 39 new OSM wiki Denmark Walking Routes relations
+            // 39 OSM wiki Denmark Walking Routes relations
             TrailEntity(
                 id = "trail_e1",
                 name = "E1",

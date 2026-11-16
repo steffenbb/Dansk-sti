@@ -6,7 +6,7 @@ import android.util.Log
 /**
  * Composite routing engine that chooses between offline and online engines.
  *
- * Engine choice rule (Requirement D & Fix Round 5 Part B Item 1):
+ * Engine choice rule:
  * Uses the offline engine when the segment files covering both leg ends are present on disk
  * AND no polygonal no-go areas ("Rut uden om") are active. If no-go areas are present,
  * routes that leg online because the offline engine cannot apply no-go polygons, and labels

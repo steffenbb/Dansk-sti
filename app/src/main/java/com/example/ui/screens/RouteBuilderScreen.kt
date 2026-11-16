@@ -131,7 +131,7 @@ fun RouteBuilderScreen(
                     viewModel.importGpx(stream)
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Fejl ved åbning af fil: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Fejl ved åbning af fil: ${com.example.util.userMessageFor(e)}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -153,7 +153,7 @@ fun RouteBuilderScreen(
                     customWpPhotoPath = photoFile.absolutePath
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Kunne ikke gemme foto: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Kunne ikke gemme foto: ${com.example.util.userMessageFor(e)}", Toast.LENGTH_SHORT).show()
             }
         } else if (!path.isNullOrBlank()) {
             runCatching { File(path).delete() }
@@ -174,7 +174,7 @@ fun RouteBuilderScreen(
                     customWpPhotoPath = photoFile.absolutePath
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Kunne ikke indlæse foto: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Kunne ikke indlæse foto: ${com.example.util.userMessageFor(e)}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -459,7 +459,7 @@ fun RouteBuilderScreen(
                         compassButtonTestTag = "route_builder_compass_button",
                         myLocationButtonTestTag = "btn_my_location",
                         onMyLocationClick = { loc ->
-                            // Round 12A Item 4: ONLY centre the map on my position. Never change waypoints.
+                            // ONLY centre the map on my position. Never change waypoints.
                             if (loc != null) {
                                 viewModel.setCurrentPosition(loc.latitude, loc.longitude)
                                 mapViewInstance?.controller?.animateTo(GeoPoint(loc.latitude, loc.longitude), 14.5, 500L)
@@ -689,12 +689,6 @@ fun RouteBuilderScreen(
                         }
                     }
 
-                    PlannerCoachMarksOverlay(
-                        uiState = uiState,
-                        onNextStep = { viewModel.nextCoachMarkStep() },
-                        onDismiss = { viewModel.dismissCoachMarks() }
-                    )
-
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -723,6 +717,12 @@ fun RouteBuilderScreen(
                             plannerSheetComposable(Modifier, false)
                         }
                     }
+
+                    PlannerCoachMarksOverlay(
+                        uiState = uiState,
+                        onNextStep = { viewModel.nextCoachMarkStep() },
+                        onDismiss = { viewModel.dismissCoachMarks() }
+                    )
                 }
             }
 
@@ -768,7 +768,7 @@ fun RouteBuilderScreen(
                         pendingCameraPhotoPath = photoFile.absolutePath
                         cameraPhotoLauncher.launch(photoUri)
                     } catch (e: Exception) {
-                        Toast.makeText(context, "Kunne ikke åbne kamera: ${e.message}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Kunne ikke åbne kamera: ${com.example.util.userMessageFor(e)}", Toast.LENGTH_SHORT).show()
                     }
                 }, onLaunchGallery = { galleryPhotoLauncher.launch("image/*") },
                 availableHeightDp = availableHeightDp

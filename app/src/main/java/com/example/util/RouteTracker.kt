@@ -231,7 +231,7 @@ class RouteTracker(
             GeoUtils.bearing(lat, lng, nearestAhead.lat, nearestAhead.lng)
         } else bearing
 
-        // 5. Stage calculations & Round 14 Item 4 multi-day navigation rules:
+        // 5. Stage calculations & multi-day navigation rules:
         // - Do NOT auto-advance the day when currentWalkKm passes today's stage end.
         //   Instead set "arrived at tonight's camp" and show the arrival card (using today's stage).
         // - If the user keeps walking more than 500 m past tonight's camp without pressing "Stop for i dag",
@@ -329,7 +329,6 @@ class RouteTracker(
     }
 
     /**
-     * Round 14 Item 4:
      * stopForToday advances exactly one day from the day being walked.
      */
     fun stopForToday(): TripProgressEntity {

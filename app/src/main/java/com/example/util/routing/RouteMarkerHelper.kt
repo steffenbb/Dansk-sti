@@ -18,7 +18,7 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
 
 /**
- * Styling and marker creation helpers for Rutebygger (Phase 9 & UI Round 1).
+ * Styling and marker creation helpers for Rutebygger.
  */
 object RouteMarkerHelper {
 
@@ -47,11 +47,9 @@ object RouteMarkerHelper {
     )
 
     /**
-     * UI Round 1 Item 8:
      * start = green flag, end = chequered flag, overnight = tent with day number ("D1"),
      * via = white numbered circle. Every pin gets a 48 dp touch area regardless of icon size.
-     * UI Round 1 Item 7:
-     * tapping a pin selects it (larger icon with ring, rest of the route at 60 % opacity).
+     * Tapping a pin selects it (larger icon with ring, rest of the route at 60 % opacity).
      */
     fun createWaypointIcon(
         context: Context,
@@ -120,7 +118,7 @@ object RouteMarkerHelper {
 
         val radius = (circlePx / 2f) - (2f * density)
 
-        // Selection outer ring (Item 7: larger icon with ring)
+        // Selection outer ring (larger icon with ring)
         if (isSelected) {
             val ringHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.FILL
@@ -135,7 +133,7 @@ object RouteMarkerHelper {
             canvas.drawCircle(cx, cy, radius + 4.5f * density, ringStrokePaint)
         }
 
-        // Circle background & border per role (Item 8)
+        // Circle background & border per role
         val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
             color = when (role) {
@@ -315,7 +313,6 @@ object RouteMarkerHelper {
     }
 
     /**
-     * UI Round 1 Item 5:
      * Ghost handles: at zoom >= 13 draw a small grey hollow circle at the middle of each leg.
      * Dragging it inserts a via point there (insertViaPointOnLine) and continues as a pin drag.
      * Uses a 48 dp touch target so it is easy to grab.
@@ -359,7 +356,6 @@ object RouteMarkerHelper {
     }
 
     /**
-     * UI Round 1 Item 11:
      * TalkBack: every pin and leg has a contentDescription like
      * "Punkt 3, overnatning, Shelter Skovbo, km 32,1".
      */
@@ -658,7 +654,7 @@ object RouteMarkerHelper {
     }
 
     /**
-     * Requirement 6: A failed leg is drawn as a red dashed line between its two points.
+     * A failed leg is drawn as a red dashed line between its two points.
      */
     fun createFailedLegPolyline(
         mapView: MapView,

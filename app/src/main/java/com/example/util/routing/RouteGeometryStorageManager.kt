@@ -388,7 +388,7 @@ object RouteGeometryStorageManager {
     }
 
     /**
-     * Requirement 14: Compute path share % and road km by distance per way section.
+     * Compute path share % and road km by distance per way section.
      * No 80% default; returns null for pathSharePct when there is no way info.
      */
     fun computeWaySectionMetrics(

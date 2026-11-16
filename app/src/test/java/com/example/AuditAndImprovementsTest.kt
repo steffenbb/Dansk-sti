@@ -70,7 +70,6 @@ class AuditAndImprovementsTest {
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
         app.repository.isOnlineOverrideForTests = false
-        DanskStiTileSourceHelper.userConfirmedOsmFallback = true
         settingsRepository = DanskStiApp.getSettingsRepository(app)
         runBlocking {
             app.repository.initializePreseededDataIfEmpty()

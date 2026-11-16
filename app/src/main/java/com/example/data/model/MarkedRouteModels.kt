@@ -80,7 +80,7 @@ data class MarkedRouteDto(
 }
 
 /**
- * Round 9 C: Route discovered from Overpass query:
+ * Route discovered from Overpass query:
  * relation["route"="hiking"]["network"~"^(iwn|nwn|rwn)$"](area Denmark); out tags;
  */
 @JsonClass(generateAdapter = true)

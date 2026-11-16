@@ -106,14 +106,14 @@ internal fun OfflineBRouterDenmarkCard(
                             val date = brouterState.lastUpdatedDate ?: "Opdateret"
                             "Klar til brug uden mobildækning • $date"
                         } else {
-                            "BRouter routing data (5 segmenter, ${brouterState.totalSizeMb} MB)"
+                            stringResource(R.string.offline_routing_data_denmark_mb_format, brouterState.totalSizeMb)
                         },
                         fontSize = 12.sp,
                         color = if (brouterState.isAllDownloaded) colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if (brouterState.hasVersionMismatch) {
                         Text(
-                            text = stringResource(R.string.brouter_version_mismatch_update_needed),
+                            text = stringResource(R.string.routing_version_mismatch_update_needed),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = danskStiColors.danger,
@@ -121,7 +121,7 @@ internal fun OfflineBRouterDenmarkCard(
                         )
                     } else if (brouterState.isUpdateAvailable) {
                         Text(
-                            text = stringResource(R.string.brouter_update_available),
+                            text = stringResource(R.string.routing_update_available),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = colorScheme.primary,

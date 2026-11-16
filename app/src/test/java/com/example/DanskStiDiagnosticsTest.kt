@@ -65,13 +65,13 @@ class DanskStiDiagnosticsTest {
         val gendarmstien = database.dao().getTrailById("trail_gendarmstien")
         assertNotNull("Gendarmstien should be seeded", gendarmstien)
 
-        // 2. Verify no fake shelters, fri teltning or POIs are seeded from assets on startup
+        // 2. Verify bundled GeoFA shelters, fri teltning, and OSM POIs are seeded on startup
         val shelterCount = database.dao().getShelterCount()
         val friTeltningCount = database.dao().getFriTeltningCount()
         val poiCount = database.dao().getPoiCount()
 
-        assertEquals("Expected 0 fake preseeded shelters on startup", 0, shelterCount)
-        assertEquals("Expected 0 fake preseeded fri teltning on startup", 0, friTeltningCount)
+        assertTrue("Expected bundled GeoFA shelters to be seeded on startup, but found $shelterCount", shelterCount > 0)
+        assertTrue("Expected bundled GeoFA fri teltning to be seeded on startup, but found $friTeltningCount", friTeltningCount > 0)
         assertTrue("Expected bundled OSM POIs to be seeded on startup, but found $poiCount", poiCount > 0)
     }
 
@@ -93,13 +93,12 @@ class DanskStiDiagnosticsTest {
 
     @Test
     fun testTileSourceFallbackConfiguration() {
-        // Verify tile source OSM fallback toggle
-        val originalFallback = DanskStiTileSource.userConfirmedOsmFallback
+        val originalOverride = com.example.util.DanskStiTileSourceHelper.hasValidKeyOverrideForTests
         try {
-            DanskStiTileSource.userConfirmedOsmFallback = true
-            assertTrue("userConfirmedOsmFallback should be true when enabled", DanskStiTileSource.userConfirmedOsmFallback)
+            com.example.util.DanskStiTileSourceHelper.hasValidKeyOverrideForTests = false
+            assertTrue("hasValidKey should be false when override is false", !DanskStiTileSource.hasValidKey)
         } finally {
-            DanskStiTileSource.userConfirmedOsmFallback = originalFallback
+            com.example.util.DanskStiTileSourceHelper.hasValidKeyOverrideForTests = originalOverride
         }
     }
 }

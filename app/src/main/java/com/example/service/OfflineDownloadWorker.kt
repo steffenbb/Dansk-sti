@@ -32,33 +32,79 @@ class OfflineDownloadWorker(
     private val notificationManager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val trailId = inputData.getString(KEY_TRAIL_ID) ?: return@withContext Result.failure()
-        val trailName = inputData.getString(KEY_TRAIL_NAME) ?: "Vandrerute"
-        val corridorKm = inputData.getDouble(KEY_CORRIDOR_KM, 1.0)
+    override suspend fun doWork(): Result {
         val settingsRepo = DanskStiApp.getSettingsRepository(context)
-        val wifiOnly = inputData.getBoolean(
-            KEY_WIFI_ONLY,
-            settingsRepo.currentSettingsSnapshot().offlineDownloadsWifiOnly
-        )
-
-        // Round 10B Item 14: Map tile downloads require a network connection, with optional "Kun på Wi-Fi"
-        val (netOk, netError) = OfflineDownloadManager.checkNetworkRequirement(context, wifiOnly)
-        if (!netOk) {
-            return@withContext Result.failure(workDataOf("error" to (netError ?: "Ingen netværksforbindelse")))
-        }
-
-        createNotificationChannel()
+        createNotificationChannel(context, notificationManager)
         try {
-            setForeground(createForegroundInfo(trailName, 0, 100))
+            setForeground(createForegroundInfo(context, inputData.getString(KEY_TRAIL_NAME) ?: "Vandrerute", 0, 100))
         } catch (_: Exception) {}
+        return executeDownload(
+            context = context,
+            trailId = inputData.getString(KEY_TRAIL_ID),
+            trailName = inputData.getString(KEY_TRAIL_NAME) ?: "Vandrerute",
+            corridorKm = inputData.getDouble(KEY_CORRIDOR_KM, 1.0),
+            wifiOnly = inputData.getBoolean(
+                KEY_WIFI_ONLY,
+                settingsRepo.currentSettingsSnapshot().offlineDownloadsWifiOnly
+            ),
+            isStoppedProvider = { isStopped },
+            onSetProgress = { data ->
+                try {
+                    setProgress(data)
+                } catch (_: Exception) {}
+            }
+        )
+    }
 
-        val app = context.applicationContext as DanskStiApp
-        val repo = app.repository
-        val db = app.database
+    companion object {
+        const val CHANNEL_ID = "dansk_sti_offline_downloads"
+        const val NOTIFICATION_ID = 2001
 
-        runCatching {
-            val existingInProgress = db.dao().getOfflineDownloadInProgress(trailId)
+        const val KEY_TRAIL_ID = "trail_id"
+        const val KEY_TRAIL_NAME = "trail_name"
+        const val KEY_CORRIDOR_KM = "corridor_km"
+        const val KEY_WIFI_ONLY = "wifi_only"
+
+        const val KEY_PROGRESS_PERCENT = "progress_percent"
+        const val KEY_DOWNLOADED_COUNT = "downloaded_count"
+        const val KEY_NEWLY_FETCHED_COUNT = "newly_fetched_count"
+        const val KEY_TOTAL_COUNT = "total_count"
+        const val KEY_BYTES_DOWNLOADED = "bytes_downloaded"
+        const val KEY_REQUIRED_BYTES = "required_bytes"
+
+        @Volatile
+        var customTileFetcher: ((providerName: String, tileIndex: Long) -> ByteArray?)? = null
+
+        @Volatile
+        var shouldInterruptAfterTileCount: Int? = null
+
+        internal suspend fun executeDownload(
+            context: Context,
+            trailId: String?,
+            trailName: String = "Vandrerute",
+            corridorKm: Double = 1.0,
+            wifiOnly: Boolean = false,
+            isStoppedProvider: () -> Boolean = { false },
+            onSetProgress: suspend (androidx.work.Data) -> Unit = {}
+        ): Result = withContext(Dispatchers.IO) {
+            if (trailId.isNullOrBlank()) return@withContext Result.failure()
+
+            val (netOk, _) = OfflineDownloadManager.checkNetworkRequirement(context, wifiOnly)
+            if (!netOk) {
+                return@withContext Result.retry()
+            }
+
+            val notificationManager =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            createNotificationChannel(context, notificationManager)
+
+            val app = context.applicationContext as DanskStiApp
+            val repo = app.repository
+            val db = app.database
+            val settingsRepo = DanskStiApp.getSettingsRepository(context)
+
+            runCatching {
+                val existingInProgress = db.dao().getOfflineDownloadInProgress(trailId)
             db.dao().upsertOfflineDownloadInProgress(
                 com.example.data.model.OfflineDownloadInProgressEntity(
                     trailId = trailId,
@@ -71,9 +117,18 @@ class OfflineDownloadWorker(
         try {
             // 1. Download & cache trail geometry (Phase 1)
             val trail = repo.getTrailById(trailId)
-                ?: return@withContext Result.failure(workDataOf("error" to "Rute ikke fundet for $trailName"))
+            if (trail == null) {
+                runCatching { db.dao().deleteOfflineDownloadInProgress(trailId) }
+                return@withContext Result.failure(workDataOf("error" to "Rute ikke fundet for $trailName"))
+            }
+            val wasGeometryCached = repo.geometryRepository.isGeometryCached(trailId)
             val points = repo.getTrailPoints(trail).flatMap { it.points }
             if (points.isEmpty()) {
+                if (!wasGeometryCached && !repo.geometryRepository.isGeometryCached(trailId)) {
+                    // Network error while downloading trail geometry -> retry keeping progress
+                    return@withContext Result.retry()
+                }
+                runCatching { db.dao().deleteOfflineDownloadInProgress(trailId) }
                 return@withContext Result.failure(workDataOf("error" to "Ingen rutepunkter fundet for $trailName"))
             }
 
@@ -108,10 +163,11 @@ class OfflineDownloadWorker(
             }
 
             val tileSource = DanskStiTileSource.instance
-            val hillshadeSource = if (layersState.showTerrain) com.example.util.DanskStiTileSourceHelper.dhmHillshadeInstance else null
-            val contourSource = if (layersState.showTerrain) com.example.util.DanskStiTileSourceHelper.dhmContourInstance else null
+            val hasDataforsyningenKey = DanskStiTileSource.hasValidKey
+            val hillshadeSource = if (hasDataforsyningenKey && layersState.showTerrain) com.example.util.DanskStiTileSourceHelper.dhmHillshadeInstance else null
+            val contourSource = if (hasDataforsyningenKey && layersState.showTerrain) com.example.util.DanskStiTileSourceHelper.dhmContourInstance else null
 
-            // Round 10B Item 14: Resume interrupted downloads!
+            // Resume interrupted downloads!
             // Keep existing SQLite archive file if present and inspect already-downloaded tile keys.
             val archiveFile = OfflineDownloadManager.getOfflineArchiveFile(context, trailId)
             val existingBaseTiles = OfflineDownloadManager.getExistingTileKeysInArchive(archiveFile, tileSource.name())
@@ -129,7 +185,7 @@ class OfflineDownloadWorker(
             val remainingTilesCount = tileIndices.count { it !in existingBaseTiles }
             val requiredRemainingBytes = remainingTilesCount.toLong() * 10480L
 
-            // Round 10B Item 14: Check free storage before downloading remaining tiles and refuse with size needed
+            // Check free storage before downloading remaining tiles and refuse with size needed
             val storageCheck = OfflineDownloadManager.checkFreeStorage(context, requiredRemainingBytes)
             if (!storageCheck.hasEnoughSpace) {
                 return@withContext Result.failure(
@@ -182,18 +238,18 @@ class OfflineDownloadWorker(
                         archiveWriter?.saveFile(source, tileIdx, tileData.inputStream(), null)
                         newlyFetchedTiles++
                         downloadedCount++
+                    } else if (conn.responseCode >= 500 || conn.responseCode == HttpURLConnection.HTTP_CLIENT_TIMEOUT || conn.responseCode == 429) {
+                        throw java.io.IOException("Tile server error HTTP ${conn.responseCode}")
                     }
-                } catch (_: Exception) {
-                    // Continue downloading next tile on transient failures
                 } finally {
                     conn?.disconnect()
                 }
             }
 
             for ((index, tileIndex) in tileIndices.withIndex()) {
-                if (isStopped || shouldInterruptAfterTileCount?.let { newlyFetchedTiles >= it } == true) {
-                    // Round 10B Item 14 & Round 12A Item 1: Do NOT delete archiveFile or in-progress row when interrupted so next run resumes!
-                    // Only remove the in-progress row if the work was explicitly cancelled in WorkManager.
+                if (isStoppedProvider() || shouldInterruptAfterTileCount?.let { newlyFetchedTiles >= it } == true) {
+                    // Keep partial archiveFile so retry resumes from where it left off!
+                    // Only remove the in-progress row and fail if the work was explicitly cancelled.
                     archiveWriter?.onDetach()
                     archiveWriter = null
                     val wasExplicitlyCancelled = runCatching {
@@ -204,22 +260,24 @@ class OfflineDownloadWorker(
                     }.getOrDefault(false)
                     if (wasExplicitlyCancelled) {
                         runCatching { db.dao().deleteOfflineDownloadInProgress(trailId) }
-                    }
-                    return@withContext Result.failure(
-                        workDataOf(
-                            "error" to "Download afbrudt (kan genoptages)",
-                            KEY_DOWNLOADED_COUNT to downloadedCount,
-                            KEY_NEWLY_FETCHED_COUNT to newlyFetchedTiles
+                        return@withContext Result.failure(
+                            workDataOf(
+                                "error" to "Download afbrudt (kan genoptages)",
+                                KEY_DOWNLOADED_COUNT to downloadedCount,
+                                KEY_NEWLY_FETCHED_COUNT to newlyFetchedTiles
+                            )
                         )
-                    )
+                    }
+                    return@withContext Result.retry()
                 }
 
-                // 1. Base map tile (skip if already in archive)
-                if (tileIndex !in existingBaseTiles) {
-                    downloadAndSaveTile(tileSource, tileIndex)
+                // 1. Skip tile coordinate if already in the partial archive
+                if (tileIndex in existingBaseTiles) {
+                    continue
                 }
+                downloadAndSaveTile(tileSource, tileIndex)
 
-                // 2. Requirement C: Include hillshade and contour (zoom 14+) tiles when "Terræn" layer is on
+                // 2. Include hillshade and contour (zoom 14+) tiles when "Terræn" layer is on
                 if (hillshadeSource != null && tileIndex !in existingHillshadeTiles) {
                     downloadAndSaveTile(hillshadeSource, tileIndex)
                 }
@@ -233,7 +291,7 @@ class OfflineDownloadWorker(
                 // Update notification progress every 25 tiles or on completion
                 if (index % 25 == 0 || index == totalTiles - 1) {
                     val percent = ((index + 1) * 100 / totalTiles).coerceIn(0, 100)
-                    setProgress(workDataOf(
+                    onSetProgress(workDataOf(
                         KEY_PROGRESS_PERCENT to percent,
                         KEY_DOWNLOADED_COUNT to index + 1,
                         KEY_TOTAL_COUNT to totalTiles
@@ -241,7 +299,7 @@ class OfflineDownloadWorker(
                     try {
                         notificationManager.notify(
                             NOTIFICATION_ID,
-                            buildProgressNotification(trailName, index + 1, totalTiles, percent)
+                            buildProgressNotification(context, trailName, index + 1, totalTiles, percent)
                         )
                     } catch (_: Exception) {}
                 }
@@ -272,7 +330,7 @@ class OfflineDownloadWorker(
                 notificationManager.notify(
                     NOTIFICATION_ID,
                     NotificationCompat.Builder(context, CHANNEL_ID)
-                        .setSmallIcon(R.drawable.ic_launcher_foreground)
+                        .setSmallIcon(R.drawable.ic_notif_navigation)
                         .setContentTitle(context.getString(R.string.notif_offline_ready_title, trailName))
                         .setContentText(context.getString(R.string.notif_offline_ready_text, totalTiles, mbStr))
                         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -286,79 +344,71 @@ class OfflineDownloadWorker(
                 KEY_NEWLY_FETCHED_COUNT to newlyFetchedTiles,
                 KEY_BYTES_DOWNLOADED to finalBytes
             ))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            try {
+                archiveWriter?.onDetach()
+            } catch (_: Exception) {}
+            throw e
         } catch (e: Exception) {
             try {
                 archiveWriter?.onDetach()
             } catch (_: Exception) {}
+            val isNetworkOrTimeout = e is java.io.IOException ||
+                e is kotlinx.coroutines.TimeoutCancellationException ||
+                e.cause is java.io.IOException ||
+                e.cause is kotlinx.coroutines.TimeoutCancellationException
+            if (isNetworkOrTimeout) {
+                return@withContext Result.retry()
+            }
+            val friendlyErr = com.example.util.userMessageFor(e)
             try {
                 notificationManager.notify(
                     NOTIFICATION_ID,
                     NotificationCompat.Builder(context, CHANNEL_ID)
-                        .setSmallIcon(R.drawable.ic_launcher_foreground)
+                        .setSmallIcon(R.drawable.ic_notif_navigation)
                         .setContentTitle(context.getString(R.string.notif_offline_error_title))
-                        .setContentText(e.message ?: context.getString(R.string.notif_offline_error_unknown))
+                        .setContentText(friendlyErr)
                         .setPriority(NotificationCompat.PRIORITY_HIGH)
                         .setAutoCancel(true)
                         .build()
                 )
             } catch (_: Exception) {}
-            Result.failure(workDataOf("error" to (e.message ?: context.getString(R.string.notif_offline_error_unknown))))
+            Result.failure(workDataOf("error" to friendlyErr))
         }
-    }
-
-    private fun createForegroundInfo(trailName: String, progress: Int, total: Int): ForegroundInfo {
-        val notification = buildProgressNotification(trailName, progress, total, 0)
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            ForegroundInfo(NOTIFICATION_ID, notification)
         }
-    }
 
-    private fun buildProgressNotification(trailName: String, current: Int, total: Int, percent: Int) =
-        NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(context.getString(R.string.notif_offline_downloading_title, trailName))
-            .setContentText(context.getString(R.string.notif_offline_downloading_text, current, total, percent))
-            .setProgress(total, current, false)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                context.getString(R.string.notif_offline_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = context.getString(R.string.notif_offline_channel_desc)
+        private fun createForegroundInfo(context: Context, trailName: String, progress: Int, total: Int): ForegroundInfo {
+            val notification = buildProgressNotification(context, trailName, progress, total, 0)
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                ForegroundInfo(NOTIFICATION_ID, notification)
             }
-            notificationManager.createNotificationChannel(channel)
         }
-    }
 
-    companion object {
-        const val CHANNEL_ID = "dansk_sti_offline_downloads"
-        const val NOTIFICATION_ID = 2001
+        private fun buildProgressNotification(context: Context, trailName: String, current: Int, total: Int, percent: Int) =
+            NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notif_navigation)
+                .setContentTitle(context.getString(R.string.notif_offline_downloading_title, trailName))
+                .setContentText(context.getString(R.string.notif_offline_downloading_text, current, total, percent))
+                .setProgress(total, current, false)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
 
-        const val KEY_TRAIL_ID = "trail_id"
-        const val KEY_TRAIL_NAME = "trail_name"
-        const val KEY_CORRIDOR_KM = "corridor_km"
-        const val KEY_WIFI_ONLY = "wifi_only"
-
-        const val KEY_PROGRESS_PERCENT = "progress_percent"
-        const val KEY_DOWNLOADED_COUNT = "downloaded_count"
-        const val KEY_NEWLY_FETCHED_COUNT = "newly_fetched_count"
-        const val KEY_TOTAL_COUNT = "total_count"
-        const val KEY_BYTES_DOWNLOADED = "bytes_downloaded"
-        const val KEY_REQUIRED_BYTES = "required_bytes"
-
-        @Volatile
-        var customTileFetcher: ((providerName: String, tileIndex: Long) -> ByteArray?)? = null
-
-        @Volatile
-        var shouldInterruptAfterTileCount: Int? = null
+        private fun createNotificationChannel(context: Context, notificationManager: NotificationManager) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    context.getString(R.string.notif_offline_channel_name),
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = context.getString(R.string.notif_offline_channel_desc)
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+        }
     }
 }
+

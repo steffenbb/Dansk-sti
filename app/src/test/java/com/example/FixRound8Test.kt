@@ -66,7 +66,6 @@ class FixRound8Test {
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
         app.repository.isOnlineOverrideForTests = false
-        DanskStiTileSourceHelper.userConfirmedOsmFallback = true
         runBlocking {
             app.repository.initializePreseededDataIfEmpty()
         }

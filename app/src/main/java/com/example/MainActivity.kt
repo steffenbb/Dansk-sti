@@ -57,7 +57,6 @@ import com.example.ui.navigation.ActiveTripSlimBanner
 import com.example.ui.navigation.DanskStiBottomBar
 import com.example.ui.navigation.DanskStiNavigationRail
 import com.example.ui.navigation.Screen
-import com.example.ui.screens.ApiDiagnosticsScreen
 import com.example.ui.screens.DataCreditsScreen
 import com.example.ui.screens.FullscreenMapScreen
 import com.example.ui.screens.HowToGuideScreen
@@ -277,7 +276,7 @@ fun DanskStiAppRoot(
         }
     }
 
-    // Show the 4-tab navigation on the 4 main tabs (Requirement B & Round 9D Item 3)
+    // Show the 4-tab navigation on the 4 main tabs
     val showBottomBar = currentRoute == Screen.Explore.route ||
         currentRoute == Screen.Map.route ||
         currentRoute == Screen.Saved.route ||
@@ -343,14 +342,11 @@ fun DanskStiAppRoot(
                         .weight(1f)
                         .fillMaxSize()
                 ) {
-            // Tab 1: Udforsk (Requirement C)
+            // Tab 1: Udforsk
             composable(Screen.Explore.route) {
                 TrailBrowserScreen(
                     onTrailClick = { trailId ->
                         navController.navigate(Screen.TrailDetail.createRoute(trailId))
-                    },
-                    onOpenDiagnostics = {
-                        navController.navigate(Screen.Diagnostics.route)
                     },
                     onOpenCredits = {
                         navController.navigate(Screen.DataCredits.route)
@@ -367,7 +363,7 @@ fun DanskStiAppRoot(
                 )
             }
 
-            // Tab 2: Kort (Requirement E)
+            // Tab 2: Kort
             composable(Screen.Map.route) {
                 KortScreen(
                     onTrailClick = { trailId ->
@@ -388,7 +384,7 @@ fun DanskStiAppRoot(
                 )
             }
 
-            // Tab 3: Mine ture (Requirement H)
+            // Tab 3: Mine ture
             composable(Screen.Saved.route) {
                 SavedPlansScreen(
                     onTrailClick = { trailId ->
@@ -430,14 +426,11 @@ fun DanskStiAppRoot(
                 )
             }
 
-            // Tab 4: Profil (Requirement I)
+            // Tab 4: Profil
             composable(Screen.Profile.route) {
                 ProfileScreen(
                     onOpenCredits = {
                         navController.navigate(Screen.DataCredits.route)
-                    },
-                    onOpenDiagnostics = {
-                        navController.navigate(Screen.Diagnostics.route)
                     },
                     onOpenOfflineMaps = {
                         navController.navigate(Screen.Offline.route)
@@ -445,7 +438,7 @@ fun DanskStiAppRoot(
                 )
             }
 
-            // Secondary Destination: Navigation (Requirement G)
+            // Secondary Destination: Navigation
             composable(
                 route = Screen.Navigation.route,
                 arguments = listOf(
@@ -479,7 +472,7 @@ fun DanskStiAppRoot(
                 )
             }
 
-            // Secondary Destination: Trail Page (Requirement D)
+            // Secondary Destination: Trail Page
             composable(
                 route = Screen.TrailDetail.route,
                 arguments = listOf(navArgument("trailId") { type = NavType.StringType })
@@ -499,9 +492,6 @@ fun DanskStiAppRoot(
                     },
                     onDownloadOffline = {
                         navController.navigate(Screen.Offline.route)
-                    },
-                    onOpenDiagnostics = {
-                        navController.navigate(Screen.Diagnostics.route)
                     },
                     onOpenRouteBuilder = { destLat, destLng, destName ->
                         navController.navigate(
@@ -527,13 +517,6 @@ fun DanskStiAppRoot(
                 )
             }
 
-            // Secondary Destination: Diagnostics
-            composable(Screen.Diagnostics.route) {
-                ApiDiagnosticsScreen(
-                    onBack = { navController.popBackStack() }
-                )
-            }
-
             // Secondary Destination: Data Credits
             composable(Screen.DataCredits.route) {
                 DataCreditsScreen(
@@ -541,7 +524,7 @@ fun DanskStiAppRoot(
                 )
             }
 
-            // Secondary Destination: Ruteplanlægger (Requirement F)
+            // Secondary Destination: Ruteplanlægger
             composable(
                 route = Screen.RouteBuilder.route,
                 arguments = listOf(

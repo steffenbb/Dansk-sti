@@ -12,7 +12,6 @@ import com.example.data.remote.OpenMeteoResponse
 import com.example.data.remote.WeatherInterpreter
 import com.example.data.repository.AccessLandRepository
 import com.example.util.OfflineDownloadManager
-import com.example.util.network.applyDebugMainThreadCheck
 import com.example.util.routing.BRouterOnlineEngine
 import com.example.util.routing.BRouterStorageManager
 import com.example.util.routing.LatLng
@@ -83,7 +82,12 @@ class FixRound3Part1Test {
         // 1. Verify the guard interceptor throws IllegalStateException("Network on main thread")
         // if an OkHttp request is executed on the Robolectric main looper.
         val guardedClient = OkHttpClient.Builder()
-            .applyDebugMainThreadCheck()
+            .addInterceptor { chain ->
+                if (Looper.myLooper() == Looper.getMainLooper()) {
+                    throw IllegalStateException("Network on main thread")
+                }
+                chain.proceed(chain.request())
+            }
             .build()
 
         try {

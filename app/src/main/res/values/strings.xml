@@ -182,29 +182,25 @@
     <string name="units_imperial">Imperisk (mi, ft)</string>
     <string name="profile_section_storage">Data og lagerplads</string>
     <string name="storage_offline_maps">Offline-kort</string>
-    <string name="storage_routing_data">Rutedata (BRouter)</string>
+    <string name="storage_routing_data">Rutedata</string>
     <string name="storage_clear_cache">Ryd cache</string>
     <string name="storage_cache_cleared">Midlertidig cache er ryddet</string>
-    <string name="profile_section_api_keys">API-nøgler</string>
-    <string name="api_key_dataforsyningen">Dataforsyningen (Skærmkort, Luftfoto, DHM)</string>
-    <string name="api_key_thunderforest">Thunderforest (Udendørskort)</string>
-    <string name="api_key_configured">Konfigureret</string>
-    <string name="api_key_missing">Ikke sat (bruger åben fallback)</string>
     <string name="profile_section_about">Om appen</string>
     <string name="about_data_credits">Datakreditter &amp; Kilder</string>
     <string name="about_privacy">Privatliv &amp; Databrug</string>
-    <string name="about_diagnostics">API &amp; Netværksdiagnostik</string>
-    <string name="about_version_tap_hint">Tryk 7 gange på Om appen for at åbne diagnostik</string>
     <string name="storage_saved_routes_count_format">%1$d gemte ruter</string>
-    <string name="storage_brouter_all_downloaded">Danmark klar til offline ruteplanlægning</string>
-    <string name="storage_brouter_segments_format">%1$d af %2$d segmenter hentet</string>
-    <string name="storage_brouter_update">Opdater rutedata</string>
-    <string name="storage_brouter_download">Hent offline rutedata (Danmark)</string>
+    <string name="storage_routing_all_downloaded">Danmark klar til offline ruteplanlægning</string>
+    <string name="storage_routing_segments_format">%1$d af %2$d segmenter hentet</string>
+    <string name="storage_routing_update">Opdater rutedata</string>
+    <string name="storage_routing_download">Hent offline rutedata (Danmark)</string>
+    <string name="offline_routing_data_denmark_mb_format">Rutedata for Danmark (%1$s MB)</string>
+    <string name="profile_routing_data_mb_format">Rutedata (%1$s MB)</string>
+    <string name="profile_routing_data_count_mb_format">Rutedata (%1$d/5 • %2$s MB)</string>
     <string name="setting_pace_value_format">%.1f km/t</string>
     <string name="setting_daily_target_value_format">%.0f km / dag</string>
     <string name="setting_start_time_value_format">kl. %1$s</string>
 
-    <!-- Privatliv & Databrug (Item 9) -->
+    <!-- Privatliv & Databrug -->
     <string name="privacy_title">Privatliv &amp; Databrug</string>
     <string name="privacy_subtitle">Ingen konti, ingen reklamer og ingen sporing</string>
     <string name="privacy_no_tracking_headline">Ingen brugerkonti, reklamer eller sporing</string>
@@ -213,16 +209,18 @@
     <string name="privacy_services_intro">Når du bruger onlinefunktioner i appen, sendes de relevante geografiske koordinater eller kortudsnit kun til følgende tjenester for at hente kort-, rute- og vejrdata:</string>
     <string name="privacy_service_brouter_title">brouter.de</string>
     <string name="privacy_service_brouter_desc">Modtager start-, slut- og rutepunkter ( samt eventuelle no-go polygoner ) ved online ruteplanlægning langs stier.</string>
-    <string name="privacy_service_overpass_title">overpass-api.de</string>
-    <string name="privacy_service_overpass_desc">Modtager kortudsnit eller rutekorridorer ved opslag af vandreruter, shelters, vandposter, toiletter, indkøb, kollektiv trafik og adgangsforhold i OpenStreetMap.</string>
+    <string name="privacy_service_overpass_title">overpass-api.de (med skift til overpass.private.coffee hvis hovedserveren er nede)</string>
+    <string name="privacy_service_overpass_desc">Modtager kortudsnit eller rutekorridorer ved opslag af vandreruter, shelters, vandposter, toiletter, indkøb, kollektiv trafik og adgangsforhold i OpenStreetMap. Ingen konto, annoncer eller sporing.</string>
     <string name="privacy_service_openmeteo_title">api.open-meteo.com</string>
     <string name="privacy_service_openmeteo_desc">Modtager koordinater langs ruten ved hentning af lokale vejrudsigter, solnedgangstider og terrænhøjder (Copernicus DEM).</string>
+    <string name="privacy_service_photon_title">photon.komoot.io</string>
+    <string name="privacy_service_photon_desc">Modtager søgetekst ved stedsøgning i Danmark. Ingen konto, annoncer eller sporing.</string>
     <string name="privacy_service_dataforsyningen_title">api.dataforsyningen.dk</string>
     <string name="privacy_service_dataforsyningen_desc">Modtager kortudsnit (bounding box) ved visning og offline-download af Skærmkortet, GeoDanmark Luftfoto og Danmarks Højdemodel (DHM).</string>
     <string name="privacy_service_tiles_title">Kortfliseudbyderen (tile provider)</string>
     <string name="privacy_service_tiles_desc">Den valgte kortfliseudbyder (Dataforsyningen, Thunderforest Outdoors, OpenTopoMap eller OpenStreetMap) modtager kortflise-koordinater (zoom, x, y) for det viste kortområde.</string>
 
-    <!-- Permissions & Navigation (Item 2 & Item 10) -->
+    <!-- Permissions & Navigation -->
     <string name="location_permission_required_title">Placeringstilladelse kræves</string>
     <string name="location_permission_required_explanation">Dansk Sti bruger din GPS-placering til at vise din position på kortet, beregne resterende afstand til dagens overnatning og advare hvis du kommer væk fra ruten.</string>
     <string name="grant_location_permission_action">Giv tilladelse</string>
@@ -238,7 +236,7 @@
     <string name="db_error_title">Databasen kunne ikke åbnes</string>
     <string name="db_error_unknown">Ukendt databasefejl</string>
 
-    <!-- Common States & Accessibility (Requirement J) -->
+    <!-- Common States & Accessibility -->
     <string name="btn_retry">Prøv igen</string>
     <string name="state_Close_or_retry">Prøv igen</string>
     <string name="state_error_default">Der opstod en fejl under indlæsning.</string>
@@ -249,7 +247,6 @@
     <string name="btn_delete">Slet</string>
     <string name="loading_skeleton_cd">Indlæser indhold</string>
 
-    <!-- Fix Round 6 UI Strings -->
     <string name="elevation_no_data_available">Ingen højdedata tilgængelig</string>
     <string name="elevation_marker_format">Markør: %1$.1f km · %2$.0f m</string>
     <string name="elevation_min_max_format">Min %1$.0f m · Maks %2$.0f m</string>
@@ -281,7 +278,7 @@
     <string name="planner_quality_asphalt">Asfalt</string>
     <string name="planner_quality_ferry">Færge</string>
     <string name="planner_road_warning_header">Advarsel: længere stræk på vej uden fortov</string>
-    <string name="planner_routing_options_title">Ruteindstillinger (BRouter)</string>
+    <string name="planner_routing_options_title">Ruteindstillinger</string>
     <string name="planner_avoid_roads">Undgå veje</string>
     <string name="planner_prefer_nature">Foretræk natur og skov</string>
     <string name="planner_allow_ferries">Tillad færger</string>
@@ -316,12 +313,6 @@
     <string name="planner_show_detour_on_map">Vis omvej på kort</string>
     <string name="planner_weather_eta_distance_format">Km %1$.1f · Gåtid %2$d t %3$d min</string>
     <string name="planner_weather_arrival_unavailable">Vejrudsigt ved ankomst ikke tilgængelig</string>
-    <string name="ui_apikeypromptdialog_api_n_gle_1">API Nøgle</string>
-    <string name="ui_apikeypromptdialog_dataforsyningen_api_n_gle_p__2">Dataforsyningen API-nøgle påkrævet</string>
-    <string name="ui_apikeypromptdialog_dansk_sti_benytter_danmarks__3">Dansk Sti benytter Danmarks officielle topografiske kort (Skærmkortet fra Klimadatastyrelsen/SDFI) for optimal visning af vandreruter og naturstier.</string>
-    <string name="ui_apikeypromptdialog_for_at_vise_de_officielle_ko_4">For at vise de officielle kortfliser skal du angive en gratis SDFI API-nøgle i Secrets-panelet (DATAFORSYNINGEN_API_KEY).</string>
-    <string name="ui_apikeypromptdialog_du_kan_forts_tte_med_standar_5">Du kan fortsætte med standard OpenStreetMap kortfliser, mens du konfigurerer nøglen.</string>
-    <string name="ui_apikeypromptdialog_brug_openstreetmap_6">Brug OpenStreetMap</string>
     <string name="ui_droppinbottomsheet_valgt_punkt_p_kort_7">Valgt punkt på kort</string>
     <string name="ui_droppinbottomsheet_h_jde_8">Højde: %1$s</string>
     <string name="ui_droppinbottomsheet_afstand_9">Afstand: %1$s</string>
@@ -346,20 +337,6 @@
     <string name="ui_markedroutedetailsheet_gem_som_vandrerute_28">Gem som vandrerute</string>
     <string name="ui_danskstimap_kortlag_29">Kortlag</string>
     <string name="ui_danskstimap_kompas_nord_op_30">Kompas - nord op</string>
-    <string name="ui_apidiagnosticsscreen_validering_af_kortfliser_rut_31">Validering af kortfliser &amp; rutedatakilder</string>
-    <string name="ui_apidiagnosticsscreen_systemtilstand_32">Systemtilstand</string>
-    <string name="ui_apidiagnosticsscreen_tester_33">Tester...</string>
-    <string name="ui_apidiagnosticsscreen_test_alle_34">Test alle</string>
-    <string name="ui_apidiagnosticsscreen_aktiv_routing_adgangsstatus_35">Aktiv routing &amp; adgangsstatus</string>
-    <string name="ui_apidiagnosticsscreen_milj_portal_wfs_36">Miljøportal WFS:</string>
-    <string name="ui_apidiagnosticsscreen_aktiv_brouter_profil_37">Aktiv BRouter-profil:</string>
-    <string name="ui_apidiagnosticsscreen_profil_syntaksfejl_fra_s_38">Profil-syntaksfejl fra server:\n%1$s</string>
-    <string name="ui_apidiagnosticsscreen_ms_39">%1$s ms</string>
-    <string name="ui_apidiagnosticsscreen_endpoint_40">Endpoint: %1$s</string>
-    <string name="ui_apidiagnosticsscreen_lokal_rutedatacache_disk_41">Lokal Rutedatacache (Disk)</string>
-    <string name="ui_apidiagnosticsscreen_ruter_gemt_som_komprimer_42">%1$s ruter gemt som komprimeret JSON.GZ i enhedens interne lager (%2$s). Gemte ruter indlæses øjeblikkeligt offline uden at belaste OpenStreetMap.</string>
-    <string name="ui_apidiagnosticsscreen_konfiguration_af_dataforsyni_43">Konfiguration af Dataforsyningen Token</string>
-    <string name="ui_apidiagnosticsscreen_kortfliser_fra_klimadatastyr_44">Kortfliser fra Klimadatastyrelsen (Skærmkortet WMS) kræver en gratis token fra Dataforsyningen:\n</string>
     <string name="ui_datacreditsscreen_bne_og_officielle_geodata_i__45">Åbne og officielle geodata i Dansk Sti</string>
     <string name="ui_datacreditsscreen_dansk_sti_er_drevet_af_frie__46">Dansk Sti er drevet af frie og åbne data fra danske og europæiske myndigheder og fællesskaber. Herunder kan du se de anvendte datakilder, licenser og dateringer:</string>
     <string name="ui_datacreditsscreen_datering_i_appen_47">Datering i appen: </string>
@@ -697,9 +674,6 @@
     <string name="explore_length_after_download">Længde kendes efter download</string>
     <string name="explore_region_after_download">Region beregnes ved download</string>
     <string name="trail_download_progress_format">%1$s (%2$d%%)</string>
-    <string name="diagnostics_name_mismatch_title">OSM navneafvigelser ved første download</string>
-    <string name="diagnostics_name_mismatch_none">Ingen navneafvigelser registreret mellem katalog og OSM relationer.</string>
-    <string name="diagnostics_name_mismatch_item_format">Relation #%1$d: Katalog \"%2$s\" ≠ OSM \"%3$s\"</string>
     <string name="share_trip_plan_title">Del turplan</string>
     <string name="share_export_trip_plan_gpx_title">Eksporter turplan (%1$s) som GPX</string>
     <string name="share_export_trail_gpx_title">Eksporter %1$s som GPX</string>
@@ -731,13 +705,13 @@
     <string name="notif_private_forest_title">Privat skov</string>
     <string name="notif_private_forest_text">Privat skov lukker ved solnedgang kl. %1$s</string>
     <string name="notif_private_forest_big_text">Privat skov lukker ved solnedgang kl. %1$s. I henhold til Naturbeskyttelsesloven må offentligheden kun færdes i privat skov fra kl. 06:00 til solnedgang.</string>
-    <string name="notif_brouter_preparing">Forbereder download af rutedata…</string>
-    <string name="notif_brouter_downloading_title">Henter rutedata for Danmark</string>
-    <string name="notif_brouter_downloading_segment">Henter %1$s (%2$d / %3$d MB)</string>
-    <string name="notif_brouter_ready_title">Rutedata for Danmark er klar</string>
-    <string name="notif_brouter_ready_text">Offline rutebygger kan nu benyttes uden mobildækning.</string>
-    <string name="notif_channel_brouter_name">Rutedata downloads</string>
-    <string name="notif_channel_brouter_desc">Viser status for download af offline rutesegmenter for Danmark</string>
+    <string name="notif_routing_preparing">Forbereder download af rutedata…</string>
+    <string name="notif_routing_downloading_title">Henter rutedata for Danmark</string>
+    <string name="notif_routing_downloading_segment">Henter %1$s (%2$d / %3$d MB)</string>
+    <string name="notif_routing_ready_title">Rutedata for Danmark er klar</string>
+    <string name="notif_routing_ready_text">Offline rutebygger kan nu benyttes uden mobildækning.</string>
+    <string name="notif_channel_routing_name">Rutedata downloads</string>
+    <string name="notif_channel_routing_desc">Viser status for download af offline rutesegmenter for Danmark</string>
     <string name="notif_offline_ready_title">%1$s klar offline</string>
     <string name="notif_offline_ready_text">Kort, rute og %1$d kortfliser (%2$s MB) er gemt.</string>
     <string name="notif_offline_error_title">Fejl under offline download</string>
@@ -750,11 +724,11 @@
     <string name="trail_detail_offline_downloaded">Hentet offline</string>
     <string name="trail_detail_offline_downloading_fmt">Henter (%1$d%%)</string>
     <string name="trail_detail_start_now_no_gps_fallback">Kunne ikke finde GPS-position inden for 15 s — starter fra rutens start</string>
-    <string name="brouter_update_available">Opdatering tilgængelig</string>
-    <string name="brouter_version_mismatch_update_needed">Rutedata skal opdateres</string>
-    <string name="notif_brouter_progress_text">Henter %1$s (%2$d / %3$d MB)</string>
-    <string name="notif_brouter_channel_name">Rutedata downloads</string>
-    <string name="notif_brouter_channel_desc">Viser status for download af offline rutesegmenter for Danmark</string>
+    <string name="routing_update_available">Opdatering tilgængelig</string>
+    <string name="routing_version_mismatch_update_needed">Rutedata skal opdateres</string>
+    <string name="notif_routing_progress_text">Henter %1$s (%2$d / %3$d MB)</string>
+    <string name="notif_routing_channel_name">Rutedata downloads</string>
+    <string name="notif_routing_channel_desc">Viser status for download af offline rutesegmenter for Danmark</string>
     <string name="notif_nav_channel_name">Dansk Sti — Aktiv Vandring</string>
     <string name="notif_nav_default_overnight">Overnatning</string>
     <string name="notif_nav_default_stage">Dagens etape</string>
@@ -931,7 +905,7 @@
     <string name="how_to_guide_sec3_step3">Under fanerne Dage og Detaljer kan du trykke på en dag eller et overnatningspunkt for at skifte overnatningssted, se vejrudsigt og solnedgang for hver etape samt tjekke advarsler om lange stræk uden vand eller indkøb.</string>
     <string name="how_to_guide_sec4_title">4. Offline-kort, Rutedata &amp; Navigation</string>
     <string name="how_to_guide_sec4_summary">Vandr trygt uden mobildækning med stemmeguidning, kurs-advarsler og 112-nødfunktion.</string>
-    <string name="how_to_guide_sec4_step1">Hent Offline-kort på en ruteside for at gemme kortfliser og punkter langs sporet. Hent desuden BRouter Rutedata under Profil eller Offline for at kunne beregne og omlægge ruter helt uden internet.</string>
+    <string name="how_to_guide_sec4_step1">Hent Offline-kort på en ruteside for at gemme kortfliser og punkter langs sporet. Hent desuden Rutedata under Profil eller Offline for at kunne beregne og omlægge ruter helt uden internet.</string>
     <string name="how_to_guide_sec4_step2">Under aktiv Navigation får du løbende sving-for-sving beskeder, dansk stemmeguidning, advarsel hvis du går væk fra sporet, og nedtælling til dagens solnedgang.</string>
     <string name="how_to_guide_sec4_step3">Brug Strømsparer på lange etaper for at skåne batteriet, og brug SOS / Del position hvis du får brug for hjælp med præcise GPS-koordinater.</string>
     <string name="how_to_guide_expand_hint">Tryk for at folde trin ud eller ind</string>

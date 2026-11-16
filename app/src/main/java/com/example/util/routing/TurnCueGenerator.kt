@@ -111,7 +111,7 @@ object TurnCueGenerator {
     }
 
     /**
-     * Requirement 2: For TRAIL legs, compute cues from the geometry:
+     * For TRAIL legs, compute cues from the geometry:
      * a cue where the route turns more than 35 degrees within 30 m and
      * the way (or its highway tag range) changes.
      */

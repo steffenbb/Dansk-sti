@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.example.data.local.DanskStiDao
 import com.example.data.local.PreseededData
 import com.example.data.model.DiscoveredHikingRouteDto
@@ -15,30 +16,18 @@ import com.example.data.model.TrailEntity
 import com.example.data.model.TrailGeometryDto
 import com.example.data.model.TrailSegmentDto
 import com.example.data.model.TrailSegmentType
-import com.example.data.remote.OverpassApiService
-import com.example.data.remote.OverpassResponse
 import com.example.util.GeoUtils
-import com.example.util.network.applyDebugMainThreadCheck
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
-import java.util.concurrent.TimeUnit
-import kotlin.math.max
-import kotlin.math.min
 
 /**
- * Phase 13 Requirement B & Round 9 C Requirement 2:
  * Repository for marked hiking and foot routes ("Afmærkede ruter" & "Flere afmærkede ruter").
  */
 class MarkedRouteRepository(
@@ -51,10 +40,6 @@ class MarkedRouteRepository(
         const val CACHE_TTL_MS = 7L * 24 * 60 * 60 * 1000L // 7 days in milliseconds
         const val MORE_MARKED_ROUTES_CACHE_TTL_MS = 30L * 24 * 60 * 60 * 1000L // 30 days in milliseconds
 
-        /**
-         * Round 9 C Requirement 2 Overpass query:
-         * relation["route"="hiking"]["network"~"^(iwn|nwn|rwn)$"](area Denmark); out tags;
-         */
         val MORE_MARKED_ROUTES_OVERPASS_QUERY = """
             [out:json][timeout:30];
             area["ISO3166-1"="DK"]->.denmark;
@@ -62,8 +47,9 @@ class MarkedRouteRepository(
             out tags;
         """.trimIndent()
 
+        @VisibleForTesting
         @Volatile
-        var customMoreMarkedRoutesFetcher: (() -> String?)? = null
+        internal var customMoreMarkedRoutesFetcher: (() -> String?)? = null
 
         val PALETTE = listOf(
             "#D32F2F", // Red
@@ -78,16 +64,6 @@ class MarkedRouteRepository(
             "#6D4C41"  // Brown
         )
     }
-
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .apply {
-            if (com.example.BuildConfig.DEBUG) {
-                addInterceptor(com.example.util.network.MainThreadNetworkInterceptor())
-            }
-        }
-        .build()
 
     @Volatile
     var lastFetchFailed: Boolean = false
@@ -108,10 +84,8 @@ class MarkedRouteRepository(
     }
 
     /**
-     * Round 9 C Requirement 2:
-     * Fetches "Flere afmærkede ruter" from Overpass:
-     * relation["route"="hiking"]["network"~"^(iwn|nwn|rwn)$"](area Denmark); out tags;
-     * Cached for 30 days on disk, excluding relations already in the catalogue.
+     * Fetches "Flere afmærkede ruter" from Overpass, cached for 30 days on disk,
+     * excluding relations already in the catalogue.
      */
     suspend fun getMoreMarkedHikingRoutes(
         forceRefresh: Boolean = false
@@ -279,7 +253,6 @@ class MarkedRouteRepository(
     }
 
     /**
-     * Round 9 C Requirement 2:
      * Tapping one route in "Flere afmærkede ruter" saves it as a trail and downloads it with the existing pipeline.
      */
     suspend fun saveAndDownloadDiscoveredRoute(
@@ -304,7 +277,7 @@ class MarkedRouteRepository(
                 osmRelationId = route.osmRelationId,
                 computedWalkingKm = 0.0,
                 isGeometryDownloaded = false,
-                source = "Overpass (${route.network.uppercase()})"
+                source = "OpenStreetMap"
             )
             dao.insertTrail(initialTrail)
             dao.insertSavedTrail(SavedTrailEntity(trailId = trailId))
@@ -428,7 +401,7 @@ class MarkedRouteRepository(
         maxLng: Double
     ): List<MarkedRouteDto> = withContext(Dispatchers.IO) {
         val query = """
-            [out:json][timeout:25];
+            [out:json][timeout:25][maxsize:67108864];
             (
               relation["route"~"^(hiking|foot)$"]($minLat,$minLng,$maxLat,$maxLng);
             );
@@ -581,9 +554,8 @@ class MarkedRouteRepository(
     }
 
     /**
-     * Requirement B:
      * Saves a marked route as a permanent hiking trail in the app's database
-     * and downloads its high-resolution geometry using the Phase 1 pipeline.
+     * and downloads its high-resolution geometry.
      */
     suspend fun saveMarkedRouteAsTrail(markedRoute: MarkedRouteDto): Result<TrailEntity> = withContext(Dispatchers.IO) {
         try {
@@ -594,7 +566,6 @@ class MarkedRouteRepository(
                 return@withContext Result.success(existing)
             }
 
-            // Execute Phase 1 pipeline: Fetch relation geometry via direct OSM 0.6 API with Overpass fallback
             val processedGeometry = trailGeometryRepository.fetchAndProcessTrail(
                 trailId = trailId,
                 trailName = markedRoute.name,
@@ -661,7 +632,7 @@ class MarkedRouteRepository(
                 bboxWest = finalWest,
                 isGeometryDownloaded = true,
                 lastUpdated = System.currentTimeMillis(),
-                source = "Overpass (${markedRoute.network?.uppercase() ?: "RWN"})"
+                source = "OpenStreetMap"
             )
 
             dao.insertTrail(trailEntity)

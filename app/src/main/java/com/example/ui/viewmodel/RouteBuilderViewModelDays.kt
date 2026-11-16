@@ -34,7 +34,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * Requirement E: "Foreslå overnatninger" runs the stage planner on the current route
+ * "Foreslå overnatninger" runs the stage planner on the current route
  * and inserts suggested OVERNIGHT pins as detours where needed.
  */
 fun RouteBuilderViewModel.suggestOvernightStops() {
@@ -178,7 +178,7 @@ fun RouteBuilderViewModel.suggestOvernightStops() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed suggesting overnights: ${e.message}", e)
             _uiState.update { it.copy(isFindingOvernight = false) }
-            _userMessage.emit("Kunne ikke foreslå overnatninger: ${e.message}")
+            _userMessage.emit("Kunne ikke foreslå overnatninger: ${com.example.util.userMessageFor(e)}")
         }
     }
 }

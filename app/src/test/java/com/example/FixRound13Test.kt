@@ -601,8 +601,7 @@ class FixRound13Test {
 
         // 2. Verify read timeout does NOT retry on the same server; moves to next mirror ONCE, then fails
         val triedMirrors = CopyOnWriteArrayList<String>()
-        OverpassClient.maxAttemptsPerMirror = 3 // Even if maxAttemptsPerMirror is 3, read timeout must NOT retry same server!
-        OverpassClient.backoffBaseDelayMs = 10L
+        OverpassClient.interServerBackoffMsProvider = { 10L }
         OverpassClient.customTransport = { mirrorUrl, _ ->
             triedMirrors.add(mirrorUrl)
             throw SocketTimeoutException("Read timed out from $mirrorUrl")
@@ -865,7 +864,7 @@ class FixRound13Test {
         app.repository.geometryRepository.getGeometryFile(trailId).delete()
 
         // Part A: With all mirrors failing, the error shows within 60 s
-        OverpassClient.backoffBaseDelayMs = 10L
+        OverpassClient.interServerBackoffMsProvider = { 10L }
         OverpassClient.customTransport = { mirrorUrl, _ ->
             OverpassClient.HttpResult(504, "Gateway Timeout from $mirrorUrl")
         }

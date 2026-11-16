@@ -21,7 +21,6 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * UI Round 1 Item 9:
  * "Vis alternativer" (alternatives 1-3 for that leg only).
  */
 fun RouteBuilderViewModel.fetchAlternativesForLeg(legKey: String) {
@@ -112,7 +111,6 @@ fun RouteBuilderViewModel.selectAlternativeForLeg(legKey: String, alt: RouteAlte
 }
 
 /**
- * UI Round 1 Item 10:
  * Planner menu: "Luk ruten" (adds a leg back to the start)
  */
 fun RouteBuilderViewModel.closeRouteLoop() {
@@ -127,7 +125,6 @@ fun RouteBuilderViewModel.closeRouteLoop() {
 }
 
 /**
- * UI Round 1 Item 10:
  * Planner menu: "Ud og hjem" (appends the reverse of the route)
  */
 fun RouteBuilderViewModel.appendOutAndBack() {
@@ -313,6 +310,8 @@ fun RouteBuilderViewModel.routeToPlace(
     currentFixTimeMs: Long? = null,
     staleMessage: String? = null
 ) {
+    suppressDraftRestore = true
+    _uiState.update { it.copy(pendingDraftToRestore = null) }
     val computedStale = staleMessage ?: currentFixTimeMs?.let {
         com.example.ui.map.LiveMapLocationState.formatOldFixMessage(it)
     }
@@ -675,3 +674,59 @@ fun RouteBuilderViewModel.updateTripSettings(
     nightWeatherCache.clear()
     updateRouteStats()
 }
+
+fun RouteBuilderViewModel.undo() {
+    if (undoStack.isEmpty()) return
+    val previous = undoStack.removeAt(undoStack.lastIndex)
+    val current = RouteBuilderViewModel.HistorySnapshot(
+        waypoints = _uiState.value.waypoints,
+        legs = _uiState.value.legs,
+        options = _uiState.value.options,
+        isReverse = _uiState.value.isReverse
+    )
+    redoStack.add(current)
+    if (redoStack.size > MAX_HISTORY) {
+        redoStack.removeAt(0)
+    }
+
+    _uiState.update {
+        it.copy(
+            waypoints = previous.waypoints,
+            legs = previous.legs,
+            failedLegs = emptyMap(),
+            options = previous.options,
+            isReverse = previous.isReverse,
+            hasUnsavedChanges = undoStack.isNotEmpty() || previous.waypoints.isNotEmpty()
+        )
+    }
+    updateUndoRedoAvailability()
+    updateRouteStats()
+    scheduleDraftAutosave()
+}
+
+fun RouteBuilderViewModel.redo() {
+    if (redoStack.isEmpty()) return
+    val next = redoStack.removeAt(redoStack.lastIndex)
+    val current = RouteBuilderViewModel.HistorySnapshot(
+        waypoints = _uiState.value.waypoints,
+        legs = _uiState.value.legs,
+        options = _uiState.value.options,
+        isReverse = _uiState.value.isReverse
+    )
+    undoStack.add(current)
+
+    _uiState.update {
+        it.copy(
+            waypoints = next.waypoints,
+            legs = next.legs,
+            failedLegs = emptyMap(),
+            options = next.options,
+            isReverse = next.isReverse,
+            hasUnsavedChanges = true
+        )
+    }
+    updateUndoRedoAvailability()
+    updateRouteStats()
+    scheduleDraftAutosave()
+}
+
