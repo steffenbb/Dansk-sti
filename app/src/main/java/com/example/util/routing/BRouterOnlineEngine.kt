@@ -229,7 +229,7 @@ class BRouterOnlineEngine(
                             lastProfileSyntaxError = null
                             uploadedServerProfileId = profileId
                             usingBuiltinFallback = false
-                            Log.i(TAG, "Uploaded dansk-vandring.brf to BRouter server: profileid=$profileId")
+                            com.example.util.DLog.run { i(TAG, "Uploaded dansk-vandring.brf to BRouter server: profileid=$profileId") }
                             return@withContext profileId
                         }
                     } else if (code in 400..499) {
@@ -358,7 +358,7 @@ class BRouterOnlineEngine(
                     // Re-upload the profile and retry ONLY when the server's error text
                     // says the profile is unknown/missing. Any other HTTP 400 returns NoRoute without a second request.
                     if (profileName != FALLBACK_PROFILE_NAME && isUnknownProfileError(bodyStr)) {
-                        Log.i(TAG, "Server reported unknown/missing profile '$profileName'. Re-uploading and retrying once.")
+                        com.example.util.DLog.run { i(TAG, "Server reported unknown/missing profile '$profileName'. Re-uploading and retrying once.") }
                         uploadedServerProfileId = null
                         profileUploadAttempted = false
                         lastProfileUploadFailureMs = 0L

@@ -89,7 +89,7 @@ class BRouterOfflineEngine(
                     val points = BRouterGeoJsonParser.deserializePoints(cached.pointsJson)
                     val wayInfo = BRouterGeoJsonParser.deserializeWayInfo(cached.wayInfoJson)
                     val cues = TurnCueGenerator.computeTurnCuesFromPointsAndWayInfo(points, wayInfo)
-                    Log.d(TAG, "Serving offline route leg from Room cache: $cacheKey")
+                    com.example.util.DLog.run { d(TAG, "Serving offline route leg from Room cache: $cacheKey") }
                     return@withContext RouteLegResult.Success(
                         points = points,
                         lengthKm = cached.lengthKm,
@@ -191,7 +191,7 @@ class BRouterOfflineEngine(
                 val startTime = System.currentTimeMillis()
                 engine.doRun(MAX_RUNNING_TIME_MS)
                 val durationMs = System.currentTimeMillis() - startTime
-                Log.d(TAG, "Offline routing completed in ${durationMs}ms")
+                com.example.util.DLog.run { d(TAG, "Offline routing completed in ${durationMs}ms") }
 
                 val track = engine.foundTrack
                 if (track == null || track.nodes.isNullOrEmpty()) {

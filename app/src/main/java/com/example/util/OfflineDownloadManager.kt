@@ -452,6 +452,13 @@ object OfflineDownloadManager {
      * Reads already downloaded tile keys from an existing SQLite tile archive
      * so interrupted map tile downloads can resume without re-downloading existing tiles.
      */
+    fun toSqliteArchiveKey(tileIndex: Long): Long {
+        val z = MapTileIndex.getZoom(tileIndex).toLong()
+        val x = MapTileIndex.getX(tileIndex).toLong()
+        val y = MapTileIndex.getY(tileIndex).toLong()
+        return (((z shl z.toInt()) + x) shl z.toInt()) + y
+    }
+
     fun getExistingTileKeysInArchive(archiveFile: File, providerName: String? = null): Set<Long> {
         if (!archiveFile.exists() || archiveFile.length() == 0L) return emptySet()
         val result = HashSet<Long>()

@@ -281,7 +281,7 @@ class DanskStiRepository(
                 val trailCount = dao.getTrailCount()
                 if (trailCount == 0) {
                     dao.insertTrails(initialTrails)
-                    Log.d("DanskStiRepo", "Initial ${initialTrails.size} trails inserted into Room")
+                    com.example.util.DLog.run { d("DanskStiRepo", "Initial ${initialTrails.size} trails inserted into Room") }
                 } else {
                     for (preTrail in initialTrails) {
                         val existing = dao.getTrailById(preTrail.id)
@@ -348,14 +348,7 @@ class DanskStiRepository(
                     }
                 }
 
-                // Fetch or load 30-day cached tags & bounding boxes for catalogue relations
-                try {
-                    fetchOrLoadCatalogueRelationsMetadata(forceRefresh = false)
-                } catch (e: Exception) {
-                    Log.w("DanskStiRepo", "Catalogue relations metadata sync skipped: ${e.message}")
-                }
-
-                // Ensure GeoFA + bundled Øhavsstien OSM data is loaded into Room
+                // Ensure GeoFA + bundled Øhavsstien OSM data is loaded into Room before network metadata sync
                 val shelterCount = dao.getShelterCount()
                 if (shelterCount == 0) {
                     try {
@@ -403,7 +396,7 @@ class DanskStiRepository(
                         if (friTeltnings.isNotEmpty()) {
                             friTeltnings.chunked(100).forEach { dao.insertFriTeltning(it) }
                         }
-                        Log.d("DanskStiRepo", "GeoFA + OSM initial data loaded: $shelterCountLoaded shelters, ${friTeltnings.size} fri teltning, $poiCountLoaded pois")
+                        com.example.util.DLog.run { d("DanskStiRepo", "GeoFA + OSM initial data loaded: $shelterCountLoaded shelters, ${friTeltnings.size} fri teltning, $poiCountLoaded pois") }
                     } catch (t: Throwable) {
                         Log.e("DanskStiRepo", "Failed to load initial GeoFA data: ${t.message}", t)
                     }
@@ -414,6 +407,13 @@ class DanskStiRepository(
                         val extraPois = bundledOsm.pois.distinctBy { it.id }
                         extraPois.chunked(250).forEach { dao.insertPois(it) }
                     }
+                }
+
+                // Fetch or load 30-day cached tags & bounding boxes for catalogue relations
+                try {
+                    fetchOrLoadCatalogueRelationsMetadata(forceRefresh = false)
+                } catch (e: Exception) {
+                    Log.w("DanskStiRepo", "Catalogue relations metadata sync skipped: ${e.message}")
                 }
             } catch (t: Throwable) {
                 Log.e("DanskStiRepo", "Error in initializePreseededDataIfEmpty: ${t.message}", t)
@@ -668,17 +668,11 @@ class DanskStiRepository(
                 if (gfPois.isNotEmpty()) dao.insertPois(gfPois)
             }
 
-            // 2. Fetch OSM POIs for this trail (use bundled when offline)
-            val relationId = trail.osmRelationId ?: 0L
-            val childIds = if (trail.id == "trail_ohavsstien") {
-                listOf(4591923L, 4591924L, 4591925L, 4591926L, 4591927L, 4591928L, 4589243L)
-            } else {
-                emptyList()
-            }
+            // 2. Fetch OSM POIs for this trail using its downloaded geometry (keep cache & bundled offline POIs)
             val osmResult = if (online) {
-                osmPoiRepository.fetchPoisForTrail(trail.id, relationId, childIds)
+                osmPoiRepository.fetchPoisForTrail(trail.id, points)
             } else {
-                osmPoiRepository.loadBundledPois(trail.id)
+                osmPoiRepository.fetchPoisForTrail(trail.id, emptyList())
             }
 
             val minLat = points.minOf { it.lat } - 0.04
@@ -2554,6 +2548,7 @@ class DanskStiRepository(
 
         if (CacheCategory.MARKED_ROUTES in selected) {
             runCatching {
+                MarkedRouteRepository.clearProcessWideCache()
                 dao.clearAllMarkedRoutes()
                 dao.clearAllMarkedRouteCacheBoxes()
                 val catalogueMetaFile = java.io.File(context.filesDir, "catalogue_relations_meta_cache.json")

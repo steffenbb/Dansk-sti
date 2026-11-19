@@ -450,7 +450,7 @@ class BRouterStorageManager private constructor(context: Context) {
             FileOutputStream(destFile).use { output ->
                 output.write(assetBytes)
             }
-            Log.i(TAG, "Copied asset $assetPath to ${destFile.absolutePath} (hash=$assetHash)")
+            com.example.util.DLog.run { i(TAG, "Copied asset $assetPath to ${destFile.absolutePath} (hash=$assetHash)") }
         } catch (e: Exception) {
             Log.e(TAG, "Failed copying asset $assetPath", e)
         }

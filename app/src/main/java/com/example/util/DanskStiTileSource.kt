@@ -224,7 +224,7 @@ class DanskStiFriluftskortTileSource(
     val isThunderforest: Boolean = apiKey.isNotBlank() && apiKey != "DEFAULT_KEY"
 
     init {
-        Log.i("DanskStiTileSource", "Initialized Udendørs/Friluftskort with provider: ${if (isThunderforest) "Thunderforest Outdoors" else "OpenTopoMap"}")
+        DLog.run { i("DanskStiTileSource", "Initialized Udendørs/Friluftskort with provider: ${if (isThunderforest) "Thunderforest Outdoors" else "OpenTopoMap"}") }
     }
 
     override fun getTileURLString(pMapTileIndex: Long): String {
@@ -292,7 +292,7 @@ class DanskStiLuftfotoTileSource(
     arrayOf("https://api.dataforsyningen.dk/orto_foraar_DAF")
 ) {
     init {
-        Log.i("DanskStiTileSource", "Initialized GeoDanmark Ortofoto WMS in EPSG:3857 (layer=orto_foraar)")
+        DLog.run { i("DanskStiTileSource", "Initialized GeoDanmark Ortofoto WMS in EPSG:3857 (layer=orto_foraar)") }
     }
 
     override fun getTileURLString(pMapTileIndex: Long): String {
@@ -794,7 +794,7 @@ object DanskStiTileSourceHelper {
     fun parseSkaermkortCapabilitiesXml(xml: String): SkaermkortCapabilities {
         val layerNames = extractWmsLayerNames(xml)
         layerNames.forEach { name ->
-            Log.i(TAG, "Skærmkort WMS GetCapabilities Layer: $name")
+            DLog.run { i(TAG, "Skærmkort WMS GetCapabilities Layer: $name") }
         }
         val supports3857 = xml.contains("EPSG:3857", ignoreCase = true)
 
@@ -810,7 +810,7 @@ object DanskStiTileSourceHelper {
         }
 
         if (mutedOrGrey != null) {
-            Log.i(TAG, "Selected Skærmkort muted/grey dark-mode layer: $mutedOrGrey")
+            DLog.run { i(TAG, "Selected Skærmkort muted/grey dark-mode layer: $mutedOrGrey") }
             selectedDarkSkaermkortLayer = mutedOrGrey
         } else {
             Log.w(TAG, "No muted/grey variant ('daempet' or 'graa') found in Skærmkort WMS GetCapabilities")
@@ -835,7 +835,7 @@ object DanskStiTileSourceHelper {
     ): DhmCapabilities {
         val layerNames = extractWmsLayerNames(xml)
         layerNames.forEach { name ->
-            Log.i(TAG, "DHM WMS GetCapabilities Layer: $name")
+            DLog.run { i(TAG, "DHM WMS GetCapabilities Layer: $name") }
         }
 
         val supports3857 = xml.contains("EPSG:3857", ignoreCase = true)
@@ -874,10 +874,12 @@ object DanskStiTileSourceHelper {
         selectedHillshadeLayer = hillshade
         selectedContourLayer = contour
 
-        Log.i(
-            TAG,
-            "DHM WMS selected layers: hillshade=$hillshade, contour=$contour (EPSG:3857=$supports3857, PNG=$supportsPng)"
-        )
+        DLog.run {
+            i(
+                TAG,
+                "DHM WMS selected layers: hillshade=$hillshade, contour=$contour (EPSG:3857=$supports3857, PNG=$supportsPng)"
+            )
+        }
 
         return DhmCapabilities(
             serviceEndpoint = serviceEndpoint,

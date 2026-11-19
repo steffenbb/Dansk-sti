@@ -239,7 +239,7 @@ class PhotonPlaceSearchService(private val context: Context) {
             val q = query.trim()
             if (q.length < 2) return@withContext emptyList()
 
-            Log.i(TAG, PHOTON_USAGE_TERMS)
+            com.example.util.DLog.run { i(TAG, PHOTON_USAGE_TERMS) }
             photonRequestCount.incrementAndGet()
 
             customPhotonFetcher?.let { fetcher ->

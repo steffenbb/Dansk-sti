@@ -235,7 +235,8 @@ fun PrivacyScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (serviceDesc.contains("https://private.coffee/legal.html")) {
+                        val overpassTitle = stringResource(R.string.privacy_service_overpass_title)
+                        if (serviceName == overpassTitle || serviceName.contains("Overpass", ignoreCase = true) || serviceDesc.contains("https://private.coffee/legal.html")) {
                             Spacer(modifier = Modifier.height(Spacing.s1))
                             OutlinedButton(
                                 onClick = {

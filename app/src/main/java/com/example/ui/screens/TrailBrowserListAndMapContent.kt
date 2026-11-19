@@ -636,6 +636,7 @@ internal fun TrailBrowserMapContent(
 ) {
     val coroutineScope = rememberCoroutineScope()
     var lastExploreRouteSig by remember { mutableIntStateOf(0) }
+    var currentZoomTier by remember { mutableIntStateOf(0) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         DanskStiMap(
@@ -660,9 +661,20 @@ internal fun TrailBrowserMapContent(
                     viewModel.saveMarkedRouteAsTrail(markedRoute)
                 }
             },
-            updateOverlaysKey = Triple(trails, allGeometries, selectedTrailForPeek),
+            onCameraChanged = { _, zoom, _ ->
+                val tier = computeUdforskZoomTier(zoom)
+                if (tier != currentZoomTier) {
+                    currentZoomTier = tier
+                }
+            },
+            updateOverlaysKey = Pair(Triple(trails, allGeometries, selectedTrailForPeek), currentZoomTier),
             onUpdateOverlays = { mapView, overlayManager, isDarkMap ->
+                val tier = computeUdforskZoomTier(mapView.zoomLevelDouble)
+                if (tier != currentZoomTier) {
+                    currentZoomTier = tier
+                }
                 var sig = if (isDarkMap) 1231 else 1237
+                sig = 31 * sig + tier
                 sig = 31 * sig + trails.size
                 sig = 31 * sig + allGeometries.size
                 sig = 31 * sig + (selectedTrailForPeek?.id?.hashCode() ?: 0)
@@ -677,9 +689,10 @@ internal fun TrailBrowserMapContent(
                     }
 
                     trails.forEachIndexed { index, trail ->
-                        val points = allGeometries[trail.id] ?: emptyList()
-                        if (points.isNotEmpty()) {
-                            val geoPoints = points.map { GeoPoint(it.lat, it.lng) }
+                        val rawPoints = allGeometries[trail.id] ?: emptyList()
+                        if (rawPoints.isNotEmpty()) {
+                            val decimatedPoints = decimateCatalogueTrailForZoomTier(rawPoints, tier)
+                            val geoPoints = decimatedPoints.map { GeoPoint(it.lat, it.lng) }
                             val isSelected = selectedTrailForPeek?.id == trail.id
                             val casing = Polyline(mapView).apply {
                                 setPoints(geoPoints)
@@ -747,3 +760,49 @@ internal fun TrailBrowserMapContent(
         }
     }
 }
+
+/**
+ * Zoom tiers for Udforsk catalogue map:
+ * - Tier 0: zoom < 9.5 (Overview)
+ * - Tier 1: 9.5 <= zoom < 12.0 (Regional)
+ * - Tier 2: zoom >= 12.0 (Full unsimplified geometry)
+ */
+internal fun computeUdforskZoomTier(zoom: Double): Int = when {
+    zoom < 9.5 -> 0
+    zoom < 12.0 -> 1
+    else -> 2
+}
+
+/**
+ * Decimates catalogue trail points for Udforsk overview map only when zoom < 12.0.
+ * At zoom >= 12.0 (Tier 2), returns the full original list without modification.
+ */
+internal fun decimateCatalogueTrailForZoomTier(
+    points: List<GeoPointDto>,
+    zoomTier: Int
+): List<GeoPointDto> {
+    if (zoomTier >= 2 || points.size <= 2) return points
+    val minSpacingMeters = if (zoomTier == 0) 150.0 else 35.0
+    val minSpacingSq = minSpacingMeters * minSpacingMeters
+    val refLat = points[0].lat
+    val cosLat = kotlin.math.cos(Math.toRadians(refLat)).coerceAtLeast(0.1)
+    val metersPerDegLat = 111_320.0
+    val metersPerDegLng = 111_320.0 * cosLat
+
+    val result = ArrayList<GeoPointDto>(points.size / 4 + 2)
+    var lastKept = points[0]
+    result.add(lastKept)
+
+    for (i in 1 until points.size - 1) {
+        val pt = points[i]
+        val dy = (pt.lat - lastKept.lat) * metersPerDegLat
+        val dx = (pt.lng - lastKept.lng) * metersPerDegLng
+        if (dx * dx + dy * dy >= minSpacingSq) {
+            result.add(pt)
+            lastKept = pt
+        }
+    }
+    result.add(points.last())
+    return result
+}
+

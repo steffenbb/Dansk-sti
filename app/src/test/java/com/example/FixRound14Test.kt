@@ -242,9 +242,6 @@ class FixRound14Test {
         val testDispatcher = StandardTestDispatcher(testScheduler)
         OverpassClient.ioDispatcher = testDispatcher
         OverpassClient.currentTimeMillisProvider = { testScheduler.currentTime }
-        // Keep exact production thresholds: 30 s per-mirror header timeout, 60 s total no-answer, 30 s idle data
-        OverpassClient.noAnswerMirrorTimeoutMs = 30_000L
-        OverpassClient.noAnswerTotalTimeoutMs = 60_000L
 
         OverpassClient.customSessionTransport = { _, query, session ->
             when {
@@ -260,7 +257,7 @@ class FixRound14Test {
                     // Server answers with response headers after 5 s
                     delay(5_000L)
                     session.onHeadersReceived()
-                    // Stream data for 90 s total: 6 chunks spaced 15 s apart (< 30 s idle limit)
+                    // Stream data for 90 s total: 6 chunks spaced 15 s apart (< 45 s idle limit)
                     repeat(6) {
                         delay(15_000L)
                         session.onDataChunkReceived()
@@ -275,7 +272,7 @@ class FixRound14Test {
         }
 
         // First: occupy both slots for 70 s so our trail download sits in the queue for 70 s (> 60 s!).
-        // This verifies queue wait time NEVER counts towards the 30 s / 60 s timeout.
+        // This verifies queue wait time NEVER counts towards the 20 s / 30 s timeout.
         val occ1 = async { OverpassClient.queryRawJson("occupy_slot_1", "occ1", OverpassClient.Priority.USER_INITIATED) }
         val occ2 = async { OverpassClient.queryRawJson("occupy_slot_2", "occ2", OverpassClient.Priority.USER_INITIATED) }
         testScheduler.advanceTimeBy(1_000L)
@@ -312,8 +309,6 @@ class FixRound14Test {
         val testDispatcher = StandardTestDispatcher(testScheduler)
         OverpassClient.ioDispatcher = testDispatcher
         OverpassClient.currentTimeMillisProvider = { testScheduler.currentTime }
-        OverpassClient.noAnswerMirrorTimeoutMs = 30_000L
-        OverpassClient.noAnswerTotalTimeoutMs = 60_000L
 
         val mirrorAttemptStartTimes = CopyOnWriteArrayList<Pair<String, Long>>()
 
@@ -337,15 +332,15 @@ class FixRound14Test {
         assertTrue("Request to dead servers must fail", result.isFailure)
         assertTrue(
             "Error must occur within 60 s of request starting (elapsed=${elapsedVirtualMs}ms)",
-            elapsedVirtualMs in 59_000L..60_500L
+            elapsedVirtualMs in 50_000L..60_500L
         )
         assertEquals(
-            "Must move to the second mirror after 30 s of no response headers on the first mirror, then fail at 60 s",
+            "Must move to the second mirror after 20 s of no response headers on PRIMARY, then fail after 30 s on FALLBACK",
             2,
             mirrorAttemptStartTimes.size
         )
         assertEquals(0L, mirrorAttemptStartTimes[0].second - startTimeMs)
-        assertTrue((mirrorAttemptStartTimes[1].second - startTimeMs) in 30_000L..31_500L)
+        assertTrue((mirrorAttemptStartTimes[1].second - startTimeMs) in 20_000L..21_500L)
     }
 
     @Test
@@ -353,8 +348,6 @@ class FixRound14Test {
         val testDispatcher = StandardTestDispatcher(testScheduler)
         OverpassClient.ioDispatcher = testDispatcher
         OverpassClient.currentTimeMillisProvider = { testScheduler.currentTime }
-        OverpassClient.noAnswerMirrorTimeoutMs = 30_000L
-        OverpassClient.noAnswerTotalTimeoutMs = 60_000L
 
         OverpassClient.customSessionTransport = { _, _, session ->
             // Server sends headers at 2 s and 1 chunk at 10 s, then stalls forever with no data

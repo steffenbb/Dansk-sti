@@ -182,7 +182,11 @@ class OfflineDownloadWorker(
                 emptySet()
             }
 
-            val remainingTilesCount = tileIndices.count { it !in existingBaseTiles }
+            fun isTileSaved(existingKeys: Set<Long>, tileIdx: Long): Boolean {
+                return tileIdx in existingKeys || OfflineDownloadManager.toSqliteArchiveKey(tileIdx) in existingKeys
+            }
+
+            val remainingTilesCount = tileIndices.count { !isTileSaved(existingBaseTiles, it) }
             val requiredRemainingBytes = remainingTilesCount.toLong() * 10480L
 
             // Check free storage before downloading remaining tiles and refuse with size needed
@@ -272,18 +276,18 @@ class OfflineDownloadWorker(
                 }
 
                 // 1. Skip tile coordinate if already in the partial archive
-                if (tileIndex in existingBaseTiles) {
+                if (isTileSaved(existingBaseTiles, tileIndex)) {
                     continue
                 }
                 downloadAndSaveTile(tileSource, tileIndex)
 
                 // 2. Include hillshade and contour (zoom 14+) tiles when "Terræn" layer is on
-                if (hillshadeSource != null && tileIndex !in existingHillshadeTiles) {
+                if (hillshadeSource != null && !isTileSaved(existingHillshadeTiles, tileIndex)) {
                     downloadAndSaveTile(hillshadeSource, tileIndex)
                 }
                 if (contourSource != null &&
                     org.osmdroid.util.MapTileIndex.getZoom(tileIndex) >= 14 &&
-                    tileIndex !in existingContourTiles
+                    !isTileSaved(existingContourTiles, tileIndex)
                 ) {
                     downloadAndSaveTile(contourSource, tileIndex)
                 }

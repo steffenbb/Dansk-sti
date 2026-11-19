@@ -304,6 +304,7 @@ internal fun refreshMapOverlays(
         val cursorMarker = Marker(mapView).apply {
             position = GeoPoint(scrub.lat, scrub.lng)
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            setInfoWindow(null)
             val bmp = android.graphics.Bitmap.createBitmap(36, 36, android.graphics.Bitmap.Config.ARGB_8888)
             val cv = android.graphics.Canvas(bmp)
             val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {

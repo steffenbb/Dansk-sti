@@ -100,3 +100,57 @@ data class DiscoveredHikingRouteDto(
             else -> "Afmærket vandrerute"
         }
 }
+
+/**
+ * Lightweight projection for marked_routes table queries without loading segmentsJson.
+ */
+data class MarkedRouteHeaderTuple(
+    val osmRelationId: Long,
+    val name: String,
+    val lengthKm: Double,
+    val operator: String?,
+    val routeType: String,
+    val network: String?,
+    val symbol: String?,
+    val colorHex: String,
+    val minLat: Double,
+    val maxLat: Double,
+    val minLng: Double,
+    val maxLng: Double,
+    val cachedAt: Long,
+    val segmentsByteLength: Int
+)
+
+/**
+ * Projection for loading segmentsJson in batches of max 50 IDs on cache miss.
+ */
+data class MarkedRouteSegmentsTuple(
+    val osmRelationId: Long,
+    val segmentsJson: String,
+    val cachedAt: Long
+)
+
+/**
+ * Immutable render snapshot item handed to MarkedRoutesBatchOverlay on the main thread.
+ * Coordinates in lod0, lod1, and lod2 are packed DoubleArrays: [lat0, lng0, lat1, lng1, ...].
+ */
+data class MarkedRouteRenderItem(
+    val osmRelationId: Long,
+    val name: String,
+    val lengthKm: Double,
+    val operator: String?,
+    val routeType: String,
+    val network: String?,
+    val symbol: String?,
+    val colorHex: String,
+    val colorInt: Int,
+    val minLat: Double,
+    val maxLat: Double,
+    val minLng: Double,
+    val maxLng: Double,
+    val cachedAt: Long,
+    val lod0: List<DoubleArray>?,
+    val lod1: List<DoubleArray>,
+    val lod2: List<DoubleArray>
+)
+

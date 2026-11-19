@@ -102,12 +102,14 @@ class NavigationMapOverlayManager(
 
     private val campDetourMarker = Marker(mapView).apply {
         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+        infoWindow = null
     }
 
     private val tonightCampMarker = Marker(mapView).apply {
         icon = MapIconUtils.getNightCampIcon(context)
         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
         title = context.getString(R.string.nav_overlay_tonight_title)
+        infoWindow = null
     }
 
     // Dynamic POI & Polygon overlays
@@ -133,6 +135,7 @@ class NavigationMapOverlayManager(
         icon = ContextCompat.getDrawable(context, R.drawable.ic_user_heading)
         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
         title = context.getString(R.string.nav_overlay_your_position)
+        infoWindow = null
     }
 
     private var currentRouteId: Long = -1L
@@ -300,6 +303,7 @@ class NavigationMapOverlayManager(
                 title = context.getString(R.string.nav_overlay_ferry_check_schedule)
                 subDescription = context.getString(R.string.nav_overlay_ferry_sub)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                infoWindow = null
             }
             ferryOverlays.add(ferryMarker)
             mapView.overlays.add(ferryMarker)
@@ -314,6 +318,7 @@ class NavigationMapOverlayManager(
                     title = "⛺ ${stg.stopName}"
                     subDescription = "Dag ${stg.dayNumber} mål • ${String.format(Locale.getDefault(), "%.1f", stg.stageKm)} km (${stg.stopType})"
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    infoWindow = null
                     setOnMarkerClickListener { _, _ ->
                         onSelectPoi(stg)
                         true
@@ -509,6 +514,7 @@ class NavigationMapOverlayManager(
                     title = h.title
                     subDescription = h.description
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    infoWindow = null
                     setOnMarkerClickListener { _, _ ->
                         onSelectPoi(h)
                         true

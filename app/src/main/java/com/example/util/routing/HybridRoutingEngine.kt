@@ -42,7 +42,7 @@ class HybridRoutingEngine(
         alternative: Int
     ): RouteLegResult {
         if (options.noGoAreas.isNotEmpty()) {
-            Log.i(TAG, "Leg ($from -> $to) has ${options.noGoAreas.size} no-go polygon(s); routing online via BRouterOnlineEngine")
+            com.example.util.DLog.run { i(TAG, "Leg ($from -> $to) has ${options.noGoAreas.size} no-go polygon(s); routing online via BRouterOnlineEngine") }
             return when (val onlineResult = onlineEngine.routeLeg(from, to, options, alternative)) {
                 is RouteLegResult.Success -> onlineResult.copy(sourceName = ONLINE_NOGO_SOURCE_NOTICE)
                 is RouteLegResult.Offline -> RouteLegResult.Offline(OFFLINE_NOGO_UNSUPPORTED_MESSAGE)
@@ -53,7 +53,7 @@ class HybridRoutingEngine(
         val useOffline = canRouteLegOffline(from, to, options)
 
         if (useOffline) {
-            Log.d(TAG, "Routing leg ($from -> $to) via BRouterOfflineEngine")
+            com.example.util.DLog.run { d(TAG, "Routing leg ($from -> $to) via BRouterOfflineEngine") }
             val offlineResult = offlineEngine.routeLeg(from, to, options, alternative)
 
             if (offlineResult is RouteLegResult.Success) {
@@ -89,7 +89,7 @@ class HybridRoutingEngine(
                 }
             }
         } else {
-            Log.d(TAG, "Routing leg ($from -> $to) via BRouterOnlineEngine (offline data not present)")
+            com.example.util.DLog.run { d(TAG, "Routing leg ($from -> $to) via BRouterOnlineEngine (offline data not present)") }
             return onlineEngine.routeLeg(from, to, options, alternative)
         }
     }

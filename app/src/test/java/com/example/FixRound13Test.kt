@@ -593,11 +593,11 @@ class FixRound13Test {
             listOf(GeoPointDto(55.0, 10.0), GeoPointDto(55.1, 10.1))
         )
         assertTrue(
-            "Corridor POI query must specify [timeout:120]",
-            corridorPolylineQuery.contains("[timeout:120]")
+            "Corridor POI query must specify [timeout:60][maxsize:67108864]",
+            corridorPolylineQuery.contains("[timeout:60][maxsize:67108864]")
         )
-        assertEquals(120L, OverpassClient.parseServerTimeoutSeconds(corridorPolylineQuery))
-        assertEquals(135L, OverpassClient.computeClientReadTimeoutSeconds(corridorPolylineQuery))
+        assertEquals(60L, OverpassClient.parseServerTimeoutSeconds(corridorPolylineQuery))
+        assertEquals(75L, OverpassClient.computeClientReadTimeoutSeconds(corridorPolylineQuery))
 
         // 2. Verify read timeout does NOT retry on the same server; moves to next mirror ONCE, then fails
         val triedMirrors = CopyOnWriteArrayList<String>()
@@ -693,8 +693,8 @@ class FixRound13Test {
         OverpassClient.customTransport = { _, query ->
             executedQueries.add(query)
             when {
-                // 1. Parent superroute 9000 with 3 children: 9001 (DK), 9002 (DK), 9003 (Germany)
-                query.contains("relation(9000);") && query.contains("out geom;") -> {
+                // 1. Structure request: relation(9000); (._; rel(r);); ... out body bb;
+                query.contains("relation(9000);") && query.contains("out body bb;") -> {
                     OverpassClient.HttpResult(
                         200,
                         """
@@ -709,43 +709,35 @@ class FixRound13Test {
                                 { "type": "relation", "ref": 9002, "role": "" },
                                 { "type": "relation", "ref": 9003, "role": "" }
                               ]
-                            }
-                          ]
-                        }
-                        """.trimIndent()
-                    )
-                }
-                // 2. Batch child tags + bounding boxes request: relation(9000); relation(r); out tags bb;
-                query.contains("relation(9000);") && query.contains("relation(r);") && query.contains("out tags bb;") -> {
-                    OverpassClient.HttpResult(
-                        200,
-                        """
-                        {
-                          "elements": [
+                            },
                             {
                               "type": "relation",
                               "id": 9001,
                               "bounds": { "minlat": 55.2, "minlon": 9.2, "maxlat": 55.8, "maxlon": 9.5 },
-                              "tags": { "name": "Hærvejen Etape 1" }
+                              "tags": { "name": "Hærvejen Etape 1" },
+                              "members": [ { "type": "way", "ref": 101, "role": "" } ]
                             },
                             {
                               "type": "relation",
                               "id": 9002,
                               "bounds": { "minlat": 55.8, "minlon": 9.3, "maxlat": 56.4, "maxlon": 9.6 },
-                              "tags": { "name": "Hærvejen Etape 2" }
+                              "tags": { "name": "Hærvejen Etape 2" },
+                              "members": [ { "type": "way", "ref": 102, "role": "" } ]
                             },
                             {
                               "type": "relation",
                               "id": 9003,
                               "bounds": { "minlat": 53.5, "minlon": 9.5, "maxlat": 54.1, "maxlon": 10.1 },
-                              "tags": { "name": "E1 Schleswig-Holstein", "country": "DE" }
+                              "tags": { "name": "E1 Schleswig-Holstein", "country": "DE" },
+                              "members": [ { "type": "way", "ref": 103, "role": "" } ]
                             }
                           ]
                         }
                         """.trimIndent()
                     )
                 }
-                query.contains("relation(9001);") && query.contains("out geom;") -> {
+                // 2. Batch geometry + way tags request: .r out geom; way(r.r); out tags;
+                query.contains(".r out geom;") && query.contains("way(r.r);") && query.contains("out tags;") -> {
                     OverpassClient.HttpResult(
                         200,
                         """
@@ -766,18 +758,7 @@ class FixRound13Test {
                                   ]
                                 }
                               ]
-                            }
-                          ]
-                        }
-                        """.trimIndent()
-                    )
-                }
-                query.contains("relation(9002);") && query.contains("out geom;") -> {
-                    OverpassClient.HttpResult(
-                        200,
-                        """
-                        {
-                          "elements": [
+                            },
                             {
                               "type": "relation",
                               "id": 9002,
@@ -793,18 +774,7 @@ class FixRound13Test {
                                   ]
                                 }
                               ]
-                            }
-                          ]
-                        }
-                        """.trimIndent()
-                    )
-                }
-                query.contains("way(r);") && query.contains("out tags;") -> {
-                    OverpassClient.HttpResult(
-                        200,
-                        """
-                        {
-                          "elements": [
+                            },
                             { "type": "way", "id": 101, "tags": { "highway": "path", "surface": "gravel" } },
                             { "type": "way", "id": 102, "tags": { "highway": "track", "surface": "unpaved" } }
                           ]
@@ -823,25 +793,25 @@ class FixRound13Test {
         )
         assertNotNull("Superroute must be processed into TrailGeometryDto", dto)
 
-        val childTagsBbQueries = executedQueries.filter { it.contains("relation(r);") && it.contains("out tags bb;") }
+        val structureQueries = executedQueries.filter { it.contains("out body bb;") }
         assertEquals(
-            "Must fetch children's tags and bounding boxes in ONE request",
+            "Must fetch structure in ONE request",
             1,
-            childTagsBbQueries.size
+            structureQueries.size
         )
 
-        val foreignChildGeomQueries = executedQueries.filter { it.contains("relation(9003);") && it.contains("out geom;") }
+        val foreignChildGeomQueries = executedQueries.filter { it.contains("9003") && it.contains("out geom;") }
         assertEquals(
             "Must skip child relation 9003 outside Denmark before downloading its geometry",
             0,
             foreignChildGeomQueries.size
         )
 
-        val wayTagQueries = executedQueries.filter { it.contains("way(r);") && it.contains("out tags;") }
+        val batchQueries = executedQueries.filter { it.contains(".r out geom;") && it.contains("way(r.r);") && it.contains("out tags;") }
         assertEquals(
-            "Must fetch member way tags in ONE request for all relations, not one per relation",
+            "Must fetch geometry and member way tags in ONE batch request",
             1,
-            wayTagQueries.size
+            batchQueries.size
         )
 
         geomRepo.getGeometryFile(trailId).delete()

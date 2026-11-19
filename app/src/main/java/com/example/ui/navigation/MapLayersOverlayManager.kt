@@ -1,15 +1,12 @@
 package com.example.ui.navigation
 
 import android.content.Context
-import android.graphics.Color
-import android.graphics.Paint
 import android.os.SystemClock
-import androidx.compose.ui.graphics.toArgb
 import com.example.data.local.DanskStiDatabase
-import com.example.ui.theme.LightDanskStiColors
 import com.example.data.local.MapLayersState
 import com.example.data.model.FriTeltningEntity
 import com.example.data.model.MarkedRouteDto
+import com.example.data.model.MarkedRouteRenderItem
 import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
 import com.example.data.model.UserCustomWaypointEntity
@@ -35,8 +32,8 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.FolderOverlay
 import org.osmdroid.views.overlay.Overlay
-import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.TilesOverlay
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Shared overlay manager for DanskStiMap across all 5 map screens.
@@ -57,12 +54,16 @@ class MapLayersOverlayManager(
     ),
     private val onMarkedRouteTapped: ((MarkedRouteDto) -> Unit)? = null,
     private val onPoiTapped: ((PoiItem) -> Unit)? = null,
-    private val onAccessPolygonTapped: ((AccessPolygon) -> Unit)? = null
+    private val onAccessPolygonTapped: ((AccessPolygon) -> Unit)? = null,
+    private val onMarkedRouteExpiredMessage: ((String) -> Unit)? = null
 ) {
     private var mapView: MapView? = null
     private var currentState: MapLayersState =
         com.example.DanskStiApp.getSettingsRepository(context).currentSettingsSnapshot().mapLayers
     private var currentIsDark: Boolean = false
+
+    // Tracks relation IDs currently being loaded from Room after a tap so duplicate taps are ignored
+    private val loadingTappedRouteIds = ConcurrentHashMap.newKeySet<Long>()
 
     // Stable-keyed overlays
     private val registeredOverlays = LinkedHashMap<String, Overlay>()
@@ -70,7 +71,9 @@ class MapLayersOverlayManager(
     private var contourOverlay: TilesOverlay? = null
     private val accessFolderOverlay = FolderOverlay().apply { name = KEY_ACCESS }
     private val waterLayerOverlay = WaterLayerOverlay().apply { name = KEY_WATER }
-    private val markedRoutesFolderOverlay = FolderOverlay().apply { name = KEY_MARKED_ROUTES }
+    private val markedRoutesBatchOverlay = MarkedRoutesBatchOverlay(
+        onRouteHit = { hitItem -> handleMarkedRouteTapped(hitItem.osmRelationId) }
+    )
     private val routeFolderOverlay = FolderOverlay().apply { name = KEY_ROUTE }
     private var poiClusterOverlay: PoiClusterOverlay? = null
 
@@ -79,13 +82,12 @@ class MapLayersOverlayManager(
     private var cachedFriTeltning: List<FriTeltningEntity> = emptyList()
     private var cachedPois: List<PoiEntity> = emptyList()
     private var cachedCustomWaypoints: List<UserCustomWaypointEntity> = emptyList()
-    private var cachedMarkedRoutes: List<MarkedRouteDto> = emptyList()
+    private var cachedMarkedRouteSnapshots: List<MarkedRouteRenderItem> = emptyList()
     private var cachedAccessPolygons: List<AccessPolygon> = emptyList()
     private var cachedWaterFeatures: List<WaterFeatureDto> = emptyList()
 
     private var lastPoiSignature: Int = 0
     private var lastAccessSignature: Int = 0
-    private var lastMarkedRoutesSignature: Int = 0
 
     // Coroutine jobs for viewport fetches
     private var cameraIdleJob: Job? = null
@@ -98,12 +100,20 @@ class MapLayersOverlayManager(
     private var lastAppliedBaseMap = currentState.baseMap
     private var lastAppliedDark: Boolean? = null
     private var lastFetchedBoundsKey: String? = null
+    private var lastFetchedWasHighDetailZoom: Boolean? = null
     private var lastAccessBoundsKey: String? = null
     private var lastWaterBoundsKey: String? = null
     private var lastInvalidationElapsedMs: Long = 0L
 
     private val _layerErrorMessages = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
     val layerErrorMessages: kotlinx.coroutines.flow.StateFlow<Set<String>> = _layerErrorMessages
+
+    private val _transientLayerMessage = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val transientLayerMessage: kotlinx.coroutines.flow.StateFlow<String?> = _transientLayerMessage
+
+    fun clearTransientLayerMessage() {
+        _transientLayerMessage.value = null
+    }
 
     fun setLayerError(layerLabel: String, hasError: Boolean) {
         val msg = "Kunne ikke hente $layerLabel"
@@ -132,6 +142,39 @@ class MapLayersOverlayManager(
 
         const val WATER_DEBOUNCE_MS = 600L
         const val CAMERA_DEBOUNCE_MS = 320L
+
+        const val EXPIRED_MARKED_ROUTE_MESSAGE =
+            "Ruten er ikke længere gemt. Zoom ind for at hente den igen."
+    }
+
+    private fun handleMarkedRouteTapped(osmRelationId: Long) {
+        // Ignore further taps on the same route while its load is in progress
+        if (!loadingTappedRouteIds.add(osmRelationId)) {
+            return
+        }
+        scope.launch {
+            try {
+                val fullDto = withContext(Dispatchers.IO) {
+                    markedRouteRepository.getFullMarkedRouteById(osmRelationId)
+                }
+                if (fullDto != null) {
+                    _transientLayerMessage.value = null
+                    val currentMsgs = _layerErrorMessages.value.toMutableSet()
+                    if (currentMsgs.remove(EXPIRED_MARKED_ROUTE_MESSAGE)) {
+                        _layerErrorMessages.value = currentMsgs
+                    }
+                    onMarkedRouteTapped?.invoke(fullDto)
+                } else {
+                    _transientLayerMessage.value = EXPIRED_MARKED_ROUTE_MESSAGE
+                    val currentMsgs = _layerErrorMessages.value.toMutableSet()
+                    currentMsgs.add(EXPIRED_MARKED_ROUTE_MESSAGE)
+                    _layerErrorMessages.value = currentMsgs
+                    onMarkedRouteExpiredMessage?.invoke(EXPIRED_MARKED_ROUTE_MESSAGE)
+                }
+            } finally {
+                loadingTappedRouteIds.remove(osmRelationId)
+            }
+        }
     }
 
     fun attachToMap(map: MapView, isDark: Boolean = currentIsDark) {
@@ -165,7 +208,7 @@ class MapLayersOverlayManager(
         if (ct != null) registerOverlay(KEY_TERRAIN_CONTOURS, ct)
         registerOverlay(KEY_ACCESS, accessFolderOverlay)
         registerOverlay(KEY_WATER, waterLayerOverlay)
-        registerOverlay(KEY_MARKED_ROUTES, markedRoutesFolderOverlay)
+        registerOverlay(KEY_MARKED_ROUTES, markedRoutesBatchOverlay)
         registerOverlay(KEY_ROUTE, routeFolderOverlay)
         registerOverlay(KEY_POIS, clusterOverlay)
 
@@ -197,6 +240,14 @@ class MapLayersOverlayManager(
                 if (waterLayerOverlay.isEnabled != shouldShowWater) {
                     waterLayerOverlay.isEnabled = shouldShowWater
                     requestMapInvalidate()
+                }
+                val newZoom = event?.zoomLevel ?: map.zoomLevelDouble
+                val isHighDetailNow = newZoom >= 12.0
+                val prevHighDetail = lastFetchedWasHighDetailZoom
+                if (currentState.showMarkedRoutes && prevHighDetail != null && prevHighDetail != isHighDetailNow) {
+                    // When zoom crosses 12.0 (either direction), force a refresh even if bounds key is unchanged
+                    lastFetchedBoundsKey = null
+                    fetchMarkedRoutesForCurrentViewport()
                 }
                 scheduleCameraIdleFetch()
                 scheduleWaterDebouncedFetch()
@@ -252,6 +303,8 @@ class MapLayersOverlayManager(
     fun getOverlay(key: String): Overlay? = registeredOverlays[key]
 
     fun getRouteFolderOverlay(): FolderOverlay = routeFolderOverlay
+
+    fun getMarkedRoutesBatchOverlay(): MarkedRoutesBatchOverlay = markedRoutesBatchOverlay
 
     private fun canonicalOrderIndex(key: String): Int = when (key) {
         KEY_EVENTS -> 0
@@ -351,11 +404,11 @@ class MapLayersOverlayManager(
         rebuildPoiClusterItemsIfChanged()
 
         // 5. Marked routes ("Afmærkede ruter")
-        markedRoutesFolderOverlay.isEnabled = state.showMarkedRoutes
+        markedRoutesBatchOverlay.isEnabled = state.showMarkedRoutes
         if (!state.showMarkedRoutes) {
             markedRouteFetchJob?.cancel()
             setLayerError("Afmærkede ruter", false)
-        } else if (!prevState.showMarkedRoutes || cachedMarkedRoutes.isEmpty()) {
+        } else if (!prevState.showMarkedRoutes || cachedMarkedRouteSnapshots.isEmpty()) {
             lastFetchedBoundsKey = null
             fetchMarkedRoutesForCurrentViewport()
         }
@@ -460,7 +513,7 @@ class MapLayersOverlayManager(
         }
     }
 
-    private fun fetchMarkedRoutesForCurrentViewport() {
+    fun fetchMarkedRoutesForCurrentViewport() {
         val map = mapView ?: return
         val zoom = map.zoomLevelDouble
 
@@ -471,16 +524,21 @@ class MapLayersOverlayManager(
         val maxLng = (box?.lonEast ?: 15.5).coerceIn(7.8, 15.5).let { if (it <= minLng) 15.5 else it }
 
         val isLiveZoom = zoom >= 10.0
-        val boundsKey = "${isLiveZoom}_${(minLat * 5).toInt()}_${(maxLat * 5).toInt()}_${(minLng * 5).toInt()}_${(maxLng * 5).toInt()}"
-        if (boundsKey == lastFetchedBoundsKey && cachedMarkedRoutes.isNotEmpty()) {
+        val isHighDetailZoom = zoom >= 12.0
+        val prevHighDetail = lastFetchedWasHighDetailZoom
+        val crossedZoom12 = prevHighDetail != null && prevHighDetail != isHighDetailZoom
+
+        val boundsKey = "${isLiveZoom}_${isHighDetailZoom}_${(minLat * 5).toInt()}_${(maxLat * 5).toInt()}_${(minLng * 5).toInt()}_${(maxLng * 5).toInt()}"
+        if (!crossedZoom12 && boundsKey == lastFetchedBoundsKey && cachedMarkedRouteSnapshots.isNotEmpty()) {
             return
         }
         lastFetchedBoundsKey = boundsKey
+        lastFetchedWasHighDetailZoom = isHighDetailZoom
 
         markedRouteFetchJob?.cancel()
         markedRouteFetchJob = scope.launch {
-            val routes = withContext(Dispatchers.IO) {
-                markedRouteRepository.getMarkedRoutes(
+            val snapshots = withContext(Dispatchers.IO) {
+                markedRouteRepository.getMarkedRouteRenderSnapshots(
                     minLat = minLat,
                     maxLat = maxLat,
                     minLng = minLng,
@@ -489,9 +547,13 @@ class MapLayersOverlayManager(
                 )
             }
             ensureActive()
-            cachedMarkedRoutes = routes
-            setLayerError("Afmærkede ruter", isLiveZoom && routes.isEmpty() && markedRouteRepository.lastFetchFailed)
-            rebuildMarkedRouteOverlaysIfChanged()
+            cachedMarkedRouteSnapshots = snapshots
+            setLayerError("Afmærkede ruter", isLiveZoom && snapshots.isEmpty() && markedRouteRepository.lastFetchFailed)
+            // Deliver immutable render snapshot on the main thread
+            withContext(Dispatchers.Main.immediate) {
+                markedRoutesBatchOverlay.setRoutesSnapshot(snapshots)
+                requestMapInvalidate()
+            }
         }
     }
 
@@ -562,65 +624,6 @@ class MapLayersOverlayManager(
         requestMapInvalidate()
     }
 
-    private fun rebuildMarkedRouteOverlaysIfChanged() {
-        if (!currentState.showMarkedRoutes) return
-        val markedItems = markedRoutesFolderOverlay.items ?: return
-        val density = context.resources.displayMetrics.density
-        var sig = cachedMarkedRoutes.size
-        for (r in cachedMarkedRoutes) {
-            sig = 31 * sig + r.osmRelationId.hashCode()
-        }
-        if (sig == lastMarkedRoutesSignature && (cachedMarkedRoutes.isEmpty() == markedItems.isEmpty())) {
-            return
-        }
-        lastMarkedRoutesSignature = sig
-        markedItems.clear()
-
-        for (route in cachedMarkedRoutes) {
-            val routeColor = try {
-                Color.parseColor(route.colorHex)
-            } catch (_: Exception) {
-                LightDanskStiColors.warning.toArgb()
-            }
-
-            for (segment in route.polylines) {
-                if (segment.size < 2) continue
-                val geoPoints = segment.map { GeoPoint(it.lat, it.lng) }
-
-                val casing = Polyline().apply {
-                    setPoints(geoPoints)
-                    outlinePaint.color = LightDanskStiColors.routeCasing.copy(alpha = 0.67f).toArgb()
-                    outlinePaint.strokeWidth = 5.5f * density
-                    outlinePaint.strokeCap = Paint.Cap.ROUND
-                    outlinePaint.strokeJoin = Paint.Join.ROUND
-                    outlinePaint.isAntiAlias = true
-                    setOnClickListener { _, _, _ ->
-                        onMarkedRouteTapped?.invoke(route)
-                        true
-                    }
-                }
-
-                val line = Polyline().apply {
-                    title = route.name
-                    setPoints(geoPoints)
-                    outlinePaint.color = routeColor
-                    outlinePaint.strokeWidth = 3.2f * density
-                    outlinePaint.strokeCap = Paint.Cap.ROUND
-                    outlinePaint.strokeJoin = Paint.Join.ROUND
-                    outlinePaint.isAntiAlias = true
-                    setOnClickListener { _, _, _ ->
-                        onMarkedRouteTapped?.invoke(route)
-                        true
-                    }
-                }
-
-                markedRoutesFolderOverlay.add(casing)
-                markedRoutesFolderOverlay.add(line)
-            }
-        }
-        requestMapInvalidate()
-    }
-
     private var cachedPlannerPois: List<com.example.ui.viewmodel.PlannerMapPoi> = emptyList()
 
     /**
@@ -666,7 +669,15 @@ class MapLayersOverlayManager(
         map.postInvalidate()
     }
 
-    fun getActiveMarkedRoutePolylinesCount(): Int = markedRoutesFolderOverlay.items?.size ?: 0
+    /**
+     * Telemetry getter: number of marked routes drawn in the last frame.
+     */
+    fun getLastFrameMarkedRoutesDrawn(): Int = markedRoutesBatchOverlay.lastFrameRoutesDrawn
+
+    /**
+     * Telemetry getter: number of marked route vertices drawn in the last frame.
+     */
+    fun getLastFrameMarkedVerticesDrawn(): Int = markedRoutesBatchOverlay.lastFrameVerticesDrawn
 
     fun getActivePoiItemCount(): Int = poiClusterOverlay?.getItemCount() ?: 0
 

@@ -29,7 +29,7 @@ object BRouterGeoJsonParser {
         val json = JSONObject(jsonStr)
         val features = json.optJSONArray("features")
         if (features == null || features.length() == 0) {
-            return RouteLegResult.NoRoute("Ingen rute fundet i GeoJSON svar")
+            return RouteLegResult.NoRoute("Der blev ikke fundet en rute mellem punkterne.")
         }
 
         val feature = features.getJSONObject(0)

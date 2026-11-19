@@ -372,6 +372,7 @@ fun DanskStiMap(
                 title = context.getString(R.string.drop_pin_selected_point)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 icon = MapIconUtils.getCustomWaypointPinIcon(context)
+                infoWindow = null
                 setOnMarkerClickListener { _, _ -> true }
             }
             overlayManager.updateFolderOverlay(MapLayersOverlayManager.KEY_DROP_PIN, listOf(marker))

@@ -405,42 +405,51 @@ class TrailGeometryRepository(private val context: Context) {
                         )
                     )
                 }
-            }
-        }
-
-        val relationId = osmRelationId ?: findRelationByName(trailName, onOverpassStatusChange) ?: return null
-        val rawElements = mutableMapOf<Long, Map<String, Any>>()
-
-        val customFetcher = customRelationFetcher
-        if (customFetcher != null) {
-            onOverpassStatusChange(com.example.data.remote.OverpassClient.RequestState.Running)
-            customFetcher.invoke(relationId, rawElements) { dl, tot ->
-                val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
-                emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
-            }
-        } else {
-            downloadRelationRecursive(
-                relationId = relationId,
-                collected = rawElements,
-                onStatusChange = onOverpassStatusChange
-            ) { dl, tot ->
-                val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
-                emitProg(frac, dl, tot, 0.0, "Downloader sektion $dl af $tot...")
-            }
-            if (rawElements.isNotEmpty()) {
-                val allWayTags = fetchMemberWayTagsForRelations(
-                    relationIds = rawElements.keys.toList(),
-                    onStatusChange = null
-                )
-                if (allWayTags.isNotEmpty()) {
-                    enrichRelationsWithWayTags(rawElements, allWayTags)
+                is com.example.data.remote.OverpassClient.RequestState.Slow -> {
+                    emitProgressState(
+                        TrailDownloadProgress(
+                            trailId = trailId,
+                            fraction = 0f,
+                            downloadedRelations = 0,
+                            totalRelations = 1,
+                            accumulatedKm = 0.0,
+                            stageMessage = "Det tager lidt længere end normalt…",
+                            isIndeterminate = true,
+                            queuePosition = 0
+                        )
+                    )
                 }
             }
         }
 
-        if (rawElements.isEmpty()) {
-            Log.e("TrailGeometry", "No elements downloaded for relation $relationId ($trailName) from any source")
-            return null
+        val relationId = osmRelationId ?: findRelationByName(trailName, onOverpassStatusChange) ?: return null
+        val rawElements = LinkedHashMap<Long, Map<String, Any>>()
+
+        val customFetcher = customRelationFetcher
+        if (customFetcher != null) {
+            onOverpassStatusChange(com.example.data.remote.OverpassClient.RequestState.Running)
+            val ok = customFetcher.invoke(relationId, rawElements) { dl, tot ->
+                val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
+                emitProg(frac, dl, tot, 0.0, "Henter sektion $dl af $tot")
+            }
+            if (!ok || rawElements.isEmpty()) {
+                Log.e("TrailGeometry", "Custom fetcher failed or returned empty elements for relation $relationId ($trailName)")
+                return null
+            }
+        } else {
+            val success = downloadTrailStructureAndBatches(
+                rootRelationId = relationId,
+                collected = rawElements,
+                onStatusChange = onOverpassStatusChange,
+                onBatchProgress = { batchNum, totalBatches ->
+                    val frac = 0.1f + 0.55f * (batchNum.toFloat() / totalBatches.coerceAtLeast(1).toFloat())
+                    emitProg(frac, batchNum, totalBatches, 0.0, "Henter sektion $batchNum af $totalBatches")
+                }
+            )
+            if (!success || rawElements.isEmpty()) {
+                Log.e("TrailGeometry", "Download failed or returned no elements for relation $relationId ($trailName)")
+                return null
+            }
         }
 
         emitProg(0.70f, rawElements.size, rawElements.size.coerceAtLeast(1), 0.0, "Sammensætter rutegeometri...")
@@ -448,9 +457,12 @@ class TrailGeometryRepository(private val context: Context) {
             emitProg(frac, rawElements.size, rawElements.size.coerceAtLeast(1), km, msg)
         }
 
-        if (dto.segments.any { it.points.isNotEmpty() }) {
-            saveGeometry(dto)
+        if (dto.segments.none { it.points.isNotEmpty() }) {
+            Log.e("TrailGeometry", "Processed trail $trailId ($trailName) has no geometry points; not saving")
+            return null
         }
+
+        saveGeometry(dto)
 
         emitProg(
             1.0f,
@@ -467,9 +479,14 @@ class TrailGeometryRepository(private val context: Context) {
         onStatusChange: ((com.example.data.remote.OverpassClient.RequestState) -> Unit)? = null
     ): Long? {
         val cleanName = name.replace(Regex("\\s*\\(.*\\)"), "").trim()
+        val isBornholmKyststi = cleanName.equals("Kyststien Bornholm", ignoreCase = true)
+        val searchName = if (isBornholmKyststi) "Kyststien" else cleanName
         val query = """
-            [out:json][timeout:10][maxsize:67108864];
-            relation["type"="route"]["route"~"hiking|foot"]["name"~"$cleanName",i](54.5,7.5,58.0,15.5);
+            [out:json][timeout:25][maxsize:67108864];
+            (
+              relation["type"="route"]["name"="$searchName"];
+              relation["type"="superroute"]["name"="$searchName"];
+            );
             out tags bb;
         """.trimIndent()
 
@@ -482,7 +499,31 @@ class TrailGeometryRepository(private val context: Context) {
             )
             val root = moshi.adapter(Map::class.java).fromJson(jsonStr)
             @Suppress("UNCHECKED_CAST")
-            val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
+            val rawElements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
+
+            val elements = rawElements
+                .filter { el ->
+                    isChildRelationInsideDenmark(el) && run {
+                        @Suppress("UNCHECKED_CAST")
+                        val tags = el["tags"] as? Map<String, String> ?: emptyMap()
+                        val route = tags["route"]?.lowercase().orEmpty()
+                        route.isEmpty() || route == "hiking" || route == "foot" || route == "walking"
+                    }
+                }
+                .let { candidates ->
+                    if (isBornholmKyststi && candidates.size > 1) {
+                        candidates.filter { el ->
+                            @Suppress("UNCHECKED_CAST")
+                            val bounds = el["bounds"] as? Map<String, Any>
+                            val minLon = (bounds?.get("minlon") as? Number)?.toDouble() ?: 0.0
+                            @Suppress("UNCHECKED_CAST")
+                            val tags = el["tags"] as? Map<String, String> ?: emptyMap()
+                            minLon >= 14.5 || tags.values.any { it.contains("bornholm", ignoreCase = true) }
+                        }.ifEmpty { candidates }
+                    } else {
+                        candidates
+                    }
+                }
 
             if (elements.size == 1) {
                 (elements[0]["id"] as? Number)?.toLong()
@@ -500,109 +541,313 @@ class TrailGeometryRepository(private val context: Context) {
         }
     }
 
-    private suspend fun downloadRelationRecursive(
-        relationId: Long,
+    internal fun buildStructureQuery(rootRelationId: Long): String = """
+        [out:json][timeout:25][maxsize:67108864];
+        relation($rootRelationId);
+        (._; rel(r););
+        (._; rel(r););
+        (._; rel(r););
+        out body bb;
+    """.trimIndent()
+
+    internal fun buildGeometryAndWayTagsBatchQuery(relationIds: List<Long>): String = """
+        [out:json][timeout:60][maxsize:268435456];
+        relation(id:${relationIds.joinToString(",")})->.r;
+        .r out geom;
+        way(r.r);
+        out tags;
+    """.trimIndent()
+
+    private val legacyReplacedRelations: Map<Long, Pair<String, List<Long>>> = mapOf(
+        4004055L to ("Hærvejen nordvest" to listOf(
+            19250349L, 13278796L, 13278797L, 13278798L, 13278799L,
+            13278800L, 19250426L, 13278801L, 13278802L, 19250444L
+        )),
+        4004054L to ("Hærvejen nordøst" to listOf(
+            13278738L, 13278739L, 13278740L, 13278741L, 19249982L,
+            13278679L, 19249981L
+        )),
+        4003809L to ("Hærvejen nord" to listOf(
+            13278680L, 19252340L, 19252339L, 13278681L
+        ))
+    )
+
+    private suspend fun executeWithOneRetry(
+        label: String,
+        block: suspend () -> Unit
+    ) {
+        try {
+            block()
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
+        } catch (_: Exception) {
+            Log.w("TrailGeometry", "Retrying $label once after failure")
+            block()
+        }
+    }
+
+    private suspend fun downloadTrailStructureAndBatches(
+        rootRelationId: Long,
         collected: MutableMap<Long, Map<String, Any>>,
         onStatusChange: ((com.example.data.remote.OverpassClient.RequestState) -> Unit)? = null,
-        onChildProgress: ((downloaded: Int, total: Int) -> Unit)? = null
-    ) {
-        if (collected.containsKey(relationId)) return
-        val query = """
-            [out:json][timeout:90];
-            relation($relationId);
-            out geom;
-        """.trimIndent()
+        onBatchProgress: ((batchNumber: Int, totalBatches: Int) -> Unit)? = null
+    ): Boolean {
+        return try {
+            val structureQuery = buildStructureQuery(rootRelationId)
+            val structureById = LinkedHashMap<Long, Map<String, Any>>()
 
-        try {
-            val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
-                query = query,
-                label = "RelationGeom($relationId)",
-                priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED,
-                onStatusChange = onStatusChange
-            )
-            @Suppress("UNCHECKED_CAST")
-            val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
-            @Suppress("UNCHECKED_CAST")
-            val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
-            if (elements.isNotEmpty()) {
+            executeWithOneRetry("TrailStructure($rootRelationId)") {
+                val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
+                    query = structureQuery,
+                    label = "TrailStructure($rootRelationId)",
+                    priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED,
+                    onStatusChange = onStatusChange
+                )
+                @Suppress("UNCHECKED_CAST")
+                val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
+                    ?: throw java.io.IOException("Invalid structure JSON")
+                @Suppress("UNCHECKED_CAST")
+                val elements = root["elements"] as? List<Map<String, Any>>
+                    ?: throw java.io.IOException("Missing elements in structure JSON")
+
+                structureById.clear()
                 for (el in elements) {
-                    val id = (el["id"] as? Number)?.toLong()
-                    val type = el["type"] as? String
-                    if (id != null && type == "relation") {
-                        val mutableEl = el.toMutableMap()
+                    if (el["type"] == "relation") {
+                        val id = (el["id"] as? Number)?.toLong() ?: continue
+                        structureById[id] = el
+                    }
+                }
+            }
+
+            if (structureById.isEmpty()) {
+                val legacyReplacement = legacyReplacedRelations[rootRelationId]
+                if (legacyReplacement != null) {
+                    val (legacyName, stageIds) = legacyReplacement
+                    val stageQuery = """
+                        [out:json][timeout:25][maxsize:67108864];
+                        relation(id:${stageIds.joinToString(",")});
+                        out body bb;
+                    """.trimIndent()
+                    executeWithOneRetry("TrailStructureStages($rootRelationId)") {
+                        val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
+                            query = stageQuery,
+                            label = "TrailStructureStages($rootRelationId)",
+                            priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED,
+                            onStatusChange = onStatusChange
+                        )
                         @Suppress("UNCHECKED_CAST")
-                        val members = el["members"] as? List<Map<String, Any>> ?: emptyList()
-                        val childRelIds = mutableListOf<Long>()
-                        for (m in members) {
-                            val mType = m["type"] as? String
-                            val mRef = (m["ref"] as? Number)?.toLong()
-                            if (mType == "relation" && mRef != null) {
-                                childRelIds.add(mRef)
+                        val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
+                            ?: throw java.io.IOException("Invalid stage structure JSON")
+                        @Suppress("UNCHECKED_CAST")
+                        val elements = root["elements"] as? List<Map<String, Any>>
+                            ?: throw java.io.IOException("Missing elements in stage structure JSON")
+                        structureById.clear()
+                        structureById[rootRelationId] = mapOf(
+                            "type" to "relation",
+                            "id" to rootRelationId,
+                            "tags" to mapOf("name" to legacyName, "type" to "superroute", "route" to "hiking"),
+                            "members" to stageIds.map { cid ->
+                                mapOf("type" to "relation", "ref" to cid, "role" to "")
                             }
-                        }
-                        collected[id] = mutableEl
-                        if (childRelIds.isNotEmpty()) {
-                            val danishChildIds = filterDanishChildRelations(id, childRelIds)
-                            for ((idx, cid) in danishChildIds.withIndex()) {
-                                onChildProgress?.invoke(idx + 1, danishChildIds.size)
-                                downloadRelationRecursive(cid, collected, null, null)
-                                if (danishChildIds.size > 1 && !isLikelyDanishChildRelation(collected[cid])) {
-                                    collected.remove(cid)
-                                }
+                        )
+                        for (el in elements) {
+                            if (el["type"] == "relation") {
+                                val id = (el["id"] as? Number)?.toLong() ?: continue
+                                structureById[id] = el
                             }
                         }
                     }
                 }
             }
-        } catch (ce: kotlinx.coroutines.CancellationException) {
-            throw ce
-        } catch (e: Exception) {
-            Log.w("TrailGeometry", "Overpass failed for relation $relationId: ${e.message}")
-        }
-    }
 
-    /**
-     * Before downloading a child relation's geometry, fetch the children's tags and bounding boxes
-     * in one request (`relation($parentRelationId); relation(r); out tags bb;`) and skip children outside Denmark.
-     */
-    private suspend fun filterDanishChildRelations(
-        parentRelationId: Long,
-        childRelIds: List<Long>
-    ): List<Long> {
-        if (childRelIds.isEmpty()) return emptyList()
-        val query = """
-            [out:json][timeout:30][maxsize:67108864];
-            relation($parentRelationId);
-            relation(r);
-            out tags bb;
-        """.trimIndent()
+            val keptRelationIds = mutableListOf<Long>()
+            val keptChildrenByParent = mutableMapOf<Long, List<Long>>()
+            val visitedInTree = mutableSetOf<Long>()
 
-        return try {
-            val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
-                query = query,
-                label = "ChildTagsBb($parentRelationId)",
-                priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED
-            )
-            @Suppress("UNCHECKED_CAST")
-            val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
-            @Suppress("UNCHECKED_CAST")
-            val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
-            if (elements.isEmpty()) return childRelIds
-
-            val metaById = elements.mapNotNull { el ->
-                val cid = (el["id"] as? Number)?.toLong() ?: return@mapNotNull null
-                cid to el
-            }.toMap()
-
-            childRelIds.filter { cid ->
-                val meta = metaById[cid] ?: return@filter true
-                isChildRelationInsideDenmark(meta) && isLikelyDanishChildRelation(meta)
+            fun traverseStructure(relId: Long, isRoot: Boolean) {
+                if (!visitedInTree.add(relId)) return
+                val relEl = structureById[relId]
+                if (!isRoot && relEl != null) {
+                    if (!isChildRelationInsideDenmark(relEl) || !isLikelyDanishChildRelation(relEl)) {
+                        return
+                    }
+                }
+                keptRelationIds.add(relId)
+                if (relEl == null) return
+                @Suppress("UNCHECKED_CAST")
+                val members = relEl["members"] as? List<Map<String, Any>> ?: emptyList()
+                val keptChildren = mutableListOf<Long>()
+                for (m in members) {
+                    val mType = m["type"] as? String
+                    val mRef = (m["ref"] as? Number)?.toLong()
+                    if (mType == "relation" && mRef != null) {
+                        val childEl = structureById[mRef]
+                        val keepChild = if (childEl != null) {
+                            isChildRelationInsideDenmark(childEl) && isLikelyDanishChildRelation(childEl)
+                        } else {
+                            false
+                        }
+                        if (keepChild) {
+                            keptChildren.add(mRef)
+                            traverseStructure(mRef, isRoot = false)
+                        }
+                    }
+                }
+                keptChildrenByParent[relId] = keptChildren
             }
+
+            if (structureById.containsKey(rootRelationId)) {
+                traverseStructure(rootRelationId, isRoot = true)
+            } else {
+                keptRelationIds.add(rootRelationId)
+            }
+
+            val keptSet = keptRelationIds.toSet()
+
+            // Filter structure elements so rejected child relations and their subtrees are excluded
+            val filteredStructureById = LinkedHashMap<Long, Map<String, Any>>()
+            for (relId in keptRelationIds) {
+                val structEl = structureById[relId] ?: continue
+                val copyEl = structEl.toMutableMap()
+                @Suppress("UNCHECKED_CAST")
+                val members = structEl["members"] as? List<Map<String, Any>>
+                if (members != null) {
+                    copyEl["members"] = members.filter { m ->
+                        val mType = m["type"] as? String
+                        val mRef = (m["ref"] as? Number)?.toLong()
+                        if (mType == "relation" && mRef != null) {
+                            mRef in keptSet
+                        } else {
+                            true
+                        }
+                    }
+                }
+                filteredStructureById[relId] = copyEl
+            }
+
+            val batches = keptRelationIds.chunked(15)
+            val totalBatches = batches.size.coerceAtLeast(1)
+            val downloadedRelationsById = LinkedHashMap<Long, Map<String, Any>>()
+            val allWayTags = LinkedHashMap<Long, Map<String, String>>()
+
+            for ((batchIndex, batchIds) in batches.withIndex()) {
+                val batchNumber = batchIndex + 1
+                onBatchProgress?.invoke(batchNumber, totalBatches)
+                val batchQuery = buildGeometryAndWayTagsBatchQuery(batchIds)
+                val batchStatusHandler: (com.example.data.remote.OverpassClient.RequestState) -> Unit = { state ->
+                    when (state) {
+                        is com.example.data.remote.OverpassClient.RequestState.Queued -> onStatusChange?.invoke(state)
+                        is com.example.data.remote.OverpassClient.RequestState.Slow -> onStatusChange?.invoke(state)
+                        is com.example.data.remote.OverpassClient.RequestState.Running -> {
+                            onBatchProgress?.invoke(batchNumber, totalBatches)
+                        }
+                    }
+                }
+
+                executeWithOneRetry("TrailBatch($batchNumber/$totalBatches)") {
+                    val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
+                        query = batchQuery,
+                        label = "TrailBatch($batchNumber/$totalBatches)",
+                        priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED,
+                        onStatusChange = batchStatusHandler
+                    )
+                    @Suppress("UNCHECKED_CAST")
+                    val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
+                        ?: throw java.io.IOException("Invalid batch JSON")
+                    @Suppress("UNCHECKED_CAST")
+                    val elements = root["elements"] as? List<Map<String, Any>>
+                        ?: throw java.io.IOException("Missing elements in batch JSON")
+
+                    val batchRels = LinkedHashMap<Long, Map<String, Any>>()
+                    val batchWayTags = LinkedHashMap<Long, Map<String, String>>()
+
+                    for (el in elements) {
+                        val id = (el["id"] as? Number)?.toLong() ?: continue
+                        when (el["type"] as? String) {
+                            "relation" -> {
+                                val mutableRel = el.toMutableMap()
+                                @Suppress("UNCHECKED_CAST")
+                                val members = el["members"] as? List<Map<String, Any>>
+                                if (members != null && structureById.isNotEmpty()) {
+                                    mutableRel["members"] = members.filter { m ->
+                                        val mType = m["type"] as? String
+                                        val mRef = (m["ref"] as? Number)?.toLong()
+                                        if (mType == "relation" && mRef != null) {
+                                            mRef in keptSet
+                                        } else {
+                                            true
+                                        }
+                                    }
+                                } else if (members == null && filteredStructureById[id]?.get("members") != null) {
+                                    mutableRel["members"] = filteredStructureById[id]!!["members"]!!
+                                }
+                                batchRels[id] = mutableRel
+                            }
+                            "way" -> {
+                                @Suppress("UNCHECKED_CAST")
+                                val tags = el["tags"] as? Map<String, String> ?: emptyMap()
+                                batchWayTags[id] = tags
+                            }
+                        }
+                    }
+
+                    if (batchRels.isEmpty()) {
+                        throw java.io.IOException("Batch $batchNumber/$totalBatches returned no relations")
+                    }
+
+                    // Ensure every leaf relation in the batch was returned
+                    val expectedLeafIds = batchIds.filter { id ->
+                        keptChildrenByParent[id].isNullOrEmpty()
+                    }
+                    if (expectedLeafIds.isNotEmpty() && batchRels.keys != setOf(rootRelationId) && !batchRels.keys.containsAll(expectedLeafIds)) {
+                        val missing = expectedLeafIds - batchRels.keys
+                        throw java.io.IOException("Batch $batchNumber/$totalBatches missing relations: $missing")
+                    }
+
+                    downloadedRelationsById.putAll(batchRels)
+                    allWayTags.putAll(batchWayTags)
+                }
+            }
+
+            // Populate collected in exact member/stage order from keptRelationIds
+            collected.clear()
+            for (relId in keptRelationIds) {
+                val geomRel = downloadedRelationsById[relId]
+                val structRel = filteredStructureById[relId]
+                when {
+                    geomRel != null && structRel != null -> {
+                        val merged = structRel.toMutableMap()
+                        merged.putAll(geomRel)
+                        @Suppress("UNCHECKED_CAST")
+                        val geomMembers = geomRel["members"] as? List<Map<String, Any>>
+                        @Suppress("UNCHECKED_CAST")
+                        val structMembers = structRel["members"] as? List<Map<String, Any>>
+                        if (geomMembers.isNullOrEmpty() && !structMembers.isNullOrEmpty()) {
+                            merged["members"] = structMembers
+                        }
+                        collected[relId] = merged
+                    }
+                    geomRel != null -> collected[relId] = geomRel
+                    structRel != null -> collected[relId] = structRel
+                }
+            }
+            for ((relId, relMap) in downloadedRelationsById) {
+                if (!collected.containsKey(relId)) {
+                    collected[relId] = relMap
+                }
+            }
+
+            if (allWayTags.isNotEmpty()) {
+                enrichRelationsWithWayTags(collected, allWayTags)
+            }
+
+            collected.isNotEmpty()
         } catch (ce: kotlinx.coroutines.CancellationException) {
             throw ce
         } catch (e: Exception) {
-            Log.w("TrailGeometry", "Child tags/bb fetch failed for $parentRelationId: ${e.message}")
-            childRelIds
+            Log.w("TrailGeometry", "Trail download failed for relation $rootRelationId: ${e.message}")
+            collected.clear()
+            false
         }
     }
 
@@ -642,57 +887,6 @@ class TrailGeometryRepository(private val context: Context) {
             val updatedRel = relMap.toMutableMap()
             updatedRel["members"] = enrichedMembers
             collected[relId] = updatedRel
-        }
-    }
-
-    /**
-     * Fetches member way tags in one request for all relations, not one per relation,
-     * so ways with `route=ferry` are detected and marked as FERRY segments.
-     */
-    private suspend fun fetchMemberWayTagsForRelations(
-        relationIds: List<Long>,
-        onStatusChange: ((com.example.data.remote.OverpassClient.RequestState) -> Unit)? = null
-    ): Map<Long, Map<String, String>> {
-        if (relationIds.isEmpty()) return emptyMap()
-        val relSelector = if (relationIds.size == 1) {
-            "relation(${relationIds.first()});"
-        } else {
-            "relation(id:${relationIds.joinToString(",")});"
-        }
-        val query = """
-            [out:json][timeout:30][maxsize:67108864];
-            $relSelector
-            way(r);
-            out tags;
-        """.trimIndent()
-
-        return try {
-            val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
-                query = query,
-                label = "MemberWayTags(${relationIds.joinToString(",")})",
-                priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED,
-                onStatusChange = onStatusChange
-            )
-            @Suppress("UNCHECKED_CAST")
-            val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any>
-            @Suppress("UNCHECKED_CAST")
-            val elements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
-            val result = mutableMapOf<Long, Map<String, String>>()
-            for (el in elements) {
-                val id = (el["id"] as? Number)?.toLong() ?: continue
-                val type = el["type"] as? String
-                if (type == "way") {
-                    @Suppress("UNCHECKED_CAST")
-                    val tags = el["tags"] as? Map<String, String> ?: emptyMap()
-                    result[id] = tags
-                }
-            }
-            result
-        } catch (ce: kotlinx.coroutines.CancellationException) {
-            throw ce
-        } catch (e: Exception) {
-            Log.w("TrailGeometry", "Way tags fetch failed for relations $relationIds: ${e.message}")
-            emptyMap()
         }
     }
 
@@ -1092,43 +1286,55 @@ class TrailGeometryRepository(private val context: Context) {
      * If elevation lookup fails, stores null and never pads with a value.
      */
     private fun applyElevationToSegments(segments: List<InternalSegment>): List<TrailSegmentDto> {
-        val resultSegments = mutableListOf<TrailSegmentDto>()
+        if (segments.isEmpty()) return emptyList()
+        val resultSegments = MutableList<TrailSegmentDto?>(segments.size) { null }
 
-        for (seg in segments) {
+        val totalWalkKm = segments
+            .filter { it.type != TrailSegmentType.FERRY && it.points.size >= 2 }
+            .sumOf { calculateSegmentKm(it.points) }
+        val targetInterval = max(100.0, (totalWalkKm * 1000.0) / 250.0)
+
+        data class PendingSegmentElevation(
+            val index: Int,
+            val seg: InternalSegment,
+            val km: Double,
+            val resampled: List<GeoPointDto>,
+            val resampledDistances: List<Double>,
+            val startOffset: Int
+        )
+
+        val pending = mutableListOf<PendingSegmentElevation>()
+        val allResampled = mutableListOf<GeoPointDto>()
+
+        for ((index, seg) in segments.withIndex()) {
             val realPts = seg.points
             if (realPts.isEmpty()) continue
-
             val km = calculateSegmentKm(realPts)
 
             if (seg.type == TrailSegmentType.FERRY || realPts.size < 2) {
-                resultSegments.add(
-                    TrailSegmentDto(
-                        type = seg.type,
-                        points = realPts.map { GeoPointDto(it.lat, it.lng, null) },
-                        lengthKm = km,
-                        highway = seg.highway,
-                        surface = seg.surface,
-                        wayTagRanges = seg.wayTagRanges
-                    )
+                resultSegments[index] = TrailSegmentDto(
+                    type = seg.type,
+                    points = realPts.map { GeoPointDto(it.lat, it.lng, null) },
+                    lengthKm = km,
+                    highway = seg.highway,
+                    surface = seg.surface,
+                    wayTagRanges = seg.wayTagRanges
                 )
                 continue
             }
 
             if (customRelationFetcher != null) {
-                resultSegments.add(
-                    TrailSegmentDto(
-                        type = seg.type,
-                        points = realPts.map { GeoPointDto(it.lat, it.lng, it.ele) },
-                        lengthKm = km,
-                        highway = seg.highway,
-                        surface = seg.surface,
-                        wayTagRanges = seg.wayTagRanges
-                    )
+                resultSegments[index] = TrailSegmentDto(
+                    type = seg.type,
+                    points = realPts.map { GeoPointDto(it.lat, it.lng, it.ele) },
+                    lengthKm = km,
+                    highway = seg.highway,
+                    surface = seg.surface,
+                    wayTagRanges = seg.wayTagRanges
                 )
                 continue
             }
 
-            // 1. Resample every 100m (or adaptive interval for long routes >25 km so we cap at ~250 samples) ONLY to look up elevation
             val resampled = mutableListOf<GeoPointDto>()
             val resampledDistances = mutableListOf<Double>()
             resampled.add(realPts.first())
@@ -1136,7 +1342,6 @@ class TrailGeometryRepository(private val context: Context) {
 
             var distFromLastSample = 0.0
             var totalDist = 0.0
-            val targetInterval = max(100.0, (km * 1000.0) / 250.0)
 
             for (i in 0 until realPts.size - 1) {
                 val p1 = realPts[i]
@@ -1166,18 +1371,32 @@ class TrailGeometryRepository(private val context: Context) {
                 resampledDistances.add(totalDist)
             }
 
-            // 2. Query Open-Meteo for resampled coordinates
-            val elevations = mutableListOf<Double>()
+            val startOffset = allResampled.size
+            allResampled.addAll(resampled)
+            pending.add(
+                PendingSegmentElevation(
+                    index = index,
+                    seg = seg,
+                    km = km,
+                    resampled = resampled,
+                    resampledDistances = resampledDistances,
+                    startOffset = startOffset
+                )
+            )
+        }
+
+        if (pending.isNotEmpty() && allResampled.isNotEmpty()) {
+            val allElevations = mutableListOf<Double>()
             var lookupFailed = false
 
-            for (chunk in resampled.chunked(100)) {
+            for (chunk in allResampled.chunked(100)) {
                 val customFetcher = customElevationFetcher
                 if (customFetcher != null) {
                     try {
                         val res = customFetcher.invoke(chunk.map { it.lat to it.lng })
                         if (res != null && res.size == chunk.size && res.all { it != null }) {
                             for (e in res) {
-                                elevations.add(e!!)
+                                allElevations.add(e!!)
                             }
                         } else {
                             lookupFailed = true
@@ -1204,7 +1423,7 @@ class TrailGeometryRepository(private val context: Context) {
                                 val eleList = root?.get("elevation") as? List<Number>
                                 if (eleList != null && eleList.size == chunk.size) {
                                     for (e in eleList) {
-                                        elevations.add(e.toDouble())
+                                        allElevations.add(e.toDouble())
                                     }
                                 } else {
                                     lookupFailed = true
@@ -1223,71 +1442,70 @@ class TrailGeometryRepository(private val context: Context) {
                 if (lookupFailed) break
             }
 
-            if (lookupFailed || elevations.size != resampled.size) {
-                // If elevation lookup fails, store null and never pad with a value
-                resultSegments.add(
-                    TrailSegmentDto(
-                        type = seg.type,
+            val hasAllElevations = !lookupFailed && allElevations.size == allResampled.size
+            for (item in pending) {
+                val realPts = item.seg.points
+                if (!hasAllElevations) {
+                    resultSegments[item.index] = TrailSegmentDto(
+                        type = item.seg.type,
                         points = realPts.map { GeoPointDto(it.lat, it.lng, null) },
-                        lengthKm = km,
-                        highway = seg.highway,
-                        surface = seg.surface,
-                        wayTagRanges = seg.wayTagRanges
+                        lengthKm = item.km,
+                        highway = item.seg.highway,
+                        surface = item.seg.surface,
+                        wayTagRanges = item.seg.wayTagRanges
                     )
-                )
-                continue
-            }
-
-            // 5-point moving average smoothing on resampled elevations
-            val smoothedElevations = mutableListOf<Double>()
-            val windowSize = 5
-            for (i in elevations.indices) {
-                val start = max(0, i - windowSize / 2)
-                val end = min(elevations.size - 1, i + windowSize / 2)
-                val avg = elevations.subList(start, end + 1).average()
-                smoothedElevations.add(avg)
-            }
-
-            // 3. Interpolate elevation onto the real Douglas-Peucker points
-            val realDistances = DoubleArray(realPts.size)
-            var curDist = 0.0
-            realDistances[0] = 0.0
-            for (i in 0 until realPts.size - 1) {
-                curDist += distanceMeters(realPts[i], realPts[i + 1])
-                realDistances[i + 1] = curDist
-            }
-
-            var rIdx = 0
-            val finalRealPoints = realPts.mapIndexed { idx, pt ->
-                val d = realDistances[idx]
-                while (rIdx < resampledDistances.size - 2 && resampledDistances[rIdx + 1] < d) {
-                    rIdx++
+                    continue
                 }
-                val d0 = resampledDistances[rIdx]
-                val d1 = resampledDistances[rIdx + 1]
-                val span = d1 - d0
-                val ratio = if (span > 0.0) ((d - d0) / span).coerceIn(0.0, 1.0) else 0.0
-                val ele = if (smoothedElevations.isNotEmpty()) {
-                    val e0 = smoothedElevations.getOrElse(rIdx) { smoothedElevations.last() }
-                    val e1 = smoothedElevations.getOrElse(rIdx + 1) { e0 }
-                    e0 + ratio * (e1 - e0)
-                } else null
-                GeoPointDto(pt.lat, pt.lng, ele)
-            }
 
-            resultSegments.add(
-                TrailSegmentDto(
-                    type = seg.type,
+                val elevations = allElevations.subList(item.startOffset, item.startOffset + item.resampled.size)
+                val smoothedElevations = mutableListOf<Double>()
+                val windowSize = 5
+                for (i in elevations.indices) {
+                    val start = max(0, i - windowSize / 2)
+                    val end = min(elevations.size - 1, i + windowSize / 2)
+                    val avg = elevations.subList(start, end + 1).average()
+                    smoothedElevations.add(avg)
+                }
+
+                val realDistances = DoubleArray(realPts.size)
+                var curDist = 0.0
+                realDistances[0] = 0.0
+                for (i in 0 until realPts.size - 1) {
+                    curDist += distanceMeters(realPts[i], realPts[i + 1])
+                    realDistances[i + 1] = curDist
+                }
+
+                var rIdx = 0
+                val resampledDistances = item.resampledDistances
+                val finalRealPoints = realPts.mapIndexed { idx, pt ->
+                    val d = realDistances[idx]
+                    while (rIdx < resampledDistances.size - 2 && resampledDistances[rIdx + 1] < d) {
+                        rIdx++
+                    }
+                    val d0 = resampledDistances[rIdx]
+                    val d1 = resampledDistances[rIdx + 1]
+                    val span = d1 - d0
+                    val ratio = if (span > 0.0) ((d - d0) / span).coerceIn(0.0, 1.0) else 0.0
+                    val ele = if (smoothedElevations.isNotEmpty()) {
+                        val e0 = smoothedElevations.getOrElse(rIdx) { smoothedElevations.last() }
+                        val e1 = smoothedElevations.getOrElse(rIdx + 1) { e0 }
+                        e0 + ratio * (e1 - e0)
+                    } else null
+                    GeoPointDto(pt.lat, pt.lng, ele)
+                }
+
+                resultSegments[item.index] = TrailSegmentDto(
+                    type = item.seg.type,
                     points = finalRealPoints,
-                    lengthKm = km,
-                    highway = seg.highway,
-                    surface = seg.surface,
-                    wayTagRanges = seg.wayTagRanges
+                    lengthKm = item.km,
+                    highway = item.seg.highway,
+                    surface = item.seg.surface,
+                    wayTagRanges = item.seg.wayTagRanges
                 )
-            )
+            }
         }
 
-        return resultSegments
+        return resultSegments.filterNotNull()
     }
 
     private fun douglasPeucker(points: List<GeoPointDto>, epsilon: Double): List<GeoPointDto> {

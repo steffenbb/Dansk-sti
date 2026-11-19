@@ -193,7 +193,7 @@ class BRouterSegmentDownloadWorker(
 
         for (segment in realSegments) {
             if (isStopped) {
-                Log.i(TAG, "Download worker cancelled by user or system.")
+                com.example.util.DLog.run { i(TAG, "Download worker cancelled by user or system.") }
                 return@withContext Result.failure()
             }
 
@@ -208,7 +208,7 @@ class BRouterSegmentDownloadWorker(
 
             val existingTmpBytes = if (tmpFile.exists() && tmpFile.length() > 0L) tmpFile.length() else 0L
             val url = "${BRouterSegments.DOWNLOAD_BASE_URL}${segment.filename}"
-            Log.i(TAG, "Downloading segment ${segment.filename} (resume offset=$existingTmpBytes)")
+            com.example.util.DLog.run { i(TAG, "Downloading segment ${segment.filename} (resume offset=$existingTmpBytes)") }
 
             try {
                 val customFetcher = customSegmentFetcher
@@ -319,7 +319,7 @@ class BRouterSegmentDownloadWorker(
                 }
 
                 accumulatedDownloadedBytes += segment.sizeBytes
-                Log.i(TAG, "Successfully downloaded ${segment.filename} (${targetFile.length()} bytes)")
+                com.example.util.DLog.run { i(TAG, "Successfully downloaded ${segment.filename} (${targetFile.length()} bytes)") }
             } catch (e: Exception) {
                 Log.e(TAG, "Error downloading ${segment.filename} (preserving partial .tmp for resume)", e)
                 // Keep tmpFile intact so retry resumes from existing bytes!

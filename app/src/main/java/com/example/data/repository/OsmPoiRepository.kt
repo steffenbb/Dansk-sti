@@ -23,37 +23,45 @@ class OsmPoiRepository(private val context: Context) {
     private val cacheDir: File
         get() = File(context.filesDir, "osm_pois").apply { if (!exists()) mkdirs() }
 
+    private val resultAdapter = moshi.adapter(OsmPoiResult::class.java)
+
     suspend fun fetchPoisForTrail(
         trailId: String,
-        relationId: Long,
-        childRelationIds: List<Long> = emptyList()
+        points: List<GeoPointDto> = emptyList()
     ): OsmPoiResult = withContext(Dispatchers.IO) {
         val cacheFile = File(cacheDir, "$trailId.json")
 
-        // 1. Try Overpass API if relationId > 0 via shared OverpassClient
-        if (relationId > 0L) {
+        val effectivePoints = if (points.isNotEmpty()) {
+            points
+        } else {
+            TrailGeometryRepository(context).loadGeometry(trailId)
+                ?.segments
+                ?.flatMap { it.points }
+                .orEmpty()
+        }
+
+        // 1. Query POIs along the trail's downloaded geometry polyline
+        if (effectivePoints.isNotEmpty()) {
             try {
-                val query = buildOverpassQuery(relationId, childRelationIds)
-                val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
-                    query = query,
-                    label = "OsmPoiTrail($trailId)"
-                )
-                if (jsonStr.isNotBlank() && com.example.data.remote.OverpassClient.extractErrorRemark(jsonStr) == null) {
-                    cacheFile.writeText(jsonStr)
-                    val parsed = parseOverpassJson(jsonStr)
-                    if (parsed.shelters.isNotEmpty() || parsed.pois.isNotEmpty()) {
-                        return@withContext parsed
-                    }
+                val liveResult = fetchPoisForPolyline(effectivePoints)
+                if (liveResult.shelters.isNotEmpty() || liveResult.pois.isNotEmpty()) {
+                    runCatching { cacheFile.writeText(resultAdapter.toJson(liveResult)) }
+                    return@withContext liveResult
                 }
             } catch (e: Exception) {
-                Log.w("OsmPoiRepo", "Overpass query failed for $trailId: ${e.message}")
+                Log.w("OsmPoiRepo", "Overpass polyline POI query failed for $trailId: ${e.message}")
             }
         }
 
         // 2. Fallback to cached file
         if (cacheFile.exists()) {
             try {
-                val parsed = parseOverpassJson(cacheFile.readText())
+                val cachedText = cacheFile.readText()
+                val parsed = if (cachedText.contains("\"elements\"")) {
+                    parseOverpassJson(cachedText)
+                } else {
+                    resultAdapter.fromJson(cachedText) ?: OsmPoiResult()
+                }
                 if (parsed.shelters.isNotEmpty() || parsed.pois.isNotEmpty()) {
                     return@withContext parsed
                 }
@@ -244,7 +252,7 @@ class OsmPoiRepository(private val context: Context) {
     fun buildOverpassPolylineQuery(simplifiedPoints: List<GeoPointDto>): String {
         val coordStr = simplifiedPoints.joinToString(",") { "${it.lat},${it.lng}" }
         return """
-            [out:json][timeout:120];
+            [out:json][timeout:60][maxsize:67108864];
             (
               nwr["shop"~"^(supermarket|convenience|bakery|farm|kiosk|greengrocer)$"](around:2000,$coordStr);
               nwr["amenity"="drinking_water"](around:3000,$coordStr);
@@ -254,32 +262,6 @@ class OsmPoiRepository(private val context: Context) {
               nwr["tourism"~"^(camp_site|wilderness_hut)$"](around:3000,$coordStr);
               nwr["railway"="station"](around:3000,$coordStr);
               nwr["amenity"="ferry_terminal"](around:3000,$coordStr);
-            );
-            out center tags;
-        """.trimIndent()
-    }
-
-    private fun buildOverpassQuery(relationId: Long, childRelationIds: List<Long>): String {
-        val relClauses = (listOf(relationId) + childRelationIds).joinToString("\n") { "relation($it);" }
-        return """
-            [out:json][timeout:120];
-            (
-              $relClauses
-            )->.super;
-            (
-              rel(r.super);
-              .super;
-            );
-            way(r)->.route;
-            (
-              nwr["shop"~"^(supermarket|convenience|bakery|farm|kiosk|greengrocer)$"](around.route:2000);
-              nwr["amenity"="drinking_water"](around.route:3000);
-              nwr["man_made"="water_tap"]["drinking_water"="yes"](around.route:3000);
-              nwr["amenity"="toilets"]["access"!~"private|customers"](around.route:3000);
-              nwr["amenity"="shelter"]["shelter_type"~"^(basic_hut|lean_to|weather_shelter)$"](around.route:3000);
-              nwr["tourism"~"^(camp_site|wilderness_hut)$"](around.route:3000);
-              nwr["railway"="station"](around.route:3000);
-              nwr["amenity"="ferry_terminal"](around.route:3000);
             );
             out center tags;
         """.trimIndent()

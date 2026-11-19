@@ -13,8 +13,8 @@ android {
     applicationId = "com.aistudio.dansksti.hktvwp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 19
-    versionName = "19.0"
+    versionCode = 21
+    versionName = "21.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -55,9 +55,8 @@ android {
   }
   lint {
     error += setOf("StringFormatMatches", "StringFormatInvalid", "StringFormatCount")
-    checkOnly += setOf("StringFormatMatches", "StringFormatInvalid", "StringFormatCount")
+    baseline = file("lint-baseline.xml")
     abortOnError = true
-    checkReleaseBuilds = false
     checkTestSources = false
     checkGeneratedSources = false
     checkDependencies = false

@@ -391,7 +391,8 @@ fun MarkedRouteDetailSheet(
                             if (res.isSuccess) {
                                 savedTrail = res.getOrNull()
                             } else {
-                                errorMessage = "Kunne ikke gemme rute: ${res.exceptionOrNull()?.message}"
+                                val error = res.exceptionOrNull() ?: Exception()
+                                errorMessage = "Kunne ikke gemme rute. " + com.example.util.userMessageFor(error)
                             }
                         }
                     },

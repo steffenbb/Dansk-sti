@@ -370,6 +370,44 @@ interface DanskStiDao {
     @Query("SELECT * FROM marked_routes WHERE minLat <= :maxLat AND maxLat >= :minLat AND minLng <= :maxLng AND maxLng >= :minLng")
     suspend fun getMarkedRoutesInBbox(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double): List<com.example.data.model.MarkedRouteEntity>
 
+    @Query("""
+        SELECT osmRelationId, name, lengthKm, operator, routeType, network, symbol, colorHex,
+               minLat, maxLat, minLng, maxLng, cachedAt, LENGTH(segmentsJson) AS segmentsByteLength
+        FROM marked_routes
+        WHERE minLat <= :maxLat AND maxLat >= :minLat AND minLng <= :maxLng AND maxLng >= :minLng
+    """)
+    suspend fun getMarkedRouteHeadersInBbox(
+        minLat: Double,
+        maxLat: Double,
+        minLng: Double,
+        maxLng: Double
+    ): List<com.example.data.model.MarkedRouteHeaderTuple>
+
+    @Query("""
+        SELECT osmRelationId, segmentsJson, cachedAt
+        FROM marked_routes
+        WHERE osmRelationId IN (:ids)
+    """)
+    suspend fun getMarkedRouteSegmentsByIds(
+        ids: List<Long>
+    ): List<com.example.data.model.MarkedRouteSegmentsTuple>
+
+    @Query("""
+        DELETE FROM marked_route_cache_boxes
+        WHERE EXISTS (
+            SELECT 1 FROM marked_routes r
+            WHERE LENGTH(r.segmentsJson) > :maxBytes
+              AND marked_route_cache_boxes.minLat <= r.maxLat
+              AND marked_route_cache_boxes.maxLat >= r.minLat
+              AND marked_route_cache_boxes.minLng <= r.maxLng
+              AND marked_route_cache_boxes.maxLng >= r.minLng
+        )
+    """)
+    suspend fun deleteCacheBoxesForOversizedMarkedRoutes(maxBytes: Int = 1_500_000): Int
+
+    @Query("DELETE FROM marked_routes WHERE LENGTH(segmentsJson) > :maxBytes")
+    suspend fun deleteOversizedMarkedRoutes(maxBytes: Int = 1_500_000): Int
+
     @Query("SELECT * FROM marked_routes WHERE osmRelationId = :relationId LIMIT 1")
     suspend fun getMarkedRouteById(relationId: Long): com.example.data.model.MarkedRouteEntity?
 
