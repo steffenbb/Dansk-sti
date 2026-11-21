@@ -36,10 +36,16 @@ class MarkedRoutesBatchOverlay(
     @Volatile
     private var snapshotRoutes: List<MarkedRouteRenderItem> = emptyList()
 
+    @Volatile
+    var tapsEnabled: Boolean = true
+
     var lastFrameRoutesDrawn: Int = 0
         private set
 
     var lastFrameVerticesDrawn: Int = 0
+        private set
+
+    var lastFrameDrawnRouteIds: List<Long> = emptyList()
         private set
 
     private val casingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -81,6 +87,7 @@ class MarkedRoutesBatchOverlay(
         if (!isEnabled) {
             lastFrameRoutesDrawn = 0
             lastFrameVerticesDrawn = 0
+            lastFrameDrawnRouteIds = emptyList()
             return
         }
 
@@ -88,6 +95,7 @@ class MarkedRoutesBatchOverlay(
         if (currentSnapshot.isEmpty()) {
             lastFrameRoutesDrawn = 0
             lastFrameVerticesDrawn = 0
+            lastFrameDrawnRouteIds = emptyList()
             return
         }
 
@@ -190,7 +198,7 @@ class MarkedRoutesBatchOverlay(
     }
 
     override fun onSingleTapConfirmed(e: MotionEvent?, mapView: MapView?): Boolean {
-        if (!isEnabled || e == null || mapView == null) return false
+        if (!isEnabled || !tapsEnabled || e == null || mapView == null) return false
         val currentSnapshot = snapshotRoutes
         if (currentSnapshot.isEmpty()) return false
 

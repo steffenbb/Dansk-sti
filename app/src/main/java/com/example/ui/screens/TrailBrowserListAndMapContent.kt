@@ -761,22 +761,14 @@ internal fun TrailBrowserMapContent(
     }
 }
 
-/**
- * Zoom tiers for Udforsk catalogue map:
- * - Tier 0: zoom < 9.5 (Overview)
- * - Tier 1: 9.5 <= zoom < 12.0 (Regional)
- * - Tier 2: zoom >= 12.0 (Full unsimplified geometry)
- */
+// Zoom tiers for Udforsk map: 0 (zoom < 9.5), 1 (9.5..12.0), 2 (zoom >= 12.0 full geometry)
 internal fun computeUdforskZoomTier(zoom: Double): Int = when {
     zoom < 9.5 -> 0
     zoom < 12.0 -> 1
     else -> 2
 }
 
-/**
- * Decimates catalogue trail points for Udforsk overview map only when zoom < 12.0.
- * At zoom >= 12.0 (Tier 2), returns the full original list without modification.
- */
+// Decimates catalogue trail points for Udforsk overview map only when zoom < 12.0.
 internal fun decimateCatalogueTrailForZoomTier(
     points: List<GeoPointDto>,
     zoomTier: Int
@@ -788,11 +780,9 @@ internal fun decimateCatalogueTrailForZoomTier(
     val cosLat = kotlin.math.cos(Math.toRadians(refLat)).coerceAtLeast(0.1)
     val metersPerDegLat = 111_320.0
     val metersPerDegLng = 111_320.0 * cosLat
-
     val result = ArrayList<GeoPointDto>(points.size / 4 + 2)
     var lastKept = points[0]
     result.add(lastKept)
-
     for (i in 1 until points.size - 1) {
         val pt = points[i]
         val dy = (pt.lat - lastKept.lat) * metersPerDegLat
@@ -805,4 +795,3 @@ internal fun decimateCatalogueTrailForZoomTier(
     result.add(points.last())
     return result
 }
-

@@ -17,7 +17,7 @@ object AccessMapOverlayHelper {
         polygon: AccessPolygon,
         onPolygonClicked: (AccessPolygon) -> Unit
     ): Polygon {
-        val overlay = Polygon(mapView).apply {
+        val overlay = Polygon().apply {
             title = polygon.name ?: polygon.type.title
             snippet = polygon.type.summary
 

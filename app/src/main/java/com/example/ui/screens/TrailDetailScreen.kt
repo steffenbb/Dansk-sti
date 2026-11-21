@@ -207,6 +207,7 @@ fun TrailDetailScreen(
                     layersButtonTestTag = "trail_detail_layers_button",
                     compassButtonTestTag = "trail_detail_compass_button",
                     myLocationButtonTestTag = "trail_detail_my_location_button",
+                    markedRouteTapsEnabled = false,
                     onMapTap = {
                         if (routeError == null || points.isNotEmpty()) {
                             onOpenFullscreenMap(trailId)

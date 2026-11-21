@@ -426,5 +426,11 @@ data class OfflineDownloadInProgressEntity(
     val startedAt: Long = System.currentTimeMillis()
 )
 
+data class TrailShelterCountTuple(
+    val trailKey: String,
+    val shelterCount: Int
+)
+
+
 
 

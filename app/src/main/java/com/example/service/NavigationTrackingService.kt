@@ -4,8 +4,10 @@ import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.location.Location
 import android.os.Build
@@ -16,6 +18,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.example.DanskStiApp
 import com.example.MainActivity
 import com.example.data.model.GeoPointDto
@@ -23,6 +26,7 @@ import com.example.data.model.PlannedRoute
 import com.example.data.model.RoutePoint
 import com.example.data.model.TripProgressEntity
 import com.example.data.model.TripStage
+import com.example.data.repository.AccessLandRepository
 import com.example.data.repository.PlannedRouteRepository
 import com.example.util.RouteTracker
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -31,17 +35,23 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationToken
+import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.coroutines.resume
 
 data class NavigationLiveState(
     val isTracking: Boolean = false,
@@ -84,9 +94,10 @@ data class NavigationLiveState(
 
 /**
  * GPS power profiles:
- * - HIGH_ACCURACY_2S: High accuracy every 2 s only while moving with the screen on.
- * - BALANCED_10S: Balanced accuracy every 10 s (battery-saver screen, screen off, or stationary).
- * - LOW_POWER_60S: Low power every 60 s while paused (resumes normal when movement is detected).
+ * - HIGH_ACCURACY_2S: High accuracy every 2 s while moving + navigating with the screen on.
+ * - HIGH_ACCURACY_5S: High accuracy every 5 s (minUpdateDistance 5 m) while moving + navigating with the screen off.
+ * - BALANCED_10S: Balanced accuracy every 10 s only when stationary for 2 min or in battery-saver mode.
+ * - LOW_POWER_60S: Low power every 60 s while paused.
  */
 enum class GpsPowerProfile(
     val priority: Int,
@@ -95,6 +106,7 @@ enum class GpsPowerProfile(
     val minDistanceM: Float
 ) {
     HIGH_ACCURACY_2S(Priority.PRIORITY_HIGH_ACCURACY, 2_000L, 1_000L, 1.0f),
+    HIGH_ACCURACY_5S(Priority.PRIORITY_HIGH_ACCURACY, 5_000L, 2_500L, 5.0f),
     BALANCED_10S(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 10_000L, 5_000L, 2.0f),
     LOW_POWER_60S(Priority.PRIORITY_LOW_POWER, 60_000L, 30_000L, 5.0f)
 }
@@ -116,9 +128,61 @@ class NavigationTrackingService : Service() {
     // Speed smoothing over rolling 10 seconds
     private val speedHistory = ArrayDeque<Pair<Long, Double>>() // timestamp, speed m/s
     private var lastLocation: Location? = null
-    private var pausedAnchorLocation: Location? = null
+    internal var lastAccurateLocation: Location? = null
+    internal var pausedAnchorLocation: Location? = null
     private var alerted150CueWalkKm: Double? = null
     private var alerted30CueWalkKm: Double? = null
+
+    // Evidence-based stationary detection & movement confirmation with exponential backoff
+    internal var movementAnchorLocation: Location? = null
+    internal var movementAnchorTimestampMs: Long = 0L
+    internal val accurateFixTimestampsInAnchorWindow = ArrayDeque<Long>()
+    @Volatile
+    internal var isStationaryFor2Min: Boolean = false
+    internal var currentConfirmCooldownMs: Long = INITIAL_CONFIRM_COOLDOWN_MS
+    internal var lastMovementConfirmRequestMs: Long = 0L
+    internal var failedConfirmCount: Int = 0
+    internal var confirmationRequestCount: Int = 0
+    @Volatile
+    internal var movementConfirmJob: Job? = null
+    @Volatile
+    internal var pauseAnchorFetchJob: Job? = null
+    @Volatile
+    internal var activeConfirmTokenSource: CancellationTokenSource? = null
+    internal var highAccuracySingleFixFetcher: (suspend (CancellationToken) -> Location?)? = null
+
+    // Screen on/off receiver state
+    @Volatile
+    internal var isScreenReceiverRegistered: Boolean = false
+    @Volatile
+    internal var lastBroadcastScreenInteractive: Boolean? = null
+
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    lastBroadcastScreenInteractive = false
+                    refreshGpsPowerProfile()
+                }
+                Intent.ACTION_SCREEN_ON -> {
+                    lastBroadcastScreenInteractive = true
+                    refreshGpsPowerProfile()
+                }
+            }
+        }
+    }
+
+    // Turn cue reference cache
+    private var cachedTurnCuesRoute: PlannedRoute? = null
+    private var cachedTurnCues: List<com.example.data.model.TurnCue> = emptyList()
+    internal var turnCueComputeCount: Int = 0
+
+    // Corridor access-polygon prefetch state (next 25 km, max 10 tiles, re-run after +20 km)
+    internal var lastAccessPrefetchWalkKm: Double = Double.NaN
+    internal var corridorPrefetchRunCount: Int = 0
+    internal var corridorPrefetchTileFetchCount: Int = 0
+    @Volatile
+    internal var corridorPrefetchJob: Job? = null
 
     // Ongoing notification throttling & single off-route alert state
     internal var lastOngoingNotificationMs: Long = 0L
@@ -131,8 +195,7 @@ class NavigationTrackingService : Service() {
 
     @Volatile
     internal var currentGpsProfile: GpsPowerProfile = GpsPowerProfile.HIGH_ACCURACY_2S
-    @Volatile
-    private var isMovingRecently: Boolean = true
+    internal var locationRebindCount: Int = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -224,7 +287,7 @@ class NavigationTrackingService : Service() {
                 (existingProgress.isPaused || initialDay > 1) &&
                 walkedToday < 0.05
 
-            val allCues = com.example.util.routing.TurnCueGenerator.computeTurnCuesForPlannedRoute(plannedRoute)
+            val allCues = getOrComputeTurnCues(plannedRoute)
             val firstCueAhead = allCues.firstOrNull { it.walkKm >= initialWalkKm }
             val firstCueDistM = firstCueAhead?.let { ((it.walkKm - initialWalkKm) * 1000.0).coerceAtLeast(0.0) }
 
@@ -246,6 +309,9 @@ class NavigationTrackingService : Service() {
                 distanceToNextCueMeters = if (firstCueDistM != null && firstCueDistM <= 500.0) firstCueDistM else null
             )
 
+            // Prefetch access polygons along the next 25 km route corridor (max 10 tiles, BACKGROUND priority)
+            prefetchAccessPolygonsForRouteCorridor(plannedRoute, initialWalkKm)
+
             // Start foreground on main thread
             kotlinx.coroutines.withContext(Dispatchers.Main) {
                 startForegroundLocationTracking()
@@ -253,12 +319,234 @@ class NavigationTrackingService : Service() {
         }
     }
 
+    internal fun getOrComputeTurnCues(plannedRoute: PlannedRoute): List<com.example.data.model.TurnCue> {
+        if (cachedTurnCuesRoute !== plannedRoute) {
+            cachedTurnCues = com.example.util.routing.TurnCueGenerator.computeTurnCuesForPlannedRoute(plannedRoute)
+            cachedTurnCuesRoute = plannedRoute
+            turnCueComputeCount++
+        }
+        return cachedTurnCues
+    }
+
+    internal fun collectNext25KmCorridorTiles(
+        plannedRoute: PlannedRoute,
+        currentWalkKm: Double
+    ): List<AccessLandRepository.TileBounds> {
+        if (plannedRoute.points.isEmpty()) return emptyList()
+        val endWalkKm = currentWalkKm + CORRIDOR_PREFETCH_WINDOW_KM
+        val tilesById = LinkedHashMap<String, AccessLandRepository.TileBounds>()
+        var prevPt: RoutePoint? = null
+
+        for (pt in plannedRoute.points) {
+            if (pt.walkKm < currentWalkKm) {
+                prevPt = pt
+                continue
+            }
+            if (pt.walkKm > endWalkKm && tilesById.isNotEmpty()) {
+                break
+            }
+            val p0 = prevPt?.takeIf { it.walkKm >= currentWalkKm - 0.5 } ?: pt
+            val minLat = minOf(p0.lat, pt.lat)
+            val maxLat = maxOf(p0.lat, pt.lat)
+            val minLng = minOf(p0.lng, pt.lng)
+            val maxLng = maxOf(p0.lng, pt.lng)
+            val segTiles = AccessLandRepository.getTileIdsForBounds(minLat, maxLat, minLng, maxLng)
+            for (tile in segTiles) {
+                if (!tilesById.containsKey(tile.tileId)) {
+                    tilesById[tile.tileId] = tile
+                    if (tilesById.size >= CORRIDOR_PREFETCH_MAX_TILES) {
+                        return tilesById.values.toList()
+                    }
+                }
+            }
+            prevPt = pt
+            if (pt.walkKm > endWalkKm) break
+        }
+        return tilesById.values.take(CORRIDOR_PREFETCH_MAX_TILES)
+    }
+
+    internal fun prefetchAccessPolygonsForRouteCorridor(
+        plannedRoute: PlannedRoute,
+        currentWalkKm: Double
+    ) {
+        lastAccessPrefetchWalkKm = currentWalkKm
+        val tiles = collectNext25KmCorridorTiles(plannedRoute, currentWalkKm)
+        if (tiles.isEmpty()) return
+        corridorPrefetchRunCount++
+        corridorPrefetchJob?.cancel()
+        corridorPrefetchJob = serviceScope.launch(Dispatchers.IO) {
+            val repo = DanskStiApp.instance.repository
+            for (tile in tiles) {
+                try {
+                    corridorPrefetchTileFetchCount++
+                    repo.getAccessPolygons(
+                        minLat = tile.minLat,
+                        maxLat = tile.maxLat,
+                        minLng = tile.minLng,
+                        maxLng = tile.maxLng,
+                        priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND
+                    )
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w("NavService", "Corridor access prefetch failed for ${tile.tileId}: ${e.message}")
+                }
+            }
+        }
+    }
+
     private fun isScreenInteractiveNow(): Boolean {
+        lastBroadcastScreenInteractive?.let { return it }
         return try {
             val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
             pm?.isInteractive ?: true
         } catch (_: Exception) {
             true
+        }
+    }
+
+    private fun registerScreenReceiverIfNeeded() {
+        if (isScreenReceiverRegistered) return
+        try {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+            }
+            ContextCompat.registerReceiver(
+                this,
+                screenStateReceiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            isScreenReceiverRegistered = true
+        } catch (e: Exception) {
+            Log.w("NavService", "Failed to register screen state receiver: ${e.message}")
+        }
+    }
+
+    private fun unregisterScreenReceiverIfNeeded() {
+        if (!isScreenReceiverRegistered) return
+        try {
+            unregisterReceiver(screenStateReceiver)
+        } catch (_: Exception) {
+        } finally {
+            isScreenReceiverRegistered = false
+            lastBroadcastScreenInteractive = null
+        }
+    }
+
+    private fun cancelActiveConfirmationRequests() {
+        try {
+            activeConfirmTokenSource?.cancel()
+        } catch (_: Exception) {}
+        activeConfirmTokenSource = null
+        movementConfirmJob?.cancel()
+        movementConfirmJob = null
+        pauseAnchorFetchJob?.cancel()
+        pauseAnchorFetchJob = null
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun requestSingleHighAccuracyFix(token: CancellationToken): Location? {
+        val customFetcher = highAccuracySingleFixFetcher
+        if (customFetcher != null) {
+            return customFetcher(token)
+        }
+        return suspendCancellableCoroutine { cont ->
+            cont.invokeOnCancellation {
+                // Token cancellation is handled by caller's CancellationTokenSource
+            }
+            try {
+                fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, token)
+                    .addOnSuccessListener { loc ->
+                        if (cont.isActive) cont.resume(loc)
+                    }
+                    .addOnFailureListener {
+                        if (cont.isActive) cont.resume(null)
+                    }
+                    .addOnCanceledListener {
+                        if (cont.isActive) cont.resume(null)
+                    }
+            } catch (_: Exception) {
+                if (cont.isActive) cont.resume(null)
+            }
+        }
+    }
+
+    private fun resetMovementConfirmationBackoff() {
+        failedConfirmCount = 0
+        currentConfirmCooldownMs = INITIAL_CONFIRM_COOLDOWN_MS
+        lastMovementConfirmRequestMs = 0L
+    }
+
+    private fun recordFailedMovementConfirmation() {
+        failedConfirmCount++
+        val capMs = if (_liveState.value.isPaused) PAUSED_CONFIRM_MAX_BACKOFF_MS else STATIONARY_CONFIRM_MAX_BACKOFF_MS
+        val shift = (failedConfirmCount - 1).coerceIn(0, 3)
+        currentConfirmCooldownMs = (INITIAL_CONFIRM_COOLDOWN_MS shl shift).coerceAtMost(capMs)
+    }
+
+    private fun maybeRequestMovementConfirmation(nowMs: Long) {
+        if (movementConfirmJob?.isActive == true) return
+        if (lastMovementConfirmRequestMs != 0L && (nowMs - lastMovementConfirmRequestMs) < currentConfirmCooldownMs) {
+            return
+        }
+        lastMovementConfirmRequestMs = nowMs
+        confirmationRequestCount++
+
+        val tokenSource = CancellationTokenSource()
+        activeConfirmTokenSource = tokenSource
+
+        movementConfirmJob = serviceScope.launch(Dispatchers.Unconfined) {
+            try {
+                val confirmFix = withTimeoutOrNull(CONFIRMATION_TIMEOUT_MS) {
+                    requestSingleHighAccuracyFix(tokenSource.token)
+                }
+                if (confirmFix != null && confirmFix.accuracy <= ACCURATE_FIX_MAX_M) {
+                    lastAccurateLocation = confirmFix
+                    val activeAnchor = if (_liveState.value.isPaused) pausedAnchorLocation else movementAnchorLocation
+                    if (activeAnchor == null) {
+                        if (_liveState.value.isPaused) {
+                            pausedAnchorLocation = confirmFix
+                        } else {
+                            val fixTime = if (confirmFix.time > 0L) confirmFix.time else nowMs
+                            movementAnchorLocation = confirmFix
+                            movementAnchorTimestampMs = fixTime
+                            accurateFixTimestampsInAnchorWindow.clear()
+                            accurateFixTimestampsInAnchorWindow.addLast(fixTime)
+                        }
+                        recordFailedMovementConfirmation()
+                    } else {
+                        val distM = confirmFix.distanceTo(activeAnchor).toDouble()
+                        if (distM >= MOVEMENT_THRESHOLD_M) {
+                            val fixTime = if (confirmFix.time > 0L) confirmFix.time else nowMs
+                            resetMovementConfirmationBackoff()
+                            movementAnchorLocation = confirmFix
+                            movementAnchorTimestampMs = fixTime
+                            accurateFixTimestampsInAnchorWindow.clear()
+                            accurateFixTimestampsInAnchorWindow.addLast(fixTime)
+                            isStationaryFor2Min = false
+                            if (_liveState.value.isPaused) {
+                                pausedAnchorLocation = null
+                                setPausedInternal(false)
+                            } else {
+                                refreshGpsPowerProfile()
+                            }
+                        } else {
+                            recordFailedMovementConfirmation()
+                        }
+                    }
+                } else {
+                    recordFailedMovementConfirmation()
+                }
+            } finally {
+                try {
+                    tokenSource.cancel()
+                } catch (_: Exception) {}
+                if (activeConfirmTokenSource === tokenSource) {
+                    activeConfirmTokenSource = null
+                }
+            }
         }
     }
 
@@ -275,6 +563,7 @@ class NavigationTrackingService : Service() {
         try {
             fusedLocationClient.removeLocationUpdates(cb)
             fusedLocationClient.requestLocationUpdates(locationRequest, cb, Looper.getMainLooper())
+            locationRebindCount++
         } catch (e: SecurityException) {
             Log.e("NavService", "SecurityException updating location profile; stopping cleanly", e)
             _liveState.value = _liveState.value.copy(
@@ -293,7 +582,7 @@ class NavigationTrackingService : Service() {
             isPaused = _liveState.value.isPaused,
             isBatterySaverMode = _liveState.value.isBatterySaverMode,
             isScreenInteractive = isScreenInteractiveNow(),
-            isMoving = isMovingRecently
+            isMoving = !isStationaryFor2Min
         )
         applyGpsPowerProfile(targetProfile)
     }
@@ -331,6 +620,8 @@ class NavigationTrackingService : Service() {
             return
         }
 
+        registerScreenReceiverIfNeeded()
+
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 val location = result.lastLocation ?: return
@@ -342,7 +633,7 @@ class NavigationTrackingService : Service() {
             isPaused = _liveState.value.isPaused,
             isBatterySaverMode = _liveState.value.isBatterySaverMode,
             isScreenInteractive = isScreenInteractiveNow(),
-            isMoving = true
+            isMoving = !isStationaryFor2Min
         )
         applyGpsPowerProfile(initialProfile, forceRebind = true)
     }
@@ -351,6 +642,10 @@ class NavigationTrackingService : Service() {
         val tracker = routeTracker ?: return
         val plannedRoute = currentPlannedRoute ?: return
         val now = if (location.time > 0L) location.time else System.currentTimeMillis()
+        val isAccurate = location.accuracy <= ACCURATE_FIX_MAX_M
+        if (isAccurate) {
+            lastAccurateLocation = location
+        }
 
         // 1. Calculate smoothed speed over 10s
         var currentSpeedMps = location.speed.toDouble()
@@ -372,20 +667,57 @@ class NavigationTrackingService : Service() {
             speedHistory.map { it.second }.average()
         } else 0.0
         val speedKmh = smoothedSpeedMps * 3.6
-        isMovingRecently = speedKmh >= 1.0 || currentSpeedMps >= 0.28
 
-        // When paused, run low power every 60s, and automatically resume normal
-        // tracking when movement is detected!
+        // Prune rolling 2-minute window of accurate fixes near movementAnchorLocation
+        while (accurateFixTimestampsInAnchorWindow.isNotEmpty() &&
+            (now - accurateFixTimestampsInAnchorWindow.first()) > STATIONARY_DURATION_MS
+        ) {
+            accurateFixTimestampsInAnchorWindow.removeFirst()
+        }
+
+        var effectiveLocation = location
+
+        // Paused handling: low power every 60s; anchor only set from accurate fixes (<= 30m).
+        // Auto-resume immediately on an accurate fix >= 20m from pausedAnchorLocation,
+        // or request a single high-accuracy confirmation on an inaccurate candidate >= 20m.
         if (_liveState.value.isPaused) {
-            val anchor = pausedAnchorLocation
-            if (anchor == null) {
+            var anchor = pausedAnchorLocation
+            if (anchor == null && isAccurate) {
                 pausedAnchorLocation = location
+                anchor = location
             }
-            val distFromPauseAnchorM = pausedAnchorLocation?.let { location.distanceTo(it).toDouble() } ?: 0.0
-            val movementDetected = speedKmh >= 1.5 || currentSpeedMps >= 0.42 || distFromPauseAnchorM >= 20.0
-            if (movementDetected) {
-                pausedAnchorLocation = null
-                setPausedInternal(false)
+            val distFromPauseAnchorM = anchor?.let { location.distanceTo(it).toDouble() } ?: 0.0
+            if (anchor != null && distFromPauseAnchorM >= MOVEMENT_THRESHOLD_M) {
+                if (isAccurate) {
+                    // Immediate confirmed movement without getCurrentLocation request
+                    cancelActiveConfirmationRequests()
+                    resetMovementConfirmationBackoff()
+                    movementAnchorLocation = location
+                    movementAnchorTimestampMs = now
+                    accurateFixTimestampsInAnchorWindow.clear()
+                    accurateFixTimestampsInAnchorWindow.addLast(now)
+                    isStationaryFor2Min = false
+                    pausedAnchorLocation = null
+                    setPausedInternal(false)
+                } else {
+                    // Candidate only: request high-accuracy confirmation (with backoff)
+                    maybeRequestMovementConfirmation(now)
+                    if (_liveState.value.isPaused) {
+                        _liveState.value = _liveState.value.copy(
+                            currentLat = location.latitude,
+                            currentLng = location.longitude,
+                            bearing = location.bearing,
+                            hasGpsBearing = location.hasBearing(),
+                            accuracyM = location.accuracy,
+                            speedKmh = speedKmh,
+                            lastFixTimestampMs = now
+                        )
+                        refreshGpsPowerProfile()
+                        return
+                    } else {
+                        effectiveLocation = lastAccurateLocation ?: location
+                    }
+                }
             } else {
                 _liveState.value = _liveState.value.copy(
                     currentLat = location.latitude,
@@ -401,25 +733,88 @@ class NavigationTrackingService : Service() {
             }
         }
 
-        // Refresh GPS power profile dynamically based on movement, screen state, and battery-saver mode
+        // Active (non-paused) movement & stationary detection
+        if (isStationaryFor2Min) {
+            val anchor = movementAnchorLocation
+            if (anchor == null) {
+                if (isAccurate) {
+                    movementAnchorLocation = location
+                    movementAnchorTimestampMs = now
+                    accurateFixTimestampsInAnchorWindow.clear()
+                    accurateFixTimestampsInAnchorWindow.addLast(now)
+                }
+            } else {
+                val distFromAnchorM = location.distanceTo(anchor).toDouble()
+                if (distFromAnchorM >= MOVEMENT_THRESHOLD_M) {
+                    if (isAccurate) {
+                        // Immediate confirmed movement on accurate fix >= 20m (0 confirmation requests)
+                        cancelActiveConfirmationRequests()
+                        resetMovementConfirmationBackoff()
+                        movementAnchorLocation = location
+                        movementAnchorTimestampMs = now
+                        accurateFixTimestampsInAnchorWindow.clear()
+                        accurateFixTimestampsInAnchorWindow.addLast(now)
+                        isStationaryFor2Min = false
+                    } else {
+                        // Inaccurate candidate >= 20m: request single high-accuracy confirmation
+                        maybeRequestMovementConfirmation(now)
+                        if (!isStationaryFor2Min) {
+                            effectiveLocation = lastAccurateLocation ?: location
+                        }
+                    }
+                } else if (isAccurate) {
+                    accurateFixTimestampsInAnchorWindow.addLast(now)
+                }
+            }
+        } else {
+            // Currently in moving state: only accurate fixes (<= 30m) can set/advance the anchor
+            // or provide evidence for becoming stationary after 2 minutes (>= 3 accurate fixes within 20m).
+            if (isAccurate) {
+                val anchor = movementAnchorLocation
+                if (anchor == null || location.distanceTo(anchor).toDouble() >= MOVEMENT_THRESHOLD_M) {
+                    movementAnchorLocation = location
+                    movementAnchorTimestampMs = now
+                    accurateFixTimestampsInAnchorWindow.clear()
+                    accurateFixTimestampsInAnchorWindow.addLast(now)
+                } else {
+                    accurateFixTimestampsInAnchorWindow.addLast(now)
+                    if ((now - movementAnchorTimestampMs) >= STATIONARY_DURATION_MS &&
+                        accurateFixTimestampsInAnchorWindow.size >= MIN_ACCURATE_FIXES_FOR_STATIONARY
+                    ) {
+                        isStationaryFor2Min = true
+                        resetMovementConfirmationBackoff()
+                    }
+                }
+            }
+        }
+
+        // Refresh GPS power profile dynamically based on stationary state, screen state, and battery-saver mode
         refreshGpsPowerProfile()
 
         // 2. Feed fix to RouteTracker
         val trackResult = tracker.onLocationUpdate(
-            lat = location.latitude,
-            lng = location.longitude,
-            bearing = location.bearing,
-            accuracy = location.accuracy,
+            lat = effectiveLocation.latitude,
+            lng = effectiveLocation.longitude,
+            bearing = effectiveLocation.bearing,
+            accuracy = effectiveLocation.accuracy,
             timestampMs = now
         )
+
+        // 2b. Corridor access-polygon prefetch (initial if not yet run, or when walked >= 20 km since last prefetch)
+        if (lastAccessPrefetchWalkKm.isNaN() ||
+            ((trackResult.currentWalkKm - lastAccessPrefetchWalkKm) >= CORRIDOR_PREFETCH_STEP_KM &&
+                corridorPrefetchJob?.isActive != true)
+        ) {
+            prefetchAccessPolygonsForRouteCorridor(plannedRoute, trackResult.currentWalkKm)
+        }
 
         // 3. Trigger vibration if required by off-route logic (once on entering off-route, suppressed when detour muted)
         if (trackResult.shouldVibrate && !trackResult.isDetourMuted && !hasSentOffRouteAlert) {
             triggerOffTrailVibration()
         }
 
-        // 3b. Evaluate next turn cue and double vibration at 150 m and 30 m
-        val allCues = com.example.util.routing.TurnCueGenerator.computeTurnCuesForPlannedRoute(plannedRoute)
+        // 3b. Evaluate next turn cue (cached per PlannedRoute instance) and double vibration at 150 m and 30 m
+        val allCues = getOrComputeTurnCues(plannedRoute)
         val upcomingCue = allCues.firstOrNull { it.walkKm >= trackResult.currentWalkKm - 0.005 }
         val cueDistM = upcomingCue?.let {
             maxOf(0.0, (it.walkKm - trackResult.currentWalkKm) * 1000.0)
@@ -560,10 +955,8 @@ class NavigationTrackingService : Service() {
             }
         }
 
-        // Phase 10: Private forest sunset warning check (Requirement D)
-        serviceScope.launch {
-            checkPrivateForestSunsetWarning(location)
-        }
+        // Phase 10: Private forest sunset warning check (windowed, 60s throttled, single-flight, cache-only)
+        maybeCheckPrivateForestSunsetWarning(location, now)
     }
 
     internal fun triggerOffTrailVibration() {
@@ -601,11 +994,37 @@ class NavigationTrackingService : Service() {
     }
 
     internal fun setPausedInternal(paused: Boolean) {
+        cancelActiveConfirmationRequests()
+        resetMovementConfirmationBackoff()
         if (paused) {
-            pausedAnchorLocation = lastLocation
+            pausedAnchorLocation = lastAccurateLocation
+            if (pausedAnchorLocation == null) {
+                val tokenSource = CancellationTokenSource()
+                activeConfirmTokenSource = tokenSource
+                pauseAnchorFetchJob = serviceScope.launch(Dispatchers.Unconfined) {
+                    try {
+                        val fix = withTimeoutOrNull(CONFIRMATION_TIMEOUT_MS) {
+                            requestSingleHighAccuracyFix(tokenSource.token)
+                        }
+                        if (fix != null && fix.accuracy <= ACCURATE_FIX_MAX_M) {
+                            lastAccurateLocation = fix
+                            if (_liveState.value.isPaused && pausedAnchorLocation == null) {
+                                pausedAnchorLocation = fix
+                            }
+                        }
+                    } finally {
+                        try {
+                            tokenSource.cancel()
+                        } catch (_: Exception) {}
+                        if (activeConfirmTokenSource === tokenSource) {
+                            activeConfirmTokenSource = null
+                        }
+                    }
+                }
+            }
         } else {
             pausedAnchorLocation = null
-            isMovingRecently = true
+            isStationaryFor2Min = false
         }
         _liveState.value = _liveState.value.copy(isPaused = paused)
         refreshGpsPowerProfile()
@@ -899,6 +1318,12 @@ class NavigationTrackingService : Service() {
     }
 
     internal fun stopTracking() {
+        cancelActiveConfirmationRequests()
+        corridorPrefetchJob?.cancel()
+        corridorPrefetchJob = null
+        sunsetCheckJob?.cancel()
+        sunsetCheckJob = null
+        unregisterScreenReceiverIfNeeded()
         try {
             locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
         } catch (_: Exception) {}
@@ -910,40 +1335,93 @@ class NavigationTrackingService : Service() {
     }
 
     private var lastSunsetWarningNotifiedMs: Long = 0L
+    internal var cachedSunsetDayKey: Int = -1
+    internal var cachedSunsetLat: Double = Double.NaN
+    internal var cachedSunsetLng: Double = Double.NaN
+    internal var cachedSunsetStr: String = ""
+    internal var cachedSunsetMins: Int = 0
+    internal var sunsetCalcCount: Int = 0
+    internal var lastSunsetPolygonCheckMs: Long = 0L
+    internal var sunsetPolygonQueryCount: Int = 0
+    @Volatile
+    internal var sunsetCheckJob: Job? = null
 
-    private suspend fun checkPrivateForestSunsetWarning(location: Location) {
+    internal fun maybeCheckPrivateForestSunsetWarning(location: Location, nowMs: Long) {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = nowMs }
+        val dayKey = cal.get(java.util.Calendar.YEAR) * 1000 + cal.get(java.util.Calendar.DAY_OF_YEAR)
+        val currentMins = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+
+        val needSunsetRecalc = dayKey != cachedSunsetDayKey ||
+            cachedSunsetLat.isNaN() ||
+            com.example.util.GeoUtils.haversineMeters(
+                location.latitude,
+                location.longitude,
+                cachedSunsetLat,
+                cachedSunsetLng
+            ) >= SUNSET_CACHE_DISTANCE_M
+
+        if (needSunsetRecalc) {
+            cachedSunsetDayKey = dayKey
+            cachedSunsetLat = location.latitude
+            cachedSunsetLng = location.longitude
+            cachedSunsetStr = com.example.util.SunCalculator.calculateSunset(
+                lat = location.latitude,
+                lng = location.longitude,
+                epochMillis = nowMs
+            )
+            cachedSunsetMins = com.example.util.access.AccessGeometryUtils.parseTimeToMinutes(cachedSunsetStr)
+            sunsetCalcCount++
+        }
+
+        // Only run the polygon check when now is between sunset - 45 min and sunset + 60 min
+        val diffMins = cachedSunsetMins - currentMins
+        if (diffMins !in -60..45) {
+            if (_liveState.value.privateForestSunsetWarning != null) {
+                _liveState.value = _liveState.value.copy(privateForestSunsetWarning = null)
+            }
+            return
+        }
+
+        // Inside the sunset window: single-flight and at most once per 60 s
+        if (sunsetCheckJob?.isActive == true) return
+        if (lastSunsetPolygonCheckMs != 0L && (nowMs - lastSunsetPolygonCheckMs) < SUNSET_CHECK_INTERVAL_MS) {
+            return
+        }
+
+        lastSunsetPolygonCheckMs = nowMs
+        val sunsetStrSnapshot = cachedSunsetStr
+        sunsetCheckJob = serviceScope.launch(Dispatchers.Unconfined) {
+            checkPrivateForestSunsetWarning(location, sunsetStrSnapshot, nowMs)
+        }
+    }
+
+    internal suspend fun checkPrivateForestSunsetWarning(
+        location: Location,
+        sunsetStr: String = cachedSunsetStr,
+        nowMs: Long = if (location.time > 0L) location.time else System.currentTimeMillis()
+    ) {
         try {
             val pt = com.example.util.routing.LatLng(location.latitude, location.longitude)
             val bboxDelta = 0.02
-            val polygons = DanskStiApp.instance.repository.getAccessPolygons(
+            sunsetPolygonQueryCount++
+            // Cache-only read: never fetches from WFS or Overpass
+            val polygons = DanskStiApp.instance.repository.getCachedAccessPolygons(
                 pt.lat - bboxDelta, pt.lat + bboxDelta,
                 pt.lng - bboxDelta, pt.lng + bboxDelta
             )
             val containing = com.example.util.access.AccessGeometryUtils.findContainingPolygon(pt, polygons)
             if (containing != null && containing.type == com.example.data.model.access.AccessLandType.PRIVATE_FOREST) {
-                val sunsetStr = com.example.util.SunCalculator.calculateSunset(lat = pt.lat, lng = pt.lng)
-                val sunsetMins = com.example.util.access.AccessGeometryUtils.parseTimeToMinutes(sunsetStr)
+                val effectiveSunsetStr = sunsetStr.ifBlank {
+                    com.example.util.SunCalculator.calculateSunset(lat = pt.lat, lng = pt.lng, epochMillis = nowMs)
+                }
+                val warningText = getString(com.example.R.string.notif_private_forest_closing_short, effectiveSunsetStr)
+                if (_liveState.value.privateForestSunsetWarning != warningText) {
+                    _liveState.value = _liveState.value.copy(privateForestSunsetWarning = warningText)
+                }
 
-                val cal = java.util.Calendar.getInstance()
-                val currentMins = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
-                val diffMins = sunsetMins - currentMins
-
-                // Within 45 minutes of sunset (or past sunset up to 60 min)
-                if (diffMins in -60..45) {
-                    val warningText = getString(com.example.R.string.notif_private_forest_closing_short, sunsetStr)
-                    if (_liveState.value.privateForestSunsetWarning != warningText) {
-                        _liveState.value = _liveState.value.copy(privateForestSunsetWarning = warningText)
-                    }
-
-                    val now = System.currentTimeMillis()
-                    if (now - lastSunsetWarningNotifiedMs > 30 * 60 * 1000L) {
-                        lastSunsetWarningNotifiedMs = now
-                        showSunsetWarningNotification(sunsetStr)
-                    }
-                } else {
-                    if (_liveState.value.privateForestSunsetWarning != null) {
-                        _liveState.value = _liveState.value.copy(privateForestSunsetWarning = null)
-                    }
+                if (nowMs - lastSunsetWarningNotifiedMs > 30 * 60 * 1000L) {
+                    lastSunsetWarningNotifiedMs = nowMs
+                    showSunsetWarningNotification(effectiveSunsetStr)
                 }
             } else {
                 if (_liveState.value.privateForestSunsetWarning != null) {
@@ -983,6 +1461,8 @@ class NavigationTrackingService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        cancelActiveConfirmationRequests()
+        unregisterScreenReceiverIfNeeded()
         if (activeServiceInstance === this) {
             activeServiceInstance = null
         }
@@ -999,6 +1479,19 @@ class NavigationTrackingService : Service() {
         const val SUNSET_WARNING_NOTIFICATION_ID = 4041
         const val OFF_ROUTE_ALERT_NOTIFICATION_ID = 4042
         const val ONGOING_NOTIFICATION_MIN_INTERVAL_MS = 10_000L
+        const val ACCURATE_FIX_MAX_M = 30.0f
+        const val MOVEMENT_THRESHOLD_M = 20.0
+        const val STATIONARY_DURATION_MS = 120_000L
+        const val MIN_ACCURATE_FIXES_FOR_STATIONARY = 3
+        const val INITIAL_CONFIRM_COOLDOWN_MS = 60_000L
+        const val STATIONARY_CONFIRM_MAX_BACKOFF_MS = 120_000L
+        const val PAUSED_CONFIRM_MAX_BACKOFF_MS = 300_000L
+        const val CONFIRMATION_TIMEOUT_MS = 20_000L
+        const val SUNSET_CHECK_INTERVAL_MS = 60_000L
+        const val SUNSET_CACHE_DISTANCE_M = 10_000.0
+        const val CORRIDOR_PREFETCH_WINDOW_KM = 25.0
+        const val CORRIDOR_PREFETCH_STEP_KM = 20.0
+        const val CORRIDOR_PREFETCH_MAX_TILES = 10
         const val ACTION_START = "com.example.dansksti.ACTION_START"
         const val ACTION_STOP = "com.example.dansksti.ACTION_STOP"
         const val ACTION_STOP_TODAY = "com.example.dansksti.ACTION_STOP_TODAY"
@@ -1028,8 +1521,9 @@ class NavigationTrackingService : Service() {
         /**
          * Determines the active GPS power profile:
          * - Paused: low power every 60 s (`LOW_POWER_60S`).
-         * - Battery-saver screen (or stationary or screen off): balanced accuracy every 10 s (`BALANCED_10S`).
-         * - Moving with the screen on: high accuracy every 2 s (`HIGH_ACCURACY_2S`).
+         * - Battery-saver mode or stationary (`!isMoving`): balanced accuracy every 10 s (`BALANCED_10S`).
+         * - Moving + navigating with the screen off: high accuracy every 5 s (`HIGH_ACCURACY_5S`).
+         * - Moving + navigating with the screen on: high accuracy every 2 s (`HIGH_ACCURACY_2S`).
          */
         fun resolveGpsPowerProfile(
             isPaused: Boolean,
@@ -1039,7 +1533,8 @@ class NavigationTrackingService : Service() {
         ): GpsPowerProfile {
             return when {
                 isPaused -> GpsPowerProfile.LOW_POWER_60S
-                isBatterySaverMode || !isScreenInteractive || !isMoving -> GpsPowerProfile.BALANCED_10S
+                isBatterySaverMode || !isMoving -> GpsPowerProfile.BALANCED_10S
+                !isScreenInteractive -> GpsPowerProfile.HIGH_ACCURACY_5S
                 else -> GpsPowerProfile.HIGH_ACCURACY_2S
             }
         }

@@ -48,6 +48,8 @@ import org.osmdroid.views.overlay.Overlay
 internal fun BoxScope.DanskStiMapBottomAttributionAndBanners(
     isDeviceOnline: Boolean,
     layerErrorMessages: Set<String>,
+    transientMessage: String? = null,
+    onClearTransientMessage: () -> Unit = {},
     staleText: String?,
     locationErrorMessage: String?,
     onClearLocationError: () -> Unit,
@@ -79,6 +81,22 @@ internal fun BoxScope.DanskStiMapBottomAttributionAndBanners(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+        if (transientMessage != null) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
+                modifier = Modifier
+                    .clickable { onClearTransientMessage() }
+                    .testTag("map_transient_message")
+            ) {
+                Text(
+                    text = transientMessage,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                 )
             }
         }

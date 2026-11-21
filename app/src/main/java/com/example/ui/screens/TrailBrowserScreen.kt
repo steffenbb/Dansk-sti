@@ -221,9 +221,7 @@ fun TrailBrowserScreen(
     val downloadedTrailMap = remember(downloadedTrails) {
         downloadedTrails.associateBy { it.trailId }
     }
-    val isDeviceOnline = remember(app) {
-        runCatching { app.repository.isDeviceOnline() }.getOrDefault(true)
-    }
+    val isDeviceOnline = com.example.ui.components.rememberIsOnline()
     var allGeometries by remember { mutableStateOf<Map<String, List<GeoPointDto>>>(emptyMap()) }
     LaunchedEffect(allTrails, trailMetrics) {
         if (allTrails.isNotEmpty()) {

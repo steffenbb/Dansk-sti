@@ -209,8 +209,8 @@
     <string name="privacy_services_intro">Når du bruger onlinefunktioner i appen, sendes de relevante geografiske koordinater eller kortudsnit kun til følgende tjenester for at hente kort-, rute- og vejrdata:</string>
     <string name="privacy_service_brouter_title">brouter.de</string>
     <string name="privacy_service_brouter_desc">Modtager start-, slut- og rutepunkter ( samt eventuelle no-go polygoner ) ved online ruteplanlægning langs stier.</string>
-    <string name="privacy_service_overpass_title">overpass-api.de (med skift til overpass.private.coffee hvis hovedserveren er nede)</string>
-    <string name="privacy_service_overpass_desc">Modtager kortudsnit eller rutekorridorer ved opslag af vandreruter, shelters, vandposter, toiletter, indkøb, kollektiv trafik og adgangsforhold i OpenStreetMap. Ingen konto, annoncer eller sporing.</string>
+    <string name="privacy_service_overpass_title">overpass-api.de (med skift til overpass.private.coffee eller ovp.dresel.systems, hvis hovedserveren ikke svarer)</string>
+    <string name="privacy_service_overpass_desc">Modtager kortudsnit eller rutekorridorer ved opslag af vandreruter, shelters, vandposter, toiletter, indkøb, kollektiv trafik og adgangsforhold i OpenStreetMap. Ingen konto, annoncer eller sporing. Reserveserverne bruges kun, når hovedserveren ikke svarer. De modtager de samme kortudsnit som hovedserveren.</string>
     <string name="privacy_service_openmeteo_title">api.open-meteo.com</string>
     <string name="privacy_service_openmeteo_desc">Modtager koordinater langs ruten ved hentning af lokale vejrudsigter, solnedgangstider og terrænhøjder (Copernicus DEM).</string>
     <string name="privacy_service_photon_title">photon.komoot.io</string>

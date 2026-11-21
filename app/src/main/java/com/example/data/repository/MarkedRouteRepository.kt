@@ -58,8 +58,45 @@ class MarkedRouteRepository(
         const val LOD1_TOLERANCE_METERS = 35.0
         const val LOD2_TOLERANCE_METERS = 150.0
 
+        const val CELL_LAT = 0.2
+        const val CELL_LNG = 0.3
+        const val MAX_MISSING_CELLS_SINGLE_QUERY = 24
+
         private const val PREFS_NAME = "dansk_sti_marked_routes_prefs"
         private const val PREF_KEY_CLEANED_OVERSIZED_V1 = "cleaned_oversized_marked_routes_v1"
+
+        internal data class GridCell(
+            val latIdx: Int,
+            val lngIdx: Int
+        ) {
+            val cellKey: String = "cell_v2_${latIdx}_${lngIdx}"
+            val minLat: Double = latIdx * CELL_LAT
+            val maxLat: Double = (latIdx + 1) * CELL_LAT
+            val minLng: Double = lngIdx * CELL_LNG
+            val maxLng: Double = (lngIdx + 1) * CELL_LNG
+        }
+
+        internal fun computeGridCellsForViewport(
+            minLat: Double,
+            maxLat: Double,
+            minLng: Double,
+            maxLng: Double
+        ): List<GridCell> {
+            val startLatIdx = kotlin.math.floor(minLat / CELL_LAT).toInt()
+            val endLatIdx = kotlin.math.floor(maxLat / CELL_LAT).toInt()
+            val startLngIdx = kotlin.math.floor(minLng / CELL_LNG).toInt()
+            val endLngIdx = kotlin.math.floor(maxLng / CELL_LNG).toInt()
+            val cells = ArrayList<GridCell>(
+                ((endLatIdx - startLatIdx + 1).coerceAtLeast(1)) *
+                    ((endLngIdx - startLngIdx + 1).coerceAtLeast(1))
+            )
+            for (latIdx in startLatIdx..endLatIdx) {
+                for (lngIdx in startLngIdx..endLngIdx) {
+                    cells.add(GridCell(latIdx, lngIdx))
+                }
+            }
+            return cells
+        }
 
         val MORE_MARKED_ROUTES_OVERPASS_QUERY = """
             [out:json][timeout:30];
@@ -194,6 +231,13 @@ class MarkedRouteRepository(
         fun getProcessWideCachedRoutesWithLod0Count(): Int {
             synchronized(cacheLock) {
                 return processWideLruCache.values.count { it.lod0 != null }
+            }
+        }
+
+        @VisibleForTesting
+        internal fun getCachedEntryLod0PointsForTests(osmRelationId: Long): Int? {
+            synchronized(cacheLock) {
+                return processWideLruCache[osmRelationId]?.lod0?.sumOf { it.size / 2 }
             }
         }
 
@@ -760,155 +804,131 @@ class MarkedRouteRepository(
         val now = System.currentTimeMillis()
         val expiredThreshold = now - CACHE_TTL_MS
 
-        // 1. Check local Room database cache box
-        val existingBoxes = dao.getMarkedRouteCacheBoxes(minLat, maxLat, minLng, maxLng)
-        val validBox = existingBoxes.firstOrNull { it.fetchedAt >= expiredThreshold }
+        // 1. Compute fixed grid cells (0.2° lat × 0.3° lng) overlapping the viewport
+        val cells = computeGridCellsForViewport(minLat, maxLat, minLng, maxLng)
+        val cellKeys = cells.map { it.cellKey }
+        val existingBoxesByKey = if (cellKeys.isEmpty()) {
+            emptyMap()
+        } else {
+            cellKeys.chunked(200)
+                .flatMap { batchKeys -> dao.getMarkedRouteCacheBoxesByKeys(batchKeys) }
+                .associateBy { it.boxKey }
+        }
 
-        if (validBox != null) {
-            val cachedSnapshots = loadRenderSnapshotsFromDatabaseHeaders(
+        val missingCells = cells.filter { cell ->
+            val box = existingBoxesByKey[cell.cellKey]
+            box == null || box.fetchedAt < expiredThreshold
+        }
+
+        // If all cells are fresh: return from database headers with NO Overpass call, even if 0 routes exist
+        if (missingCells.isEmpty()) {
+            lastFetchFailed = false
+            return@withContext loadRenderSnapshotsFromDatabaseHeaders(
                 minLat = minLat,
                 maxLat = maxLat,
                 minLng = minLng,
                 maxLng = maxLng,
                 requireLod0 = requireLod0
             )
-            if (cachedSnapshots.isNotEmpty()) {
-                lastFetchFailed = false
-                com.example.util.DLog.run {
-                    d(TAG, "Cache hit: Returning ${cachedSnapshots.size} marked routes from Room/Memory (cached within 7 days)")
-                }
-                return@withContext cachedSnapshots
-            }
         }
 
-        // 2. Query Overpass API for relation[route=hiking] and relation[route=foot]
-        var networkFailed = false
-        try {
-            val liveRoutes = queryOverpassMarkedRoutes(minLat, maxLat, minLng, maxLng)
-            lastFetchFailed = false
-            if (liveRoutes.isNotEmpty()) {
-                val cachedAt = System.currentTimeMillis()
-                val entities = liveRoutes.map { dtoToEntity(it, cachedAt) }
-                dao.insertMarkedRoutes(entities)
+        // 2. Some cells are missing or stale: fetch from Overpass
+        val cellGroupsToFetch: List<List<GridCell>> = if (missingCells.size <= MAX_MISSING_CELLS_SINGLE_QUERY) {
+            listOf(missingCells)
+        } else {
+            // More than 24 missing cells: fetch row by row (one query per row of cells)
+            missingCells
+                .groupBy { it.latIdx }
+                .toSortedMap()
+                .values
+                .toList()
+        }
 
-                // Populate process-wide cache directly from parsed live routes
-                for (dto in liveRoutes) {
-                    val rawPacked = dto.polylines.mapNotNull { seg ->
-                        if (seg.size < 2) null else {
-                            val arr = DoubleArray(seg.size * 2)
-                            for (i in seg.indices) {
-                                arr[i * 2] = seg[i].lat
-                                arr[i * 2 + 1] = seg[i].lng
+        var networkFailed = false
+        for (cellGroup in cellGroupsToFetch) {
+            if (cellGroup.isEmpty()) continue
+            val qMinLat = cellGroup.minOf { it.minLat }
+            val qMaxLat = cellGroup.maxOf { it.maxLat }
+            val qMinLng = cellGroup.minOf { it.minLng }
+            val qMaxLng = cellGroup.maxOf { it.maxLng }
+            try {
+                val liveRoutes = queryOverpassMarkedRoutes(qMinLat, qMaxLat, qMinLng, qMaxLng)
+                val cachedAt = System.currentTimeMillis()
+                if (liveRoutes.isNotEmpty()) {
+                    val entities = liveRoutes.map { dtoToEntity(it, cachedAt) }
+                    dao.insertMarkedRoutes(entities)
+
+                    // Populate process-wide cache directly from parsed live routes
+                    for (dto in liveRoutes) {
+                        val rawPacked = dto.polylines.mapNotNull { seg ->
+                            if (seg.size < 2) null else {
+                                val arr = DoubleArray(seg.size * 2)
+                                for (i in seg.indices) {
+                                    arr[i * 2] = seg[i].lat
+                                    arr[i * 2 + 1] = seg[i].lng
+                                }
+                                arr
                             }
-                            arr
+                        }
+                        if (rawPacked.isNotEmpty()) {
+                            val lod0 = stitchWaySegmentsToPackedPolylines(rawPacked)
+                            val lod1 = lod0.map { simplifyPackedPolylineMetric(it, LOD1_TOLERANCE_METERS) }
+                            val lod2 = lod0.map { simplifyPackedPolylineMetric(it, LOD2_TOLERANCE_METERS) }
+                            val entry = ProcessCachedRouteEntry(
+                                osmRelationId = dto.osmRelationId,
+                                name = dto.name,
+                                lengthKm = dto.lengthKm,
+                                operator = dto.operator,
+                                routeType = dto.routeType,
+                                network = dto.network,
+                                symbol = dto.symbol,
+                                colorHex = dto.colorHex,
+                                colorInt = parseColorSafe(dto.colorHex),
+                                minLat = dto.minLat,
+                                maxLat = dto.maxLat,
+                                minLng = dto.minLng,
+                                maxLng = dto.maxLng,
+                                cachedAt = cachedAt,
+                                lod0 = lod0,
+                                lod1 = lod1,
+                                lod2 = lod2
+                            )
+                            putInProcessWideCache(entry)
                         }
                     }
-                    if (rawPacked.isNotEmpty()) {
-                        val lod0 = stitchWaySegmentsToPackedPolylines(rawPacked)
-                        val lod1 = lod0.map { simplifyPackedPolylineMetric(it, LOD1_TOLERANCE_METERS) }
-                        val lod2 = lod0.map { simplifyPackedPolylineMetric(it, LOD2_TOLERANCE_METERS) }
-                        val entry = ProcessCachedRouteEntry(
-                            osmRelationId = dto.osmRelationId,
-                            name = dto.name,
-                            lengthKm = dto.lengthKm,
-                            operator = dto.operator,
-                            routeType = dto.routeType,
-                            network = dto.network,
-                            symbol = dto.symbol,
-                            colorHex = dto.colorHex,
-                            colorInt = parseColorSafe(dto.colorHex),
-                            minLat = dto.minLat,
-                            maxLat = dto.maxLat,
-                            minLng = dto.minLng,
-                            maxLng = dto.maxLng,
-                            cachedAt = cachedAt,
-                            lod0 = lod0,
-                            lod1 = lod1,
-                            lod2 = lod2
-                        )
-                        putInProcessWideCache(entry)
-                    }
                 }
 
-                // Record cache box entry
-                val boxKey = "box_${(minLat * 100).toInt()}_${(minLng * 100).toInt()}_${(maxLat * 100).toInt()}_${(maxLng * 100).toInt()}"
-                dao.insertMarkedRouteCacheBox(
-                    MarkedRouteCacheBoxEntity(
-                        boxKey = boxKey,
-                        minLat = minLat,
-                        maxLat = maxLat,
-                        minLng = minLng,
-                        maxLng = maxLng,
-                        fetchedAt = now
+                // Record a box for EVERY missing cell in this group, also when zero routes came back
+                for (cell in cellGroup) {
+                    dao.insertMarkedRouteCacheBox(
+                        MarkedRouteCacheBoxEntity(
+                            boxKey = cell.cellKey,
+                            minLat = cell.minLat,
+                            maxLat = cell.maxLat,
+                            minLng = cell.minLng,
+                            maxLng = cell.maxLng,
+                            fetchedAt = cachedAt
+                        )
                     )
-                )
-                com.example.util.DLog.run {
-                    d(TAG, "Successfully fetched and cached ${liveRoutes.size} marked routes from Overpass")
                 }
-                return@withContext loadRenderSnapshotsFromDatabaseHeaders(
-                    minLat = minLat,
-                    maxLat = maxLat,
-                    minLng = minLng,
-                    maxLng = maxLng,
-                    requireLod0 = requireLod0
-                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                networkFailed = true
+                Log.w(TAG, "Overpass query failed for grid cells: ${e.message}. Checking offline fallback cache.")
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            networkFailed = true
-            Log.w(TAG, "Overpass query failed: ${e.message}. Checking offline fallback cache.")
         }
 
-        // 3. Fallback to any previously cached routes in bbox
-        val fallback = loadRenderSnapshotsFromDatabaseHeaders(
+        // 3. Return cached routes for the viewport
+        val snapshots = loadRenderSnapshotsFromDatabaseHeaders(
             minLat = minLat,
             maxLat = maxLat,
             minLng = minLng,
             maxLng = maxLng,
             requireLod0 = requireLod0
         )
-        lastFetchFailed = networkFailed && fallback.isEmpty()
-        fallback
-    }
-
-    /**
-     * Backward-compatible DTO getter delegating to the lightweight two-step loader.
-     */
-    suspend fun getMarkedRoutes(
-        minLat: Double,
-        maxLat: Double,
-        minLng: Double,
-        maxLng: Double,
-        zoomLevel: Double
-    ): List<MarkedRouteDto> = withContext(Dispatchers.IO) {
-        val snapshots = getMarkedRouteRenderSnapshots(minLat, maxLat, minLng, maxLng, zoomLevel)
-        snapshots.map { item ->
-            val activePolylines = (item.lod0 ?: item.lod1).map { arr ->
-                val list = ArrayList<GeoPointDto>(arr.size / 2)
-                var i = 0
-                while (i < arr.size) {
-                    list.add(GeoPointDto(arr[i], arr[i + 1]))
-                    i += 2
-                }
-                list
-            }
-            MarkedRouteDto(
-                osmRelationId = item.osmRelationId,
-                name = item.name,
-                lengthKm = item.lengthKm,
-                operator = item.operator,
-                routeType = item.routeType,
-                network = item.network,
-                symbol = item.symbol,
-                colorHex = item.colorHex,
-                polylines = activePolylines,
-                minLat = item.minLat,
-                maxLat = item.maxLat,
-                minLng = item.minLng,
-                maxLng = item.maxLng
-            )
-        }
+        lastFetchFailed = networkFailed && snapshots.isEmpty()
+        snapshots
     }
 
     /**

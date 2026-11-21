@@ -152,6 +152,7 @@ fun DanskStiMap(
     compassButtonTestTag: String = "compass_reset_button",
     myLocationButtonTestTag: String = "my_location_fab",
     showStandardButtons: Boolean = true,
+    markedRouteTapsEnabled: Boolean = true,
     onMyLocationClick: ((GeoPoint?) -> Unit)? = null,
     onCompassClick: (() -> Unit)? = null,
     onMapTap: ((GeoPoint) -> Boolean)? = null,
@@ -258,6 +259,8 @@ fun DanskStiMap(
     val latestEffectiveFriTeltning by rememberUpdatedState(effectiveFriTeltning)
     val latestEffectivePois by rememberUpdatedState(effectivePois)
 
+    val latestMarkedRouteTapsEnabled by rememberUpdatedState(markedRouteTapsEnabled)
+
     val overlayManager = remember(context) {
         MapLayersOverlayManager(
             context = context,
@@ -276,7 +279,13 @@ fun DanskStiMap(
                 selectedAccessPolygonForRules = poly
                 latestOnAccessTapped?.invoke(poly)
             }
-        )
+        ).apply {
+            setMarkedRouteTapsEnabled(markedRouteTapsEnabled)
+        }
+    }
+
+    LaunchedEffect(overlayManager, markedRouteTapsEnabled) {
+        overlayManager.setMarkedRouteTapsEnabled(markedRouteTapsEnabled)
     }
 
     val locationDotOverlay = remember {
@@ -458,6 +467,7 @@ fun DanskStiMap(
                             return false
                         }
                     })
+                    overlayManager.setMarkedRouteTapsEnabled(latestMarkedRouteTapsEnabled)
                     overlayManager.attachToMap(this, effectiveIsDark)
                     overlayManager.registerOverlay(MapLayersOverlayManager.KEY_EVENTS, eventsOverlay)
 
@@ -528,6 +538,7 @@ fun DanskStiMap(
             },
             update = { mapView ->
                 mapViewRef = mapView
+                overlayManager.setMarkedRouteTapsEnabled(latestMarkedRouteTapsEnabled)
                 mapView.setBackgroundColor(themeWaterColorInt)
                 mapView.overlayManager.tilesOverlay.loadingBackgroundColor = themeWaterColorInt
                 mapView.overlayManager.tilesOverlay.loadingLineColor = themeWaterColorInt
@@ -545,14 +556,23 @@ fun DanskStiMap(
             }
         )
 
-        val isDeviceOnline = remember(context) {
-            (context.applicationContext as? com.example.DanskStiApp)?.repository?.isDeviceOnline() ?: true
-        }
+        val isDeviceOnline = com.example.ui.components.rememberIsOnline()
         val layerErrorMessages by overlayManager.layerErrorMessages.collectAsState()
+        val transientLayerMessage by overlayManager.transientLayerMessage.collectAsState()
+        val transientLayerMessageVersion by overlayManager.transientLayerMessageVersion.collectAsState()
+
+        LaunchedEffect(transientLayerMessage, transientLayerMessageVersion) {
+            if (transientLayerMessage != null) {
+                kotlinx.coroutines.delay(4_000L)
+                overlayManager.clearTransientLayerMessage()
+            }
+        }
 
         DanskStiMapBottomAttributionAndBanners(
             isDeviceOnline = isDeviceOnline,
             layerErrorMessages = layerErrorMessages,
+            transientMessage = transientLayerMessage,
+            onClearTransientMessage = { overlayManager.clearTransientLayerMessage() },
             staleText = if (userLocation != null) null else liveLocationState.staleBadgeText,
             locationErrorMessage = liveLocationState.locationErrorMessage,
             onClearLocationError = { liveLocationState.clearErrorMessage() },

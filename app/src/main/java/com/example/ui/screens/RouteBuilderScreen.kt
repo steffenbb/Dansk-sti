@@ -458,6 +458,7 @@ fun RouteBuilderScreen(
                         layersButtonTestTag = "route_builder_layers_button",
                         compassButtonTestTag = "route_builder_compass_button",
                         myLocationButtonTestTag = "btn_my_location",
+                        markedRouteTapsEnabled = (uiState.interactionMode != PlannerInteractionMode.TEGN),
                         onMyLocationClick = { loc ->
                             // ONLY centre the map on my position. Never change waypoints.
                             if (loc != null) {

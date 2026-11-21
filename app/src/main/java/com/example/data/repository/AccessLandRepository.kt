@@ -86,7 +86,8 @@ class AccessLandRepository(
         minLat: Double,
         maxLat: Double,
         minLng: Double,
-        maxLng: Double
+        maxLng: Double,
+        priority: com.example.data.remote.OverpassClient.Priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND
     ): List<AccessPolygon> = withContext(Dispatchers.IO) {
         val tiles = getTileIdsForBounds(minLat, maxLat, minLng, maxLng)
         val resultById = LinkedHashMap<String, AccessPolygon>()
@@ -110,7 +111,7 @@ class AccessLandRepository(
                 }
 
                 // Fetch live for this 0.1 x 0.1 tile
-                val fetchedPolys = fetchAndMergeTile(tile)
+                val fetchedPolys = fetchAndMergeTile(tile, priority)
                 if (fetchedPolys != null) {
                     dao.deleteAccessPolygonsByTileId(tile.tileId)
                     if (fetchedPolys.isNotEmpty()) {
@@ -180,7 +181,10 @@ class AccessLandRepository(
      * Fetches WFS + Overpass for a single 0.1 x 0.1 degree tile and merges them.
      * Returns null if both network sources fail with exceptions.
      */
-    private suspend fun fetchAndMergeTile(tile: TileBounds): List<AccessPolygon>? {
+    private suspend fun fetchAndMergeTile(
+        tile: TileBounds,
+        priority: com.example.data.remote.OverpassClient.Priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND
+    ): List<AccessPolygon>? {
         var wfsSucceeded = false
         var osmSucceeded = false
 
@@ -195,7 +199,7 @@ class AccessLandRepository(
         }
 
         val osmPolygons = try {
-            val polys = fetchFromOverpass(tile.minLat, tile.maxLat, tile.minLng, tile.maxLng)
+            val polys = fetchFromOverpass(tile.minLat, tile.maxLat, tile.minLng, tile.maxLng, priority)
             osmSucceeded = true
             polys
         } catch (e: Exception) {
@@ -388,7 +392,8 @@ class AccessLandRepository(
         minLat: Double,
         maxLat: Double,
         minLng: Double,
-        maxLng: Double
+        maxLng: Double,
+        priority: com.example.data.remote.OverpassClient.Priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND
     ): List<AccessPolygon> = withContext(Dispatchers.IO) {
         val query = """
             [out:json][timeout:20][maxsize:67108864];
@@ -407,6 +412,7 @@ class AccessLandRepository(
 
         val bodyStr = com.example.data.remote.OverpassClient.queryRawJson(
             query = query,
+            priority = priority,
             label = "AccessLand($minLat,$minLng)"
         )
         return@withContext parseOverpassJson(bodyStr)
@@ -502,6 +508,13 @@ class AccessLandRepository(
 
         return result
     }
+
+    suspend fun getCachedAccessPolygons(
+        minLat: Double,
+        maxLat: Double,
+        minLng: Double,
+        maxLng: Double
+    ): List<AccessPolygon> = getCachedAccessPolygonsInBbox(minLat, maxLat, minLng, maxLng)
 
     suspend fun getCachedAccessPolygonsInBbox(
         minLat: Double,

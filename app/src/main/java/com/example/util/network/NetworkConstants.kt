@@ -8,14 +8,6 @@ object NetworkConstants {
 }
 
 fun OkHttpClient.Builder.applyDanskStiDefaults(): OkHttpClient.Builder {
-    try {
-        okhttp3.internal.platform.Platform.get().platformTrustManager()
-    } catch (_: Throwable) {
-        try {
-            okhttp3.internal.platform.Platform.resetForTests()
-        } catch (_: Throwable) {
-        }
-    }
     addInterceptor(UserAgentInterceptor())
     if (BuildConfig.DEBUG) {
         addInterceptor(MainThreadNetworkInterceptor())

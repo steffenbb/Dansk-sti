@@ -220,9 +220,7 @@ fun SavedPlansScreen(
                 .consumeWindowInsets(innerPadding)
         ) {
             // Header
-            val isDeviceOnline = remember(context) {
-                runCatching { (context.applicationContext as DanskStiApp).repository.isDeviceOnline() }.getOrDefault(true)
-            }
+            val isDeviceOnline = com.example.ui.components.rememberIsOnline()
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

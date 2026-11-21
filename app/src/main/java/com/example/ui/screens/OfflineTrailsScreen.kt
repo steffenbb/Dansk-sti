@@ -105,9 +105,7 @@ fun OfflineTrailsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val colorScheme = MaterialTheme.colorScheme
     val danskStiColors = DanskStiTheme.colors
-    val isDeviceOnline = remember(context) {
-        runCatching { (context.applicationContext as DanskStiApp).repository.isDeviceOnline() }.getOrDefault(true)
-    }
+    val isDeviceOnline = com.example.ui.components.rememberIsOnline()
 
     val downloadedTrails by viewModel.downloadedTrails.collectAsState()
     val isDownloading by viewModel.isDownloading.collectAsState()

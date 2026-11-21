@@ -60,8 +60,15 @@ class PoiClusterOverlay(
 
     private val activeClusters = mutableListOf<ClusterBucket>()
     private val activeSingleItems = mutableListOf<Pair<MapPoiItem, Point>>()
+    private val gridBuckets = LinkedHashMap<Long, ClusterBucket>()
     private val tempPoint = Point()
-    private var lastSignature: Int = 0
+    private val scratchGeoPoint = GeoPoint(0.0, 0.0)
+    private var lastSignature: Int = 31 * poiItems.hashCode() + (selectedPoiId?.hashCode() ?: 0)
+
+    var lastFrameClustersDrawn: Int = 0
+        private set
+    var lastFrameSinglePoisDrawn: Int = 0
+        private set
 
     fun getItems(): List<MapPoiItem> = poiItems
 
@@ -100,11 +107,11 @@ class PoiClusterOverlay(
             if (zoom < CLUSTER_BELOW_ZOOM) {
                 // Below zoom 13: Group into a ~60 dp grid
                 val gridSizePx = 60f * density
-                val gridBuckets = mutableMapOf<Long, ClusterBucket>()
+                gridBuckets.clear()
 
                 for (poi in poiItems) {
-                    val geoPoint = GeoPoint(poi.lat, poi.lng)
-                    projection.toPixels(geoPoint, tempPoint)
+                    scratchGeoPoint.setCoords(poi.lat, poi.lng)
+                    projection.toPixels(scratchGeoPoint, tempPoint)
                     val px = tempPoint.x.toFloat()
                     val py = tempPoint.y.toFloat()
 
@@ -161,8 +168,8 @@ class PoiClusterOverlay(
             } else {
                 // At zoom 13+: Show individual icons (32 dp, selected 40 dp)
                 for (poi in poiItems) {
-                    val geoPoint = GeoPoint(poi.lat, poi.lng)
-                    projection.toPixels(geoPoint, tempPoint)
+                    scratchGeoPoint.setCoords(poi.lat, poi.lng)
+                    projection.toPixels(scratchGeoPoint, tempPoint)
                     val px = tempPoint.x.toFloat()
                     val py = tempPoint.y.toFloat()
 
@@ -185,6 +192,8 @@ class PoiClusterOverlay(
                     activeSingleItems.add(poi to Point(tempPoint.x, tempPoint.y))
                 }
             }
+            lastFrameClustersDrawn = activeClusters.size
+            lastFrameSinglePoisDrawn = activeSingleItems.size
         }
     }
 

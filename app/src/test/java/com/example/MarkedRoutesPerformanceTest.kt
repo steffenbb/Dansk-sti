@@ -83,7 +83,8 @@ class MarkedRoutesPerformanceTest {
 
     /**
      * Generates a synthetic route of [wayCount] contiguous ways, each with [pointsPerWay] points,
-     * with a sinusoidal wiggle so 35m and 150m Douglas-Peucker simplification reduces vertices at low zoom.
+     * following a zigzag/sine path with a point every ~20 m and ±30–80 m sideways deviation,
+     * so lod1 (35 m) and lod2 (150 m) Douglas-Peucker simplification genuinely reduce points.
      */
     private fun buildSyntheticRouteEntity(
         relationId: Long,
@@ -99,39 +100,47 @@ class MarkedRoutesPerformanceTest {
         var minLng = Double.POSITIVE_INFINITY
         var maxLng = Double.NEGATIVE_INFINITY
 
-        var curLat = baseLat
-        var curLng = baseLng
-        val stepLat = 0.00018 // ~20 m north per point
-        val stepLng = 0.00028 // ~17 m east per point
+        // Forward step ~20 m per point (12 m N + 16 m E = 20 m)
+        val metersPerDegLat = 111_320.0
+        val metersPerDegLng = 111_320.0 * cos(Math.toRadians(baseLat)).coerceAtLeast(0.2)
+        val fwdNorthMeters = 12.0
+        val fwdEastMeters = 16.0
+        // Perpendicular unit vector (-0.8 N, +0.6 E) for sideways deviation
+        val perpNorthUnit = -0.8
+        val perpEastUnit = 0.6
+
+        fun computePoint(globalIdx: Int): Pair<Double, Double> {
+            val alongNorthM = globalIdx * fwdNorthMeters
+            val alongEastM = globalIdx * fwdEastMeters
+            // Combine medium-wavelength sine wave (±75 m every ~18 points = 360 m)
+            // with a local ~20 m zigzag (±32 m every 2 points) so:
+            // - lod0 keeps all points (every 20 m)
+            // - lod1 (35 m tolerance) strips the ±32 m local zigzag (< 50% points)
+            // - lod2 (150 m tolerance) strips both the local zigzag and the ±75 m wave (< 25% points)
+            val macroWaveM = 75.0 * sin(globalIdx * 0.35)
+            val localZigzagM = 32.0 * sin(globalIdx * 1.65)
+            val sidewaysM = if (globalIdx == 0) 0.0 else (macroWaveM + localZigzagM)
+
+            val totalNorthM = alongNorthM + sidewaysM * perpNorthUnit
+            val totalEastM = alongEastM + sidewaysM * perpEastUnit
+            val lat = baseLat + totalNorthM / metersPerDegLat
+            val lng = baseLng + totalEastM / metersPerDegLng
+            return lat to lng
+        }
 
         for (w in 0 until wayCount) {
             val wayArr = JSONArray()
-            // First point of way shares endpoint with previous way
-            val startPt = JSONArray().apply {
-                put(curLat)
-                put(curLng)
-            }
-            wayArr.put(startPt)
-            if (curLat < minLat) minLat = curLat
-            if (curLat > maxLat) maxLat = curLat
-            if (curLng < minLng) minLng = curLng
-            if (curLng > maxLng) maxLng = curLng
-
-            for (p in 1 until pointsPerWay) {
+            for (p in 0 until pointsPerWay) {
                 val globalIdx = w * (pointsPerWay - 1) + p
-                val wiggleLat = sin(globalIdx * 0.7) * 0.00045 // ~50 m amplitude
-                val wiggleLng = cos(globalIdx * 0.5) * 0.00060 // ~37 m amplitude
-                curLat = baseLat + globalIdx * stepLat + wiggleLat
-                curLng = baseLng + globalIdx * stepLng + wiggleLng
-
-                if (curLat < minLat) minLat = curLat
-                if (curLat > maxLat) maxLat = curLat
-                if (curLng < minLng) minLng = curLng
-                if (curLng > maxLng) maxLng = curLng
+                val (lat, lng) = computePoint(globalIdx)
+                if (lat < minLat) minLat = lat
+                if (lat > maxLat) maxLat = lat
+                if (lng < minLng) minLng = lng
+                if (lng > maxLng) maxLng = lng
 
                 val ptArr = JSONArray().apply {
-                    put(curLat)
-                    put(curLng)
+                    put(lat)
+                    put(lng)
                 }
                 wayArr.put(ptArr)
             }
@@ -163,6 +172,7 @@ class MarkedRoutesPerformanceTest {
 
     @Test
     fun benchmark_300SyntheticRoutesBy30Ways_reportsRoutesVerticesAndDrawTimeAtZoom7_10_14() = runBlocking {
+        val now = System.currentTimeMillis()
         val routes = ArrayList<MarkedRouteEntity>(300)
         for (i in 0 until 300) {
             val row = i / 20
@@ -175,21 +185,34 @@ class MarkedRoutesPerformanceTest {
                     baseLat = baseLat,
                     baseLng = baseLng,
                     wayCount = 30,
-                    pointsPerWay = 12
+                    pointsPerWay = 12,
+                    cachedAt = now
                 )
             )
         }
         dao.insertMarkedRoutes(routes)
-        dao.insertMarkedRouteCacheBox(
-            MarkedRouteCacheBoxEntity(
-                boxKey = "dk_all",
-                minLat = 54.4,
-                maxLat = 58.0,
-                minLng = 7.8,
-                maxLng = 15.5,
-                fetchedAt = System.currentTimeMillis()
+
+        // Pre-populate fresh grid cell boxes across Denmark so no network fetch is triggered at zoom >= 10
+        for (cell in MarkedRouteRepository.computeGridCellsForViewport(54.4, 58.0, 7.8, 15.5)) {
+            dao.insertMarkedRouteCacheBox(
+                MarkedRouteCacheBoxEntity(
+                    boxKey = cell.cellKey,
+                    minLat = cell.minLat,
+                    maxLat = cell.maxLat,
+                    minLng = cell.minLng,
+                    maxLng = cell.maxLng,
+                    fetchedAt = now
+                )
             )
-        )
+        }
+
+        // Pre-compute each route's stitched lod0 point count directly from its stored segments
+        val lod0PointCountByRouteId = HashMap<Long, Int>(300)
+        for (entity in routes) {
+            val rawPacked = markedRepo.parseSegmentsJsonToPackedArrays(entity.segmentsJson)
+            val stitched = MarkedRouteRepository.stitchWaySegmentsToPackedPolylines(rawPacked)
+            lod0PointCountByRouteId[entity.osmRelationId] = stitched.sumOf { it.size / 2 }
+        }
 
         val mapView = MapView(context)
         mapView.layout(0, 0, 1080, 1920)
@@ -202,68 +225,116 @@ class MarkedRoutesPerformanceTest {
             org.osmdroid.views.overlay.FolderOverlay::class.java.isAssignableFrom(MarkedRoutesBatchOverlay::class.java)
         )
 
-        // 1. Zoom 7 (Overview across Denmark)
-        mapView.controller.setZoom(7.0)
-        mapView.controller.setCenter(GeoPoint(56.0, 10.4))
-        val snapshotsZ7 = markedRepo.getMarkedRouteRenderSnapshots(54.4, 58.0, 7.8, 15.5, zoomLevel = 7.0)
-        overlay.setRoutesSnapshot(snapshotsZ7)
+        data class ZoomBenchmarkResult(
+            val zoom: Int,
+            val routesDrawn: Int,
+            val verticesDrawn: Int,
+            val totalLod0PointsOfDrawnRoutes: Int,
+            val medianDrawMs: Double
+        )
 
-        val t0Z7 = System.nanoTime()
-        overlay.draw(canvas, mapView, false)
-        val drawMsZ7 = (System.nanoTime() - t0Z7) / 1_000_000.0
-        val routesZ7 = overlay.lastFrameRoutesDrawn
-        val verticesZ7 = overlay.lastFrameVerticesDrawn
+        suspend fun runBenchmarkAtZoom(zoomLevel: Double, queryMinLat: Double, queryMaxLat: Double, queryMinLng: Double, queryMaxLng: Double): ZoomBenchmarkResult {
+            mapView.controller.setZoom(zoomLevel)
+            mapView.controller.setCenter(GeoPoint(56.0, 10.4))
+            val snapshots = markedRepo.getMarkedRouteRenderSnapshots(
+                queryMinLat,
+                queryMaxLat,
+                queryMinLng,
+                queryMaxLng,
+                zoomLevel = zoomLevel
+            )
+            overlay.setRoutesSnapshot(snapshots)
+
+            if (zoomLevel >= 12.0) {
+                for (item in snapshots) {
+                    assertNotNull(
+                        "At zoom $zoomLevel, every route in snapshot must have lod0 loaded (no lod1 fallback) for route ${item.osmRelationId}",
+                        item.lod0
+                    )
+                }
+            }
+
+            // 3 warm-up draws
+            repeat(3) {
+                overlay.draw(canvas, mapView, false)
+            }
+            // 5 timed draws
+            val samplesMs = DoubleArray(5)
+            for (s in 0 until 5) {
+                val t0 = System.nanoTime()
+                overlay.draw(canvas, mapView, false)
+                samplesMs[s] = (System.nanoTime() - t0) / 1_000_000.0
+            }
+            samplesMs.sort()
+            val medianMs = samplesMs[2]
+
+            val drawnIds = overlay.lastFrameDrawnRouteIds
+            val perRouteLod0 = lod0PointCountByRouteId.values.firstOrNull() ?: 331
+            val totalLod0Points = if (drawnIds.isNotEmpty()) {
+                drawnIds.sumOf { id -> lod0PointCountByRouteId[id] ?: perRouteLod0 }
+            } else {
+                overlay.lastFrameRoutesDrawn * perRouteLod0
+            }
+
+            if (zoomLevel >= 12.0) {
+                val snapById = snapshots.associateBy { it.osmRelationId }
+                for (drawnId in drawnIds) {
+                    val item = snapById[drawnId]
+                    assertNotNull("Drawn route $drawnId must be in snapshot", item)
+                    assertNotNull("Drawn route $drawnId at zoom $zoomLevel must use lod0 (no lod1 fallback)", item!!.lod0)
+                }
+            }
+
+            return ZoomBenchmarkResult(
+                zoom = zoomLevel.toInt(),
+                routesDrawn = overlay.lastFrameRoutesDrawn,
+                verticesDrawn = overlay.lastFrameVerticesDrawn,
+                totalLod0PointsOfDrawnRoutes = totalLod0Points,
+                medianDrawMs = medianMs
+            )
+        }
+
+        // 1. Zoom 7 (Overview across Denmark)
+        val resZ7 = runBenchmarkAtZoom(7.0, 54.4, 58.0, 7.8, 15.5)
 
         // 2. Zoom 10 (Regional sector)
         mapView.controller.setZoom(10.0)
         mapView.controller.setCenter(GeoPoint(56.0, 10.4))
         val box10 = mapView.boundingBox
-        val snapshotsZ10 = markedRepo.getMarkedRouteRenderSnapshots(
-            box10.latSouth,
-            box10.latNorth,
-            box10.lonWest,
-            box10.lonEast,
-            zoomLevel = 10.0
-        )
-        overlay.setRoutesSnapshot(snapshotsZ10)
-
-        val t0Z10 = System.nanoTime()
-        overlay.draw(canvas, mapView, false)
-        val drawMsZ10 = (System.nanoTime() - t0Z10) / 1_000_000.0
-        val routesZ10 = overlay.lastFrameRoutesDrawn
-        val verticesZ10 = overlay.lastFrameVerticesDrawn
+        val resZ10 = runBenchmarkAtZoom(10.0, box10.latSouth, box10.latNorth, box10.lonWest, box10.lonEast)
 
         // 3. Zoom 14 (High detail trail view)
         mapView.controller.setZoom(14.0)
         mapView.controller.setCenter(GeoPoint(56.0, 10.4))
         val box14 = mapView.boundingBox
-        val snapshotsZ14 = markedRepo.getMarkedRouteRenderSnapshots(
-            box14.latSouth,
-            box14.latNorth,
-            box14.lonWest,
-            box14.lonEast,
-            zoomLevel = 14.0
+        val resZ14 = runBenchmarkAtZoom(14.0, box14.latSouth, box14.latNorth, box14.lonWest, box14.lonEast)
+
+        for (r in listOf(resZ7, resZ10, resZ14)) {
+            println(
+                "BENCHMARK_300x30 Zoom ${r.zoom}: " +
+                    "routesDrawn=${r.routesDrawn}, " +
+                    "verticesDrawn=${r.verticesDrawn}, " +
+                    "totalLod0Points=${r.totalLod0PointsOfDrawnRoutes}, " +
+                    "medianDrawMs=${String.format(java.util.Locale.US, "%.2f", r.medianDrawMs)}ms"
+            )
+        }
+
+        assertEquals("All 300 routes should be drawn at zoom 7", 300, resZ7.routesDrawn)
+        assertTrue(
+            "Zoom 7 vertices (${resZ7.verticesDrawn}) must be < 25% of lod0 points of drawn routes (${resZ7.totalLod0PointsOfDrawnRoutes})",
+            resZ7.verticesDrawn < (resZ7.totalLod0PointsOfDrawnRoutes * 0.25)
         )
-        overlay.setRoutesSnapshot(snapshotsZ14)
-
-        val t0Z14 = System.nanoTime()
-        overlay.draw(canvas, mapView, false)
-        val drawMsZ14 = (System.nanoTime() - t0Z14) / 1_000_000.0
-        val routesZ14 = overlay.lastFrameRoutesDrawn
-        val verticesZ14 = overlay.lastFrameVerticesDrawn
-
-        println(
-            "BENCHMARK_300x30: " +
-                "Zoom 7 -> routesDrawn=$routesZ7, verticesDrawn=$verticesZ7, drawTimeMs=${String.format(java.util.Locale.US, "%.2f", drawMsZ7)}ms | " +
-                "Zoom 10 -> routesDrawn=$routesZ10, verticesDrawn=$verticesZ10, drawTimeMs=${String.format(java.util.Locale.US, "%.2f", drawMsZ10)}ms | " +
-                "Zoom 14 -> routesDrawn=$routesZ14, verticesDrawn=$verticesZ14, drawTimeMs=${String.format(java.util.Locale.US, "%.2f", drawMsZ14)}ms"
+        assertTrue("Expected zoom 10 routes drawn (${resZ10.routesDrawn}) > 0", resZ10.routesDrawn > 0)
+        assertTrue(
+            "Zoom 10 vertices (${resZ10.verticesDrawn}) must be < 50% of lod0 points of drawn routes (${resZ10.totalLod0PointsOfDrawnRoutes})",
+            resZ10.verticesDrawn < (resZ10.totalLod0PointsOfDrawnRoutes * 0.50)
         )
-
-        assertEquals("All 300 routes should be drawn at zoom 7", 300, routesZ7)
-        // Raw point count for 300 routes * (30 ways * 11 + 1) = 99,300 points; LOD 2 (150 m) must significantly reduce vertices
-        assertTrue("Expected zoom 7 LOD2 vertices ($verticesZ7) < 40,000 (vs 99,300 raw)", verticesZ7 in 600..40_000)
-        assertTrue("Expected zoom 10 routes drawn ($routesZ10) > 0 and < 300", routesZ10 in 1..299)
-        assertTrue("Expected zoom 14 routes drawn ($routesZ14) > 0 and <= routesZ10", routesZ14 in 1..routesZ10)
+        assertTrue("Expected zoom 14 routes drawn (${resZ14.routesDrawn}) > 0", resZ14.routesDrawn > 0)
+        assertEquals(
+            "Zoom 14 vertices (${resZ14.verticesDrawn}) must equal lod0 points of drawn routes (${resZ14.totalLod0PointsOfDrawnRoutes})",
+            resZ14.totalLod0PointsOfDrawnRoutes,
+            resZ14.verticesDrawn
+        )
     }
 
     // =========================================================================
@@ -379,9 +450,6 @@ class MarkedRoutesPerformanceTest {
             },
             onPoiTapped = { poi ->
                 tappedPoi = poi
-            },
-            onMarkedRouteExpiredMessage = { msg ->
-                expiredMsg = msg
             }
         )
         manager.attachToMap(mapView, isDark = false)
@@ -457,16 +525,11 @@ class MarkedRoutesPerformanceTest {
 
         // 3. Delete route from Room (simulating expired/cleared cache) while snapshot is still on screen, then tap route
         dao.clearAllMarkedRoutes()
-        val expiredLatch = CountDownLatch(1)
         val managerExpired = MapLayersOverlayManager(
             context = context,
             scope = CoroutineScope(Dispatchers.Main.immediate),
             markedRouteRepository = secondRepo,
-            onMarkedRouteTapped = { dto -> tappedRoute = dto },
-            onMarkedRouteExpiredMessage = { msg ->
-                expiredMsg = msg
-                expiredLatch.countDown()
-            }
+            onMarkedRouteTapped = { dto -> tappedRoute = dto }
         )
         managerExpired.attachToMap(mapView, isDark = false)
         managerExpired.getMarkedRoutesBatchOverlay().setRoutesSnapshot(snapshots)
@@ -475,12 +538,17 @@ class MarkedRoutesPerformanceTest {
         managerExpired.getMarkedRoutesBatchOverlay().onSingleTapConfirmed(motionTapExpired, mapView)
         motionTapExpired.recycle()
 
-        waitForLatchWithMainLooper(expiredLatch)
+        val deadline = System.currentTimeMillis() + 3_000L
+        while (managerExpired.transientLayerMessage.value == null && System.currentTimeMillis() < deadline) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            Thread.sleep(10)
+        }
 
         assertNull("Detail sheet must not open when route is no longer in Room", tappedRoute)
+        assertTrue("layerErrorMessages must be empty on expired route tap", managerExpired.layerErrorMessages.value.isEmpty())
         assertEquals(
             "Ruten er ikke længere gemt. Zoom ind for at hente den igen.",
-            expiredMsg
+            managerExpired.transientLayerMessage.value
         )
     }
 

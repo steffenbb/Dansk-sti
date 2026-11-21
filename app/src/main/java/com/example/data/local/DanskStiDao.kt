@@ -164,6 +164,17 @@ interface DanskStiDao {
     suspend fun getSheltersForTrail(trailId: String): List<ShelterEntity>
 
     @Query("""
+        SELECT trailKey, COUNT(*) AS shelterCount FROM (
+          SELECT tp.trailId AS trailKey FROM trail_pois tp INNER JOIN shelters s ON s.id = tp.poiId
+            WHERE tp.trailId IS NOT NULL AND tp.detourMeters <= 3000
+          UNION ALL
+          SELECT tp.routeId AS trailKey FROM trail_pois tp INNER JOIN shelters s ON s.id = tp.poiId
+            WHERE tp.routeId IS NOT NULL AND (tp.trailId IS NULL OR tp.routeId != tp.trailId) AND tp.detourMeters <= 3000
+        ) GROUP BY trailKey
+    """)
+    suspend fun getAttachedShelterCountsByTrail(): List<com.example.data.model.TrailShelterCountTuple>
+
+    @Query("""
         SELECT p.* FROM pois p
         INNER JOIN trail_pois tp ON p.id = tp.poiId
         WHERE (tp.trailId = :trailId OR tp.routeId = :trailId) AND tp.detourMeters <= 3000
@@ -416,6 +427,9 @@ interface DanskStiDao {
 
     @Query("SELECT * FROM marked_route_cache_boxes WHERE minLat <= :maxLat AND maxLat >= :minLat AND minLng <= :maxLng AND maxLng >= :minLng")
     suspend fun getMarkedRouteCacheBoxes(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double): List<com.example.data.model.MarkedRouteCacheBoxEntity>
+
+    @Query("SELECT * FROM marked_route_cache_boxes WHERE boxKey IN (:keys)")
+    suspend fun getMarkedRouteCacheBoxesByKeys(keys: List<String>): List<com.example.data.model.MarkedRouteCacheBoxEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMarkedRouteCacheBox(box: com.example.data.model.MarkedRouteCacheBoxEntity)

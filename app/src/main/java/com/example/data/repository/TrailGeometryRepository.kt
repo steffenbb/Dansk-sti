@@ -355,7 +355,11 @@ class TrailGeometryRepository(private val context: Context) {
         osmRelationId: Long?,
         listeners: CopyOnWriteArrayList<(TrailDownloadProgress) -> Unit>
     ): TrailGeometryDto? {
+        var lastProgress: TrailDownloadProgress? = null
+        var sectionStarted = false
+
         val emitProgressState: (TrailDownloadProgress) -> Unit = { p ->
+            lastProgress = p
             updateProgress(p)
             for (listener in listeners) {
                 runCatching { listener.invoke(p) }
@@ -376,48 +380,83 @@ class TrailGeometryRepository(private val context: Context) {
             )
         }
         val onOverpassStatusChange: (com.example.data.remote.OverpassClient.RequestState) -> Unit = { state ->
-            when (state) {
-                is com.example.data.remote.OverpassClient.RequestState.Queued -> {
-                    emitProgressState(
-                        TrailDownloadProgress(
-                            trailId = trailId,
-                            fraction = 0f,
-                            downloadedRelations = 0,
-                            totalRelations = 1,
-                            accumulatedKm = 0.0,
-                            stageMessage = "Venter på OpenStreetMap (${state.aheadCount} foran i køen)",
-                            isIndeterminate = true,
-                            queuePosition = state.aheadCount
+            val prev = lastProgress
+            if (sectionStarted && prev != null) {
+                val x = prev.downloadedRelations
+                val y = prev.totalRelations
+                when (state) {
+                    is com.example.data.remote.OverpassClient.RequestState.Queued -> {
+                        emitProgressState(
+                            prev.copy(
+                                stageMessage = "Venter på OpenStreetMap (${state.aheadCount} foran i køen)",
+                                isIndeterminate = false,
+                                queuePosition = state.aheadCount
+                            )
                         )
-                    )
+                    }
+                    is com.example.data.remote.OverpassClient.RequestState.Running -> {
+                        emitProgressState(
+                            prev.copy(
+                                stageMessage = "Henter sektion $x af $y",
+                                isIndeterminate = false,
+                                queuePosition = 0
+                            )
+                        )
+                    }
+                    is com.example.data.remote.OverpassClient.RequestState.Slow -> {
+                        emitProgressState(
+                            prev.copy(
+                                stageMessage = "Henter sektion $x af $y – det tager lidt længere end normalt…",
+                                isIndeterminate = false,
+                                queuePosition = 0
+                            )
+                        )
+                    }
                 }
-                is com.example.data.remote.OverpassClient.RequestState.Running -> {
-                    emitProgressState(
-                        TrailDownloadProgress(
-                            trailId = trailId,
-                            fraction = 0f,
-                            downloadedRelations = 0,
-                            totalRelations = 1,
-                            accumulatedKm = 0.0,
-                            stageMessage = "Henter rute fra OpenStreetMap…",
-                            isIndeterminate = true,
-                            queuePosition = 0
+            } else {
+                when (state) {
+                    is com.example.data.remote.OverpassClient.RequestState.Queued -> {
+                        emitProgressState(
+                            TrailDownloadProgress(
+                                trailId = trailId,
+                                fraction = 0f,
+                                downloadedRelations = 0,
+                                totalRelations = 1,
+                                accumulatedKm = 0.0,
+                                stageMessage = "Venter på OpenStreetMap (${state.aheadCount} foran i køen)",
+                                isIndeterminate = true,
+                                queuePosition = state.aheadCount
+                            )
                         )
-                    )
-                }
-                is com.example.data.remote.OverpassClient.RequestState.Slow -> {
-                    emitProgressState(
-                        TrailDownloadProgress(
-                            trailId = trailId,
-                            fraction = 0f,
-                            downloadedRelations = 0,
-                            totalRelations = 1,
-                            accumulatedKm = 0.0,
-                            stageMessage = "Det tager lidt længere end normalt…",
-                            isIndeterminate = true,
-                            queuePosition = 0
+                    }
+                    is com.example.data.remote.OverpassClient.RequestState.Running -> {
+                        emitProgressState(
+                            TrailDownloadProgress(
+                                trailId = trailId,
+                                fraction = 0f,
+                                downloadedRelations = 0,
+                                totalRelations = 1,
+                                accumulatedKm = 0.0,
+                                stageMessage = "Henter rute fra OpenStreetMap…",
+                                isIndeterminate = true,
+                                queuePosition = 0
+                            )
                         )
-                    )
+                    }
+                    is com.example.data.remote.OverpassClient.RequestState.Slow -> {
+                        emitProgressState(
+                            TrailDownloadProgress(
+                                trailId = trailId,
+                                fraction = 0f,
+                                downloadedRelations = 0,
+                                totalRelations = 1,
+                                accumulatedKm = 0.0,
+                                stageMessage = "Det tager lidt længere end normalt…",
+                                isIndeterminate = true,
+                                queuePosition = 0
+                            )
+                        )
+                    }
                 }
             }
         }
@@ -429,6 +468,7 @@ class TrailGeometryRepository(private val context: Context) {
         if (customFetcher != null) {
             onOverpassStatusChange(com.example.data.remote.OverpassClient.RequestState.Running)
             val ok = customFetcher.invoke(relationId, rawElements) { dl, tot ->
+                sectionStarted = true
                 val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
                 emitProg(frac, dl, tot, 0.0, "Henter sektion $dl af $tot")
             }
@@ -442,6 +482,7 @@ class TrailGeometryRepository(private val context: Context) {
                 collected = rawElements,
                 onStatusChange = onOverpassStatusChange,
                 onBatchProgress = { batchNum, totalBatches ->
+                    sectionStarted = true
                     val frac = 0.1f + 0.55f * (batchNum.toFloat() / totalBatches.coerceAtLeast(1).toFloat())
                     emitProg(frac, batchNum, totalBatches, 0.0, "Henter sektion $batchNum af $totalBatches")
                 }
@@ -474,40 +515,54 @@ class TrailGeometryRepository(private val context: Context) {
         return dto
     }
 
-    private suspend fun findRelationByName(
+    internal fun overpassRegexEscape(name: String): String {
+        val sb = StringBuilder(name.length + 16)
+        for (ch in name) {
+            when (ch) {
+                '\\', '.', '^', '$', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|' -> {
+                    sb.append("\\\\").append(ch)
+                }
+                '"' -> {
+                    sb.append("\\\"")
+                }
+                else -> {
+                    sb.append(ch)
+                }
+            }
+        }
+        return sb.toString()
+    }
+
+    internal fun buildFindRelationQuery(escapedName: String, exact: Boolean): String {
+        val pattern = if (exact) "^$escapedName$" else escapedName
+        return """
+            [out:json][timeout:25][maxsize:67108864];
+            (
+              relation["type"="route"]["route"~"^(hiking|foot|walking)$"]["name"~"$pattern",i](54.4,7.8,57.9,15.3);
+              relation["type"="superroute"]["name"~"$pattern",i](54.4,7.8,57.9,15.3);
+            );
+            out tags bb;
+        """.trimIndent()
+    }
+
+    internal suspend fun findRelationByName(
         name: String,
         onStatusChange: ((com.example.data.remote.OverpassClient.RequestState) -> Unit)? = null
     ): Long? {
         val cleanName = name.replace(Regex("\\s*\\(.*\\)"), "").trim()
         val isBornholmKyststi = cleanName.equals("Kyststien Bornholm", ignoreCase = true)
         val searchName = if (isBornholmKyststi) "Kyststien" else cleanName
-        val query = """
-            [out:json][timeout:25][maxsize:67108864];
-            (
-              relation["type"="route"]["name"="$searchName"];
-              relation["type"="superroute"]["name"="$searchName"];
-            );
-            out tags bb;
-        """.trimIndent()
+        val escaped = overpassRegexEscape(searchName)
 
-        return try {
-            val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
-                query = query,
-                label = "FindRelation($cleanName)",
-                priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED,
-                onStatusChange = onStatusChange
-            )
-            val root = moshi.adapter(Map::class.java).fromJson(jsonStr)
-            @Suppress("UNCHECKED_CAST")
-            val rawElements = root?.get("elements") as? List<Map<String, Any>> ?: emptyList()
-
-            val elements = rawElements
+        fun filterCandidates(rawElements: List<Map<String, Any>>): List<Map<String, Any>> {
+            return rawElements
                 .filter { el ->
                     isChildRelationInsideDenmark(el) && run {
                         @Suppress("UNCHECKED_CAST")
                         val tags = el["tags"] as? Map<String, String> ?: emptyMap()
+                        val type = tags["type"]?.lowercase().orEmpty()
                         val route = tags["route"]?.lowercase().orEmpty()
-                        route.isEmpty() || route == "hiking" || route == "foot" || route == "walking"
+                        type == "superroute" || route.isEmpty() || route == "hiking" || route == "foot" || route == "walking"
                     }
                 }
                 .let { candidates ->
@@ -524,14 +579,64 @@ class TrailGeometryRepository(private val context: Context) {
                         candidates
                     }
                 }
+        }
 
-            if (elements.size == 1) {
-                (elements[0]["id"] as? Number)?.toLong()
-            } else {
-                if (elements.size > 1) {
-                    Log.w("TrailGeometry", "Multiple relation matches (${elements.size}) for \"$name\". Returning null.")
+        return try {
+            val query1 = buildFindRelationQuery(escaped, exact = true)
+            val jsonStr1 = com.example.data.remote.OverpassClient.queryRawJson(
+                query = query1,
+                label = "FindRelation($cleanName)",
+                priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED,
+                onStatusChange = onStatusChange
+            )
+            val root1 = moshi.adapter(Map::class.java).fromJson(jsonStr1)
+            @Suppress("UNCHECKED_CAST")
+            val rawElements1 = root1?.get("elements") as? List<Map<String, Any>> ?: emptyList()
+            var candidates = filterCandidates(rawElements1)
+
+            if (candidates.isEmpty()) {
+                val query2 = buildFindRelationQuery(escaped, exact = false)
+                val jsonStr2 = com.example.data.remote.OverpassClient.queryRawJson(
+                    query = query2,
+                    label = "FindRelationPartial($cleanName)",
+                    priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED,
+                    onStatusChange = onStatusChange
+                )
+                val root2 = moshi.adapter(Map::class.java).fromJson(jsonStr2)
+                @Suppress("UNCHECKED_CAST")
+                val rawElements2 = root2?.get("elements") as? List<Map<String, Any>> ?: emptyList()
+                candidates = filterCandidates(rawElements2)
+            }
+
+            when {
+                candidates.isEmpty() -> null
+                candidates.size == 1 -> (candidates[0]["id"] as? Number)?.toLong()
+                else -> {
+                    val superroutes = candidates.filter { el ->
+                        @Suppress("UNCHECKED_CAST")
+                        val tags = el["tags"] as? Map<String, String> ?: emptyMap()
+                        tags["type"]?.equals("superroute", ignoreCase = true) == true
+                    }
+                    if (superroutes.size == 1) {
+                        (superroutes[0]["id"] as? Number)?.toLong()
+                    } else {
+                        val exactNameMatches = candidates.filter { el ->
+                            @Suppress("UNCHECKED_CAST")
+                            val tags = el["tags"] as? Map<String, String> ?: emptyMap()
+                            tags["name"]?.equals(searchName, ignoreCase = true) == true
+                        }
+                        if (exactNameMatches.size == 1) {
+                            (exactNameMatches[0]["id"] as? Number)?.toLong()
+                        } else {
+                            val candidateIds = candidates.mapNotNull { (it["id"] as? Number)?.toLong() }
+                            Log.w(
+                                "TrailGeometry",
+                                "Multiple relation matches (${candidates.size}) for \"$name\" (ids=$candidateIds). Returning null."
+                            )
+                            null
+                        }
+                    }
                 }
-                null
             }
         } catch (ce: kotlinx.coroutines.CancellationException) {
             throw ce

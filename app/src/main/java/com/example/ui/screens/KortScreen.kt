@@ -172,6 +172,7 @@ fun KortScreen(
             layersButtonTestTag = "kort_layers_button",
             compassButtonTestTag = "kort_compass_button",
             myLocationButtonTestTag = "kort_my_location_button",
+            markedRouteTapsEnabled = !isMeasuringDistance,
             onMapReady = { mv -> mapViewRef = mv },
             onMapTap = { geoPoint ->
                 if (isMeasuringDistance) {

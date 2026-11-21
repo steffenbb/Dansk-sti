@@ -189,8 +189,11 @@ object OverpassClient {
     @VisibleForTesting
     internal val observedIdleLimitsByServer = ConcurrentHashMap<String, Long>()
 
+    internal const val MAX_ATTEMPT_LOG_LINES = 50
+    internal val attemptLogLock = Any()
+
     @VisibleForTesting
-    internal val attemptLogLines = CopyOnWriteArrayList<String>()
+    internal val attemptLogLines = ArrayDeque<String>(MAX_ATTEMPT_LOG_LINES)
 
     @VisibleForTesting
     @Volatile
@@ -343,7 +346,9 @@ object OverpassClient {
         observedReadTimeoutsByLabel.clear()
         observedHeaderLimitsByServer.clear()
         observedIdleLimitsByServer.clear()
-        attemptLogLines.clear()
+        synchronized(attemptLogLock) {
+            attemptLogLines.clear()
+        }
         customTransport = null
         customSessionTransport = null
         ioDispatcher = Dispatchers.IO
@@ -458,7 +463,14 @@ object OverpassClient {
 
     private fun logAttempt(serverUrl: String, phase: String, elapsedMs: Long, outcome: String) {
         val line = "host=${hostOf(serverUrl)} phase=$phase elapsed=${elapsedMs}ms outcome=$outcome"
-        attemptLogLines.add(line)
+        if (com.example.BuildConfig.DEBUG) {
+            synchronized(attemptLogLock) {
+                while (attemptLogLines.size >= MAX_ATTEMPT_LOG_LINES) {
+                    attemptLogLines.removeFirst()
+                }
+                attemptLogLines.addLast(line)
+            }
+        }
         DLog.run { d(TAG, line) }
     }
 

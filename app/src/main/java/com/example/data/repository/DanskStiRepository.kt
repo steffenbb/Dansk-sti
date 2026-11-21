@@ -1472,6 +1472,28 @@ class DanskStiRepository(
         }
     }
 
+    suspend fun getShelterCountsForTrails(trails: List<TrailEntity>): Map<String, Int> = withContext(Dispatchers.IO) {
+        if (trails.isEmpty()) return@withContext emptyMap()
+        val attachedMap = dao.getAttachedShelterCountsByTrail().associate { it.trailKey to it.shelterCount }
+        val needsBboxFallback = trails.any { (attachedMap[it.id] ?: 0) == 0 }
+        val allSh = if (needsBboxFallback) dao.getAllSheltersList() else emptyList()
+        val result = LinkedHashMap<String, Int>(trails.size)
+        for (trail in trails) {
+            val attachedCount = attachedMap[trail.id] ?: 0
+            result[trail.id] = if (attachedCount > 0) {
+                attachedCount
+            } else if (trail.bboxSouth != null && trail.bboxNorth != null && trail.bboxWest != null && trail.bboxEast != null) {
+                allSh.count { s ->
+                    s.lat in (trail.bboxSouth - 0.03)..(trail.bboxNorth + 0.03) &&
+                        s.lng in (trail.bboxWest - 0.05)..(trail.bboxEast + 0.05)
+                }
+            } else {
+                0
+            }
+        }
+        result
+    }
+
     suspend fun saveTrail(trailId: String) = withContext(Dispatchers.IO) {
         dao.insertSavedTrail(com.example.data.model.SavedTrailEntity(trailId = trailId))
     }
@@ -2111,8 +2133,22 @@ class DanskStiRepository(
     // Access Land (Phase 10 - Naturbeskyttelsesloven)
     val accessLandRepo: AccessLandRepository = AccessLandRepository(dao)
 
-    suspend fun getAccessPolygons(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double): List<com.example.data.model.access.AccessPolygon> =
-        accessLandRepo.getAccessPolygons(minLat, maxLat, minLng, maxLng)
+    suspend fun getAccessPolygons(
+        minLat: Double,
+        maxLat: Double,
+        minLng: Double,
+        maxLng: Double,
+        priority: com.example.data.remote.OverpassClient.Priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND
+    ): List<com.example.data.model.access.AccessPolygon> =
+        accessLandRepo.getAccessPolygons(minLat, maxLat, minLng, maxLng, priority)
+
+    suspend fun getCachedAccessPolygons(
+        minLat: Double,
+        maxLat: Double,
+        minLng: Double,
+        maxLng: Double
+    ): List<com.example.data.model.access.AccessPolygon> =
+        accessLandRepo.getCachedAccessPolygons(minLat, maxLat, minLng, maxLng)
 
     // User Custom Waypoints (Phase 12 Feature 6: Mine punkter)
     suspend fun saveCustomWaypoint(waypoint: com.example.data.model.UserCustomWaypointEntity) = withContext(Dispatchers.IO) {
@@ -2378,16 +2414,6 @@ class DanskStiRepository(
     }
 
     // Phase 13 Requirement B: Afmærkede ruter
-    suspend fun getMarkedRoutes(
-        minLat: Double,
-        maxLat: Double,
-        minLng: Double,
-        maxLng: Double,
-        zoomLevel: Double
-    ): List<com.example.data.model.MarkedRouteDto> = withContext(Dispatchers.IO) {
-        markedRouteRepository.getMarkedRoutes(minLat, maxLat, minLng, maxLng, zoomLevel)
-    }
-
     suspend fun saveMarkedRouteAsTrail(
         markedRoute: com.example.data.model.MarkedRouteDto
     ): Result<com.example.data.model.TrailEntity> = withContext(Dispatchers.IO) {

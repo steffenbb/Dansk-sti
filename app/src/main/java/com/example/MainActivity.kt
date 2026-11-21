@@ -115,6 +115,8 @@ class MainActivity : ComponentActivity() {
         handleNavigationIntent(intent)
     }
 
+    private var isContentInitialized = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleNavigationIntent(intent)
@@ -125,6 +127,20 @@ class MainActivity : ComponentActivity() {
             android.content.res.Configuration.UI_MODE_NIGHT_YES
         val initialDark = initialSnapshot.resolveIsDarkApp(initialSystemDark)
         applySystemBarStyle(initialDark)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (!isContentInitialized) {
+            isContentInitialized = true
+            initComposeContent()
+        }
+    }
+
+    private fun initComposeContent() {
+        val app = application as DanskStiApp
+        val settingsRepository = DanskStiApp.getSettingsRepository(app)
+        val initialSnapshot = settingsRepository.currentSettingsSnapshot()
         setContent {
             val dbError by app.databaseError.collectAsState()
             val appSettings by settingsRepository.settingsFlow.collectAsState(

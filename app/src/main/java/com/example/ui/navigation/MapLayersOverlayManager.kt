@@ -54,8 +54,7 @@ class MapLayersOverlayManager(
     ),
     private val onMarkedRouteTapped: ((MarkedRouteDto) -> Unit)? = null,
     private val onPoiTapped: ((PoiItem) -> Unit)? = null,
-    private val onAccessPolygonTapped: ((AccessPolygon) -> Unit)? = null,
-    private val onMarkedRouteExpiredMessage: ((String) -> Unit)? = null
+    private val onAccessPolygonTapped: ((AccessPolygon) -> Unit)? = null
 ) {
     private var mapView: MapView? = null
     private var currentState: MapLayersState =
@@ -111,9 +110,18 @@ class MapLayersOverlayManager(
     private val _transientLayerMessage = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     val transientLayerMessage: kotlinx.coroutines.flow.StateFlow<String?> = _transientLayerMessage
 
+    private val _transientLayerMessageVersion = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    val transientLayerMessageVersion: kotlinx.coroutines.flow.StateFlow<Long> = _transientLayerMessageVersion
+
     fun clearTransientLayerMessage() {
         _transientLayerMessage.value = null
     }
+
+    fun setMarkedRouteTapsEnabled(enabled: Boolean) {
+        markedRoutesBatchOverlay.tapsEnabled = enabled
+    }
+
+    fun isMarkedRouteTapsEnabled(): Boolean = markedRoutesBatchOverlay.tapsEnabled
 
     fun setLayerError(layerLabel: String, hasError: Boolean) {
         val msg = "Kunne ikke hente $layerLabel"
@@ -159,17 +167,10 @@ class MapLayersOverlayManager(
                 }
                 if (fullDto != null) {
                     _transientLayerMessage.value = null
-                    val currentMsgs = _layerErrorMessages.value.toMutableSet()
-                    if (currentMsgs.remove(EXPIRED_MARKED_ROUTE_MESSAGE)) {
-                        _layerErrorMessages.value = currentMsgs
-                    }
                     onMarkedRouteTapped?.invoke(fullDto)
                 } else {
                     _transientLayerMessage.value = EXPIRED_MARKED_ROUTE_MESSAGE
-                    val currentMsgs = _layerErrorMessages.value.toMutableSet()
-                    currentMsgs.add(EXPIRED_MARKED_ROUTE_MESSAGE)
-                    _layerErrorMessages.value = currentMsgs
-                    onMarkedRouteExpiredMessage?.invoke(EXPIRED_MARKED_ROUTE_MESSAGE)
+                    _transientLayerMessageVersion.value = _transientLayerMessageVersion.value + 1L
                 }
             } finally {
                 loadingTappedRouteIds.remove(osmRelationId)
