@@ -124,4 +124,131 @@ class Cuj4MapLayersAndLibraryTest {
         repo.deleteCustomRoute(routeId)
         assertEquals(null, dao.getCustomRouteById(routeId))
     }
+
+    @Test
+    fun cuj4_overlayZOrderShelterTapOnMarkedRouteAndRydCacheClearsRoomAndInMemoryCaches(): Unit = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val app = context as DanskStiApp
+        val dao = app.database.dao()
+        val repo = app.repository
+        val geomRepo = repo.geometryRepository
+
+        com.example.data.repository.MarkedRouteRepository.clearProcessWideCache()
+
+        val routeEntity = com.example.data.model.MarkedRouteEntity(
+            osmRelationId = 904_001L,
+            name = "CUJ4 Afmærket Rute",
+            lengthKm = 14.0,
+            operator = "Naturstyrelsen",
+            routeType = "hiking",
+            network = "rwn",
+            symbol = "Blå",
+            colorHex = "#1E88E5",
+            segmentsJson = """[[[56.0000,10.0000],[56.0000,10.0200],[56.0000,10.0400]]]""",
+            minLat = 56.0000,
+            maxLat = 56.0000,
+            minLng = 10.0000,
+            maxLng = 10.0400,
+            cachedAt = System.currentTimeMillis()
+        )
+        dao.insertMarkedRoutes(listOf(routeEntity))
+        dao.insertMarkedRouteCacheBox(
+            com.example.data.model.MarkedRouteCacheBoxEntity(
+                boxKey = "cuj4_box_56_10",
+                minLat = 55.9,
+                maxLat = 56.1,
+                minLng = 9.9,
+                maxLng = 10.1,
+                fetchedAt = System.currentTimeMillis()
+            )
+        )
+
+        val shelterOnRoute = com.example.data.model.ShelterEntity(
+            id = "cuj4_shelter_on_route",
+            name = "CUJ4 Shelter Midt På Ruten",
+            lat = 56.0000,
+            lng = 10.0200,
+            shelterType = "Shelter",
+            capacity = 6,
+            bookingRequired = false
+        )
+
+        val mapView = org.osmdroid.views.MapView(context)
+        mapView.layout(0, 0, 1000, 1000)
+        mapView.controller.setZoom(14.0)
+        mapView.controller.setCenter(org.osmdroid.util.GeoPoint(56.0000, 10.0200))
+
+        var tappedRoute: com.example.data.model.MarkedRouteDto? = null
+        var tappedPoi: com.example.ui.navigation.PoiItem? = null
+
+        val markedRepo = com.example.data.repository.MarkedRouteRepository(context, dao, geomRepo)
+        val manager = com.example.ui.navigation.MapLayersOverlayManager(
+            context = context,
+            scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main.immediate),
+            markedRouteRepository = markedRepo,
+            onMarkedRouteTapped = { dto -> tappedRoute = dto },
+            onPoiTapped = { poi -> tappedPoi = poi }
+        )
+        manager.attachToMap(mapView, isDark = false)
+        manager.updateLayersState(
+            state = com.example.data.local.MapLayersState(showMarkedRoutes = true, showShelters = true),
+            shelters = listOf(shelterOnRoute),
+            isDark = false
+        )
+
+        val snapshots = markedRepo.getMarkedRouteRenderSnapshots(55.9, 56.1, 9.9, 10.1, zoomLevel = 14.0)
+        assertTrue("In-memory marked-route cache must contain loaded snapshot", com.example.data.repository.MarkedRouteRepository.getProcessWideCachedRouteCount() > 0)
+        manager.getMarkedRoutesBatchOverlay().setRoutesSnapshot(snapshots)
+
+        val bmp = android.graphics.Bitmap.createBitmap(1000, 1000, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        for (ov in mapView.overlays) {
+            ov.draw(canvas, mapView, false)
+        }
+
+        // 1. Verify overlay order: POI above trail line (KEY_ROUTE) above marked routes (KEY_MARKED_ROUTES)
+        val markedOverlay = manager.getOverlay(com.example.ui.navigation.MapLayersOverlayManager.KEY_MARKED_ROUTES)!!
+        val routeOverlay = manager.getOverlay(com.example.ui.navigation.MapLayersOverlayManager.KEY_ROUTE)!!
+        val poiOverlay = manager.getOverlay(com.example.ui.navigation.MapLayersOverlayManager.KEY_POIS)!!
+        val idxMarked = mapView.overlays.indexOf(markedOverlay)
+        val idxRoute = mapView.overlays.indexOf(routeOverlay)
+        val idxPoi = mapView.overlays.indexOf(poiOverlay)
+        assertTrue("KEY_MARKED_ROUTES ($idxMarked) must be below KEY_ROUTE ($idxRoute)", idxMarked < idxRoute)
+        assertTrue("KEY_ROUTE ($idxRoute) must be below KEY_POIS ($idxPoi)", idxRoute < idxPoi)
+
+        // 2. Tap on the shelter positioned directly on top of the marked route -> opens the shelter, not the marked route
+        val ptOnShelter = android.graphics.Point()
+        mapView.projection.toPixels(org.osmdroid.util.GeoPoint(56.0000, 10.0200), ptOnShelter)
+        val motionTapShelter = android.view.MotionEvent.obtain(
+            0L,
+            0L,
+            android.view.MotionEvent.ACTION_UP,
+            ptOnShelter.x.toFloat(),
+            ptOnShelter.y.toFloat(),
+            0
+        )
+        var consumed = false
+        for (i in mapView.overlays.indices.reversed()) {
+            if (mapView.overlays[i].onSingleTapConfirmed(motionTapShelter, mapView)) {
+                consumed = true
+                break
+            }
+        }
+        motionTapShelter.recycle()
+
+        assertTrue("Tap on shelter on top of marked route must be consumed", consumed)
+        assertEquals("cuj4_shelter_on_route", tappedPoi?.id)
+        assertEquals("Marked route must not open when shelter on top is tapped", null, tappedRoute)
+
+        // 3. "Ryd cache" empties Room cache tables and the in-memory marked-route cache
+        repo.clearSelectedCaches(com.example.data.repository.CacheCategory.entries.toSet())
+
+        assertEquals(0, com.example.data.repository.MarkedRouteRepository.getProcessWideCachedRouteCount())
+        assertEquals(0L, dao.getMarkedRoutesApproxBytes())
+        assertEquals(0L, dao.getMarkedRouteBoxesApproxBytes())
+        assertEquals(0L, dao.getAccessPolygonsApproxBytes())
+        assertEquals(0L, dao.getWaterFeaturesApproxBytes())
+        assertEquals(0L, dao.getWaterTileCacheApproxBytes())
+        assertEquals(0L, dao.getCachedRouteLegsApproxBytes())
+    }
 }

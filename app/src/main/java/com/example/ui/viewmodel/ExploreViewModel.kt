@@ -273,7 +273,34 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private val cachedGeometryMetricsByKey = java.util.concurrent.ConcurrentHashMap<String, Pair<List<GeoPointDto>, Pair<Double, Int?>>>()
+    data class CachedGeometry(
+        val points: List<GeoPointDto>,
+        val walkingKm: Double,
+        val ascentM: Int?
+    )
+
+    internal val cachedGeometryMetricsByKey: MutableMap<String, Pair<String, CachedGeometry>> =
+        java.util.concurrent.ConcurrentHashMap()
+
+    internal suspend fun getOrLoadCachedGeometryForTrail(t: TrailEntity): CachedGeometry? {
+        val versionKey = "${t.isGeometryDownloaded}_${t.lastUpdated}_${t.computedWalkingKm}"
+        val cachedEntry = cachedGeometryMetricsByKey[t.id]
+        if (cachedEntry != null && cachedEntry.first == versionKey) {
+            return cachedEntry.second
+        }
+        val geom = try {
+            repository.getTrailGeometry(t.id)
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        val cachedGeom = CachedGeometry(
+            points = geom.segments.flatMap { it.points },
+            walkingKm = geom.totalWalkingKm,
+            ascentM = geom.totalAscentM
+        )
+        cachedGeometryMetricsByKey[t.id] = versionKey to cachedGeom
+        return cachedGeom
+    }
 
     fun loadMetadataAndCounts() {
         viewModelScope.launch {
@@ -309,28 +336,10 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                                     }
                                     fCounts[t.id] = fCount
 
-                                    val geomCacheKey = "${t.id}_${t.isGeometryDownloaded}_${t.lastUpdated}_${t.computedWalkingKm}"
-                                    val cachedGeomPair = cachedGeometryMetricsByKey[geomCacheKey]
-                                    val pts: List<GeoPointDto>
-                                    val geomWalkingKm: Double
-                                    val geomAscentM: Int?
-                                    if (cachedGeomPair != null) {
-                                        pts = cachedGeomPair.first
-                                        geomWalkingKm = cachedGeomPair.second.first
-                                        geomAscentM = cachedGeomPair.second.second
-                                    } else {
-                                        val geom = try {
-                                            repository.getTrailGeometry(t.id)
-                                        } catch (_: Exception) {
-                                            null
-                                        }
-                                        pts = geom?.segments?.flatMap { it.points } ?: emptyList()
-                                        geomWalkingKm = geom?.totalWalkingKm ?: 0.0
-                                        geomAscentM = geom?.totalAscentM
-                                        if (geom != null) {
-                                            cachedGeometryMetricsByKey[geomCacheKey] = pts to (geomWalkingKm to geomAscentM)
-                                        }
-                                    }
+                                    val cachedGeom = getOrLoadCachedGeometryForTrail(t)
+                                    val pts = cachedGeom?.points ?: emptyList()
+                                    val geomWalkingKm = cachedGeom?.walkingKm ?: 0.0
+                                    val geomAscentM = cachedGeom?.ascentM
                                     val computedKm = geomWalkingKm.takeIf { it > 0.0 } ?: t.computedWalkingKm
                                     val ascentM = geomAscentM ?: (computedKm * 8.5).toInt()
                                     val estDays = kotlin.math.ceil(computedKm / 20.0).toInt().coerceAtLeast(1)

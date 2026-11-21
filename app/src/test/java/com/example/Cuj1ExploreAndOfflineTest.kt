@@ -211,4 +211,101 @@ class Cuj1ExploreAndOfflineTest {
         assertEquals(hærvejen.id, loaded?.trailId)
         assertEquals(3, loaded?.segments?.firstOrNull()?.points?.size)
     }
+
+    @Test
+    fun cuj1_exploreViewModelGeometryCacheKeyedByTrailIdPreservesIdsAAndABAndReplacesOnVersionChange(): Unit = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val app = context as DanskStiApp
+        val geomRepo = app.repository.geometryRepository
+
+        val geomA1 = com.example.data.model.TrailGeometryDto(
+            trailId = "a",
+            osmRelationId = 9001L,
+            segments = listOf(
+                com.example.data.model.TrailSegmentDto(
+                    type = com.example.data.model.TrailSegmentType.WALK,
+                    points = listOf(
+                        com.example.data.model.GeoPointDto(55.10, 9.10, 10.0),
+                        com.example.data.model.GeoPointDto(55.11, 9.11, 20.0)
+                    ),
+                    lengthKm = 10.0
+                )
+            ),
+            totalWalkingKm = 10.0,
+            totalAscentM = 50,
+            gapsOver200mCount = 0,
+            bboxNorth = 55.11,
+            bboxSouth = 55.10,
+            bboxEast = 9.11,
+            bboxWest = 9.10
+        )
+        val geomAB = com.example.data.model.TrailGeometryDto(
+            trailId = "a_b",
+            osmRelationId = 9002L,
+            segments = listOf(
+                com.example.data.model.TrailSegmentDto(
+                    type = com.example.data.model.TrailSegmentType.WALK,
+                    points = listOf(
+                        com.example.data.model.GeoPointDto(56.10, 10.10, 15.0),
+                        com.example.data.model.GeoPointDto(56.12, 10.12, 35.0)
+                    ),
+                    lengthKm = 22.0
+                )
+            ),
+            totalWalkingKm = 22.0,
+            totalAscentM = 110,
+            gapsOver200mCount = 0,
+            bboxNorth = 56.12,
+            bboxSouth = 56.10,
+            bboxEast = 10.12,
+            bboxWest = 10.10
+        )
+        geomRepo.saveGeometry(geomA1)
+        geomRepo.saveGeometry(geomAB)
+
+        val trailA1 = TrailEntity(
+            id = "a",
+            name = "Trail A",
+            region = "Jylland",
+            computedWalkingKm = 10.0,
+            description = "Trail A",
+            isGeometryDownloaded = true,
+            lastUpdated = 1_000L
+        )
+        val trailAB = TrailEntity(
+            id = "a_b",
+            name = "Trail A_B",
+            region = "Jylland",
+            computedWalkingKm = 22.0,
+            description = "Trail A_B",
+            isGeometryDownloaded = true,
+            lastUpdated = 2_000L
+        )
+
+        val vm = com.example.ui.viewmodel.ExploreViewModel(app)
+        vm.cachedGeometryMetricsByKey.clear()
+
+        val loadedA1 = vm.getOrLoadCachedGeometryForTrail(trailA1)
+        val loadedAB = vm.getOrLoadCachedGeometryForTrail(trailAB)
+
+        assertEquals(10.0, loadedA1?.walkingKm ?: 0.0, 0.01)
+        assertEquals(22.0, loadedAB?.walkingKm ?: 0.0, 0.01)
+        assertTrue("Both 'a' and 'a_b' must be present in cachedGeometryMetricsByKey", vm.cachedGeometryMetricsByKey.containsKey("a") && vm.cachedGeometryMetricsByKey.containsKey("a_b"))
+        assertEquals("true_1000_10.0", vm.cachedGeometryMetricsByKey["a"]?.first)
+        assertEquals("true_2000_22.0", vm.cachedGeometryMetricsByKey["a_b"]?.first)
+
+        // Update trail "a" geometry and version key (lastUpdated = 3_000L, computedWalkingKm = 14.5)
+        val geomA2 = geomA1.copy(totalWalkingKm = 14.5, totalAscentM = 85)
+        geomRepo.saveGeometry(geomA2)
+        val trailA2 = trailA1.copy(computedWalkingKm = 14.5, lastUpdated = 3_000L)
+
+        val loadedA2 = vm.getOrLoadCachedGeometryForTrail(trailA2)
+        assertEquals(14.5, loadedA2?.walkingKm ?: 0.0, 0.01)
+        assertEquals(85, loadedA2?.ascentM)
+        assertEquals("true_3000_14.5", vm.cachedGeometryMetricsByKey["a"]?.first)
+        // Verify "a_b" was NOT evicted when "a" was updated, and no stale key for "a" remains
+        assertEquals("true_2000_22.0", vm.cachedGeometryMetricsByKey["a_b"]?.first)
+        assertEquals(22.0, vm.cachedGeometryMetricsByKey["a_b"]?.second?.walkingKm ?: 0.0, 0.01)
+        assertEquals(2, vm.cachedGeometryMetricsByKey.size)
+    }
 }

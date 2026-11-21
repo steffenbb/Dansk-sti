@@ -2138,9 +2138,10 @@ class DanskStiRepository(
         maxLat: Double,
         minLng: Double,
         maxLng: Double,
-        priority: com.example.data.remote.OverpassClient.Priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND
+        priority: com.example.data.remote.OverpassClient.Priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND,
+        updateAvailabilityFlag: Boolean = true
     ): List<com.example.data.model.access.AccessPolygon> =
-        accessLandRepo.getAccessPolygons(minLat, maxLat, minLng, maxLng, priority)
+        accessLandRepo.getAccessPolygons(minLat, maxLat, minLng, maxLng, priority, updateAvailabilityFlag)
 
     suspend fun getCachedAccessPolygons(
         minLat: Double,

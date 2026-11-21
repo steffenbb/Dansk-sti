@@ -414,7 +414,9 @@ class FixRound11Test {
         assertEquals(77L, activity.pendingNavigationPlanId.value)
         activity.consumePendingNavigationPlanId()
         assertNull("After consumePendingNavigationPlanId, pendingNavigationPlanId must be null", activity.pendingNavigationPlanId.value)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         controller.destroy()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
     }
 
     @Test

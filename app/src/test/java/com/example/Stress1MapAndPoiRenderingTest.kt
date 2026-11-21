@@ -113,4 +113,191 @@ class Stress1MapAndPoiRenderingTest {
         assertEquals(midPoint.walkKm, projectedWalkKm, 0.25)
         assertTrue("Detour from +0.0001 deg lat (~11 m) must be < 25 m", detourM < 25.0)
     }
+
+    private fun buildZigzagMarkedRouteEntity(
+        relationId: Long,
+        baseLat: Double,
+        baseLng: Double,
+        wayCount: Int = 30,
+        pointsPerWay: Int = 12,
+        cachedAt: Long = System.currentTimeMillis()
+    ): com.example.data.model.MarkedRouteEntity {
+        val rootArr = org.json.JSONArray()
+        var minLat = Double.POSITIVE_INFINITY
+        var maxLat = Double.NEGATIVE_INFINITY
+        var minLng = Double.POSITIVE_INFINITY
+        var maxLng = Double.NEGATIVE_INFINITY
+
+        val metersPerDegLat = 111_320.0
+        val metersPerDegLng = 111_320.0 * kotlin.math.cos(Math.toRadians(baseLat)).coerceAtLeast(0.2)
+        val fwdNorthMeters = 12.0
+        val fwdEastMeters = 16.0
+        val perpNorthUnit = -0.8
+        val perpEastUnit = 0.6
+
+        for (w in 0 until wayCount) {
+            val wayArr = org.json.JSONArray()
+            for (p in 0 until pointsPerWay) {
+                val globalIdx = w * (pointsPerWay - 1) + p
+                val alongNorthM = globalIdx * fwdNorthMeters
+                val alongEastM = globalIdx * fwdEastMeters
+                val macroWaveM = 75.0 * kotlin.math.sin(globalIdx * 0.35)
+                val localZigzagM = 32.0 * kotlin.math.sin(globalIdx * 1.65)
+                val sidewaysM = if (globalIdx == 0) 0.0 else (macroWaveM + localZigzagM)
+                val lat = baseLat + (alongNorthM + sidewaysM * perpNorthUnit) / metersPerDegLat
+                val lng = baseLng + (alongEastM + sidewaysM * perpEastUnit) / metersPerDegLng
+                if (lat < minLat) minLat = lat
+                if (lat > maxLat) maxLat = lat
+                if (lng < minLng) minLng = lng
+                if (lng > maxLng) maxLng = lng
+                wayArr.put(org.json.JSONArray().apply { put(lat); put(lng) })
+            }
+            rootArr.put(wayArr)
+        }
+
+        val colorHex = com.example.data.repository.MarkedRouteRepository.PALETTE[(relationId % com.example.data.repository.MarkedRouteRepository.PALETTE.size).toInt()]
+        return com.example.data.model.MarkedRouteEntity(
+            osmRelationId = relationId,
+            name = "Stress1 Zigzag Rute #$relationId",
+            lengthKm = 12.4,
+            operator = "Naturstyrelsen",
+            routeType = "hiking",
+            network = "rwn",
+            symbol = "Blå",
+            colorHex = colorHex,
+            segmentsJson = rootArr.toString(),
+            minLat = minLat,
+            maxLat = maxLat,
+            minLng = minLng,
+            maxLng = maxLng,
+            cachedAt = cachedAt
+        )
+    }
+
+    @Test
+    fun stress1_300ZigzagMarkedRoutesAnd2000PoisDrawnTogetherAtZoom7_10_14(): Unit = kotlinx.coroutines.runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val app = context as DanskStiApp
+        val dao = app.database.dao()
+        val geomRepo = app.repository.geometryRepository
+        com.example.data.repository.MarkedRouteRepository.clearProcessWideCache()
+        dao.clearAllMarkedRoutes()
+        dao.clearAllMarkedRouteCacheBoxes()
+
+        val now = System.currentTimeMillis()
+        val routes = ArrayList<com.example.data.model.MarkedRouteEntity>(300)
+        for (i in 0 until 300) {
+            val row = i / 20
+            val col = i % 20
+            val baseLat = 54.8 + row * 0.16
+            val baseLng = 8.2 + col * 0.22
+            routes.add(
+                buildZigzagMarkedRouteEntity(
+                    relationId = 50_000L + i,
+                    baseLat = baseLat,
+                    baseLng = baseLng,
+                    wayCount = 30,
+                    pointsPerWay = 12,
+                    cachedAt = now
+                )
+            )
+        }
+        dao.insertMarkedRoutes(routes)
+
+        for (cell in com.example.data.repository.MarkedRouteRepository.computeGridCellsForViewport(54.4, 58.0, 7.8, 15.5)) {
+            dao.insertMarkedRouteCacheBox(
+                com.example.data.model.MarkedRouteCacheBoxEntity(
+                    boxKey = cell.cellKey,
+                    minLat = cell.minLat,
+                    maxLat = cell.maxLat,
+                    minLng = cell.minLng,
+                    maxLng = cell.maxLng,
+                    fetchedAt = now
+                )
+            )
+        }
+
+        val types = listOf("shelter", "tent", "water", "toilet", "shop", "transit")
+        val pois = (0 until 2000).map { i ->
+            val row = i / 50
+            val col = i % 50
+            MapPoiItem(
+                id = "stress1_combined_poi_$i",
+                type = types[i % types.size],
+                name = "POI $i",
+                subText = "Detail $i",
+                lat = 54.8 + row * 0.055,
+                lng = 8.2 + col * 0.085
+            )
+        }
+
+        val markedRepo = com.example.data.repository.MarkedRouteRepository(context, dao, geomRepo)
+        val markedOverlay = com.example.ui.navigation.MarkedRoutesBatchOverlay()
+        val poiOverlay = PoiClusterOverlay(context = context, poiItems = pois)
+
+        val mapView = MapView(context)
+        mapView.measure(
+            View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY)
+        )
+        mapView.layout(0, 0, 1080, 1920)
+        val bitmap = Bitmap.createBitmap(1080, 1920, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        suspend fun runCombinedBenchmark(
+            zoomLevel: Double,
+            qMinLat: Double,
+            qMaxLat: Double,
+            qMinLng: Double,
+            qMaxLng: Double
+        ) {
+            mapView.controller.setZoom(zoomLevel)
+            mapView.controller.setCenter(GeoPoint(56.0, 10.4))
+            mapView.setExpectedCenter(GeoPoint(56.0, 10.4))
+
+            val snapshots = markedRepo.getMarkedRouteRenderSnapshots(qMinLat, qMaxLat, qMinLng, qMaxLng, zoomLevel = zoomLevel)
+            markedOverlay.setRoutesSnapshot(snapshots)
+
+            // 3 warm-up frames drawing both overlays together
+            repeat(3) {
+                markedOverlay.draw(canvas, mapView, false)
+                poiOverlay.draw(canvas, mapView, false)
+            }
+
+            // 5 timed frames drawing both overlays together
+            val samplesMs = DoubleArray(5)
+            for (s in 0 until 5) {
+                val t0 = System.nanoTime()
+                markedOverlay.draw(canvas, mapView, false)
+                poiOverlay.draw(canvas, mapView, false)
+                samplesMs[s] = (System.nanoTime() - t0) / 1_000_000.0
+            }
+            samplesMs.sort()
+            val medianMs = samplesMs[2]
+            val routesDrawn = markedOverlay.lastFrameRoutesDrawn
+            val verticesDrawn = markedOverlay.lastFrameVerticesDrawn
+            val clustersDrawn = poiOverlay.lastFrameClustersDrawn
+            val singlesDrawn = poiOverlay.lastFrameSinglePoisDrawn
+
+            println(
+                String.format(
+                    java.util.Locale.US,
+                    "[Stress1 Combined 300 Routes + 2000 POIs] zoom=%d | routes=%d | vertices=%d | clusters=%d | singles=%d | medianDrawMs=%.2f ms",
+                    zoomLevel.toInt(),
+                    routesDrawn,
+                    verticesDrawn,
+                    clustersDrawn,
+                    singlesDrawn,
+                    medianMs
+                )
+            )
+            assertTrue("Expected routes drawn > 0 at zoom ${zoomLevel.toInt()}", routesDrawn > 0)
+            assertTrue("Expected vertices drawn > 0 at zoom ${zoomLevel.toInt()}", verticesDrawn > 0)
+            assertTrue("Expected POI clusters or single POIs drawn > 0 at zoom ${zoomLevel.toInt()}", (clustersDrawn + singlesDrawn) > 0)
+        }
+
+        runCombinedBenchmark(7.0, 54.4, 58.0, 7.8, 15.5)
+        runCombinedBenchmark(10.0, 55.2, 56.8, 9.0, 11.8)
+        runCombinedBenchmark(14.0, 55.85, 56.15, 10.15, 10.65)
+    }
 }

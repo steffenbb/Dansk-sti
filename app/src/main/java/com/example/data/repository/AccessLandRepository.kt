@@ -87,7 +87,8 @@ class AccessLandRepository(
         maxLat: Double,
         minLng: Double,
         maxLng: Double,
-        priority: com.example.data.remote.OverpassClient.Priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND
+        priority: com.example.data.remote.OverpassClient.Priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND,
+        updateAvailabilityFlag: Boolean = true
     ): List<AccessPolygon> = withContext(Dispatchers.IO) {
         val tiles = getTileIdsForBounds(minLat, maxLat, minLng, maxLng)
         val resultById = LinkedHashMap<String, AccessPolygon>()
@@ -106,7 +107,9 @@ class AccessLandRepository(
                         val model = entityToModel(ent)
                         resultById[model.id] = model
                     }
-                    isAccessDataUnavailable = false
+                    if (updateAvailabilityFlag) {
+                        isAccessDataUnavailable = false
+                    }
                     continue
                 }
 
@@ -138,7 +141,9 @@ class AccessLandRepository(
                         )
                         dao.insertAccessPolygons(listOf(sentinel))
                     }
-                    isAccessDataUnavailable = false
+                    if (updateAvailabilityFlag) {
+                        isAccessDataUnavailable = false
+                    }
                 } else {
                     // Both WFS and Overpass failed for this tile: use stale tile cache if available
                     val stale = cachedTile.filter { it.type != "EMPTY_TILE_SENTINEL" }
@@ -147,7 +152,9 @@ class AccessLandRepository(
                             val model = entityToModel(ent)
                             resultById[model.id] = model
                         }
-                        isAccessDataUnavailable = false
+                        if (updateAvailabilityFlag) {
+                            isAccessDataUnavailable = false
+                        }
                     } else {
                         val bboxFallback = dao.getAccessPolygonsInBoundingBox(tile.minLat, tile.maxLat, tile.minLng, tile.maxLng)
                             .filter { it.type != "EMPTY_TILE_SENTINEL" }
@@ -156,7 +163,9 @@ class AccessLandRepository(
                                 val model = entityToModel(ent)
                                 resultById[model.id] = model
                             }
-                            isAccessDataUnavailable = false
+                            if (updateAvailabilityFlag) {
+                                isAccessDataUnavailable = false
+                            }
                         } else {
                             anyTileFailedWithNoData = true
                         }
@@ -171,7 +180,7 @@ class AccessLandRepository(
             }
         }
 
-        if (resultById.isEmpty() && anyTileFailedWithNoData) {
+        if (updateAvailabilityFlag && resultById.isEmpty() && anyTileFailedWithNoData) {
             isAccessDataUnavailable = true
         }
         resultById.values.toList()

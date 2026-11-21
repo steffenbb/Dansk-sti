@@ -114,8 +114,10 @@ class Cuj3ActiveNavigationLifecycleTest {
 
         val overpassCalls = AtomicInteger(0)
         val observedPriorities = mutableListOf<OverpassClient.Priority>()
-        OverpassClient.customTransport = { _, _ ->
-            overpassCalls.incrementAndGet()
+        OverpassClient.customTransport = { _, query ->
+            if (query.contains("landuse")) {
+                overpassCalls.incrementAndGet()
+            }
             OverpassClient.HttpResult(
                 code = 200,
                 body = """
@@ -216,12 +218,13 @@ class Cuj3ActiveNavigationLifecycleTest {
         val baseLat = route.points[0].lat
         val baseLng = route.points[0].lng
 
-        // 1. Moving + navigating + screen off -> HIGH_ACCURACY_5S (5s interval, 5m minDistance)
+        // 1. Moving + navigating + screen off -> HIGH_ACCURACY_5S (5s interval, 2.5s minUpdateInterval, 0m minDistance)
         service.lastBroadcastScreenInteractive = false
         service.refreshGpsPowerProfile()
         assertEquals(GpsPowerProfile.HIGH_ACCURACY_5S, service.currentGpsProfile)
         assertEquals(5_000L, service.currentGpsProfile.intervalMs)
-        assertEquals(5.0f, service.currentGpsProfile.minDistanceM, 0.01f)
+        assertEquals(2_500L, service.currentGpsProfile.minUpdateIntervalMs)
+        assertEquals(0.0f, service.currentGpsProfile.minDistanceM, 0.001f)
 
         // 2. A 30 s stop keeps HIGH_ACCURACY_5S (not stationary until 2 full minutes with >= 3 accurate fixes)
         service.handleNewLocation(makeLocation(baseLat, baseLng, t0, accuracyM = 8f, speedMps = 0f))
@@ -253,6 +256,271 @@ class Cuj3ActiveNavigationLifecycleTest {
         // 5. Receiver unregistered after stopTracking
         service.stopTracking()
         assertFalse("Screen receiver must be unregistered when tracking stops", service.isScreenReceiverRegistered)
+        controller.destroy()
+    }
+
+    @Test
+    fun cuj3_screenOffStationaryWithFusedMinDistanceFilteringAnd3To8mJitterSwitchesToBalanced10s(): Unit = runBlocking {
+        val controller = Robolectric.buildService(NavigationTrackingService::class.java).create()
+        val service = controller.get()
+        val route = buildLongLinearPlannedRoute(totalKm = 10)
+        service.planId = route.planId
+        service.currentPlannedRoute = route
+        service.routeTracker = RouteTracker(route, initialWalkKm = 0.0, initialDay = 1)
+        service.startForegroundLocationTracking()
+
+        // Screen off while moving -> HIGH_ACCURACY_5S with minDistanceM = 0f
+        service.lastBroadcastScreenInteractive = false
+        service.refreshGpsPowerProfile()
+        assertEquals(GpsPowerProfile.HIGH_ACCURACY_5S, service.currentGpsProfile)
+        assertEquals(0.0f, service.currentGpsProfile.minDistanceM, 0.001f)
+
+        val t0 = 1_750_000_000_000L
+        val baseLat = route.points[0].lat
+        val baseLng = route.points[0].lng
+        val metersPerDegLat = 111_320.0
+
+        var lastDeliveredFix: Location? = null
+        var deliveredFixCount = 0
+
+        fun deliverFixWithFusedMinDistanceFilter(candidate: Location) {
+            val minDistM = service.currentGpsProfile.minDistanceM
+            val prev = lastDeliveredFix
+            if (prev == null || minDistM <= 0.0f || candidate.distanceTo(prev) >= minDistM) {
+                lastDeliveredFix = candidate
+                deliveredFixCount++
+                service.handleNewLocation(candidate)
+            }
+        }
+
+        // Standing still with 3-8 m jitter for 3 minutes (36 steps of 5 s = 180 s)
+        val jitterMetersCycle = doubleArrayOf(0.0, 3.2, 4.1, 3.6, 5.5, 7.8, 4.4, 3.1)
+        for (step in 0..36) {
+            val jitterM = jitterMetersCycle[step % jitterMetersCycle.size]
+            val candidate = makeLocation(
+                lat = baseLat + (jitterM / metersPerDegLat),
+                lng = baseLng,
+                timeMs = t0 + step * 5_000L,
+                accuracyM = 9.0f,
+                speedMps = 0.0f
+            )
+            deliverFixWithFusedMinDistanceFilter(candidate)
+        }
+
+        assertTrue("Fixes must be delivered while in HIGH_ACCURACY_5S with 3-8 m jitter", deliveredFixCount >= 25)
+        assertTrue("Standing still for 3 min with screen off and 3-8 m jitter must detect stationary", service.isStationaryFor2Min)
+        assertEquals(GpsPowerProfile.BALANCED_10S, service.currentGpsProfile)
+
+        service.corridorPrefetchJob?.join()
+        service.stopTracking()
+        controller.destroy()
+    }
+
+    @Test
+    fun cuj3_corridorPrefetchOfflineRetryOnConnectivityReturnPreservesAvailabilityFlagAndZeroAfterStop(): Unit = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val app = context as DanskStiApp
+        val dao = app.database.dao()
+        dao.clearAllAccessPolygons()
+
+        val accessLandRepoField = com.example.data.repository.DanskStiRepository::class.java
+            .getDeclaredField("accessLandRepo")
+            .apply { isAccessible = true }
+        val originalAccessLandRepo = app.repository.accessLandRepo
+        val offlineWfsClient = okhttp3.OkHttpClient.Builder()
+            .addInterceptor { throw java.io.IOException("Simulated offline WFS") }
+            .build()
+        accessLandRepoField.set(app.repository, AccessLandRepository(dao, offlineWfsClient))
+
+        try {
+            // 1. Start offline (Overpass returns 503 and WFS throws IOException) with isAccessDataUnavailable initially false
+            AccessLandRepository.isAccessDataUnavailable = false
+            val overpassCalls = AtomicInteger(0)
+            OverpassClient.customTransport = { _, _ ->
+                overpassCalls.incrementAndGet()
+                OverpassClient.HttpResult(code = 503, body = "Service Unavailable")
+            }
+
+            val controller = Robolectric.buildService(NavigationTrackingService::class.java).create()
+            val service = controller.get()
+            val route = buildLongLinearPlannedRoute(totalKm = 50)
+            service.planId = route.planId
+            service.currentPlannedRoute = route
+            service.routeTracker = RouteTracker(route, initialWalkKm = 0.0, initialDay = 1)
+
+            val tilesAtStart = service.collectNext25KmCorridorTiles(route, currentWalkKm = 0.0)
+            val firstTile = tilesAtStart.first()
+
+            val t0 = 1_750_000_000_000L
+            service.handleNewLocation(makeLocation(route.points[0].lat, route.points[0].lng, t0))
+            service.corridorPrefetchJob?.join()
+
+            // Verify offline start: 1 run attempted, 0 tiles cached in Room, lastAccessPrefetchWalkKm still NaN,
+            // corridorPrefetchPendingRetry == true, and isAccessDataUnavailable is UNCHANGED (still false)
+            assertEquals(1, service.corridorPrefetchRunCount)
+            assertTrue("Offline start must yield 0 cached polygons for first tile", dao.getAccessPolygonsByTileId(firstTile.tileId).isEmpty())
+            assertTrue("lastAccessPrefetchWalkKm must remain NaN when every tile failed", service.lastAccessPrefetchWalkKm.isNaN())
+            assertTrue("corridorPrefetchPendingRetry must be true after failed offline prefetch", service.corridorPrefetchPendingRetry)
+            assertFalse(
+                "Failed corridor prefetch must leave AccessLandRepository.isAccessDataUnavailable unchanged (false)",
+                AccessLandRepository.isAccessDataUnavailable
+            )
+
+            // Also verify when isAccessDataUnavailable was true, a prefetch does not overwrite it either
+            AccessLandRepository.isAccessDataUnavailable = true
+
+            // 2. Connectivity returns: Overpass now succeeds, and network callback onAvailable fires
+            OverpassClient.customTransport = { _, _ ->
+                overpassCalls.incrementAndGet()
+                OverpassClient.HttpResult(
+                    code = 200,
+                    body = """
+                        {
+                          "elements": [
+                            {"type": "node", "id": 1, "lat": 55.01, "lon": 9.01},
+                            {"type": "node", "id": 2, "lat": 55.02, "lon": 9.01},
+                            {"type": "node", "id": 3, "lat": 55.02, "lon": 9.02},
+                            {"type": "node", "id": 4, "lat": 55.01, "lon": 9.02},
+                            {"type": "node", "id": 1, "lat": 55.01, "lon": 9.01},
+                            {"type": "way", "id": 100, "nodes": [1,2,3,4,1], "tags": {"landuse": "forest", "access": "yes"}}
+                          ]
+                        }
+                    """.trimIndent()
+                )
+            }
+
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val activeNetwork = cm.activeNetwork ?: org.robolectric.shadows.ShadowNetwork.newInstance(1)
+            service.corridorNetworkCallback.onAvailable(activeNetwork)
+            // onAvailable posts to main thread; idle main looper and await prefetch job
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            service.corridorPrefetchJob?.join()
+
+            assertEquals("Connectivity return must trigger exactly 1 retry prefetch run", 2, service.corridorPrefetchRunCount)
+            assertFalse("corridorPrefetchPendingRetry must be false after successful retry", service.corridorPrefetchPendingRetry)
+            assertEquals(0.0, service.lastAccessPrefetchWalkKm, 0.001)
+            assertTrue("First tile must now be cached in Room after connectivity retry", dao.getAccessPolygonsByTileId(firstTile.tileId).isNotEmpty())
+            assertTrue(
+                "Corridor prefetch with updateAvailabilityFlag=false must leave isAccessDataUnavailable unchanged (true)",
+                AccessLandRepository.isAccessDataUnavailable
+            )
+            AccessLandRepository.isAccessDataUnavailable = false
+
+            // A duplicate onAvailable while no retry is pending must NOT trigger another prefetch run
+            service.corridorNetworkCallback.onAvailable(activeNetwork)
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            service.corridorPrefetchJob?.join()
+            assertEquals("onAvailable when no retry is pending must trigger 0 extra runs", 2, service.corridorPrefetchRunCount)
+
+            // 3. After stopTracking(), even if a retry was pending, a connectivity change triggers 0 prefetches
+            service.corridorPrefetchPendingRetry = true
+            val runsBeforeStop = service.corridorPrefetchRunCount
+            service.stopTracking()
+            assertFalse("Corridor network callback must be unregistered on stopTracking()", service.isCorridorNetworkCallbackRegistered)
+            service.corridorNetworkCallback.onAvailable(activeNetwork)
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            service.corridorPrefetchJob?.join()
+            assertEquals("After stopTracking(), connectivity change must trigger 0 prefetches", runsBeforeStop, service.corridorPrefetchRunCount)
+
+            controller.destroy()
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        } finally {
+            accessLandRepoField.set(app.repository, originalAccessLandRepo)
+            OverpassClient.customTransport = null
+            AccessLandRepository.isAccessDataUnavailable = false
+        }
+    }
+
+    @Test
+    fun cuj3_stationary30MinWithInaccurateFixesThenWalkingAt1_3MpsReturnsToHighAccuracyWithin150s(): Unit = runBlocking {
+        val controller = Robolectric.buildService(NavigationTrackingService::class.java).create()
+        val service = controller.get()
+        val route = buildLongLinearPlannedRoute(totalKm = 10)
+        service.planId = route.planId
+        service.currentPlannedRoute = route
+        service.routeTracker = RouteTracker(route, initialWalkKm = 0.0, initialDay = 1)
+        service.startForegroundLocationTracking()
+
+        val t0 = 1_750_000_000_000L
+        val anchorLat = route.points[0].lat
+        val anchorLng = route.points[0].lng
+        val metersPerDegLat = 111_320.0
+
+        // Establish stationary state at anchor (3+ accurate fixes over 2 minutes)
+        service.handleNewLocation(makeLocation(anchorLat, anchorLng, t0, accuracyM = 8f, speedMps = 0f))
+        service.handleNewLocation(makeLocation(anchorLat, anchorLng, t0 + 40_000L, accuracyM = 8f, speedMps = 0f))
+        service.handleNewLocation(makeLocation(anchorLat, anchorLng, t0 + 80_000L, accuracyM = 8f, speedMps = 0f))
+        service.handleNewLocation(makeLocation(anchorLat, anchorLng, t0 + 120_000L, accuracyM = 8f, speedMps = 0f))
+        assertTrue(service.isStationaryFor2Min)
+        assertEquals(GpsPowerProfile.BALANCED_10S, service.currentGpsProfile)
+
+        // Stationary for 30 minutes with ONLY inaccurate fixes (> 30 m, e.g. 60 m accuracy jittering 45 m),
+        // while single-fix high-accuracy confirmations report the hiker is still at the anchor
+        var currentMs = t0 + 130_000L
+        val stationaryEndMs = currentMs + 30 * 60_000L
+        service.highAccuracySingleFixFetcher = { _ ->
+            makeLocation(anchorLat, anchorLng, currentMs, accuracyM = 9f, speedMps = 0f)
+        }
+        while (currentMs <= stationaryEndMs) {
+            service.handleNewLocation(
+                makeLocation(
+                    lat = anchorLat + (45.0 / metersPerDegLat),
+                    lng = anchorLng,
+                    timeMs = currentMs,
+                    accuracyM = 60f,
+                    speedMps = 0f
+                )
+            )
+            currentMs += 10_000L
+        }
+        assertTrue("Must still be stationary after 30 min of inaccurate fixes at anchor", service.isStationaryFor2Min)
+        assertEquals(GpsPowerProfile.BALANCED_10S, service.currentGpsProfile)
+
+        // Now hiker starts walking away from the anchor at 1.3 m/s, still receiving inaccurate (> 30 m) periodic fixes,
+        // while high-accuracy confirmation returns the hiker's true walking position along the path
+        val walkStartMs = currentMs
+        var switchedToHighAccuracyAtMs: Long? = null
+        service.highAccuracySingleFixFetcher = { _ ->
+            val walkedMeters = ((currentMs - walkStartMs) / 1000.0) * 1.3
+            makeLocation(
+                lat = anchorLat + (walkedMeters / metersPerDegLat),
+                lng = anchorLng,
+                timeMs = currentMs,
+                accuracyM = 10f,
+                speedMps = 1.3f
+            )
+        }
+
+        while (currentMs <= walkStartMs + 150_000L) {
+            val walkedMeters = ((currentMs - walkStartMs) / 1000.0) * 1.3
+            service.handleNewLocation(
+                makeLocation(
+                    lat = anchorLat + (walkedMeters / metersPerDegLat),
+                    lng = anchorLng,
+                    timeMs = currentMs,
+                    accuracyM = 55f,
+                    speedMps = 1.3f
+                )
+            )
+            if (service.currentGpsProfile == GpsPowerProfile.HIGH_ACCURACY_2S ||
+                service.currentGpsProfile == GpsPowerProfile.HIGH_ACCURACY_5S
+            ) {
+                switchedToHighAccuracyAtMs = currentMs
+                break
+            }
+            currentMs += 10_000L
+        }
+
+        assertNotNull("Must switch back to HIGH_ACCURACY_2S/5S within <= 150 s of walking at 1.3 m/s", switchedToHighAccuracyAtMs)
+        val elapsedWalkMs = switchedToHighAccuracyAtMs!! - walkStartMs
+        assertTrue(
+            "Expected switch back to HIGH_ACCURACY_2S/5S in <= 150 s (got ${elapsedWalkMs / 1000.0} s)",
+            elapsedWalkMs <= 150_000L
+        )
+        assertFalse(service.isStationaryFor2Min)
+
+        service.corridorPrefetchJob?.join()
+        service.stopTracking()
         controller.destroy()
     }
 
@@ -359,6 +627,7 @@ class Cuj3ActiveNavigationLifecycleTest {
             (resumedAtMs!! - walkAwayStartMs) <= 120_000L
         )
 
+        service.corridorPrefetchJob?.join()
         service.stopTracking()
         controller.destroy()
     }
@@ -441,6 +710,7 @@ class Cuj3ActiveNavigationLifecycleTest {
             makeLocation(baseLat + 0.0050, baseLng, resumeCandidateMs + 120_000L, accuracyM = 180f, speedMps = 0f)
         )
         assertNotNull("Expected in-flight confirmation CancellationToken", capturedToken)
+        service.corridorPrefetchJob?.join()
         service.stopTracking()
         assertTrue("CancellationTokenSource must be cancelled when tracking stops", capturedToken!!.isCancellationRequested)
 

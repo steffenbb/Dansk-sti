@@ -95,7 +95,7 @@ data class NavigationLiveState(
 /**
  * GPS power profiles:
  * - HIGH_ACCURACY_2S: High accuracy every 2 s while moving + navigating with the screen on.
- * - HIGH_ACCURACY_5S: High accuracy every 5 s (minUpdateDistance 5 m) while moving + navigating with the screen off.
+ * - HIGH_ACCURACY_5S: High accuracy every 5 s (minUpdateDistance 0 m) while moving + navigating with the screen off.
  * - BALANCED_10S: Balanced accuracy every 10 s only when stationary for 2 min or in battery-saver mode.
  * - LOW_POWER_60S: Low power every 60 s while paused.
  */
@@ -106,7 +106,7 @@ enum class GpsPowerProfile(
     val minDistanceM: Float
 ) {
     HIGH_ACCURACY_2S(Priority.PRIORITY_HIGH_ACCURACY, 2_000L, 1_000L, 1.0f),
-    HIGH_ACCURACY_5S(Priority.PRIORITY_HIGH_ACCURACY, 5_000L, 2_500L, 5.0f),
+    HIGH_ACCURACY_5S(Priority.PRIORITY_HIGH_ACCURACY, 5_000L, 2_500L, 0.0f),
     BALANCED_10S(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 10_000L, 5_000L, 2.0f),
     LOW_POWER_60S(Priority.PRIORITY_LOW_POWER, 60_000L, 30_000L, 5.0f)
 }
@@ -177,12 +177,32 @@ class NavigationTrackingService : Service() {
     private var cachedTurnCues: List<com.example.data.model.TurnCue> = emptyList()
     internal var turnCueComputeCount: Int = 0
 
-    // Corridor access-polygon prefetch state (next 25 km, max 10 tiles, re-run after +20 km)
+    // Corridor access-polygon prefetch state (next 25 km, max 10 tiles, re-run after +20 km, retry on connectivity or 10 min)
     internal var lastAccessPrefetchWalkKm: Double = Double.NaN
+    @Volatile
+    internal var corridorPrefetchPendingRetry: Boolean = false
+    @Volatile
+    internal var lastCorridorPrefetchAttemptMs: Long = 0L
     internal var corridorPrefetchRunCount: Int = 0
     internal var corridorPrefetchTileFetchCount: Int = 0
     @Volatile
     internal var corridorPrefetchJob: Job? = null
+    @Volatile
+    internal var isCorridorNetworkCallbackRegistered: Boolean = false
+    private val mainHandler = android.os.Handler(Looper.getMainLooper())
+
+    internal val corridorNetworkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: android.net.Network) {
+            mainHandler.post {
+                if (!isCorridorNetworkCallbackRegistered) return@post
+                if (corridorPrefetchPendingRetry && corridorPrefetchJob?.isActive != true) {
+                    val route = currentPlannedRoute ?: return@post
+                    val walkKm = routeTracker?.currentWalkKm ?: _liveState.value.totalDistanceWalkedKm
+                    prefetchAccessPolygonsForRouteCorridor(route, walkKm)
+                }
+            }
+        }
+    }
 
     // Ongoing notification throttling & single off-route alert state
     internal var lastOngoingNotificationMs: Long = 0L
@@ -365,17 +385,56 @@ class NavigationTrackingService : Service() {
         return tilesById.values.take(CORRIDOR_PREFETCH_MAX_TILES)
     }
 
+    internal fun registerCorridorNetworkCallbackIfNeeded() {
+        if (isCorridorNetworkCallbackRegistered) return
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            if (cm != null) {
+                isCorridorNetworkCallbackRegistered = true
+                cm.registerDefaultNetworkCallback(corridorNetworkCallback)
+            }
+        } catch (e: Exception) {
+            isCorridorNetworkCallbackRegistered = false
+            Log.w("NavService", "Failed to register corridor network callback: ${e.message}")
+        }
+    }
+
+    internal fun unregisterCorridorNetworkCallbackIfNeeded() {
+        mainHandler.removeCallbacksAndMessages(null)
+        if (!isCorridorNetworkCallbackRegistered) {
+            corridorPrefetchPendingRetry = false
+            return
+        }
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            cm?.unregisterNetworkCallback(corridorNetworkCallback)
+        } catch (_: Exception) {
+        } finally {
+            isCorridorNetworkCallbackRegistered = false
+            corridorPrefetchPendingRetry = false
+        }
+    }
+
     internal fun prefetchAccessPolygonsForRouteCorridor(
         plannedRoute: PlannedRoute,
-        currentWalkKm: Double
+        currentWalkKm: Double,
+        nowMs: Long = System.currentTimeMillis()
     ) {
-        lastAccessPrefetchWalkKm = currentWalkKm
         val tiles = collectNext25KmCorridorTiles(plannedRoute, currentWalkKm)
-        if (tiles.isEmpty()) return
+        if (tiles.isEmpty()) {
+            lastAccessPrefetchWalkKm = currentWalkKm
+            corridorPrefetchPendingRetry = false
+            return
+        }
+        corridorPrefetchPendingRetry = false
+        lastCorridorPrefetchAttemptMs = nowMs
         corridorPrefetchRunCount++
         corridorPrefetchJob?.cancel()
-        corridorPrefetchJob = serviceScope.launch(Dispatchers.IO) {
-            val repo = DanskStiApp.instance.repository
+        val job = serviceScope.launch(Dispatchers.IO) {
+            val app = DanskStiApp.instance
+            val repo = app.repository
+            val dao = app.database.dao()
+            var anyTileFreshOrFetched = false
             for (tile in tiles) {
                 try {
                     corridorPrefetchTileFetchCount++
@@ -384,15 +443,32 @@ class NavigationTrackingService : Service() {
                         maxLat = tile.maxLat,
                         minLng = tile.minLng,
                         maxLng = tile.maxLng,
-                        priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND
+                        priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND,
+                        updateAvailabilityFlag = false
                     )
+                    val checkNow = System.currentTimeMillis()
+                    val cachedTile = dao.getAccessPolygonsByTileId(tile.tileId)
+                    val isTileFresh = cachedTile.isNotEmpty() && cachedTile.all {
+                        (checkNow - it.fetchedAt) < AccessLandRepository.CACHE_TTL_MS
+                    }
+                    if (isTileFresh) {
+                        anyTileFreshOrFetched = true
+                    }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     Log.w("NavService", "Corridor access prefetch failed for ${tile.tileId}: ${e.message}")
                 }
             }
+            if (anyTileFreshOrFetched) {
+                lastAccessPrefetchWalkKm = currentWalkKm
+                corridorPrefetchPendingRetry = false
+            } else {
+                corridorPrefetchPendingRetry = true
+            }
         }
+        corridorPrefetchJob = job
+        registerCorridorNetworkCallbackIfNeeded()
     }
 
     private fun isScreenInteractiveNow(): Boolean {
@@ -497,7 +573,7 @@ class NavigationTrackingService : Service() {
         val tokenSource = CancellationTokenSource()
         activeConfirmTokenSource = tokenSource
 
-        movementConfirmJob = serviceScope.launch(Dispatchers.Unconfined) {
+        movementConfirmJob = serviceScope.launch(Dispatchers.Main.immediate) {
             try {
                 val confirmFix = withTimeoutOrNull(CONFIRMATION_TIMEOUT_MS) {
                     requestSingleHighAccuracyFix(tokenSource.token)
@@ -800,12 +876,17 @@ class NavigationTrackingService : Service() {
             timestampMs = now
         )
 
-        // 2b. Corridor access-polygon prefetch (initial if not yet run, or when walked >= 20 km since last prefetch)
-        if (lastAccessPrefetchWalkKm.isNaN() ||
-            ((trackResult.currentWalkKm - lastAccessPrefetchWalkKm) >= CORRIDOR_PREFETCH_STEP_KM &&
-                corridorPrefetchJob?.isActive != true)
-        ) {
-            prefetchAccessPolygonsForRouteCorridor(plannedRoute, trackResult.currentWalkKm)
+        // 2b. Corridor access-polygon prefetch (initial if not yet attempted, retry after 10 min if previous run failed, or when walked >= 20 km since last successful prefetch)
+        if (corridorPrefetchJob?.isActive != true) {
+            val shouldRunInitial = lastAccessPrefetchWalkKm.isNaN() && !corridorPrefetchPendingRetry && lastCorridorPrefetchAttemptMs == 0L
+            val shouldRetryFailed = corridorPrefetchPendingRetry &&
+                lastCorridorPrefetchAttemptMs > 0L &&
+                (now - lastCorridorPrefetchAttemptMs) >= CORRIDOR_PREFETCH_RETRY_INTERVAL_MS
+            val shouldRunNextStep = !lastAccessPrefetchWalkKm.isNaN() &&
+                (trackResult.currentWalkKm - lastAccessPrefetchWalkKm) >= CORRIDOR_PREFETCH_STEP_KM
+            if (shouldRunInitial || shouldRetryFailed || shouldRunNextStep) {
+                prefetchAccessPolygonsForRouteCorridor(plannedRoute, trackResult.currentWalkKm, now)
+            }
         }
 
         // 3. Trigger vibration if required by off-route logic (once on entering off-route, suppressed when detour muted)
@@ -1001,7 +1082,7 @@ class NavigationTrackingService : Service() {
             if (pausedAnchorLocation == null) {
                 val tokenSource = CancellationTokenSource()
                 activeConfirmTokenSource = tokenSource
-                pauseAnchorFetchJob = serviceScope.launch(Dispatchers.Unconfined) {
+                pauseAnchorFetchJob = serviceScope.launch(Dispatchers.Main.immediate) {
                     try {
                         val fix = withTimeoutOrNull(CONFIRMATION_TIMEOUT_MS) {
                             requestSingleHighAccuracyFix(tokenSource.token)
@@ -1323,6 +1404,7 @@ class NavigationTrackingService : Service() {
         corridorPrefetchJob = null
         sunsetCheckJob?.cancel()
         sunsetCheckJob = null
+        unregisterCorridorNetworkCallbackIfNeeded()
         unregisterScreenReceiverIfNeeded()
         try {
             locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
@@ -1390,7 +1472,7 @@ class NavigationTrackingService : Service() {
 
         lastSunsetPolygonCheckMs = nowMs
         val sunsetStrSnapshot = cachedSunsetStr
-        sunsetCheckJob = serviceScope.launch(Dispatchers.Unconfined) {
+        sunsetCheckJob = serviceScope.launch(Dispatchers.Main.immediate) {
             checkPrivateForestSunsetWarning(location, sunsetStrSnapshot, nowMs)
         }
     }
@@ -1462,6 +1544,7 @@ class NavigationTrackingService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         cancelActiveConfirmationRequests()
+        unregisterCorridorNetworkCallbackIfNeeded()
         unregisterScreenReceiverIfNeeded()
         if (activeServiceInstance === this) {
             activeServiceInstance = null
@@ -1492,6 +1575,7 @@ class NavigationTrackingService : Service() {
         const val CORRIDOR_PREFETCH_WINDOW_KM = 25.0
         const val CORRIDOR_PREFETCH_STEP_KM = 20.0
         const val CORRIDOR_PREFETCH_MAX_TILES = 10
+        const val CORRIDOR_PREFETCH_RETRY_INTERVAL_MS = 10 * 60_000L
         const val ACTION_START = "com.example.dansksti.ACTION_START"
         const val ACTION_STOP = "com.example.dansksti.ACTION_STOP"
         const val ACTION_STOP_TODAY = "com.example.dansksti.ACTION_STOP_TODAY"
