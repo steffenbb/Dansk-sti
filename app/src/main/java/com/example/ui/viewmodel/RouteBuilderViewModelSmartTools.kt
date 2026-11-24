@@ -222,7 +222,8 @@ fun RouteBuilderViewModel.analyzeSupplyGaps() {
                 routePoints = points,
                 corridorPois = corridorPois,
                 maxWaterGapKm = _uiState.value.maxWaterGapKm,
-                maxShopGapKm = _uiState.value.maxShopGapKm
+                maxShopGapKm = _uiState.value.maxShopGapKm,
+                tripDateMillis = _uiState.value.startDateMillis
             )
             _uiState.update {
                 it.copy(
@@ -723,50 +724,46 @@ fun RouteBuilderViewModel.routeToNearest(
 }
 
 internal suspend fun RouteBuilderViewModel.fetchNightWeatherForDay(
-    dayIndex: Int,
-    startDateMillis: Long,
-    lat: Double,
-    lng: Double
+    dayIndex: Int, startDateMillis: Long, lat: Double, lng: Double
 ): String {
     val targetMillis = startDateMillis + java.util.concurrent.TimeUnit.DAYS.toMillis(dayIndex.toLong())
     val nowMillis = System.currentTimeMillis()
-    val diffDays = java.util.concurrent.TimeUnit.MILLISECONDS.toDays(targetMillis - nowMillis)
-    if (diffDays < -1 || diffDays > 15) {
-        return "Vejrudsigt ikke tilgængelig endnu"
-    }
-
-    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US)
-    val targetDateStr = dateFormat.format(java.util.Date(targetMillis))
+    val diffHours = (targetMillis - nowMillis) / 3_600_000.0
+    if (diffHours < -18.0 || diffHours > 48.0) return "Vejrudsigt ikke tilgængelig endnu"
+    val targetDateStr = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date(targetMillis))
     val cacheKey = "${String.format(Locale.US, "%.2f_%.2f", lat, lng)}_$targetDateStr"
     nightWeatherCache[cacheKey]?.let { return it }
 
     return kotlinx.coroutines.withContext(Dispatchers.IO) {
         try {
+            val weather = repository.getTrailWeather(lat = lat, lng = lng, forceNetworkRefresh = false)
+                ?: return@withContext "Vejrudsigt ikke tilgængelig endnu"
+            val afternoon = com.example.data.remote.WeatherInterpreter.findAfternoonForecastForDate(weather, targetDateStr)
+            if (afternoon != null) {
+                val updatedAt = weather.formatUpdatedClock()
+                val staleSuffix = if (weather.isStale(nowMillis)) " (kan være forældet)" else ""
+                val summary = "Eftermiddag ${Math.round(afternoon.tempC)}°C · Vind ${Math.round(afternoon.windSpeedMs)} m/s · Nedbør ${String.format(Locale.GERMAN, "%.1f", afternoon.precipitationMm)} mm · Opdateret kl. $updatedAt$staleSuffix"
+                nightWeatherCache[cacheKey] = summary
+                return@withContext summary
+            }
             val response = weatherService.getTrailWeather(lat = lat, lon = lng)
             val daily = response.daily
-            val times = daily?.time ?: emptyList()
-            val idx = times.indexOf(targetDateStr)
-            if (idx == -1) {
-                "Vejrudsigt ikke tilgængelig endnu"
-            } else {
+            val idx = (daily?.time ?: emptyList()).indexOf(targetDateStr)
+            if (idx == -1) "Vejrudsigt ikke tilgængelig endnu" else {
                 val minTemp = daily?.tempMin?.getOrNull(idx)
                 val maxTemp = daily?.tempMax?.getOrNull(idx)
                 val precip = daily?.precipitationSum?.getOrNull(idx) ?: 0.0
                 val wind = daily?.windSpeedMax?.getOrNull(idx)
                 val sunsetRaw = daily?.sunset?.getOrNull(idx)
-                if (!sunsetRaw.isNullOrBlank() && sunsetRaw.contains("T")) {
-                    sunsetTimeStr = sunsetRaw.substringAfter("T")
-                }
+                if (!sunsetRaw.isNullOrBlank() && sunsetRaw.contains("T")) sunsetTimeStr = sunsetRaw.substringAfter("T")
+                val updatedAt = weather.formatUpdatedClock()
+                val staleSuffix = if (weather.isStale(nowMillis)) " (kan være forældet)" else ""
                 val summary = buildString {
-                    if (minTemp != null && maxTemp != null) {
-                        append("Nat ${Math.round(minTemp)}°C / Dag ${Math.round(maxTemp)}°C")
-                    } else if (minTemp != null) {
-                        append("Nat ${Math.round(minTemp)}°C")
-                    }
+                    if (minTemp != null && maxTemp != null) append("Nat ${Math.round(minTemp)}°C / Dag ${Math.round(maxTemp)}°C")
+                    else if (minTemp != null) append("Nat ${Math.round(minTemp)}°C")
                     append(" · Nedbør ${String.format(Locale.GERMAN, "%.1f", precip)} mm")
-                    if (wind != null) {
-                        append(" · Vind ${Math.round(wind)} m/s")
-                    }
+                    if (wind != null) append(" · Vind ${Math.round(wind)} m/s")
+                    append(" · Opdateret kl. $updatedAt$staleSuffix")
                 }
                 nightWeatherCache[cacheKey] = summary
                 summary

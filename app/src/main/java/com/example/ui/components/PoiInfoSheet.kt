@@ -104,7 +104,8 @@ fun PoiInfoSheet(
     var isSaved by remember(poiData.id) { mutableStateOf(false) }
     val unknownDistLabel = stringResource(R.string.poi_sheet_unknown)
 
-    val distanceText = remember(liveUserLocation, isLocationFresh, poiData.lat, poiData.lng, unknownDistLabel) {
+    val appLocale = rememberAppLocale()
+    val distanceText = remember(liveUserLocation, isLocationFresh, poiData.lat, poiData.lng, unknownDistLabel, appLocale) {
         if (liveUserLocation == null || !isLocationFresh) {
             unknownDistLabel
         } else {
@@ -117,7 +118,7 @@ fun PoiInfoSheet(
             if (meters < 1000.0) {
                 "${meters.roundToInt()} m"
             } else {
-                String.format(Locale.GERMANY, "%.1f km", meters / 1000.0)
+                String.format(appLocale, "%.1f km", meters / 1000.0)
             }
         }
     }
@@ -289,10 +290,45 @@ fun PoiInfoSheet(
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                                     modifier = Modifier.testTag("poi_info_booking_link")
                                 ) {
-                                    Text(stringResource(R.string.poi_sheet_open_link), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text(stringResource(R.string.poi_sheet_open_link), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
                                 }
+                            }
+                        }
+                    }
+
+                    if (!poiData.infoUrl.isNullOrBlank()) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                        val noBrowserMsg = stringResource(R.string.poi_sheet_no_browser_found)
+                        val cannotOpenMsg = stringResource(R.string.poi_sheet_cannot_open_link)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(poiData.infoUrl))
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(intent)
+                                    } catch (_: android.content.ActivityNotFoundException) {
+                                        Toast.makeText(context, noBrowserMsg, Toast.LENGTH_SHORT).show()
+                                    } catch (_: Exception) {
+                                        Toast.makeText(context, cannotOpenMsg, Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.testTag("poi_info_more_info_link")
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.poi_sheet_more_info),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
                             }
                         }
                     }
@@ -392,8 +428,8 @@ fun PoiInfoSheet(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = stringResource(R.string.poi_sheet_route_here),
+                        style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
                         modifier = Modifier.testTag("kort_poi_route_here_button")
                     )
                 }
@@ -418,8 +454,8 @@ fun PoiInfoSheet(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = stringResource(R.string.poi_sheet_add_to_route),
+                        style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
                         modifier = Modifier.testTag("btn_poi_tilfoej_som_stop")
                     )
                 }
@@ -467,8 +503,8 @@ fun PoiInfoSheet(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (isSaved) stringResource(R.string.poi_sheet_saved_label) else stringResource(R.string.poi_sheet_save_label),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
                     )
                 }
 
@@ -521,8 +557,8 @@ fun PoiInfoSheet(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = stringResource(R.string.poi_sheet_share_label),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -552,8 +588,8 @@ fun AccessPolygonRulesDialog(
         title = {
             Text(
                 text = polygon.name ?: polygon.type.title,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                fontSize = 17.sp,
                 modifier = Modifier.testTag("access_polygon_rules_title")
             )
         },
@@ -567,20 +603,20 @@ fun AccessPolygonRulesDialog(
                     Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                         Text(
                             text = stringResource(R.string.poi_sheet_type_fmt, polygon.type.title),
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         if (!polygon.operatorOrOwner.isNullOrBlank()) {
                             Text(
                                 text = stringResource(R.string.poi_sheet_owner_fmt, polygon.operatorOrOwner),
-                                fontSize = 11.sp,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         Text(
                             text = stringResource(R.string.poi_sheet_source_fmt, polygon.source),
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -588,7 +624,7 @@ fun AccessPolygonRulesDialog(
 
                 Text(
                     text = polygon.type.fullRulesDanish,
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.testTag("access_polygon_rules_body")
                 )

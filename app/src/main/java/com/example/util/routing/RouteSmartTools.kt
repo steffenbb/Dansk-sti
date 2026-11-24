@@ -30,7 +30,8 @@ object RouteSmartTools {
         routePoints: List<RoutePoint3D>,
         corridorPois: List<PoiEntity>,
         maxWaterGapKm: Double = 12.0,
-        maxShopGapKm: Double = 25.0
+        maxShopGapKm: Double = 25.0,
+        tripDateMillis: Long? = null
     ): List<SupplyGapWarning> {
         if (routePoints.size < 2) return emptyList()
 
@@ -39,7 +40,10 @@ object RouteSmartTools {
         if (totalKm <= 0.0) return emptyList()
 
         val warnings = mutableListOf<SupplyGapWarning>()
-        val corridorWaterPois = corridorPois.filter { it.type.equals("water", ignoreCase = true) }
+        val corridorWaterPois = corridorPois.filter { poi ->
+            poi.type.equals("water", ignoreCase = true) &&
+                !com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(poi, tripDateMillis)
+        }
         val corridorShopPois = corridorPois.filter { it.type.equals("shop", ignoreCase = true) }
 
         // 1. Water POIs along route (detour <= 100m directly on trail; up to 3000m in corridor are detour candidates)

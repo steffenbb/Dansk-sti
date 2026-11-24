@@ -159,14 +159,14 @@ class MainActivity : ComponentActivity() {
                         ) {
                             Text(
                                 text = stringResource(R.string.db_error_title),
-                                fontSize = 20.sp,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.error
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = dbError ?: stringResource(R.string.db_error_unknown),
-                                fontSize = 14.sp,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.testTag("database_error_text")
                             )

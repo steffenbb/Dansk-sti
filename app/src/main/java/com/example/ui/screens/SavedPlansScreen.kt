@@ -130,9 +130,19 @@ fun SavedPlansScreen(
     val customWaypoints by viewModel.customWaypoints.collectAsState()
     val recordedDays by viewModel.recordedDays.collectAsState()
     val downloadedTrails by viewModel.downloadedTrails.collectAsState()
+    val gearItemsByPlanId by viewModel.gearItemsByPlanId.collectAsState()
+    val diaryEntriesByKey by viewModel.diaryEntriesByKey.collectAsState()
+    val routeGeometryHashes by viewModel.routeGeometryHashes.collectAsState()
     val brouterState by viewModel.brouterState.collectAsState()
     val isDownloading by viewModel.isDownloading.collectAsState()
     val downloadProgressText by viewModel.downloadProgressText.collectAsState()
+
+    var activePackingListPlan by remember { mutableStateOf<TripPlanEntity?>(null) }
+    var activeDiaryTarget by remember { mutableStateOf<com.example.data.model.RecordedDayStatEntity?>(null) }
+    var pendingOfflineDownloadRoute by remember { mutableStateOf<com.example.data.model.CustomRouteEntity?>(null) }
+    var pendingOfflineDownloadPlan by remember { mutableStateOf<TripPlanEntity?>(null) }
+    var pendingCascadeDeleteRoute by remember { mutableStateOf<com.example.data.model.CustomRouteEntity?>(null) }
+    var pendingCascadeDeletePlan by remember { mutableStateOf<TripPlanEntity?>(null) }
 
     var selectedSegmentIndex by rememberSaveable { mutableIntStateOf(initialSegmentIndex.coerceIn(0, 4)) }
     val segments = LibrarySegment.values()
@@ -326,23 +336,39 @@ fun SavedPlansScreen(
                             verticalArrangement = Arrangement.spacedBy(Spacing.s3)
                         ) {
                             items(savedPlans, key = { "plan_${it.id}" }) { plan ->
+                                val hasOfflinePlan = downloadedTrails.any { it.trailId == "plan:${plan.id}" }
                                 SwipeToDeleteWrapper(
                                     itemKey = "plan_${plan.id}",
                                     onDismissed = {
-                                        viewModel.deletePlanWithUndo(plan)
-                                        showUndoSnackbar(plan.trailName)
+                                        if (hasOfflinePlan) {
+                                            pendingCascadeDeletePlan = plan
+                                        } else {
+                                            viewModel.deletePlanWithUndo(plan)
+                                            showUndoSnackbar(plan.trailName)
+                                        }
                                     }
                                 ) {
                                     TripPlanLibraryCard(
                                         plan = plan,
                                         isCompleted = plan.id in completedPlanIds,
+                                        gearItems = gearItemsByPlanId[plan.id].orEmpty(),
+                                        isDownloadedOffline = hasOfflinePlan,
                                         onOpenInPlanner = { onEditPlan(plan) },
                                         onStartNavigation = { onStartNavigation(plan.id) },
+                                        onOpenPackingList = {
+                                            viewModel.ensureDefaultGearItemsForPlan(plan)
+                                            activePackingListPlan = plan
+                                        },
+                                        onDownloadOffline = { pendingOfflineDownloadPlan = plan },
                                         onExportGpx = { viewModel.exportTripPlanGpx(context, plan) },
                                         onShare = { viewModel.shareTripPlan(context, plan) },
                                         onDelete = {
-                                            viewModel.deletePlanWithUndo(plan)
-                                            showUndoSnackbar(plan.trailName)
+                                            if (hasOfflinePlan) {
+                                                pendingCascadeDeletePlan = plan
+                                            } else {
+                                                viewModel.deletePlanWithUndo(plan)
+                                                showUndoSnackbar(plan.trailName)
+                                            }
                                         }
                                     )
                                 }
@@ -374,19 +400,35 @@ fun SavedPlansScreen(
                             verticalArrangement = Arrangement.spacedBy(Spacing.s3)
                         ) {
                             items(customRoutes, key = { "custom_${it.id}" }) { route ->
+                                val offlineItem = downloadedTrails.find { it.trailId == "route:${route.id}" }
+                                val currentHash = routeGeometryHashes[route.id]
+                                val isOfflineOutdated = offlineItem?.geometryHash != null &&
+                                    currentHash != null &&
+                                    offlineItem.geometryHash != currentHash
                                 SwipeToDeleteWrapper(
                                     itemKey = "custom_${route.id}",
                                     onDismissed = {
-                                        viewModel.deleteCustomRouteWithUndo(route)
-                                        showUndoSnackbar(route.name)
+                                        if (offlineItem != null) {
+                                            pendingCascadeDeleteRoute = route
+                                        } else {
+                                            viewModel.deleteCustomRouteWithUndo(route)
+                                            showUndoSnackbar(route.name)
+                                        }
                                     }
                                 ) {
                                     CustomRouteLibraryCard(
                                         route = route,
+                                        isDownloadedOffline = offlineItem != null,
+                                        isOfflineOutdated = isOfflineOutdated,
                                         onEdit = { onEditCustomRoute(route.id) },
+                                        onDownloadOffline = { pendingOfflineDownloadRoute = route },
                                         onDelete = {
-                                            viewModel.deleteCustomRouteWithUndo(route)
-                                            showUndoSnackbar(route.name)
+                                            if (offlineItem != null) {
+                                                pendingCascadeDeleteRoute = route
+                                            } else {
+                                                viewModel.deleteCustomRouteWithUndo(route)
+                                                showUndoSnackbar(route.name)
+                                            }
                                         }
                                     )
                                 }
@@ -494,7 +536,9 @@ fun SavedPlansScreen(
                                 ) {
                                     RecordingLibraryCard(
                                         recording = rec,
+                                        diaryEntry = diaryEntriesByKey["${rec.planId}_${rec.dayNumber}"],
                                         onClick = { onStartNavigation(rec.planId) },
+                                        onOpenDiary = { activeDiaryTarget = rec },
                                         onDelete = {
                                             viewModel.deleteRecordingWithUndo(rec)
                                             showUndoSnackbar("Dag ${rec.dayNumber}")
@@ -547,201 +591,12 @@ fun SavedPlansScreen(
 
                         // BRouter Denmark offline routing data card
                         item(key = "brouter_denmark_card") {
-                            Card(
-                                shape = CardShape,
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (brouterState.isAllDownloaded) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("brouter_data_card")
-                            ) {
-                                Column(modifier = Modifier.padding(Spacing.s4)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                                            modifier = Modifier.size(44.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    imageVector = if (brouterState.isAllDownloaded) Icons.Default.CheckCircle else Icons.Default.Route,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.width(Spacing.s3))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = stringResource(R.string.ui_offlinetrailsscreen_rutedata_for_danmark_85),
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Text(
-                                                text = if (brouterState.isAllDownloaded) {
-                                                    val date = brouterState.lastUpdatedDate ?: "Opdateret"
-                                                    "Klar til offline ruteplanlægning • $date"
-                                                } else {
-                                                    stringResource(R.string.offline_routing_data_denmark_mb_format, brouterState.totalSizeMb)
-                                                },
-                                                style = TabularLabelStyle,
-                                                color = if (brouterState.isAllDownloaded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            brouterState.statusNotice?.let { notice ->
-                                                Text(
-                                                    text = notice,
-                                                    style = TabularLabelStyle,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = if (brouterState.hasVersionMismatch) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.testTag(if (brouterState.hasVersionMismatch) "brouter_version_mismatch_badge" else "brouter_update_available_badge")
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(Spacing.s3))
-
-                                    if (brouterState.isDownloading) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.s2)) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween
-                                            ) {
-                                                Text(
-                                                    text = if (brouterState.currentSegmentName.isNotBlank())
-                                                        "Henter ${brouterState.currentSegmentName}..."
-                                                    else "Henter rutedata...",
-                                                    style = MaterialTheme.typography.labelMedium
-                                                )
-                                                Text(
-                                                    text = stringResource(R.string.ui_offlinetrailsscreen_fmt_86, brouterState.progressPercent),
-                                                    style = TabularLabelStyle,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary
-                                                )
-                                            }
-                                            LinearProgressIndicator(
-                                                progress = { brouterState.progressPercent / 100f },
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(8.dp),
-                                                color = MaterialTheme.colorScheme.primary,
-                                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                                            )
-                                            OutlinedButton(
-                                                onClick = { viewModel.cancelBRouterDownload() },
-                                                modifier = Modifier
-                                                    .align(Alignment.End)
-                                                    .testTag("btn_brouter_cancel")
-                                            ) {
-                                                Text(stringResource(R.string.btn_cancel))
-                                            }
-                                        }
-                                    } else {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable { isSegmentsExpanded = !isSegmentsExpanded }
-                                                .padding(vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text(
-                                                text = if (isSegmentsExpanded) "Skjul dækning og filstørrelser" else "Vis dækning og filstørrelser (5 filer)",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Icon(
-                                                imageVector = if (isSegmentsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-
-                                        AnimatedVisibility(visible = isSegmentsExpanded) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = Spacing.s2),
-                                                verticalArrangement = Arrangement.spacedBy(Spacing.s1)
-                                            ) {
-                                                brouterState.segments.forEach { seg ->
-                                                    Row(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .testTag("brouter_segment_${seg.id}"),
-                                                        horizontalArrangement = Arrangement.SpaceBetween
-                                                    ) {
-                                                        Text(
-                                                            text = stringResource(R.string.ui_offlinetrailsscreen_fmt_87, seg.filename, seg.name),
-                                                            style = MaterialTheme.typography.labelMedium,
-                                                            color = MaterialTheme.colorScheme.onSurface
-                                                        )
-                                                        Text(
-                                                            text = stringResource(R.string.ui_offlinetrailsscreen_mb_88, seg.sizeMb),
-                                                            style = TabularLabelStyle,
-                                                            fontWeight = FontWeight.SemiBold,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(Icons.Default.Wifi, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(text = stringResource(R.string.ui_offlinetrailsscreen_hent_kun_via_wi_fi_89), style = MaterialTheme.typography.bodyMedium)
-                                            }
-                                            Switch(
-                                                checked = brouterState.wifiOnly,
-                                                onCheckedChange = { viewModel.setBRouterWifiOnly(it) },
-                                                colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary),
-                                                modifier = Modifier.testTag("switch_brouter_wifi_only")
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(Spacing.s2))
-                                        if (brouterState.isAllDownloaded) {
-                                            Button(
-                                                onClick = { viewModel.updateBRouterData() },
-                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                                shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp).testTag("btn_brouter_update")
-                                            ) {
-                                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(stringResource(R.string.storage_routing_update))
-                                            }
-                                        } else {
-                                            Button(
-                                                onClick = { viewModel.downloadBRouterData() },
-                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                                shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp).testTag("btn_brouter_download")
-                                            ) {
-                                                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(stringResource(R.string.ui_offlinetrailsscreen_hent_rutedata_mb_91, brouterState.totalSizeMb))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            BRouterOfflineDataCard(
+                                brouterState = brouterState,
+                                isSegmentsExpanded = isSegmentsExpanded,
+                                onToggleSegmentsExpanded = { isSegmentsExpanded = !isSegmentsExpanded },
+                                viewModel = viewModel
+                            )
                         }
 
                         if (downloadedTrails.isEmpty()) {
@@ -756,6 +611,11 @@ fun SavedPlansScreen(
                             }
                         } else {
                             items(downloadedTrails, key = { "offline_${it.trailId}" }) { item ->
+                                val customRouteId = item.trailId.removePrefix("route:").toLongOrNull()
+                                val currentHash = if (customRouteId != null) routeGeometryHashes[customRouteId] else null
+                                val isOutdated = item.geometryHash != null &&
+                                    currentHash != null &&
+                                    item.geometryHash != currentHash
                                 SwipeToDeleteWrapper(
                                     itemKey = "offline_${item.trailId}",
                                     onDismissed = {
@@ -765,6 +625,7 @@ fun SavedPlansScreen(
                                 ) {
                                     OfflineTrailLibraryCard(
                                         item = item,
+                                        isOutdated = isOutdated,
                                         onClick = { onTrailClick(item.trailId) },
                                         onDelete = {
                                             viewModel.deleteDownloadedTrailWithUndo(item)
@@ -779,4 +640,29 @@ fun SavedPlansScreen(
             }
         }
     }
+
+    SavedPlansModalsAndDialogs(
+        activePackingListPlan = activePackingListPlan,
+        onDismissPackingList = { activePackingListPlan = null },
+        savedPlans = savedPlans,
+        gearItemsByPlanId = gearItemsByPlanId,
+        activeDiaryTarget = activeDiaryTarget,
+        onDismissDiary = { activeDiaryTarget = null },
+        diaryEntriesByKey = diaryEntriesByKey,
+        pendingOfflineDownloadRoute = pendingOfflineDownloadRoute,
+        pendingOfflineDownloadPlan = pendingOfflineDownloadPlan,
+        onClearPendingOfflineDownload = {
+            pendingOfflineDownloadRoute = null
+            pendingOfflineDownloadPlan = null
+        },
+        onSwitchToOfflineSegment = { selectedSegmentIndex = LibrarySegment.OFFLINE.ordinal },
+        pendingCascadeDeleteRoute = pendingCascadeDeleteRoute,
+        pendingCascadeDeletePlan = pendingCascadeDeletePlan,
+        onClearPendingCascadeDelete = {
+            pendingCascadeDeleteRoute = null
+            pendingCascadeDeletePlan = null
+        },
+        showUndoSnackbar = { showUndoSnackbar(it) },
+        viewModel = viewModel
+    )
 }

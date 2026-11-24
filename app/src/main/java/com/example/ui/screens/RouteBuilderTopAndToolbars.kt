@@ -3,7 +3,6 @@ package com.example.ui.screens
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,26 +15,20 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Redo
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.NightShelter
-import androidx.compose.material.icons.filled.Route
-import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
-import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Warning
@@ -60,25 +53,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.model.TrailDownloadProgress
 import com.example.ui.components.GroupedPlaceSearchDropdown
+import com.example.ui.components.rememberAppLocale
 import com.example.ui.theme.DanskStiTheme
 import com.example.ui.viewmodel.*
 import com.example.util.routing.BRouterOnlineEngine
-import com.example.util.routing.LegMode
 import com.example.util.routing.RouteWaypoint
 import com.example.util.routing.WaypointRole
 import kotlinx.coroutines.launch
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,8 +85,10 @@ internal fun RouteBuilderTopAppBar(
     onStartFromMyLocation: () -> Unit = {},
     onCloseRouteLoop: () -> Unit,
     onAppendOutAndBack: () -> Unit,
+    onDownloadOffline: (() -> Unit)? = null,
     onOpenHowToGuide: () -> Unit = {}
 ) {
+    val locale = rememberAppLocale()
     TopAppBar(
         title = {
             Column(
@@ -114,7 +106,7 @@ internal fun RouteBuilderTopAppBar(
                 ) {
                     Text(
                         text = uiState.routeName.ifBlank {
-                            if (uiState.mode == PlannerMode.TRAIL) uiState.baseTrail?.name ?: "Ruteplanlægger" else "Ny rute"
+                            if (uiState.mode == PlannerMode.TRAIL) uiState.baseTrail?.name ?: stringResource(R.string.planner_default_title) else stringResource(R.string.planner_new_route_default_name)
                         },
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 2,
@@ -148,7 +140,7 @@ internal fun RouteBuilderTopAppBar(
                     ) {
                         Text(
                             text = String.format(
-                                Locale("da", "DK"),
+                                locale,
                                 "%.1f km · +%.0f m · %d d",
                                 uiState.stats.totalKm,
                                 uiState.stats.ascentM,
@@ -164,8 +156,17 @@ internal fun RouteBuilderTopAppBar(
                     }
                     Text(
                         text = buildString {
-                            append(if (uiState.mode == PlannerMode.TRAIL) "Vandrerute" else "Fri rute")
-                            if (uiState.isReverse) append(" · Omvendt")
+                            append(
+                                if (uiState.mode == PlannerMode.TRAIL) {
+                                    stringResource(R.string.offline_type_trail)
+                                } else {
+                                    stringResource(R.string.planner_mode_free_route)
+                                }
+                            )
+                            if (uiState.isReverse) {
+                                append(" · ")
+                                append(stringResource(R.string.planner_mode_reversed_suffix))
+                            }
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -217,7 +218,7 @@ internal fun RouteBuilderTopAppBar(
                     onDismissRequest = { onSetShowPlannerMenu(false) }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Start fra min position") },
+                        text = { Text(stringResource(R.string.planner_menu_start_from_my_location)) },
                         onClick = {
                             onSetShowPlannerMenu(false)
                             onStartFromMyLocation()
@@ -227,6 +228,19 @@ internal fun RouteBuilderTopAppBar(
                         },
                         modifier = Modifier.testTag("menu_item_start_from_my_location")
                     )
+                    if (onDownloadOffline != null) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.btn_download_offline)) },
+                            onClick = {
+                                onSetShowPlannerMenu(false)
+                                onDownloadOffline()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.CloudDownload, contentDescription = null)
+                            },
+                            modifier = Modifier.testTag("menu_item_download_offline")
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.ui_routebuilderscreen_indstillinger_for_turen_102)) },
                         onClick = {
@@ -300,6 +314,8 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
     activeDownloadProgress: TrailDownloadProgress?,
     context: Context,
     viewModel: RouteBuilderViewModel,
+    isOfflineRouteOutdated: Boolean = false,
+    onUpdateOfflineRoute: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val danskStiColors = DanskStiTheme.colors
@@ -322,7 +338,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                 placeholder = {
                     Text(
                         text = stringResource(R.string.planner_search_placeholder),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         maxLines = 1
                     )
                 },
@@ -362,6 +378,37 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                     .fillMaxWidth()
                     .testTag("planner_search_input")
             )
+        }
+
+        if (isOfflineRouteOutdated && onUpdateOfflineRoute != null) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.errorContainer,
+                shadowElevation = 4.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onUpdateOfflineRoute() }
+                    .testTag("planner_route_offline_changed_banner")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.offline_route_changed_update_prompt),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
         }
 
         if (uiState.plannerSearchQuery.trim().length >= 2 && !uiState.plannerSearchResults.isEmpty) {
@@ -462,7 +509,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = stringResource(R.string.ui_routebuilderscreen_undg_veje_og_foretr_k_natur__104),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
@@ -489,7 +536,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                 ) {
                     Text(
                         text = staleMsg,
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier
@@ -506,8 +553,8 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                             .testTag("btn_pick_another_start")
                     ) {
                         Text(
-                            text = "Vælg andet startpunkt",
-                            fontSize = 11.sp,
+                            text = stringResource(R.string.planner_btn_pick_another_start),
+                            style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -526,7 +573,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
             ) {
                 Text(
                     text = stringResource(R.string.ui_routebuilderscreen_v_lg_startpunkt_tryk_p_korte_105),
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
@@ -567,11 +614,18 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                             }
                             Text(
                                 text = if (uiState.isRoutingGpxLegs) {
-                                    "Beregner GPX-etaper (${uiState.gpxLegsCompletedCount}/${uiState.gpxLegsTotalCount})"
+                                    stringResource(
+                                        R.string.planner_gpx_calculating_fmt,
+                                        uiState.gpxLegsCompletedCount,
+                                        uiState.gpxLegsTotalCount
+                                    )
                                 } else {
-                                    "GPX-rute indlæst (${uiState.waypoints.count { it.role == WaypointRole.VIA }} via-punkter)"
+                                    stringResource(
+                                        R.string.planner_gpx_loaded_fmt,
+                                        uiState.waypoints.count { it.role == WaypointRole.VIA }
+                                    )
                                 },
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -585,8 +639,8 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                                 .testTag("btn_keep_gpx_line")
                         ) {
                             Text(
-                                text = "Behold GPX-linjen",
-                                fontSize = 11.sp,
+                                text = stringResource(R.string.planner_btn_keep_gpx_line),
+                                style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -632,7 +686,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                                 activeDownloadProgress.isIndeterminate -> activeDownloadProgress.message
                                 else -> stringResource(R.string.trail_download_progress_format, activeDownloadProgress.message, (activeDownloadProgress.fraction * 100).toInt().coerceIn(0, 100))
                             },
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f)
@@ -642,7 +696,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             modifier = Modifier.heightIn(min = 32.dp).testTag("btn_cancel_trail_download")
                         ) {
-                            Text(stringResource(R.string.btn_cancel), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = danskStiColors.danger)
+                            Text(stringResource(R.string.btn_cancel), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = danskStiColors.danger)
                         }
                     }
                     if (activeDownloadProgress == null || activeDownloadProgress.isIndeterminate) {
@@ -665,120 +719,74 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
 
         if (uiState.trailGeometryDownloadFailed) {
             Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.5.dp, danskStiColors.danger),
-                shadowElevation = 6.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("banner_trail_download_failed")
+                shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.5.dp, danskStiColors.danger), shadowElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth().testTag("banner_trail_download_failed")
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
                         text = stringResource(R.string.ui_routebuilderscreen_ruten_kunne_ikke_hentes_107),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = danskStiColors.danger,
-                        modifier = Modifier.weight(1f)
+                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold,
+                        color = danskStiColors.danger, modifier = Modifier.weight(1f)
                     )
                     Button(
                         onClick = { viewModel.retryDownloadTrailGeometry() },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier
-                            .heightIn(min = 36.dp)
-                            .testTag("btn_retry_trail_download")
+                        shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.heightIn(min = 36.dp).testTag("btn_retry_trail_download")
                     ) {
-                        Text(stringResource(R.string.state_Close_or_retry), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.state_Close_or_retry), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
-
         uiState.corridorPoisOfflineNotice?.let { notice ->
             Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shadowElevation = 3.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("banner_corridor_pois_offline")
+                shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant,
+                shadowElevation = 3.dp, modifier = Modifier.fillMaxWidth().testTag("banner_corridor_pois_offline")
             ) {
                 Text(
-                    text = notice,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    text = notice, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                 )
             }
         }
-
         uiState.failedLegs.entries.forEach { (legKey, errorMsg) ->
             Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.5.dp, danskStiColors.danger),
-                shadowElevation = 6.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("failed_leg_chip_$legKey")
+                shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.5.dp, danskStiColors.danger), shadowElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth().testTag("failed_leg_chip_$legKey")
             ) {
-                Column(
-                    modifier = Modifier.padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = errorMsg,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = danskStiColors.danger,
-                        modifier = Modifier.testTag("failed_leg_message_$legKey")
+                        text = errorMsg, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
+                        color = danskStiColors.danger, modifier = Modifier.testTag("failed_leg_message_$legKey")
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(
                             onClick = { viewModel.retryFailedLeg(legKey) },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 36.dp)
-                                .testTag("btn_retry_leg_$legKey")
+                            shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.weight(1f).heightIn(min = 36.dp).testTag("btn_retry_leg_$legKey")
                         ) {
-                            Text(stringResource(R.string.state_Close_or_retry), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.state_Close_or_retry), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         }
                         OutlinedButton(
-                            onClick = { viewModel.setFailedLegStraight(legKey) },
-                            shape = RoundedCornerShape(8.dp),
+                            onClick = { viewModel.setFailedLegStraight(legKey) }, shape = RoundedCornerShape(8.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 36.dp)
-                                .testTag("btn_straight_leg_$legKey")
+                            modifier = Modifier.weight(1f).heightIn(min = 36.dp).testTag("btn_straight_leg_$legKey")
                         ) {
-                            Text(stringResource(R.string.ui_routebuilderscreen_tegn_lige_linje_108), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.ui_routebuilderscreen_tegn_lige_linje_108), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         }
                         OutlinedButton(
-                            onClick = { viewModel.activateMovePointForFailedLeg(legKey) },
-                            shape = RoundedCornerShape(8.dp),
+                            onClick = { viewModel.activateMovePointForFailedLeg(legKey) }, shape = RoundedCornerShape(8.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 36.dp)
-                                .testTag("btn_move_point_$legKey")
+                            modifier = Modifier.weight(1f).heightIn(min = 36.dp).testTag("btn_move_point_$legKey")
                         ) {
-                            Text(stringResource(R.string.ui_routebuilderscreen_flyt_punkt_109), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.ui_routebuilderscreen_flyt_punkt_109), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -786,4 +794,3 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
         }
     }
 }
-

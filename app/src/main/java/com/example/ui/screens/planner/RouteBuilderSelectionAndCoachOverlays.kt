@@ -454,7 +454,7 @@ fun SelectedLegCard(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(toggleTargetLabel, fontSize = 12.sp)
+                    Text(toggleTargetLabel, style = MaterialTheme.typography.bodySmall)
                 }
 
                 FilledTonalButton(
@@ -478,7 +478,7 @@ fun SelectedLegCard(
                         )
                     }
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(stringResource(R.string.planner_leg_card_show_alternatives), fontSize = 12.sp)
+                    Text(stringResource(R.string.planner_leg_card_show_alternatives), style = MaterialTheme.typography.bodySmall)
                 }
             }
 
@@ -503,7 +503,7 @@ fun SelectedLegCard(
                                         alt.lengthKm,
                                         alt.ascentM.roundToInt()
                                     ),
-                                    fontSize = 12.sp
+                                    style = MaterialTheme.typography.bodySmall
                                 )
                             },
                             modifier = Modifier.testTag("leg_alt_chip_${alt.index}")
@@ -625,7 +625,7 @@ fun PlannerCoachMarksOverlay(
                 ) {
                     Text(
                         text = stringResource(R.string.planner_coach_header_format, stepIndex + 1),
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         lineHeight = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
@@ -665,7 +665,7 @@ fun PlannerCoachMarksOverlay(
                         ) {
                             Text(
                                 text = "${idx + 1}. $title",
-                                fontSize = 10.sp,
+                                style = MaterialTheme.typography.labelSmall,
                                 lineHeight = 11.sp,
                                 maxLines = 1,
                                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
@@ -674,7 +674,7 @@ fun PlannerCoachMarksOverlay(
                             if (isCurrent) {
                                 Text(
                                     text = subtitle,
-                                    fontSize = 9.sp,
+                                    style = MaterialTheme.typography.labelSmall,
                                     lineHeight = 10.sp,
                                     maxLines = 1,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -697,7 +697,7 @@ fun PlannerCoachMarksOverlay(
                             .height(26.dp)
                             .testTag("coach_marks_dismiss_button")
                     ) {
-                        Text(stringResource(R.string.planner_coach_understood), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.planner_coach_understood), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                     }
                     Button(
                         onClick = onNextStep,
@@ -709,7 +709,7 @@ fun PlannerCoachMarksOverlay(
                     ) {
                         Text(
                             text = if (stepIndex < tips.lastIndex) stringResource(R.string.planner_coach_next_tip) else stringResource(R.string.planner_coach_start_planning),
-                            fontSize = 10.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
                         )
                     }

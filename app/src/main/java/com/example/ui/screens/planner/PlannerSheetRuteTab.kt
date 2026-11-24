@@ -95,14 +95,14 @@ internal fun PlannerRuteTabContent(
         ) {
             Text(
                 text = stringResource(R.string.planner_waypoints_header_format, visibleWaypoints.size),
-                fontSize = 13.sp,
+                style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
             if (visibleWaypoints.size >= 2) {
                 Text(
                     text = stringResource(R.string.planner_waypoints_reorder_delete_hint),
-                    fontSize = 10.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -111,7 +111,7 @@ internal fun PlannerRuteTabContent(
         if (visibleWaypoints.isEmpty()) {
             Text(
                 text = stringResource(R.string.planner_add_two_points_hint),
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else {
@@ -143,7 +143,7 @@ internal fun PlannerRuteTabContent(
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = stringResource(R.string.planner_my_points_count_format, uiState.customUserWaypoints.size),
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -279,7 +279,7 @@ fun WaypointRow(
                             WaypointRole.VIA -> "${index + 1}"
                         },
                         color = MaterialTheme.colorScheme.onPrimary,
-                        fontSize = 10.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -295,7 +295,7 @@ fun WaypointRow(
                         WaypointRole.OVERNIGHT -> stringResource(R.string.waypoint_role_overnight)
                         WaypointRole.VIA -> stringResource(R.string.waypoint_role_via_format, index + 1)
                     },
-                    fontSize = 16.sp,
+                    style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -322,7 +322,7 @@ fun WaypointRow(
                 }
                 Text(
                     text = subtitleText,
-                    fontSize = 11.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     color = if (detourDist != null && detourDist.isFinite() && detourDist > 0.01) {
                         dsColors.overnight
                     } else {
@@ -409,7 +409,7 @@ fun AlternativeRouteCard(
                 Column {
                     Text(
                         text = stringResource(R.string.planner_alternative_title_format, alt.index),
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -421,7 +421,7 @@ fun AlternativeRouteCard(
                             alt.ascentM,
                             alt.pathSharePct ?: 0.0
                         ),
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -434,7 +434,7 @@ fun AlternativeRouteCard(
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                 modifier = Modifier.heightIn(min = 30.dp)
             ) {
-                Text(stringResource(R.string.planner_btn_choose), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.planner_btn_choose), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -492,7 +492,7 @@ fun CustomWaypointRow(
                     modifier = Modifier.size(28.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text(stringResource(R.string.ui_plannerbottomsheet_label_227), color = MaterialTheme.colorScheme.onTertiary, fontSize = 12.sp)
+                        Text(stringResource(R.string.ui_plannerbottomsheet_label_227), color = MaterialTheme.colorScheme.onTertiary, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -502,7 +502,7 @@ fun CustomWaypointRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = waypoint.name,
-                    fontSize = 16.sp,
+                    style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -511,7 +511,7 @@ fun CustomWaypointRow(
                 if (waypoint.note.isNotBlank()) {
                     Text(
                         text = waypoint.note,
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -527,7 +527,7 @@ fun CustomWaypointRow(
                 ) {
                     Text(
                         text = stringResource(R.string.ui_routebuilderscreen_fjern_foto_163),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.SemiBold
                     )
                 }

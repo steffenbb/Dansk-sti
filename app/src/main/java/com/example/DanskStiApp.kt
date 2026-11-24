@@ -52,6 +52,10 @@ class DanskStiApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        cancelAllViewModelScopes()
+        com.example.ui.viewmodel.RouteBuilderViewModel.cancelActiveJobs()
+        com.example.ui.viewmodel.NavigationViewModel.clearActiveInstance()
+        com.example.util.AppLocaleHelper.ensureDefaultLocaleIfUnconfigured(this)
         com.example.data.remote.OverpassClient.init(this)
 
         migrateLegacyWaypointPhotosFiles()
@@ -191,7 +195,7 @@ class DanskStiApp : Application() {
         initDatabaseSafely()
     }
 
-    private fun createNotificationChannels() {
+    fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_NAVIGATION_ID,
@@ -208,21 +212,76 @@ class DanskStiApp : Application() {
                 description = "Alerts when deviating from the hiking trail"
                 enableVibration(true)
             }
+            val turnLeftChannel = NotificationChannel(
+                CHANNEL_TURN_CUE_LEFT_ID,
+                "Dansk Sti Sving til venstre",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Turn-cue alerts for left turns"
+                setSound(null, null)
+                enableVibration(true)
+                vibrationPattern = com.example.service.NavigationTrackingService.VIBRATION_PATTERN_LEFT
+            }
+            val turnRightChannel = NotificationChannel(
+                CHANNEL_TURN_CUE_RIGHT_ID,
+                "Dansk Sti Sving til højre",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Turn-cue alerts for right turns"
+                setSound(null, null)
+                enableVibration(true)
+                vibrationPattern = com.example.service.NavigationTrackingService.VIBRATION_PATTERN_RIGHT
+            }
+            val turnOtherChannel = NotificationChannel(
+                CHANNEL_TURN_CUE_OTHER_ID,
+                "Dansk Sti Sving og retning",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Turn-cue alerts for straight or U-turn cues"
+                setSound(null, null)
+                enableVibration(true)
+                vibrationPattern = com.example.service.NavigationTrackingService.VIBRATION_PATTERN_OTHER
+            }
             val manager = getSystemService(NotificationManager::class.java)
+            manager?.deleteNotificationChannel(LEGACY_CHANNEL_TURN_CUES_ID)
             manager?.createNotificationChannel(channel)
             manager?.createNotificationChannel(alertChannel)
+            manager?.createNotificationChannel(turnLeftChannel)
+            manager?.createNotificationChannel(turnRightChannel)
+            manager?.createNotificationChannel(turnOtherChannel)
         }
     }
 
     companion object {
         const val CHANNEL_NAVIGATION_ID = "dansk_sti_navigation_channel"
         const val CHANNEL_ALERTS_ID = "dansk_sti_alerts_channel"
+        const val CHANNEL_TURN_CUE_LEFT_ID = "dansk_sti_turn_cue_left"
+        const val CHANNEL_TURN_CUE_RIGHT_ID = "dansk_sti_turn_cue_right"
+        const val CHANNEL_TURN_CUE_OTHER_ID = "dansk_sti_turn_cue_other"
+        const val LEGACY_CHANNEL_TURN_CUES_ID = "dansk_sti_turn_cues"
 
         lateinit var instance: DanskStiApp
             private set
 
         @Volatile
         private var activeInitJob: kotlinx.coroutines.Job? = null
+
+        private val activeViewModelScopes =
+            java.util.concurrent.CopyOnWriteArrayList<CoroutineScope>()
+
+        fun registerViewModelScope(scope: CoroutineScope) {
+            activeViewModelScopes.add(scope)
+        }
+
+        fun cancelAllViewModelScopes() {
+            val scopes = activeViewModelScopes.toList()
+            activeViewModelScopes.clear()
+            for (scope in scopes) {
+                runCatching {
+                    scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+                }
+            }
+        }
 
         fun cancelActiveInitJob() {
             activeInitJob?.cancel()

@@ -655,15 +655,25 @@ fun TrailBrowserScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
+                    val shortTrailsNearYou by viewModel.shortTrailsNearYou.collectAsState()
                     TrailBrowserListContent(
                         trails = trails,
                         savedTrails = savedTrails,
                         savedTrailIds = savedTrailIds,
                         nearbyTrails = nearbyTrails,
+                        shortTrailsNearYou = shortTrailsNearYou,
                         userLocation = userLocation,
                         userLocationStaleMessage = userLocationStaleMessage,
                         onPickAnotherStart = {
                             isMapView = true
+                        },
+                        onCreateLoopFromHere = {
+                            val loc = userLocation
+                            if (loc != null) {
+                                onOpenRouteBuilder(loc.first, loc.second, "LOOP_FROM_HERE")
+                            } else {
+                                requestLocationForDiscovery(openNearbySheet = false)
+                            }
                         },
                         shelterCounts = shelterCounts,
                         friTeltningCounts = friTeltningCounts,

@@ -86,7 +86,6 @@ fun StatCardItem(
             Text(
                 text = value,
                 style = com.example.ui.theme.TabularBodyStyle.copy(
-                    fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
@@ -221,8 +220,8 @@ fun ElevationProfileCanvas(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(text = stringResource(R.string.ui_traildetailscreen_m_stigning_208, gainM), fontSize = 12.sp, color = lineColor, fontWeight = FontWeight.SemiBold)
-                Text(text = stringResource(R.string.ui_traildetailscreen_m_fald_209, lossM), fontSize = 12.sp, color = warningColor, fontWeight = FontWeight.SemiBold)
+                Text(text = stringResource(R.string.ui_traildetailscreen_m_stigning_208, gainM), style = MaterialTheme.typography.labelMedium, color = lineColor, fontWeight = FontWeight.SemiBold)
+                Text(text = stringResource(R.string.ui_traildetailscreen_m_fald_209, lossM), style = MaterialTheme.typography.labelMedium, color = warningColor, fontWeight = FontWeight.SemiBold)
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -260,7 +259,7 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
     if (surfaceMix.isEmpty()) {
         Text(
             text = stringResource(R.string.way_info_unknown_summary),
-            fontSize = 13.sp,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.testTag("trail_surface_unknown_text")
         )
@@ -321,17 +320,17 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.size(8.dp).background(stiColor, CircleShape))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text(stringResource(R.string.ui_traildetailscreen_sti_210, stiPct), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.ui_traildetailscreen_sti_210, stiPct), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.size(8.dp).background(grusColor, CircleShape))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text(stringResource(R.string.ui_traildetailscreen_grus_211, grusPct), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.ui_traildetailscreen_grus_211, grusPct), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.size(8.dp).background(asfaltColor, CircleShape))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text(stringResource(R.string.ui_traildetailscreen_asfalt_212, asfaltPct), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.ui_traildetailscreen_asfalt_212, asfaltPct), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (ukendtPct > 0) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -339,7 +338,7 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         stringResource(R.string.trail_surface_ukendt_pct, ukendtPct),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.testTag("trail_surface_ukendt_pct")
                     )
@@ -352,6 +351,7 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
 @Composable
 fun OvernightSpotCard(spot: OvernightSpotItem) {
     val context = LocalContext.current
+    val appLocale = com.example.ui.components.rememberAppLocale()
     val warningColor = DanskStiTheme.colors.warning
     Card(
         shape = RoundedCornerShape(12.dp),
@@ -386,19 +386,19 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = spot.name,
-                        fontSize = 16.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = if (spot.detourMeters > 50) "${spot.detourMeters.toInt()} m afstikker" else "Direkte på ruten",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if (spot.bookingRequired) {
                         Text(
                             text = stringResource(R.string.ui_traildetailscreen_kr_ver_booking_213),
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.labelMedium,
                             color = warningColor,
                             fontWeight = FontWeight.Bold
                         )
@@ -410,9 +410,8 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     Text(
-                        text = stringResource(R.string.ui_traildetailscreen_km_214, String.format(Locale("da", "DK"), "%.1f", spot.kmOnRoute)),
+                        text = stringResource(R.string.ui_traildetailscreen_km_214, String.format(appLocale, "%.1f", spot.kmOnRoute)),
                         style = com.example.ui.theme.TabularStatsTextStyle,
-                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -429,7 +428,7 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                 ) {
                     Text(
                         text = stringResource(R.string.ui_traildetailscreen_tjek_ledighed_hos_udbyder_215),
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f)
                     )
@@ -460,7 +459,7 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                             .heightIn(min = 36.dp)
                             .testTag("shelter_booking_button_${spot.id}")
                     ) {
-                        Text(text = buttonLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(text = buttonLabel, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -473,6 +472,7 @@ fun PoiItemCard(
     poi: PoiSpotItem,
     onRouteHerTil: (() -> Unit)? = null
 ) {
+    val appLocale = com.example.ui.components.rememberAppLocale()
     val icon = when (poi.type) {
         "water" -> Icons.Default.LocalDrink
         "toilet" -> Icons.Default.Wc
@@ -504,22 +504,30 @@ fun PoiItemCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = poi.name,
-                    fontSize = 16.sp,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 if (poi.detourMeters > 50) {
                     Text(
                         text = stringResource(R.string.ui_traildetailscreen_m_afstikker_216, poi.detourMeters.toInt()),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (poi.isPotentiallyClosed) {
+                    Text(
+                        text = "Kan være lukket (vinterlukket)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = DanskStiTheme.colors.warning,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.testTag("poi_seasonal_closed_badge_${poi.id}")
                     )
                 }
             }
             Text(
-                text = stringResource(R.string.ui_traildetailscreen_km_214, String.format(Locale("da", "DK"), "%.1f", poi.kmOnRoute)),
+                text = stringResource(R.string.ui_traildetailscreen_km_214, String.format(appLocale, "%.1f", poi.kmOnRoute)),
                 style = com.example.ui.theme.TabularStatsTextStyle,
-                fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -546,22 +554,49 @@ fun WeatherForecastCard(
     title: String,
     weather: TrailWeatherInfo?
 ) {
+    val appLocale = com.example.ui.components.rememberAppLocale()
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("trail_weather_forecast_card")
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Text(
-                text = title,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                if (weather != null) {
+                    val stale = weather.isStale()
+                    val statusText = if (stale) {
+                        "Opdateret kl. ${weather.formatUpdatedClock()} (kan være forældet)"
+                    } else {
+                        "Opdateret kl. ${weather.formatUpdatedClock()}"
+                    }
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (stale) DanskStiTheme.colors.warning else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("trail_weather_updated_label")
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
             if (weather == null) {
-                Text(stringResource(R.string.ui_traildetailscreen_venter_p_vejrdata_217), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    stringResource(R.string.ui_traildetailscreen_venter_p_vejrdata_217),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             } else {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -578,7 +613,7 @@ fun WeatherForecastCard(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = stringResource(R.string.ui_traildetailscreen_c_218, weather.tempC?.toInt() ?: "--"),
-                            fontSize = 18.sp,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -594,17 +629,67 @@ fun WeatherForecastCard(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = stringResource(R.string.ui_traildetailscreen_mm_219, weather.precipitationMm ?: 0.0),
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
                     Text(
                         text = weather.conditionDescription ?: "Skyet",
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                }
+
+                if (weather.blocks24h.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Næste 24 timer (3-timers blokke)",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("trail_weather_24h_blocks"),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        weather.blocks24h.take(8).forEach { block ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 4.dp, horizontal = 2.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = block.timeLabel,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = "${block.tempC.toInt()}°",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = "${String.format(appLocale, "%.1f", block.precipitationMm)}mm",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (block.precipitationMm >= 1.0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

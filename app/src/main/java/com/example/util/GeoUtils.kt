@@ -12,6 +12,49 @@ object GeoUtils {
     private const val EARTH_RADIUS_METERS = 6371000.0
 
     /**
+     * Unified day estimate everywhere (Part A3):
+     * estimateDays(km, dailyTargetKm) = ceil(km / dailyTargetKm).toInt().coerceAtLeast(1)
+     */
+    fun estimateDays(km: Double, dailyTargetKm: Double = 15.0): Int {
+        val safeTarget = if (dailyTargetKm.isNaN() || dailyTargetKm <= 0.0) 15.0 else dailyTargetKm
+        if (km.isNaN() || km <= 0.0) return 1
+        return kotlin.math.ceil(km / safeTarget).toInt().coerceAtLeast(1)
+    }
+
+    /**
+     * Formats an ISO osmTimestamp (e.g. "2025-10-14T12:00:00Z") as "<Month Year>" in the given locale,
+     * or returns null if osmTimestamp is null/blank or unparseable (Part A5).
+     */
+    fun formatOsmTimestampMonthYear(
+        osmTimestamp: String?,
+        locale: java.util.Locale = java.util.Locale.forLanguageTag("da-DK")
+    ): String? {
+        val raw = osmTimestamp?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val match = Regex("""^(\d{4})-(\d{1,2})""").find(raw)
+        if (match != null) {
+            val year = match.groupValues[1].toIntOrNull()
+            val month = match.groupValues[2].toIntOrNull()
+            if (year != null && month != null && month in 1..12) {
+                return try {
+                    val shortMonths = java.text.DateFormatSymbols.getInstance(locale).shortMonths
+                    val monthName = shortMonths.getOrNull(month - 1)?.replace(".", "")?.trim().orEmpty()
+                    if (monthName.isNotEmpty()) {
+                        val capMonth = monthName.replaceFirstChar {
+                            if (it.isLowerCase()) it.titlecase(locale) else it.toString()
+                        }
+                        "$capMonth $year"
+                    } else {
+                        "$month/$year"
+                    }
+                } catch (_: Exception) {
+                    "$month/$year"
+                }
+            }
+        }
+        return null
+    }
+
+    /**
      * Haversine distance between two coordinates in meters.
      */
     fun distanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {

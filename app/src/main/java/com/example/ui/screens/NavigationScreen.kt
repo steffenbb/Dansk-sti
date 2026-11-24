@@ -185,10 +185,10 @@ fun NavigationScreen(
         var engine: TextToSpeech? = null
         if (voiceGuidance) {
             runCatching {
-                val daLocale = com.example.util.DanishTtsChecker.DANISH_LOCALE
+                val targetLocale = com.example.util.DanishTtsChecker.resolveTtsLocale(context)
                 engine = TextToSpeech(context.applicationContext) { status ->
-                    if (status == TextToSpeech.SUCCESS && com.example.util.DanishTtsChecker.isDanishTtsSupported(engine)) {
-                        engine?.language = daLocale
+                    if (status == TextToSpeech.SUCCESS && com.example.util.DanishTtsChecker.isTtsLocaleSupported(engine, targetLocale)) {
+                        engine?.language = targetLocale
                         ttsReady = true
                     } else {
                         ttsReady = false
@@ -744,24 +744,19 @@ fun NavigationScreen(
         }
     }
 
+    val diaryEntries by viewModel.diaryEntries.collectAsState()
     if (liveState.isCompleted && !dismissedCompletedDialog) {
-        val totalKm = max(
-            liveState.totalDistanceWalkedKm,
-            plannedRoute?.totalWalkKm ?: liveState.plannedRoute?.totalWalkKm ?: 0.0
-        )
-        val totalMovingSecs = allRecordedDayStats.sumOf { it.movingTimeSeconds }
-            .takeIf { it > 0L }
-            ?: (currentDayStat?.movingTimeSeconds ?: 0L)
-        val totalAscentM = allRecordedDayStats.sumOf { it.ascentMeters }
-            .takeIf { it > 0 }
-            ?: (currentDayStat?.ascentMeters ?: 0)
+        val totalKm = max(liveState.totalDistanceWalkedKm, plannedRoute?.totalWalkKm ?: liveState.plannedRoute?.totalWalkKm ?: 0.0)
+        val totalMovingSecs = allRecordedDayStats.sumOf { it.movingTimeSeconds }.takeIf { it > 0L } ?: (currentDayStat?.movingTimeSeconds ?: 0L)
+        val totalAscentM = allRecordedDayStats.sumOf { it.ascentMeters }.takeIf { it > 0 } ?: (currentDayStat?.ascentMeters ?: 0)
         val completedDays = maxOf(currentDay, allRecordedDayStats.size, 1)
+        val effectiveTrailName = liveState.trailName.ifBlank { activePlan?.trailName ?: "" }
         NavigationTripCompletedSummaryDialog(
-            trailName = liveState.trailName.ifBlank { activePlan?.trailName ?: "" },
-            totalDistanceKm = totalKm,
-            totalMovingSeconds = totalMovingSecs,
-            totalAscentMeters = totalAscentM,
-            totalDays = completedDays,
+            trailName = effectiveTrailName, totalDistanceKm = totalKm, totalMovingSeconds = totalMovingSecs,
+            totalAscentMeters = totalAscentM, totalDays = completedDays, diaryEntries = diaryEntries,
+            onShareTrip = {
+                viewModel.shareCompletedTripWithDiary(context, effectiveTrailName, totalKm, totalMovingSecs, totalAscentM, completedDays)
+            },
             onDismiss = { dismissedCompletedDialog = true },
             onFinishAndBack = {
                 dismissedCompletedDialog = true
@@ -770,20 +765,11 @@ fun NavigationScreen(
             }
         )
     }
-
     if (showSosSheet) {
-        NavigationSosBottomSheet(
-            liveState = liveState,
-            emergencyInfo = emergencyInfo,
-            onDismiss = { viewModel.setSosSheet(false) }
-        )
+        NavigationSosBottomSheet(liveState = liveState, emergencyInfo = emergencyInfo, onDismiss = { viewModel.setSosSheet(false) })
     }
-
     if (showHowToGuide) {
-        HowToGuideScreen(
-            onDismiss = { showHowToGuide = false },
-            initialSection = HowToGuideDefinitions.SECTION_OFFLINE_NAVIGATION
-        )
+        HowToGuideScreen(onDismiss = { showHowToGuide = false }, initialSection = HowToGuideDefinitions.SECTION_OFFLINE_NAVIGATION)
     }
 }
 

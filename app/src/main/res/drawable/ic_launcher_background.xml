@@ -13,18 +13,22 @@
                 android:endX="108"
                 android:endY="108"
                 android:type="linear">
-                <item android:color="#0F241A" android:offset="0.0" />
-                <item android:color="#193829" android:offset="1.0" />
+                <item android:color="#1B4332" android:offset="0.0" />
+                <item android:color="#143325" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
-    <!-- Subtle topographic contour rings -->
+    <!-- Subtle topographic contour lines -->
     <path
-        android:pathData="M10,54 C25,30 83,30 98,54 C83,78 25,78 10,54 Z"
-        android:strokeColor="#1AFFFFFF"
+        android:pathData="M6,56 C24,28 84,28 102,56 C84,84 24,84 6,56 Z"
+        android:strokeColor="#1FFFFFFF"
         android:strokeWidth="1.2" />
     <path
-        android:pathData="M22,54 C32,38 76,38 86,54 C76,70 32,70 22,54 Z"
-        android:strokeColor="#15FFFFFF"
+        android:pathData="M18,56 C32,36 76,36 90,56 C76,76 32,76 18,56 Z"
+        android:strokeColor="#16FFFFFF"
         android:strokeWidth="1.2" />
+    <path
+        android:pathData="M28,56 C38,43 70,43 80,56 C70,69 38,69 28,56 Z"
+        android:strokeColor="#12FFFFFF"
+        android:strokeWidth="1.0" />
 </vector>

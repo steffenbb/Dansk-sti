@@ -140,8 +140,12 @@ class FixRound7Test {
 
     @Test
     fun item1_backupRulesBackUpRoutesAndPlansAndMigrateLegacyPhotosToPhotosDir(): Unit = runBlocking {
-        val backupXml = File("src/main/res/xml/backup_rules.xml").readText()
-        val extractionXml = File("src/main/res/xml/data_extraction_rules.xml").readText()
+        val backupFile = File("src/main/res/xml/backup_rules.xml").takeIf { it.exists() }
+            ?: File("app/src/main/res/xml/backup_rules.xml")
+        val extractionFile = File("src/main/res/xml/data_extraction_rules.xml").takeIf { it.exists() }
+            ?: File("app/src/main/res/xml/data_extraction_rules.xml")
+        val backupXml = backupFile.readText()
+        val extractionXml = extractionFile.readText()
 
         for (xml in listOf(backupXml, extractionXml)) {
             assertTrue(xml.contains("<include domain=\"file\" path=\"routes\" />"))

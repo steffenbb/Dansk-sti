@@ -173,7 +173,7 @@ fun NavigationBottomOrSideControlsAndStats(
                 )
                 Text(
                     text = mapMode.label,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -212,7 +212,7 @@ fun NavigationBottomOrSideControlsAndStats(
                         } else {
                             stringResource(R.string.nav_pause)
                         },
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = if (liveState.isPaused) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onSurface
                     )
@@ -422,9 +422,10 @@ fun NavigationBottomOrSideControlsAndStats(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = formatDanishKm(distanceRemainingToday, 1),
-                                style = TabularBodyStyle.copy(
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Black
+                                style = MaterialTheme.typography.headlineMedium.merge(
+                                    TabularBodyStyle.copy(
+                                        fontWeight = FontWeight.Black
+                                    )
                                 ),
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
@@ -432,7 +433,7 @@ fun NavigationBottomOrSideControlsAndStats(
                             )
                             Text(
                                 text = stringResource(R.string.nav_stat_label_km_left),
-                                fontSize = 11.sp,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1
                             )
@@ -443,9 +444,10 @@ fun NavigationBottomOrSideControlsAndStats(
                         ) {
                             Text(
                                 text = arrivalClock,
-                                style = TabularBodyStyle.copy(
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Black
+                                style = MaterialTheme.typography.headlineMedium.merge(
+                                    TabularBodyStyle.copy(
+                                        fontWeight = FontWeight.Black
+                                    )
                                 ),
                                 color = MaterialTheme.colorScheme.primary,
                                 maxLines = 1,
@@ -453,7 +455,7 @@ fun NavigationBottomOrSideControlsAndStats(
                             )
                             Text(
                                 text = stringResource(R.string.nav_stat_label_arrival),
-                                fontSize = 11.sp,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1
                             )
@@ -465,9 +467,10 @@ fun NavigationBottomOrSideControlsAndStats(
                             val nextWaterKmText = nextWater?.let { formatDanishKm(it.distanceRemainingKm, 1) } ?: "--"
                             Text(
                                 text = nextWaterKmText,
-                                style = TabularBodyStyle.copy(
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Black
+                                style = MaterialTheme.typography.headlineMedium.merge(
+                                    TabularBodyStyle.copy(
+                                        fontWeight = FontWeight.Black
+                                    )
                                 ),
                                 color = MaterialTheme.colorScheme.tertiary,
                                 maxLines = 1,
@@ -475,7 +478,7 @@ fun NavigationBottomOrSideControlsAndStats(
                             )
                             Text(
                                 text = stringResource(R.string.nav_stat_label_next_water),
-                                fontSize = 11.sp,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1
                             )
@@ -496,9 +499,10 @@ fun NavigationBottomOrSideControlsAndStats(
                     ) {
                         Text(
                             text = formatDanishKm(distanceRemainingToday, 1),
-                            style = TabularBodyStyle.copy(
-                                fontSize = 28.sp,
-                                fontWeight = FontWeight.Black
+                            style = MaterialTheme.typography.headlineLarge.merge(
+                                TabularBodyStyle.copy(
+                                    fontWeight = FontWeight.Black
+                                )
                             ),
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
@@ -506,7 +510,7 @@ fun NavigationBottomOrSideControlsAndStats(
                         )
                         Text(
                             text = stringResource(R.string.nav_stat_label_km_left),
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
                         )
@@ -518,9 +522,10 @@ fun NavigationBottomOrSideControlsAndStats(
                     ) {
                         Text(
                             text = arrivalClock,
-                            style = TabularBodyStyle.copy(
-                                fontSize = 28.sp,
-                                fontWeight = FontWeight.Black
+                            style = MaterialTheme.typography.headlineLarge.merge(
+                                TabularBodyStyle.copy(
+                                    fontWeight = FontWeight.Black
+                                )
                             ),
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
@@ -528,7 +533,7 @@ fun NavigationBottomOrSideControlsAndStats(
                         )
                         Text(
                             text = stringResource(R.string.nav_stat_label_arrival),
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
                         )
@@ -541,9 +546,10 @@ fun NavigationBottomOrSideControlsAndStats(
                         val nextWaterKmText = nextWater?.let { formatDanishKm(it.distanceRemainingKm, 1) } ?: "--"
                         Text(
                             text = nextWaterKmText,
-                            style = TabularBodyStyle.copy(
-                                fontSize = 28.sp,
-                                fontWeight = FontWeight.Black
+                            style = MaterialTheme.typography.headlineLarge.merge(
+                                TabularBodyStyle.copy(
+                                    fontWeight = FontWeight.Black
+                                )
                             ),
                             color = MaterialTheme.colorScheme.tertiary,
                             maxLines = 1,
@@ -551,7 +557,7 @@ fun NavigationBottomOrSideControlsAndStats(
                         )
                         Text(
                             text = stringResource(R.string.nav_stat_label_next_water),
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
                         )

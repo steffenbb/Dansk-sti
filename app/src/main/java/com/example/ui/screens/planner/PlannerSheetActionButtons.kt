@@ -324,7 +324,7 @@ internal fun PlannerIconOverLabelButton(
             Spacer(modifier = Modifier.height(1.dp))
             Text(
                 text = formattedLabel,
-                fontSize = 11.sp,
+                style = MaterialTheme.typography.labelSmall,
                 lineHeight = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = contentColor,

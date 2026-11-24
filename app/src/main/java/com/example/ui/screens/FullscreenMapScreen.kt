@@ -232,7 +232,7 @@ fun FullscreenMapScreen(
                 ) {
                     Text(
                         text = t.name,
-                        fontSize = 14.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
@@ -266,7 +266,7 @@ fun FullscreenMapScreen(
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = stringResource(R.string.ui_fullscreenmapscreen_henter_rutedata_live_fra_ope_51),
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -299,13 +299,13 @@ fun FullscreenMapScreen(
                     Text(
                         text = stringResource(R.string.ui_fullscreenmapscreen_kunne_ikke_hente_rutedata_53),
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = stringResource(R.string.ui_fullscreenmapscreen_ruten_kunne_ikke_hentes_fra__54),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
@@ -323,7 +323,7 @@ fun FullscreenMapScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.state_Close_or_retry), fontSize = 13.sp)
+                        Text(stringResource(R.string.state_Close_or_retry), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

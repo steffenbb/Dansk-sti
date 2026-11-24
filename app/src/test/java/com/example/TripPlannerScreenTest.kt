@@ -21,6 +21,12 @@ class TripPlannerScreenTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    @org.junit.After
+    fun tearDown() {
+        RouteBuilderViewModel.cancelActiveJobs()
+        DanskStiApp.cancelAllViewModelScopes()
+    }
+
     @Test
     fun testPlannerLoadsTrailInTrailMode() {
         val app = ApplicationProvider.getApplicationContext<DanskStiApp>()

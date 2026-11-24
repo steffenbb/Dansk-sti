@@ -342,7 +342,10 @@ fun RouteBuilderViewModel.openReplaceOvernightSheet(waypointId: String) {
         val shelters = repository.getAllSheltersList()
         val friTeltning = repository.getAllFriTeltningList()
         val pois = state.nearbyPois.ifEmpty { repository.getAllPoisList() }
-        val waterPois = pois.filter { it.type == "water" }
+        val waterPois = pois.filter {
+            it.type == "water" &&
+                !com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(it, state.startDateMillis)
+        }
         val toiletPois = pois.filter { it.type == "toilet" }
         val maxDetourM = (state.maxDetourKm * 1000.0).coerceAtLeast(1000.0)
         val candidates = mutableListOf<OvernightCandidate>()
@@ -358,8 +361,8 @@ fun RouteBuilderViewModel.openReplaceOvernightSheet(waypointId: String) {
         for (ft in friTeltning) {
             val distM = haversineM(wp.lat, wp.lng, ft.centerLat, ft.centerLng)
             if (distM <= maxDetourM * 1.5) {
-                val hasWater = ft.waterDistanceMeters <= 500 || waterPois.any { haversineM(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0 }
-                val hasToilet = ft.toiletDistanceMeters <= 500 || toiletPois.any { haversineM(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0 }
+                val hasWater = waterPois.any { haversineM(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0 }
+                val hasToilet = toiletPois.any { haversineM(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0 }
                 candidates.add(OvernightCandidate(ft.id, ft.name, "FRI_TELTNING", ft.centerLat, ft.centerLng, wp.trailKm ?: 0.0, distM, false, hasWater, hasToilet, ft))
             }
         }
@@ -704,21 +707,29 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
             }
         }
 
-        val waterPois = state.nearbyPois.filter { it.type.lowercase().contains("water") }
+        val dayEpochMs = state.startDateMillis + idx.toLong() * 86_400_000L
+        val allWaterPois = state.nearbyPois.filter { it.type.lowercase().contains("water") }
+        val waterPois = allWaterPois.filter {
+            !com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(it, dayEpochMs)
+        }
+        val closedWaterPoisNearby = allWaterPois.filter {
+            com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(it, dayEpochMs) &&
+                haversineM(campLat, campLng, it.lat, it.lng) <= 500.0
+        }
         val toiletPois = state.nearbyPois.filter { it.type.lowercase().contains("toilet") }
         val nearestWaterPoiM = waterPois.minOfOrNull { haversineM(campLat, campLng, it.lat, it.lng) }?.roundToInt()
+        val hasOpenWaterPoiWithin500m = nearestWaterPoiM != null && nearestWaterPoiM <= 500
+        if (!hasOpenWaterPoiWithin500m && closedWaterPoisNearby.isNotEmpty()) {
+            dayWarnings.add("Vandpost i nærheden kan være lukket (vinterlukket)")
+        }
         val waterDistM = when {
-            matchedFt != null && matchedFt.waterDistanceMeters in 1..2000 -> matchedFt.waterDistanceMeters
             nearestWaterPoiM != null && nearestWaterPoiM <= 1000 -> nearestWaterPoiM
-            matchedShelter?.hasWaterNearby == true || stage.hasWaterNearby -> 200
+            (matchedShelter?.hasWaterNearby == true || stage.hasWaterNearby) && closedWaterPoisNearby.isEmpty() -> 200
             else -> null
         }
-        val hasWater = matchedShelter?.hasWaterNearby == true ||
-            (matchedFt != null && matchedFt.waterDistanceMeters <= 500) ||
-            stage.hasWaterNearby ||
-            (nearestWaterPoiM != null && nearestWaterPoiM <= 500)
+        val hasWater = hasOpenWaterPoiWithin500m ||
+            ((matchedShelter?.hasWaterNearby == true || stage.hasWaterNearby) && closedWaterPoisNearby.isEmpty())
         val hasToilet = matchedShelter?.hasToiletNearby == true ||
-            (matchedFt != null && matchedFt.toiletDistanceMeters <= 500) ||
             stage.hasToiletNearby ||
             toiletPois.any { haversineM(campLat, campLng, it.lat, it.lng) <= 500.0 }
         val isBookingReq = matchedShelter?.bookingRequired == true ||

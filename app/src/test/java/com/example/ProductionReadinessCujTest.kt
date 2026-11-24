@@ -49,7 +49,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "da")
 class ProductionReadinessCujTest {
 
     @get:Rule
@@ -61,6 +61,10 @@ class ProductionReadinessCujTest {
     @Before
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
+        com.example.util.AppLocaleHelper.setApplicationLanguageTag(app, "da")
+        com.example.data.remote.OverpassClient.customTransport = { _, _ ->
+            com.example.data.remote.OverpassClient.HttpResult(code = 200, body = """{"elements":[]}""")
+        }
         database = app.database
         runBlocking {
             app.repository.initializePreseededDataIfEmpty()
@@ -263,7 +267,7 @@ class ProductionReadinessCujTest {
         composeTestRule.waitForIdle()
 
         // Verify top headline and SOS button exist
-        composeTestRule.onNodeWithTag("nav_top_headline_text").assertExists()
+        composeTestRule.onNodeWithTag("nav_top_headline_text", useUnmergedTree = true).assertExists()
         composeTestRule.onNodeWithTag("nav_sos_button").assertExists()
 
         // Open SOS sheet and verify 112 call button
@@ -282,7 +286,7 @@ class ProductionReadinessCujTest {
         composeTestRule.onNodeWithTag("battery_mode_sos_button").assertExists()
         composeTestRule.onNodeWithTag("exit_battery_mode_button").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("nav_top_headline_text").assertExists()
+        composeTestRule.onNodeWithTag("nav_top_headline_text", useUnmergedTree = true).assertExists()
     }
 
     /**
@@ -363,8 +367,8 @@ class ProductionReadinessCujTest {
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("profile_screen_title").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("profile_pace_value").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("profile_daily_target_value").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("profile_pace_value").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("profile_daily_target_value").performScrollTo().assertIsDisplayed()
 
         // At 200% font scale, FlowRow wraps the start time and dark map chips cleanly
         composeTestRule.onNodeWithTag("profile_start_time_chip_08:00")

@@ -239,7 +239,13 @@ class GeoFaRepository(private val context: Context) {
             val objektId = props["objekt_id"] as? String ?: "geofa_$idx"
             val navn = (props["navn"] as? String)?.trim()
             val beskrivels = ((props["beskrivels"] as? String) ?: (props["lang_beskr"] as? String))?.trim()
-            val bookingUrl = ((props["bookinglink"] as? String) ?: (props["link"] as? String) ?: (props["link1"] as? String))?.trim()
+            val bookingLink = ((props["bookinglink"] as? String) ?: (props["booking_url"] as? String))
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+            val plainInfoLink = ((props["link"] as? String) ?: (props["link1"] as? String))
+                ?.trim()
+                ?.takeIf { it.isNotBlank() && it != bookingLink }
+            val isBookJa = (props["book"] as? String)?.trim()?.equals("Ja", ignoreCase = true) == true
             val ownership = ((props["ansva_v"] as? String) ?: (props["ansvar_org"] as? String) ?: (props["cvr_navn"] as? String))?.trim()
             val antalPl = (props["antal_pl"] as? Number)?.toInt()
 
@@ -250,13 +256,14 @@ class GeoFaRepository(private val context: Context) {
                     lat = lat,
                     lng = lng,
                     description = if (!beskrivels.isNullOrBlank()) beskrivels else null,
-                    bookingRequired = !bookingUrl.isNullOrBlank() || props["book"] == "Ja",
+                    bookingRequired = isBookJa || bookingLink != null,
                     ownership = if (!ownership.isNullOrBlank()) ownership else null,
                     capacity = antalPl, // null if unknown, never default to 4
                     hasWaterNearby = false, // computed by 500m proximity
                     hasToiletNearby = false, // computed by 500m proximity
                     source = "geofa",
-                    bookingUrl = if (!bookingUrl.isNullOrBlank()) bookingUrl else null,
+                    bookingUrl = bookingLink,
+                    infoUrl = plainInfoLink,
                     shelterType = props["facil_ty"] as? String ?: "Shelter",
                     fetchedAt = System.currentTimeMillis()
                 )

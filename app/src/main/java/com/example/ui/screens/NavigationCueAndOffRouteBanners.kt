@@ -50,10 +50,13 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.model.TurnCue
 import com.example.service.NavigationLiveState
@@ -109,6 +112,10 @@ fun NavigationTopCueAndAlertsStack(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .semantics(mergeDescendants = true) {
+                        liveRegion = LiveRegionMode.Polite
+                        contentDescription = "$cueBannerPrimaryText. $topCardHeadline"
+                    }
                     .testTag("nav_cue_banner")
             ) {
                 Row(
@@ -153,8 +160,7 @@ fun NavigationTopCueAndAlertsStack(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = cueBannerPrimaryText,
-                            style = TabularBodyStyle.copy(
-                                fontSize = 18.sp,
+                            style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.ExtraBold
                             ),
                             color = if (isImmediateTurn) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
@@ -165,7 +171,6 @@ fun NavigationTopCueAndAlertsStack(
                         Text(
                             text = topCardHeadline,
                             style = TabularBodyStyle.copy(
-                                fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             ),
                             color = if (isImmediateTurn) {
@@ -196,12 +201,21 @@ fun NavigationTopCueAndAlertsStack(
                     mapMode = mapMode
                 )
             }
+            val offRouteSpeechText = if (arrowRotationDeg != null) {
+                stringResource(R.string.nav_off_route_banner_format, offMeters)
+            } else {
+                stringResource(R.string.nav_off_route_banner_with_dir_format, offMeters, compassDirectionText)
+            }
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = danskStiColors.offRoute,
                 shadowElevation = 6.dp,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .semantics(mergeDescendants = true) {
+                        liveRegion = LiveRegionMode.Assertive
+                        contentDescription = offRouteSpeechText
+                    }
                     .testTag("nav_off_route_banner")
             ) {
                 Column(
@@ -235,7 +249,7 @@ fun NavigationTopCueAndAlertsStack(
                             Text(
                                 text = stringResource(R.string.nav_off_route_banner_format, offMeters),
                                 color = MaterialTheme.colorScheme.onError,
-                                fontSize = 16.sp,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.ExtraBold,
                                 modifier = Modifier
                                     .weight(1f)
@@ -250,7 +264,7 @@ fun NavigationTopCueAndAlertsStack(
                                 Text(
                                     text = compassDirectionText,
                                     color = MaterialTheme.colorScheme.onError,
-                                    fontSize = 13.sp,
+                                    style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                 )
@@ -262,7 +276,7 @@ fun NavigationTopCueAndAlertsStack(
                                     compassDirectionText
                                 ),
                                 color = MaterialTheme.colorScheme.onError,
-                                fontSize = 16.sp,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.ExtraBold,
                                 modifier = Modifier
                                     .weight(1f)
@@ -274,7 +288,7 @@ fun NavigationTopCueAndAlertsStack(
                         Text(
                             text = routeBackErrorMessage,
                             color = MaterialTheme.colorScheme.onError,
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.testTag("nav_route_back_error_text")
                         )
@@ -299,7 +313,7 @@ fun NavigationTopCueAndAlertsStack(
                             Text(
                                 text = stringResource(R.string.nav_reroute_back),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
+                                style = MaterialTheme.typography.bodySmall
                             )
                         }
 
@@ -316,7 +330,7 @@ fun NavigationTopCueAndAlertsStack(
                             Text(
                                 text = stringResource(R.string.nav_taking_detour),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
+                                style = MaterialTheme.typography.bodySmall
                             )
                         }
                     }
@@ -346,7 +360,7 @@ fun NavigationTopCueAndAlertsStack(
                     )
                     Text(
                         text = stringResource(R.string.nav_gps_weak_minutes_format, gpsStaleMinutes),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSecondary
                     )
@@ -380,7 +394,7 @@ fun NavigationTopCueAndAlertsStack(
                             formatDanishKm(distanceRemainingToday, 1),
                             sunsetTime
                         ),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSecondary
                     )
@@ -413,12 +427,12 @@ fun NavigationTopCueAndAlertsStack(
                         Text(
                             text = warningText,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSecondary
                         )
                         Text(
                             text = stringResource(R.string.nav_private_forest_hours_note),
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSecondary.copy(alpha = 0.85f)
                         )
                     }
@@ -453,13 +467,13 @@ fun NavigationTopCueAndAlertsStack(
                         Text(
                             text = stringResource(R.string.location_permission_required_title),
                             fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     Text(
                         text = stringResource(R.string.location_permission_required_explanation),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Button(
@@ -503,7 +517,7 @@ fun NavigationTopCueAndAlertsStack(
                     )
                     Text(
                         text = corridorPoisErrorMessage,
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier
@@ -519,7 +533,7 @@ fun NavigationTopCueAndAlertsStack(
                     ) {
                         Text(
                             text = stringResource(R.string.nav_corridor_pois_retry_button),
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
                         )
                     }

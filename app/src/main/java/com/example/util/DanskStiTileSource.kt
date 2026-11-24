@@ -87,11 +87,10 @@ class DanskStiTileSource(
     private val apiKey: String,
     val wmsLayerName: String = "dtk_skaermkort",
     val isDarkMode: Boolean = false,
-    tileSourceName: String = when {
-        isDarkMode && wmsLayerName == "dtk_skaermkort" -> "DanskSti_Skaermkort_Dark"
-        wmsLayerName == "dtk_skaermkort" -> "DanskSti_Skaermkort"
-        isDarkMode -> "DanskSti_Skaermkort_${wmsLayerName}_Dark"
-        else -> "DanskSti_Skaermkort_$wmsLayerName"
+    tileSourceName: String = if (wmsLayerName == "dtk_skaermkort") {
+        "DanskSti_Skaermkort"
+    } else {
+        "DanskSti_Skaermkort_$wmsLayerName"
     }
 ) : OnlineTileSourceBase(
     tileSourceName,
@@ -202,7 +201,7 @@ class DanskStiFriluftskortTileSource(
     private val apiKey: String,
     val isDarkMode: Boolean = false
 ) : OnlineTileSourceBase(
-    if (isDarkMode) "DanskSti_Friluftskort_Dark" else "DanskSti_Friluftskort",
+    "DanskSti_Friluftskort",
     5,
     18,
     256,
@@ -1033,7 +1032,7 @@ object DanskStiTileSourceHelper {
         when (effectiveBaseMap) {
             BaseMapType.SKAERMKORT -> {
                 val targetSource = if (isDarkMode) skaermkortDarkInstance else skaermkortInstance
-                if (mapView.tileProvider.tileSource?.name() != targetSource.name()) {
+                if (mapView.tileProvider.tileSource !== targetSource) {
                     mapView.setTileSource(targetSource)
                 }
                 mapView.overlayManager.tilesOverlay.isEnabled = true
@@ -1042,7 +1041,7 @@ object DanskStiTileSourceHelper {
 
             BaseMapType.FRILUFTSKORT -> {
                 val targetSource = if (isDarkMode) friluftskortDarkInstance else friluftskortInstance
-                if (mapView.tileProvider.tileSource?.name() != targetSource.name()) {
+                if (mapView.tileProvider.tileSource !== targetSource) {
                     mapView.setTileSource(targetSource)
                 }
                 mapView.overlayManager.tilesOverlay.isEnabled = true
@@ -1185,8 +1184,6 @@ object DanskStiTileSourceHelper {
                         try {
                             DatabaseFileArchive.getDatabaseFileArchive(file)?.apply {
                                 setIgnoreTileSource(false)
-                            }?.let { dbArchive ->
-                                FallbackSkaermkortArchiveFile(file, dbArchive)
                             }
                         } catch (e: Exception) {
                             Log.w(TAG, "Could not open offline archive ${file.name}: ${e.message}")
@@ -1209,12 +1206,34 @@ object DanskStiTileSourceHelper {
         }
     }
 
+    private fun extractDatabaseFilePath(item: IArchiveFile): String? {
+        if (item is DatabaseFileArchive) {
+            runCatching {
+                val dbField = DatabaseFileArchive::class.java.getDeclaredField("mDatabase")
+                dbField.isAccessible = true
+                val db = dbField.get(item) as? android.database.sqlite.SQLiteDatabase
+                return db?.path
+            }
+        }
+        return item.toString()
+    }
+
+    private fun matchesArchiveFile(item: IArchiveFile, targetFile: File?): Boolean {
+        if (targetFile == null) return true
+        val targetPath = runCatching { targetFile.canonicalPath }.getOrNull() ?: targetFile.absolutePath
+        val itemPath = extractDatabaseFilePath(item) ?: return true
+        val itemFile = File(itemPath)
+        val itemCanonical = runCatching { itemFile.canonicalPath }.getOrNull() ?: itemFile.absolutePath
+        return itemCanonical == targetPath ||
+            itemFile.name.equals(targetFile.name, ignoreCase = true) ||
+            itemPath.contains(targetFile.name, ignoreCase = true)
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun closeArchivesInProvider(
         archiveProvider: MapTileFileArchiveProvider,
         targetFile: File?
     ): Boolean {
-        val targetPath = runCatching { targetFile?.canonicalPath }.getOrNull() ?: targetFile?.absolutePath
         var remainingCount = 0
         try {
             val archivesField = MapTileFileArchiveProvider::class.java.getDeclaredField("mArchiveFiles")
@@ -1224,15 +1243,7 @@ object DanskStiTileSourceHelper {
                 val iterator = archiveList.iterator()
                 while (iterator.hasNext()) {
                     val item = iterator.next()
-                    val matches = if (targetPath == null) {
-                        true
-                    } else if (item is FallbackSkaermkortArchiveFile) {
-                        val itemPath = runCatching { item.archiveFile.canonicalPath }.getOrNull() ?: item.archiveFile.absolutePath
-                        itemPath == targetPath || item.archiveFile.name.equals(targetFile?.name, ignoreCase = true)
-                    } else {
-                        true
-                    }
-                    if (matches) {
+                    if (matchesArchiveFile(item, targetFile)) {
                         try {
                             item.close()
                         } catch (_: Exception) {}
@@ -1334,7 +1345,6 @@ object DanskStiTileSourceHelper {
     fun isArchiveAttachedToProvider(providerArray: MapTileProviderArray, archiveFile: File): Boolean {
         synchronized(archiveLock) {
             return try {
-                val targetPath = runCatching { archiveFile.canonicalPath }.getOrNull() ?: archiveFile.absolutePath
                 val field = MapTileProviderArray::class.java.getDeclaredField("mTileProviderList")
                 field.isAccessible = true
                 val providerList = field.get(providerArray) as? List<MapTileModuleProviderBase> ?: return false
@@ -1343,46 +1353,11 @@ object DanskStiTileSourceHelper {
                 }
                 providerList.filterIsInstance<MapTileFileArchiveProvider>().any { mod ->
                     val list = archivesField.get(mod) as? List<IArchiveFile> ?: emptyList()
-                    list.any { item ->
-                        item is FallbackSkaermkortArchiveFile && (
-                            (runCatching { item.archiveFile.canonicalPath }.getOrNull() ?: item.archiveFile.absolutePath) == targetPath ||
-                                item.archiveFile.name.equals(archiveFile.name, ignoreCase = true)
-                            )
-                    }
+                    list.any { item -> matchesArchiveFile(item, archiveFile) }
                 }
             } catch (_: Exception) {
                 false
             }
-        }
-    }
-
-    /**
-     * Wraps a DatabaseFileArchive so that in dark mode (when the active tile source is
-     * "DanskSti_Skaermkort_Dark"), if no dark tile exists in the archive,
-     * it serves the downloaded light "DanskSti_Skaermkort" tile bytes unchanged so
-     * `DanskStiTileSource.getDrawable(InputStream)` can recolour them in memory.
-     */
-    private class FallbackSkaermkortArchiveFile(
-        val archiveFile: File,
-        private val delegate: DatabaseFileArchive
-    ) : IArchiveFile by delegate {
-        override fun getInputStream(
-            pTileSource: org.osmdroid.tileprovider.tilesource.ITileSource?,
-            pMapTileIndex: Long
-        ): InputStream? {
-            val direct = delegate.getInputStream(pTileSource, pMapTileIndex)
-            if (direct != null) return direct
-            val sourceName = pTileSource?.name().orEmpty()
-            if (sourceName.startsWith("DanskSti_Skaermkort") && sourceName != skaermkortInstance.name()) {
-                return delegate.getInputStream(skaermkortInstance, pMapTileIndex)
-            }
-            return null
-        }
-
-        override fun close() {
-            try {
-                delegate.close()
-            } catch (_: Exception) {}
         }
     }
 
@@ -1628,7 +1603,7 @@ fun MapAttributionPill(
         Text(
             text = text,
             color = MaterialTheme.colorScheme.inverseOnSurface,
-            fontSize = 9.sp,
+            fontSize = 11.sp,
             maxLines = 1
         )
     }

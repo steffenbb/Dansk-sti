@@ -1,5 +1,6 @@
 package com.example.ui.viewmodel
 
+import com.example.data.model.FriTeltningEntity
 import com.example.data.model.GeoPointDto
 import com.example.data.model.PlannedRoute
 import com.example.data.model.PoiEntity
@@ -9,6 +10,7 @@ import com.example.data.model.TripStage
 import com.example.service.NavigationLiveState
 import com.example.util.StagePlanner
 import com.example.util.SunCalculator
+import kotlinx.coroutines.flow.firstOrNull
 import org.json.JSONArray
 import kotlin.math.max
 
@@ -318,4 +320,178 @@ internal fun shareCurrentNavigationLocation(
         ).show()
     }
 }
+
+internal fun postNavigationRainAlertNotification(
+    appCtx: android.content.Context,
+    channelId: String,
+    notificationId: Int,
+    precipMm: Double,
+    timeLabel: String
+) {
+    try {
+        val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(appCtx)
+        val nm = appCtx.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                channelId,
+                "Regnvarsel",
+                android.app.NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Varsel ved udsigt til mindst 1 mm/t regn inden for 2 timer"
+                setSound(null, null)
+                enableVibration(false)
+            }
+            nm.createNotificationChannel(channel)
+        }
+        val locale = com.example.util.AppLocaleHelper.getCurrentLocale(appCtx)
+        val mmStr = String.format(locale, "%.1f", precipMm)
+        val title = "Regn på vej ($mmStr mm/t)"
+        val body = "Udsigt til regn omkring kl. $timeLabel ($mmStr mm/t)."
+        val notif = androidx.core.app.NotificationCompat.Builder(localizedCtx, channelId)
+            .setSmallIcon(com.example.R.drawable.ic_notif_alert)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
+            .setAutoCancel(true)
+            .build()
+        nm.notify(notificationId, notif)
+    } catch (e: Exception) {
+        android.util.Log.w("NavigationViewModel", "Could not post rain alert notification: ${e.message}")
+    }
+}
+
+internal suspend fun computeBackToRouteLegPoints(
+    app: android.app.Application,
+    from: com.example.util.routing.LatLng,
+    to: com.example.util.routing.LatLng,
+    customRouter: (suspend (com.example.util.routing.LatLng, com.example.util.routing.LatLng) -> com.example.util.routing.RouteLegResult?)?
+): List<com.example.util.routing.RoutePoint3D>? {
+    if (customRouter != null) {
+        val customRes = customRouter(from, to)
+        return if (customRes is com.example.util.routing.RouteLegResult.Success && customRes.points.size >= 2) {
+            customRes.points
+        } else null
+    }
+    val offlineEngine = com.example.util.routing.BRouterOfflineEngine(app)
+    val offlineRes = offlineEngine.routeLeg(from, to, com.example.util.routing.RouteOptions())
+    if (offlineRes is com.example.util.routing.RouteLegResult.Success && offlineRes.points.size >= 2) {
+        return offlineRes.points
+    }
+    val onlineEngine = com.example.util.routing.BRouterOnlineEngine(app)
+    val onlineRes = onlineEngine.routeLeg(from, to, com.example.util.routing.RouteOptions())
+    return if (onlineRes is com.example.util.routing.RouteLegResult.Success && onlineRes.points.size >= 2) {
+        onlineRes.points
+    } else null
+}
+
+internal suspend fun shareCompletedTripWithDiaryHelper(
+    context: android.content.Context,
+    repository: com.example.data.repository.DanskStiRepository,
+    planId: Long,
+    fallbackEntries: List<com.example.data.model.TripDiaryEntryEntity>,
+    trailName: String,
+    totalDistanceKm: Double,
+    totalMovingSeconds: Long,
+    totalAscentMeters: Int,
+    totalDays: Int
+) {
+    val entries = if (planId > 0L) repository.getDiaryEntriesForPlanSync(planId) else fallbackEntries
+    val locale = com.example.util.AppLocaleHelper.getCurrentLocale(context)
+    val hours = totalMovingSeconds / 3600
+    val mins = (totalMovingSeconds % 3600) / 60
+    val movingStr = if (hours > 0) "${hours}t ${mins}m" else "${mins} min"
+    val summaryText = com.example.ui.components.TripDiaryPhotoHelper.buildTripShareSummaryText(
+        trailName = trailName,
+        totalDistanceKm = totalDistanceKm,
+        totalMovingTimeFormatted = movingStr,
+        totalAscentMeters = totalAscentMeters,
+        totalDays = totalDays,
+        diaryEntries = entries,
+        locale = locale
+    )
+    if (planId > 0L) {
+        val points = repository.getAllRecordedTrackPointsForPlanSync(planId)
+        val stats = repository.getAllRecordedDayStatsSync(planId)
+        val gpx = com.example.util.GpxExporter.generateRecordedTrackGpx(
+            trailName = trailName.ifBlank { context.getString(com.example.R.string.default_trail_name) },
+            planId = planId,
+            dayNumber = null,
+            points = points,
+            dayStats = stats
+        )
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            com.example.util.GpxExporter.exportAndShareGpxWithSummary(
+                context = context,
+                fileName = com.example.util.GpxExporter.buildSafeGpxFileName(trailName, "tur_dagbog"),
+                gpxContent = gpx,
+                shareTitle = trailName.ifBlank { context.getString(com.example.R.string.default_trail_name) },
+                textSummary = summaryText
+            )
+        }
+    } else {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            val sendIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(android.content.Intent.EXTRA_TEXT, summaryText)
+            }
+            runCatching {
+                context.startActivity(
+                    android.content.Intent.createChooser(sendIntent, trailName)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+        }
+    }
+}
+
+internal data class CorridorDataFetchResult(
+    val initialShelters: List<ShelterEntity>,
+    val initialPois: List<PoiEntity>,
+    val friTeltningWithPolygons: List<Pair<FriTeltningEntity, List<GeoPointDto>>>,
+    val hazards: List<com.example.data.model.UserHazardNoteEntity>,
+    val needsTrailCorridorSync: Boolean
+)
+
+internal suspend fun loadInitialCorridorDataForRoute(
+    repository: com.example.data.repository.DanskStiRepository,
+    route: PlannedRoute
+): CorridorDataFetchResult {
+    val trailId = route.trailId
+    val geoPoints = route.points.map { GeoPointDto(it.lat, it.lng, it.ele) }
+    val initialShelters = repository.getSheltersForTrail(trailId)
+    val initialPois = repository.getPoisForTrail(trailId)
+    var needsTrailCorridorSync = false
+    if (initialShelters.isEmpty() && initialPois.isEmpty() && geoPoints.isNotEmpty()) {
+        if (trailId.startsWith("route_")) {
+            val routeId = trailId.removePrefix("route_")
+            if (repository.getActiveRoutePoiSyncJob(routeId)?.isActive != true) {
+                repository.enqueueRouteCorridorPoiSync(routeId, geoPoints)
+            }
+        } else {
+            needsTrailCorridorSync = true
+        }
+    }
+    val allFri = repository.getAllFriTeltningList()
+    val corridorFri = if (geoPoints.isNotEmpty()) {
+        allFri.filter { ft ->
+            val (_, detourM) = com.example.util.GeoUtils.projectPointOnPolyline(
+                GeoPointDto(ft.centerLat, ft.centerLng),
+                geoPoints
+            )
+            detourM <= 3000.0
+        }
+    } else emptyList()
+    val friWithPolygons = corridorFri.map { ft ->
+        ft to parseFriTeltningPolygonCoords(ft.polygonJson)
+    }
+    val hazards = repository.getHazardNotesForTrail(trailId).firstOrNull() ?: emptyList()
+    return CorridorDataFetchResult(
+        initialShelters = initialShelters,
+        initialPois = initialPois,
+        friTeltningWithPolygons = friWithPolygons,
+        hazards = hazards,
+        needsTrailCorridorSync = needsTrailCorridorSync
+    )
+}
+
 

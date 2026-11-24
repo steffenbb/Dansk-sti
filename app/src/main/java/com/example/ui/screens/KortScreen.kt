@@ -142,6 +142,33 @@ fun KortScreen(
     var savePointLat by remember { mutableStateOf<Double?>(null) }
     var savePointLng by remember { mutableStateOf<Double?>(null) }
 
+    // "Hent dette område" dialog state (Part C2)
+    var showAreaDownloadDialog by remember { mutableStateOf(false) }
+    var areaDownloadName by remember { mutableStateOf("Kortområde") }
+    var areaIncludeAerial by remember { mutableStateOf(false) }
+    var areaIncludeTerrain by remember { mutableStateOf(false) }
+    var areaEstimate by remember { mutableStateOf<com.example.util.OfflineEstimateResult?>(null) }
+    var areaMinLat by remember { mutableStateOf(55.6) }
+    var areaMaxLat by remember { mutableStateOf(55.7) }
+    var areaMinLng by remember { mutableStateOf(12.5) }
+    var areaMaxLng by remember { mutableStateOf(12.6) }
+
+    androidx.compose.runtime.LaunchedEffect(showAreaDownloadDialog, areaIncludeAerial, areaIncludeTerrain, areaMinLat, areaMaxLat, areaMinLng, areaMaxLng) {
+        if (showAreaDownloadDialog) {
+            areaEstimate = com.example.util.OfflineDownloadManager.estimateAreaDownload(
+                minLat = areaMinLat,
+                maxLat = areaMaxLat,
+                minLng = areaMinLng,
+                maxLng = areaMaxLng,
+                minZoom = 8,
+                maxZoom = 16,
+                includeAerial = areaIncludeAerial,
+                includeTerrain = areaIncludeTerrain,
+                context = context
+            )
+        }
+    }
+
     // Compute total straight-line distance across measured points
     val totalMeasuredMeters = remember(measurePoints.size, measurePoints.toList()) {
         computeMeasuredDistanceMeters(measurePoints)
@@ -504,8 +531,26 @@ fun KortScreen(
                             KortFloatingToolButton(
                                 icon = Icons.Default.CloudDownload,
                                 label = stringResource(R.string.map_tool_offline_maps),
-                                isSelected = false,
-                                onClick = onOpenOfflineMaps,
+                                isSelected = showAreaDownloadDialog,
+                                onClick = {
+                                    val bbox = mapViewRef?.boundingBox
+                                    if (bbox != null && bbox.latSouth != bbox.latNorth) {
+                                        areaMinLat = minOf(bbox.latSouth, bbox.latNorth)
+                                        areaMaxLat = maxOf(bbox.latSouth, bbox.latNorth)
+                                        areaMinLng = minOf(bbox.lonWest, bbox.lonEast)
+                                        areaMaxLng = maxOf(bbox.lonWest, bbox.lonEast)
+                                    } else {
+                                        val center = mapViewRef?.mapCenter
+                                        val cLat = center?.latitude?.takeIf { it != 0.0 } ?: 56.0
+                                        val cLng = center?.longitude?.takeIf { it != 0.0 } ?: 10.2
+                                        areaMinLat = cLat - 0.04
+                                        areaMaxLat = cLat + 0.04
+                                        areaMinLng = cLng - 0.06
+                                        areaMaxLng = cLng + 0.06
+                                    }
+                                    areaDownloadName = "Kortområde"
+                                    showAreaDownloadDialog = true
+                                },
                                 testTag = "kort_tool_offline_maps"
                             )
                         }
@@ -539,6 +584,129 @@ fun KortScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 88.dp)
+        )
+    }
+
+    // "Hent dette område" dialog (Part C2)
+    if (showAreaDownloadDialog) {
+        val est = areaEstimate
+        AlertDialog(
+            onDismissRequest = { showAreaDownloadDialog = false },
+            title = {
+                Text(
+                    text = stringResource(R.string.offline_download_this_area),
+                    style = MaterialTheme.typography.titleMedium
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.s2)) {
+                    OutlinedTextField(
+                        value = areaDownloadName,
+                        onValueChange = { areaDownloadName = it },
+                        label = { Text(stringResource(R.string.save_point_name_label)) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("kort_area_download_name_input")
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { areaIncludeAerial = !areaIncludeAerial }
+                            .testTag("kort_area_include_aerial_checkbox")
+                    ) {
+                        androidx.compose.material3.Checkbox(
+                            checked = areaIncludeAerial,
+                            onCheckedChange = { areaIncludeAerial = it }
+                        )
+                        Text(
+                            text = stringResource(R.string.offline_layer_aerial),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { areaIncludeTerrain = !areaIncludeTerrain }
+                            .testTag("kort_area_include_terrain_checkbox")
+                    ) {
+                        androidx.compose.material3.Checkbox(
+                            checked = areaIncludeTerrain,
+                            onCheckedChange = { areaIncludeTerrain = it }
+                        )
+                        Text(
+                            text = stringResource(R.string.offline_layer_terrain),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    if (est != null) {
+                        if (est.isAllowed) {
+                            Text(
+                                text = "${est.tileCount} fliser · ca. ${com.example.util.OfflineDownloadManager.formatSizeMbDanish(est.estimatedSizeBytes)}",
+                                style = TabularLabelStyle,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.testTag("kort_area_estimate_text")
+                            )
+                        } else {
+                            Text(
+                                text = est.refuseReason ?: stringResource(R.string.offline_area_too_large),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.testTag("kort_area_refuse_text")
+                            )
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            showAreaDownloadDialog = false
+                            onOpenOfflineMaps()
+                        },
+                        modifier = Modifier.testTag("kort_open_offline_manager_button")
+                    ) {
+                        Text(stringResource(R.string.ui_offlinetrailsscreen_offline_kort_ruter_80))
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val finalName = areaDownloadName.trim().ifBlank { "Kortområde" }
+                        val areaId = "area:${UUID.randomUUID()}"
+                        val res = com.example.util.OfflineDownloadManager.enqueueDownload(
+                            context = context,
+                            trailId = areaId,
+                            trailName = finalName,
+                            corridorKm = 1.0,
+                            requiredBytes = est?.estimatedSizeBytes ?: 0L,
+                            includeAerial = areaIncludeAerial,
+                            includeTerrain = areaIncludeTerrain,
+                            areaMinLat = areaMinLat,
+                            areaMaxLat = areaMaxLat,
+                            areaMinLng = areaMinLng,
+                            areaMaxLng = areaMaxLng
+                        )
+                        if (res.isAllowed) {
+                            showAreaDownloadDialog = false
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("Henter '$finalName' i baggrunden")
+                            }
+                        }
+                    },
+                    enabled = est?.isAllowed == true,
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                    modifier = Modifier.testTag("kort_area_download_confirm_button")
+                ) {
+                    Text(stringResource(R.string.offline_download_this_area))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAreaDownloadDialog = false }) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            }
         )
     }
 

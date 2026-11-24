@@ -174,8 +174,19 @@ fun DataCreditsScreen(
             url = "https://photon.komoot.io/",
             icon = Icons.Default.Map,
             iconTint = danskStiColors.plannedRoute
+        ),
+        DataCreditItem(
+            title = stringResource(R.string.credit_wikimedia_title),
+            subtitle = stringResource(R.string.credit_wikimedia_subtitle),
+            license = stringResource(R.string.credit_wikimedia_license),
+            description = stringResource(R.string.credit_wikimedia_desc),
+            url = "https://commons.wikimedia.org/",
+            icon = Icons.Default.Landscape,
+            iconTint = colorScheme.primary
         )
     )
+    val noBrowserText = stringResource(R.string.error_no_browser_found)
+    val openLinkErrorText = stringResource(R.string.error_could_not_open_link)
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -186,12 +197,12 @@ fun DataCreditsScreen(
                     Column {
                         Text(
                             text = stringResource(R.string.about_data_credits),
-                            fontSize = 18.sp,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = stringResource(R.string.ui_datacreditsscreen_bne_og_officielle_geodata_i__45),
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -226,9 +237,8 @@ fun DataCreditsScreen(
             item {
                 Text(
                     text = stringResource(R.string.ui_datacreditsscreen_dansk_sti_er_drevet_af_frie__46),
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 18.sp,
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
             }
@@ -267,13 +277,13 @@ fun DataCreditsScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = credit.title,
-                                    fontSize = 16.sp,
+                                    style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = credit.subtitle,
-                                    fontSize = 12.sp,
+                                    style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -291,13 +301,13 @@ fun DataCreditsScreen(
                                 ) {
                                     Text(
                                         text = stringResource(R.string.ui_datacreditsscreen_datering_i_appen_47),
-                                        fontSize = 12.sp,
+                                        style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
                                         text = credit.dateInApp,
-                                        fontSize = 12.sp,
+                                        style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
@@ -307,7 +317,7 @@ fun DataCreditsScreen(
                         // License
                         Text(
                             text = stringResource(R.string.ui_datacreditsscreen_licens_48, credit.license),
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -315,9 +325,8 @@ fun DataCreditsScreen(
                         // Description
                         Text(
                             text = credit.description,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 18.sp
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
                         Spacer(modifier = Modifier.height(2.dp))
@@ -331,13 +340,13 @@ fun DataCreditsScreen(
                                 } catch (_: android.content.ActivityNotFoundException) {
                                     android.widget.Toast.makeText(
                                         context,
-                                        "Ingen browser fundet til at åbne linket",
+                                        noBrowserText,
                                         android.widget.Toast.LENGTH_SHORT
                                     ).show()
                                 } catch (e: Exception) {
                                     android.widget.Toast.makeText(
                                         context,
-                                        "Kunne ikke åbne linket",
+                                        openLinkErrorText,
                                         android.widget.Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -346,7 +355,10 @@ fun DataCreditsScreen(
                             modifier = Modifier.align(Alignment.End).testTag("credit_link_${credit.title.take(10).replace(" ", "_")}"),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {
-                            Text(text = stringResource(R.string.ui_datacreditsscreen_l_s_mere_licens_49), fontSize = 12.sp)
+                            Text(
+                                text = stringResource(R.string.ui_datacreditsscreen_l_s_mere_licens_49),
+                                style = MaterialTheme.typography.labelMedium
+                            )
                             Spacer(modifier = Modifier.width(6.dp))
                             Icon(imageVector = Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
                         }
@@ -358,9 +370,8 @@ fun DataCreditsScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = stringResource(R.string.ui_datacreditsscreen_dansk_sti_overholder_alle_kr_50),
-                    fontSize = 11.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 15.sp,
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
             }

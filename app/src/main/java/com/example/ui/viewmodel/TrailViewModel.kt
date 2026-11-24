@@ -47,10 +47,14 @@ data class PoiSpotItem(
     val kmOnRoute: Double,
     val detourMeters: Double,
     val lat: Double,
-    val lng: Double
+    val lng: Double,
+    val openingHours: String? = null,
+    val seasonal: String? = null,
+    val isPotentiallyClosed: Boolean = false
 )
 
 class TrailViewModel(application: Application) : AndroidViewModel(application) {
+    init { DanskStiApp.registerViewModelScope(viewModelScope) }
 
     private val repository: DanskStiRepository
         get() = try { DanskStiApp.instance.repository } catch (_: Exception) { (getApplication<Application>() as DanskStiApp).repository }
@@ -75,6 +79,35 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _transports = MutableStateFlow<List<PoiSpotItem>>(emptyList())
     val transports: StateFlow<List<PoiSpotItem>> = _transports.asStateFlow()
+
+    private val _nearestStartTransport = MutableStateFlow<Pair<PoiEntity, Double>?>(null)
+    val nearestStartTransport: StateFlow<Pair<PoiEntity, Double>?> = _nearestStartTransport.asStateFlow()
+
+    private val _nearestEndTransport = MutableStateFlow<Pair<PoiEntity, Double>?>(null)
+    val nearestEndTransport: StateFlow<Pair<PoiEntity, Double>?> = _nearestEndTransport.asStateFlow()
+
+    val trailPhotoRepository = com.example.data.repository.TrailPhotoRepository(application)
+
+    private val _trailPhotos = MutableStateFlow<List<com.example.data.repository.TrailPhotoInfo>>(emptyList())
+    val trailPhotos: StateFlow<List<com.example.data.repository.TrailPhotoInfo>> = _trailPhotos.asStateFlow()
+
+    fun setTrailPhotosForTesting(photos: List<com.example.data.repository.TrailPhotoInfo>) {
+        _trailPhotos.value = photos
+    }
+
+    companion object {
+        fun findNearestTransportWithin3Km(
+            point: GeoPointDto?,
+            pois: List<PoiEntity>
+        ): Pair<PoiEntity, Double>? {
+            if (point == null) return null
+            return pois
+                .filter { it.type == "station" || it.type == "bus_stop" }
+                .map { poi -> poi to GeoUtils.distanceMeters(point.lat, point.lng, poi.lat, poi.lng) }
+                .filter { (_, distM) -> distM <= 3000.0 }
+                .minByOrNull { (_, distM) -> distM }
+        }
+    }
 
     private val _elevationGain = MutableStateFlow(0)
     val elevationGain: StateFlow<Int> = _elevationGain.asStateFlow()
@@ -364,8 +397,18 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 _trailPoints.value = points
                 val geom = repository.getTrailGeometry(trailId)
                 _trailGeometry.value = geom
-                _osmRelationTags.value = repository.getRelationOsmTags(entity.id, entity.osmRelationId)
+                val relTags = repository.getRelationOsmTags(entity.id, entity.osmRelationId)
+                _osmRelationTags.value = relTags
                 repository.getTrailById(trailId)?.let { _trail.value = it }
+
+                // Part B3: Load 1-2 Commons trail photos if bundled or tagged with wikipedia/wikidata
+                _trailPhotos.value = runCatching {
+                    trailPhotoRepository.getPhotosForTrail(
+                        trailId = trailId,
+                        wikipediaTag = relTags["wikipedia"] ?: relTags["wikipedia:da"],
+                        wikidataTag = relTags["wikidata"]
+                    )
+                }.getOrDefault(emptyList())
 
                 if (points.isEmpty()) {
                     _routeError.value = "Kunne ikke hente rutedata fra OpenStreetMap. Tjek din internetforbindelse eller prøv igen senere."
@@ -477,9 +520,17 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 }
+                val realWaterPois = nearbyPois.filter { it.type == "water" }
+                val realToiletPois = nearbyPois.filter { it.type == "toilet" }
                 for (ft in nearbyFriTeltning) {
                     val (wKm, dM) = projectOnSegments(segments, ft.centerLat, ft.centerLng)
                     if (!hasPoints || dM <= 5000.0) {
+                        val hasRealWater = realWaterPois.any {
+                            GeoUtils.distanceMeters(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0
+                        }
+                        val hasRealToilet = realToiletPois.any {
+                            GeoUtils.distanceMeters(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0
+                        }
                         overnightList.add(
                             OvernightSpotItem(
                                 id = "friteltning_${ft.id}",
@@ -489,8 +540,8 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                                 detourMeters = dM,
                                 bookingRequired = false,
                                 bookingUrl = ft.rulesUrl,
-                                hasWaterNearby = true,
-                                hasToiletNearby = false,
+                                hasWaterNearby = hasRealWater,
+                                hasToiletNearby = hasRealToilet,
                                 lat = ft.centerLat,
                                 lng = ft.centerLng,
                                 description = ft.rulesSummary ?: "Fri teltning efter 1-2-3 reglen"
@@ -509,6 +560,8 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 for (p in nearbyPois) {
                     val (wKm, dM) = projectOnSegments(segments, p.lat, p.lng)
                     if (!hasPoints || dM <= 5000.0) {
+                        val closed = p.type == "water" &&
+                            com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(p)
                         val item = PoiSpotItem(
                             id = "poi_${p.type}_${p.id}",
                             name = p.name,
@@ -516,7 +569,10 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                             kmOnRoute = wKm,
                             detourMeters = dM,
                             lat = p.lat,
-                            lng = p.lng
+                            lng = p.lng,
+                            openingHours = p.openingHours,
+                            seasonal = p.seasonal,
+                            isPotentiallyClosed = closed
                         )
                         when (p.type) {
                             "water", "toilet" -> waterToilets.add(item)
@@ -533,10 +589,18 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 _shops.value = shopList.distinctBy { it.id }
                 _transports.value = transList.distinctBy { it.id }
 
+                // Part F3: Nearest station or bus_stop within 3 km of trail start and end
+                val firstPt = points.firstOrNull()
+                val lastPt = points.lastOrNull()
+                val allTransportPois = (nearbyPois + repository.getAllPoisList()).distinctBy { it.id }
+                _nearestStartTransport.value = findNearestTransportWithin3Km(firstPt, allTransportPois)
+                _nearestEndTransport.value = findNearestTransportWithin3Km(lastPt, allTransportPois)
+
                 // Compute longest gaps along the trail using only the route's own corridor POIs
+                // Part E2: Exclude seasonal water posts that are potentially closed
                 val totalKm = geom?.totalWalkingKm?.takeIf { it > 0.0 } ?: entity.computedWalkingKm
                 val waterKms = (listOf(0.0) +
-                    waterToilets.filter { it.type == "water" }.map { it.kmOnRoute } +
+                    waterToilets.filter { it.type == "water" && !it.isPotentiallyClosed }.map { it.kmOnRoute } +
                     overnightList.filter { it.hasWaterNearby }.map { it.kmOnRoute } +
                     listOf(totalKm)).distinct().sorted()
                 var maxWaterGap = 0.0
@@ -555,8 +619,6 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 _longestGapWithoutOvernightKm.value = maxOvernightGap
 
                 // Weather at start and end
-                val firstPt = points.firstOrNull()
-                val lastPt = points.lastOrNull()
                 if (firstPt != null) {
                     _weatherStart.value = repository.getTrailWeather(firstPt.lat, firstPt.lng)
                 }

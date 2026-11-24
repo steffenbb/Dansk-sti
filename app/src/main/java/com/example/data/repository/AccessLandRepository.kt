@@ -9,6 +9,7 @@ import com.example.data.model.access.AccessPolygon
 import com.example.util.network.applyDanskStiDefaults
 import com.example.util.routing.LatLng
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -96,6 +97,7 @@ class AccessLandRepository(
         var anyTileFailedWithNoData = false
 
         for (tile in tiles) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             try {
                 val cachedTile = dao.getAccessPolygonsByTileId(tile.tileId)
                 val isTileCacheValid = cachedTile.isNotEmpty() && cachedTile.all {
@@ -115,6 +117,7 @@ class AccessLandRepository(
 
                 // Fetch live for this 0.1 x 0.1 tile
                 val fetchedPolys = fetchAndMergeTile(tile, priority)
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 if (fetchedPolys != null) {
                     dao.deleteAccessPolygonsByTileId(tile.tileId)
                     if (fetchedPolys.isNotEmpty()) {
@@ -171,7 +174,10 @@ class AccessLandRepository(
                         }
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 if (e is IllegalStateException && e.message == "Network on main thread") {
                     throw e
                 }
@@ -180,6 +186,7 @@ class AccessLandRepository(
             }
         }
 
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
         if (updateAvailabilityFlag && resultById.isEmpty() && anyTileFailedWithNoData) {
             isAccessDataUnavailable = true
         }
@@ -194,6 +201,7 @@ class AccessLandRepository(
         tile: TileBounds,
         priority: com.example.data.remote.OverpassClient.Priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND
     ): List<AccessPolygon>? {
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
         var wfsSucceeded = false
         var osmSucceeded = false
 
@@ -201,17 +209,24 @@ class AccessLandRepository(
             val statePolys = fetchFromMiljoeportalWfs(tile.minLat, tile.maxLat, tile.minLng, tile.maxLng)
             wfsSucceeded = true
             statePolys
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             if (e is IllegalStateException && e.message == "Network on main thread") throw e
             Log.w(TAG, "Miljøportal WFS fetch failed for ${tile.tileId}: ${e.message}")
             emptyList()
         }
 
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
         val osmPolygons = try {
             val polys = fetchFromOverpass(tile.minLat, tile.maxLat, tile.minLng, tile.maxLng, priority)
             osmSucceeded = true
             polys
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             if (e is IllegalStateException && e.message == "Network on main thread") throw e
             Log.w(TAG, "Overpass access fetch failed for ${tile.tileId}: ${e.message}")
             emptyList()
@@ -300,16 +315,26 @@ class AccessLandRepository(
             .get()
             .build()
 
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("Miljøportal WFS HTTP ${response.code}")
+        val call = client.newCall(request)
+        val cancelHandle = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]?.invokeOnCompletion { cause ->
+            if (cause != null) {
+                call.cancel()
             }
-            val bodyStr = response.body?.string() ?: return@withContext emptyList()
-            if (bodyStr.trimStart().startsWith("<")) {
-                Log.w(TAG, "Miljøportal WFS returned XML/HTML instead of GeoJSON: ${bodyStr.take(150)}")
-                return@withContext emptyList()
+        }
+        try {
+            call.execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IOException("Miljøportal WFS HTTP ${response.code}")
+                }
+                val bodyStr = response.body?.string() ?: return@withContext emptyList()
+                if (bodyStr.trimStart().startsWith("<")) {
+                    Log.w(TAG, "Miljøportal WFS returned XML/HTML instead of GeoJSON: ${bodyStr.take(150)}")
+                    return@withContext emptyList()
+                }
+                return@withContext parseMiljoeportalWfsJson(bodyStr)
             }
-            return@withContext parseMiljoeportalWfsJson(bodyStr)
+        } finally {
+            cancelHandle?.dispose()
         }
     }
 

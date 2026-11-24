@@ -127,12 +127,12 @@ internal fun RouteBuilderFeatureDialogsHost(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(Icons.Default.NightShelter, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text(stringResource(R.string.ui_routebuilderscreen_v_lg_overnatningssted_134), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(stringResource(R.string.ui_routebuilderscreen_v_lg_overnatningssted_134), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 }
             },
             text = {
                 if (uiState.overnightCandidatesByDay.isEmpty()) {
-                    Text(stringResource(R.string.ui_routebuilderscreen_ingen_overnatningssteder_fun_135), fontSize = 14.sp)
+                    Text(stringResource(R.string.ui_routebuilderscreen_ingen_overnatningssteder_fun_135), style = MaterialTheme.typography.bodyMedium)
                 } else {
                     LazyColumn(
                         modifier = Modifier
@@ -149,7 +149,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                 ) {
                                     Text(
                                         text = stringResource(R.string.ui_routebuilderscreen_dag_ca_km_m_l_136, day, day * 15),
-                                        fontSize = 13.sp,
+                                        style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -174,11 +174,11 @@ internal fun RouteBuilderFeatureDialogsHost(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(cand.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                            Text(cand.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
                                             val typeLabel = if (cand.type == "FRI_TELTNING") "Fri teltning" else "Shelter"
                                             Text(
                                                 text = stringResource(R.string.ui_routebuilderscreen_km_m_omvej_137, typeLabel, String.format(Locale.US, "%.1f", cand.walkKm), cand.detourMeters.toInt()),
-                                                fontSize = 12.sp,
+                                                style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                             Row(
@@ -186,15 +186,15 @@ internal fun RouteBuilderFeatureDialogsHost(
                                                 modifier = Modifier.padding(top = 4.dp)
                                             ) {
                                                 if (cand.hasWaterNearby) {
-                                                    Text(stringResource(R.string.ui_routebuilderscreen_vand_138), fontSize = 10.sp, color = danskStiColors.water)
+                                                    Text(stringResource(R.string.ui_routebuilderscreen_vand_138), style = MaterialTheme.typography.labelSmall, color = danskStiColors.water)
                                                 }
                                                 if (cand.hasToiletNearby) {
-                                                    Text(stringResource(R.string.ui_routebuilderscreen_toilet_139), fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                                    Text(stringResource(R.string.ui_routebuilderscreen_toilet_139), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                                 }
                                                 if (cand.bookingRequired) {
-                                                    Text(stringResource(R.string.ui_routebuilderscreen_booking_140), fontSize = 10.sp, color = danskStiColors.warning)
+                                                    Text(stringResource(R.string.ui_routebuilderscreen_booking_140), style = MaterialTheme.typography.labelSmall, color = danskStiColors.warning)
                                                 } else {
-                                                    Text(stringResource(R.string.ui_routebuilderscreen_fri_afbenyttelse_141), fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                                    Text(stringResource(R.string.ui_routebuilderscreen_fri_afbenyttelse_141), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                                 }
                                             }
                                         }
@@ -205,7 +205,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                             modifier = Modifier.heightIn(min = 30.dp)
                                         ) {
-                                            Text(stringResource(R.string.ui_routebuilderscreen_v_lg_132), fontSize = 11.sp)
+                                            Text(stringResource(R.string.ui_routebuilderscreen_v_lg_132), style = MaterialTheme.typography.labelSmall)
                                         }
                                     }
                                 }
@@ -235,7 +235,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                 )
             },
             title = {
-                Text(stringResource(R.string.ui_routebuilderscreen_gener_r_rundtur_142), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.ui_routebuilderscreen_gener_r_rundtur_142), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
             },
             text = {
                 Column(
@@ -244,7 +244,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                 ) {
                     Text(
                         text = stringResource(R.string.ui_routebuilderscreen_v_lg_nsket_rutedistance_5_60_143),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
@@ -256,7 +256,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                         Text(
                             text = stringResource(R.string.ui_routebuilderscreen_m_ll_ngde_km_144, uiState.rundturTargetKm.toInt()),
                             fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            style = MaterialTheme.typography.bodyMedium
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             listOf(10.0, 15.0, 20.0, 30.0).forEach { kmVal ->
@@ -265,7 +265,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                                     modifier = Modifier.heightIn(min = 28.dp)
                                 ) {
-                                    Text(stringResource(R.string.ui_routebuilderscreen_k_145, kmVal.toInt()), fontSize = 10.sp)
+                                    Text(stringResource(R.string.ui_routebuilderscreen_k_145, kmVal.toInt()), style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
@@ -299,11 +299,11 @@ internal fun RouteBuilderFeatureDialogsHost(
                         if (uiState.isGeneratingRundtur) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.ui_routebuilderscreen_beregner_3_rundture_146), fontSize = 12.sp)
+                            Text(stringResource(R.string.ui_routebuilderscreen_beregner_3_rundture_146), style = MaterialTheme.typography.bodySmall)
                         } else {
                             Icon(Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.ui_routebuilderscreen_beregn_3_rundture_147), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.ui_routebuilderscreen_beregn_3_rundture_147), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -312,7 +312,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                         Text(
                             text = stringResource(R.string.ui_routebuilderscreen_fundne_rundture_148),
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
+                            style = MaterialTheme.typography.bodySmall
                         )
                         uiState.rundturCandidates.forEach { candidate ->
                             Card(
@@ -330,12 +330,12 @@ internal fun RouteBuilderFeatureDialogsHost(
                                         Text(
                                             text = candidate.title,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp
+                                            style = MaterialTheme.typography.bodySmall
                                         )
                                         Text(
                                             text = stringResource(R.string.ui_markedroutedetailsheet_km_19, String.format(Locale.GERMANY, "%.1f", candidate.actualKm)),
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
+                                            style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                     }
@@ -344,12 +344,12 @@ internal fun RouteBuilderFeatureDialogsHost(
 
                                     Text(
                                         text = stringResource(R.string.ui_routebuilderscreen_sti_m_m_149, candidate.pathSharePct.toInt(), candidate.ascentM.toInt(), candidate.descentM.toInt()),
-                                        fontSize = 11.sp,
+                                        style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
                                         text = stringResource(R.string.ui_routebuilderscreen_overnatningsmuligheder_s_150, candidate.overnightCount),
-                                        fontSize = 11.sp,
+                                        style = MaterialTheme.typography.labelSmall,
                                         color = if (candidate.overnightCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
 
@@ -365,7 +365,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                             .heightIn(min = 32.dp)
                                             .testTag("btn_select_rundtur_${candidate.id}")
                                     ) {
-                                        Text(stringResource(R.string.ui_routebuilderscreen_v_lg_denne_rundtur_151), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text(stringResource(R.string.ui_routebuilderscreen_v_lg_denne_rundtur_151), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -399,7 +399,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                 )
             },
             title = {
-                Text(stringResource(R.string.ui_routebuilderscreen_rute_til_n_rmeste_152), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.ui_routebuilderscreen_rute_til_n_rmeste_152), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -410,7 +410,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                     ) {
                         Text(
                             text = stringResource(origin.labelResId),
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier
@@ -421,7 +421,7 @@ internal fun RouteBuilderFeatureDialogsHost(
 
                     Text(
                         text = stringResource(R.string.ui_routebuilderscreen_v_lg_kategori_appen_beregner_153),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
@@ -437,7 +437,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                Text(stringResource(R.string.ui_routebuilderscreen_beregner_rute_til_n_rmeste_154), fontSize = 12.sp)
+                                Text(stringResource(R.string.ui_routebuilderscreen_beregner_rute_til_n_rmeste_154), style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     } else if (uiState.showNearestShelterRoleChoice) {
@@ -457,7 +457,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                 Text(
                                     text = stringResource(R.string.nearest_shelter_choice_title),
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Button(
@@ -477,7 +477,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                     Text(
                                         text = stringResource(R.string.nearest_shelter_choice_overnight),
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
+                                        style = MaterialTheme.typography.bodySmall
                                     )
                                 }
                                 OutlinedButton(
@@ -497,7 +497,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                     Text(
                                         text = stringResource(R.string.nearest_shelter_choice_stop),
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
+                                        style = MaterialTheme.typography.bodySmall
                                     )
                                 }
                             }
@@ -526,7 +526,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Text(cat.icon, fontSize = 20.sp)
+                                    Text(cat.icon, style = MaterialTheme.typography.titleMedium)
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = when (cat) {
@@ -536,11 +536,11 @@ internal fun RouteBuilderFeatureDialogsHost(
                                                 NearestPoiCategory.SHOP -> "Nærmeste butik / indkøb"
                                             },
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp
+                                            style = MaterialTheme.typography.bodySmall
                                         )
                                         Text(
                                             text = stringResource(R.string.ui_routebuilderscreen_beregner_hurtigste_vandrerut_155),
-                                            fontSize = 11.sp,
+                                            style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
@@ -577,7 +577,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                 )
             },
             title = {
-                Text(stringResource(R.string.ui_routebuilderscreen_nyt_punkt_156), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.ui_routebuilderscreen_nyt_punkt_156), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
             },
             text = {
                 Column(
@@ -588,7 +588,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                     if (loc != null) {
                         Text(
                             text = stringResource(R.string.ui_routebuilderscreen_position_157, String.format(Locale.US, "%.5f, %.5f", loc.lat, loc.lng)),
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -618,7 +618,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                     Text(
                         text = stringResource(R.string.ui_routebuilderscreen_foto_valgfrit_161),
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp
+                        style = MaterialTheme.typography.bodySmall
                     )
 
                     if (!customWpPhotoPath.isNullOrBlank() && File(customWpPhotoPath).exists()) {
@@ -644,7 +644,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                             onClick = { onCustomWpPhotoPathChange(null) },
                             colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                         ) {
-                            Text(stringResource(R.string.ui_routebuilderscreen_fjern_foto_163), fontSize = 11.sp)
+                            Text(stringResource(R.string.ui_routebuilderscreen_fjern_foto_163), style = MaterialTheme.typography.labelSmall)
                         }
                     } else {
                         Row(
@@ -657,7 +657,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                             ) {
                                 Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text(stringResource(R.string.ui_routebuilderscreen_kamera_164), fontSize = 12.sp)
+                                Text(stringResource(R.string.ui_routebuilderscreen_kamera_164), style = MaterialTheme.typography.bodySmall)
                             }
                             OutlinedButton(
                                 onClick = onLaunchGallery,
@@ -665,7 +665,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                             ) {
                                 Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text(stringResource(R.string.ui_routebuilderscreen_galleri_165), fontSize = 12.sp)
+                                Text(stringResource(R.string.ui_routebuilderscreen_galleri_165), style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -702,7 +702,7 @@ internal fun RouteBuilderFeatureDialogsHost(
             icon = {
                 Icon(Icons.Default.Place, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(28.dp))
             },
-            title = { Text(wp.name, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+            title = { Text(wp.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!wp.photoPath.isNullOrBlank()) {
@@ -723,17 +723,17 @@ internal fun RouteBuilderFeatureDialogsHost(
                         ) {
                             Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(stringResource(R.string.ui_routebuilderscreen_fjern_foto_163), fontSize = 12.sp)
+                            Text(stringResource(R.string.ui_routebuilderscreen_fjern_foto_163), style = MaterialTheme.typography.bodySmall)
                         }
                     }
 
                     if (wp.note.isNotBlank()) {
-                        Text(text = wp.note, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                        Text(text = wp.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                     }
 
                     Text(
                         text = stringResource(R.string.ui_routebuilderscreen_position_157, String.format(Locale.US, "%.5f, %.5f", wp.lat, wp.lng)),
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -748,7 +748,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                         ) {
                             Icon(Icons.Default.ZoomIn, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(stringResource(R.string.action_view_on_map), fontSize = 12.sp)
+                            Text(stringResource(R.string.action_view_on_map), style = MaterialTheme.typography.bodySmall)
                         }
                         Button(
                             onClick = { viewModel.deleteCustomWaypoint(wp.id) },
@@ -757,7 +757,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                         ) {
                             Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(stringResource(R.string.btn_delete), fontSize = 12.sp)
+                            Text(stringResource(R.string.btn_delete), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }

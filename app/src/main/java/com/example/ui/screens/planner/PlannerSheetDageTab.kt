@@ -35,19 +35,19 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.model.SupplyGapType
 import com.example.data.model.SupplyGapWarning
 import com.example.ui.theme.DanskStiTheme
 import com.example.ui.viewmodel.PlannerDaySummary
 import com.example.ui.viewmodel.RouteBuilderState
+import com.example.util.AppLocaleHelper
 import com.example.util.access.RouteAccessWarning
-import java.util.Locale
 
 @Composable
 internal fun PlannerDageTabContent(
@@ -58,6 +58,8 @@ internal fun PlannerDageTabContent(
     onZoomToCoordinate: (Double, Double) -> Unit,
     onRerouteAroundWarning: (RouteAccessWarning) -> Unit
 ) {
+    val context = LocalContext.current
+    val locale = AppLocaleHelper.getCurrentLocale(context)
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -71,18 +73,18 @@ internal fun PlannerDageTabContent(
         }
         Text(
             text = stringResource(R.string.planner_day_plan_header_format, dayCount, dayCountLabel),
-            fontSize = 14.sp,
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
         )
         Text(
             text = String.format(
-                Locale.GERMANY,
+                locale,
                 stringResource(R.string.planner_day_target_pace_format),
                 uiState.dailyTargetKm.toInt(),
                 uiState.paceKmh
             ),
-            fontSize = 11.sp,
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
@@ -90,7 +92,7 @@ internal fun PlannerDageTabContent(
     if (uiState.daySummaries.isEmpty()) {
         Text(
             text = stringResource(R.string.planner_add_two_points_hint),
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     } else {
@@ -160,6 +162,8 @@ fun PlannerDaySummaryCard(
     isSelected: Boolean = false,
     onCardClicked: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val locale = AppLocaleHelper.getCurrentLocale(context)
     val dsColors = DanskStiTheme.colors
     Card(
         shape = RoundedCornerShape(12.dp),
@@ -195,14 +199,13 @@ fun PlannerDaySummaryCard(
                 val safeDistKm = if (day.distanceKm.isFinite()) day.distanceKm else 0.0
                 Text(
                     text = String.format(
-                        Locale.GERMANY,
+                        locale,
                         stringResource(R.string.planner_day_card_header_format),
                         day.dayNumber,
                         safeDistKm,
                         day.ascentM
                     ),
-                    style = com.example.ui.theme.TabularStatsTextStyle,
-                    fontSize = 16.sp,
+                    style = MaterialTheme.typography.titleMedium.merge(com.example.ui.theme.TabularStatsTextStyle),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
@@ -223,8 +226,7 @@ fun PlannerDaySummaryCard(
                     } else {
                         stringResource(R.string.planner_time_mins_format, m)
                     },
-                    style = com.example.ui.theme.TabularStatsTextStyle,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.labelMedium.merge(com.example.ui.theme.TabularStatsTextStyle),
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -232,7 +234,7 @@ fun PlannerDaySummaryCard(
 
             Text(
                 text = stringResource(R.string.ui_plannerbottomsheet_fmt_220, day.fromName, day.toName),
-                fontSize = 16.sp,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -240,7 +242,7 @@ fun PlannerDaySummaryCard(
             if (day.campExplanation.isNotBlank()) {
                 Text(
                     text = day.campExplanation,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -270,14 +272,14 @@ fun PlannerDaySummaryCard(
                 ) {
                     Text(
                         text = stringResource(R.string.ui_plannerbottomsheet_fmt_221, day.overnightName.ifBlank { day.toName }, typeLabel),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Medium,
                         color = dsColors.overnight,
                         modifier = Modifier.weight(1f)
                     )
                     Text(
                         text = bookingLabel,
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = if (day.bookingRequired) dsColors.warning else MaterialTheme.colorScheme.primary
                     )
@@ -287,13 +289,13 @@ fun PlannerDaySummaryCard(
                 if (detourKm.isFinite() && detourKm > 0.01) {
                     Text(
                         text = String.format(
-                            Locale.GERMANY,
+                            locale,
                             stringResource(R.string.planner_detour_format),
                             day.overnightName.ifBlank { day.toName },
                             detourKm,
                             day.detourAscentM
                         ),
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = dsColors.overnight,
                         modifier = Modifier.testTag("day_card_detour_${day.dayNumber}")
@@ -309,7 +311,7 @@ fun PlannerDaySummaryCard(
                 if (day.arrivalTime.isNotBlank()) {
                     Text(
                         text = stringResource(R.string.planner_arrival_time_format, day.arrivalTime),
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         color = if (day.isAfterSunset) dsColors.danger else MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = if (day.isAfterSunset) FontWeight.Bold else FontWeight.Normal
                     )
@@ -317,13 +319,13 @@ fun PlannerDaySummaryCard(
                 if (day.sunsetTime.isNotBlank()) {
                     Text(
                         text = stringResource(R.string.planner_sunset_time_format, day.sunsetTime),
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            if (showNightWeather) {
+            if (showNightWeather && day.nightWeatherSummary.isNotBlank()) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
@@ -331,7 +333,7 @@ fun PlannerDaySummaryCard(
                 ) {
                     Text(
                         text = stringResource(R.string.planner_night_weather_format, day.nightWeatherSummary),
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
                             .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -361,7 +363,7 @@ fun PlannerDaySummaryCard(
                                 )
                                 Text(
                                     text = w,
-                                    fontSize = 11.sp,
+                                    style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
@@ -389,7 +391,7 @@ fun PlannerDaySummaryCard(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             stringResource(R.string.planner_replace_overnight),
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -402,7 +404,7 @@ fun PlannerDaySummaryCard(
                     ) {
                         Icon(Icons.Default.ZoomIn, contentDescription = null, modifier = Modifier.size(13.dp))
                         Spacer(modifier = Modifier.width(3.dp))
-                        Text(stringResource(R.string.planner_btn_show), fontSize = 11.sp)
+                        Text(stringResource(R.string.planner_btn_show), style = MaterialTheme.typography.labelSmall)
                     }
 
                     TextButton(
@@ -415,7 +417,7 @@ fun PlannerDaySummaryCard(
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(13.dp))
                         Spacer(modifier = Modifier.width(2.dp))
-                        Text(stringResource(R.string.planner_btn_remove), fontSize = 11.sp)
+                        Text(stringResource(R.string.planner_btn_remove), style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
@@ -451,7 +453,7 @@ fun AccessWarningCard(
                 )
                 Text(
                     text = warning.title,
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -461,7 +463,7 @@ fun AccessWarningCard(
 
             Text(
                 text = warning.message,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
@@ -481,7 +483,7 @@ fun AccessWarningCard(
                 ) {
                     Icon(Icons.Default.ZoomIn, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(stringResource(R.string.planner_btn_show), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.planner_btn_show), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
 
                 if (warning.canRerouteAround) {
@@ -499,7 +501,7 @@ fun AccessWarningCard(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             stringResource(R.string.planner_btn_reroute_around),
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
@@ -537,7 +539,7 @@ fun SupplyGapWarningCard(
                 )
                 Text(
                     text = warning.displayTitle,
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -547,7 +549,7 @@ fun SupplyGapWarningCard(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = detour,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -574,7 +576,7 @@ fun SupplyGapWarningCard(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             stringResource(R.string.planner_show_detour_on_map),
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = dsColors.overnight
                         )

@@ -156,15 +156,18 @@ fun TrailDetailScreen(
         return
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val settingsRepo = remember(context) { com.example.DanskStiApp.getSettingsRepository(context) }
+    val settings by settingsRepo.settingsFlow.collectAsState(initial = remember(settingsRepo) { settingsRepo.currentSettingsSnapshot() })
     val t = trail!!
     val totalKm = t.computedWalkingKm
-    val estimatedDays = (totalKm / 15.0).toInt().coerceAtLeast(1)
+    val estimatedDays = GeoUtils.estimateDays(totalKm, settings.dailyTargetKm)
     val isCircuit = remember(points) {
         if (points.isEmpty()) false else {
             GeoUtils.distanceMeters(points.first().lat, points.first().lng, points.last().lat, points.last().lng) < 800.0
         }
     }
-    val routeType = if (isCircuit) "Rundtur" else "Strækning"
+    val routeType = if (isCircuit) stringResource(R.string.trail_route_type_circuit) else stringResource(R.string.trail_route_type_point_to_point)
     val windowSizeClass = DanskStiTheme.windowSizeClass
 
     val effectiveOsmTags = remember(osmRelationTags, trailGeometry) {
@@ -336,7 +339,7 @@ fun TrailDetailScreen(
                                             )
                                         }
                                     },
-                                    fontSize = 12.sp,
+                                    style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
@@ -369,7 +372,7 @@ fun TrailDetailScreen(
                             ) {
                                 Text(
                                     text = stringResource(R.string.btn_cancel),
-                                    fontSize = 12.sp,
+                                    style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.error
                                 )
@@ -401,14 +404,14 @@ fun TrailDetailScreen(
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_kunne_ikke_hente_live_ruteda_190),
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_tjek_internetforbindelsen_fo_191),
-                                fontSize = 11.sp,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
@@ -426,7 +429,7 @@ fun TrailDetailScreen(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(stringResource(R.string.state_Close_or_retry), fontSize = 12.sp)
+                                Text(stringResource(R.string.state_Close_or_retry), style = MaterialTheme.typography.labelMedium)
                             }
                         }
                     }
@@ -478,7 +481,7 @@ fun TrailDetailScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_fuldsk_rm_195),
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -508,7 +511,7 @@ fun TrailDetailScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = stringResource(R.string.ui_fullscreenmapscreen_henter_rutedata_live_fra_ope_51),
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
@@ -532,9 +535,10 @@ fun TrailDetailScreen(
                                     .background(DanskStiTheme.colors.success)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
+                            val partWord = if (segmentsCount == 1) stringResource(R.string.trail_segment_singular) else stringResource(R.string.trail_segment_plural)
                             Text(
-                                text = stringResource(R.string.ui_traildetailscreen_live_osm_196, segmentsCount, if (segmentsCount == 1) "del" else "dele"),
-                                fontSize = 11.sp,
+                                text = stringResource(R.string.ui_traildetailscreen_live_osm_196, segmentsCount, partWord),
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.inverseOnSurface
                             )
                         }

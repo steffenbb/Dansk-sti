@@ -42,10 +42,8 @@ import java.util.Locale
 import java.util.UUID
 import kotlin.math.max
 
-class RouteBuilderViewModel(
-    application: Application
-) : AndroidViewModel(application) {
-
+class RouteBuilderViewModel(application: Application) : AndroidViewModel(application) {
+    init { DanskStiApp.registerViewModelScope(viewModelScope) }
     internal val TAG = "RouteBuilderVM"
     internal val app: DanskStiApp
         get() = try { DanskStiApp.instance } catch (_: Exception) { getApplication() as DanskStiApp }
@@ -172,7 +170,23 @@ class RouteBuilderViewModel(
         return "$wpSig#$legSig#${state.paceKmh}#${state.dailyTargetKm}#${state.maxDetourKm}#${state.overnightPreference}#${state.startTimeStr}#${state.startDateMillis}#${state.isReverse}"
     }
 
+    companion object {
+        @Volatile
+        private var latestInstance: RouteBuilderViewModel? = null
+        fun cancelActiveJobs() {
+            latestInstance?.let { vm ->
+                vm.mapCameraAccessJob?.cancel()
+                vm.corridorAccessJob?.cancel()
+                vm.supplyGapsJob?.cancel()
+                vm.stagesAndPoisJob?.cancel()
+            }
+            latestInstance = null
+        }
+    }
+
     init {
+        cancelActiveJobs()
+        latestInstance = this
         viewModelScope.launch {
             @OptIn(kotlinx.coroutines.FlowPreview::class)
             plannerSearchQueryFlow
@@ -329,6 +343,27 @@ class RouteBuilderViewModel(
         }
 
         if (effDestLat != null && effDestLng != null) {
+            if (effDestName == "LOOP_FROM_HERE") {
+                val startWp = RouteWaypoint(
+                    lat = effDestLat,
+                    lng = effDestLng,
+                    role = WaypointRole.START,
+                    legModeToNext = LegMode.SNAP,
+                    name = "Min position"
+                )
+                _uiState.update {
+                    it.copy(
+                        mode = PlannerMode.FREE,
+                        routeName = "Rundtur",
+                        waypoints = listOf(startWp),
+                        currentGpsPosition = LatLng(effDestLat, effDestLng),
+                        staleStartLocationMessage = computedStaleMessage,
+                        showRundturDialog = true,
+                        selectedSheetTab = PlannerSheetTab.RUTE
+                    )
+                }
+                return
+            }
             val destWp = RouteWaypoint(
                 lat = effDestLat,
                 lng = effDestLng,

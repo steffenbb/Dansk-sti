@@ -165,6 +165,10 @@ data class AppSettings(
     val plannerCoachMarksSeen: Boolean = false,
     val hasSeenHowToGuide: Boolean = false,
     val offlineDownloadsWifiOnly: Boolean = false,
+    val watchTurnCuesEnabled: Boolean = true,
+    val rainAlertEnabled: Boolean = true,
+    val geofaBookingBackfillV28Done: Boolean = false,
+    val lastAppliedCatalogueMetadataGeneratedAt: String = "",
     val mapLayers: MapLayersState = MapLayersState(
         mapDarkMode = mapDarkMode,
         mapFollowsApp = mapFollowsApp,
@@ -176,6 +180,12 @@ data class AppSettings(
 
     val voiceGuidanceEnabled: Boolean
         get() = voiceGuidance
+
+    val watchTurnCueNotificationsEnabled: Boolean
+        get() = watchTurnCuesEnabled
+
+    val paceKmh: Double
+        get() = mitTempoKmh
 
     fun toMapLayersState(): MapLayersState = mapLayers.copy(
         mapDarkMode = mapDarkMode,
@@ -295,6 +305,10 @@ class SettingsRepository(context: Context) {
         val KEY_PLANNER_COACH_MARKS_SEEN = booleanPreferencesKey("planner_coach_marks_seen")
         val KEY_HAS_SEEN_HOW_TO_GUIDE = booleanPreferencesKey("has_seen_how_to_guide")
         val KEY_OFFLINE_WIFI_ONLY = booleanPreferencesKey("offline_wifi_only")
+        val KEY_WATCH_TURN_CUES_ENABLED = booleanPreferencesKey("watch_turn_cues_enabled")
+        val KEY_RAIN_ALERT_ENABLED = booleanPreferencesKey("rain_alert_enabled")
+        val KEY_GEOFA_BOOKING_BACKFILL_V28_DONE = booleanPreferencesKey("geofa_booking_backfill_v28_done")
+        val KEY_LAST_APPLIED_CATALOGUE_METADATA_AT = stringPreferencesKey("last_applied_catalogue_metadata_at")
 
         // Appearance & Map Layers Keys
         val KEY_BASE_MAP = stringPreferencesKey("base_map_type")
@@ -325,7 +339,8 @@ class SettingsRepository(context: Context) {
             KEY_START_TIME,
             KEY_BASE_MAP,
             KEY_MAP_DARK_MODE,
-            KEY_MAP_THEME_OVERRIDE
+            KEY_MAP_THEME_OVERRIDE,
+            KEY_LAST_APPLIED_CATALOGUE_METADATA_AT
         )
 
         private val BOOLEAN_KEYS = listOf(
@@ -334,6 +349,9 @@ class SettingsRepository(context: Context) {
             KEY_PLANNER_COACH_MARKS_SEEN,
             KEY_HAS_SEEN_HOW_TO_GUIDE,
             KEY_OFFLINE_WIFI_ONLY,
+            KEY_WATCH_TURN_CUES_ENABLED,
+            KEY_RAIN_ALERT_ENABLED,
+            KEY_GEOFA_BOOKING_BACKFILL_V28_DONE,
             KEY_MAP_FOLLOWS_APP,
             KEY_OVERLAY_TERRAIN,
             KEY_OVERLAY_WATER_BODIES,
@@ -547,6 +565,10 @@ class SettingsRepository(context: Context) {
             plannerCoachMarksSeen = coachSeen,
             hasSeenHowToGuide = guideSeen,
             offlineDownloadsWifiOnly = wifiOnly,
+            watchTurnCuesEnabled = prefs[KEY_WATCH_TURN_CUES_ENABLED] ?: true,
+            rainAlertEnabled = prefs[KEY_RAIN_ALERT_ENABLED] ?: true,
+            geofaBookingBackfillV28Done = prefs[KEY_GEOFA_BOOKING_BACKFILL_V28_DONE] ?: false,
+            lastAppliedCatalogueMetadataGeneratedAt = prefs[KEY_LAST_APPLIED_CATALOGUE_METADATA_AT] ?: "",
             mapLayers = layers
         )
     }
@@ -704,5 +726,25 @@ class SettingsRepository(context: Context) {
     suspend fun setOfflineDownloadsWifiOnly(wifiOnly: Boolean) {
         cachedOfflineDownloadsWifiOnly = wifiOnly
         updatePref(KEY_OFFLINE_WIFI_ONLY, wifiOnly)
+    }
+
+    suspend fun setWatchTurnCuesEnabled(enabled: Boolean) {
+        updatePref(KEY_WATCH_TURN_CUES_ENABLED, enabled)
+    }
+
+    suspend fun setRainAlertEnabled(enabled: Boolean) {
+        updatePref(KEY_RAIN_ALERT_ENABLED, enabled)
+    }
+
+    suspend fun setGeofaBookingBackfillV28Done(done: Boolean) {
+        updatePref(KEY_GEOFA_BOOKING_BACKFILL_V28_DONE, done)
+    }
+
+    suspend fun setLastAppliedCatalogueMetadataGeneratedAt(generatedAt: String) {
+        updatePref(KEY_LAST_APPLIED_CATALOGUE_METADATA_AT, generatedAt)
+    }
+
+    suspend fun setLastAppliedCatalogueMetadataGeneratedAt(generatedAt: Long) {
+        updatePref(KEY_LAST_APPLIED_CATALOGUE_METADATA_AT, generatedAt.toString())
     }
 }

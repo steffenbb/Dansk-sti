@@ -165,13 +165,13 @@ fun OfflineTrailsScreen(
                     Column {
                         Text(
                             text = stringResource(R.string.ui_offlinetrailsscreen_offline_kort_ruter_80),
-                            fontSize = 18.sp,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = stringResource(R.string.ui_offlinetrailsscreen_ruter_mb_samlet_81, downloadedTrails.size, totalMbStr),
-                            style = TabularBodyStyle.copy(fontSize = 13.sp),
+                            style = TabularBodyStyle,
                             color = colorScheme.primary
                         )
                     }
@@ -251,147 +251,20 @@ fun OfflineTrailsScreen(
                         Column {
                             Text(
                                 text = stringResource(R.string.ui_offlinetrailsscreen_enhedslager_82),
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
                                 text = stringResource(R.string.ui_offlinetrailsscreen_mb_optaget_83, totalMbStr),
-                                fontSize = 17.sp,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = stringResource(R.string.ui_offlinetrailsscreen_kortfliser_rutedata_gemt_lok_84),
-                                fontSize = 11.sp,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                        }
-                    }
-                }
-            }
-
-            // "Udseende" (Følg telefonen / Lyst / Mørkt) + "Kortet følger appen"
-            item(key = "appearance_mode_card") {
-                val settingsRepository = remember(context) { com.example.DanskStiApp.getSettingsRepository(context) }
-                val layersState by settingsRepository.mapLayersFlow.collectAsState(
-                    initial = remember(settingsRepository) { settingsRepository.currentSettingsSnapshot().mapLayers }
-                )
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("offline_appearance_card"),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.setting_appearance),
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        val cardScope = androidx.compose.runtime.rememberCoroutineScope()
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            AppAppearanceMode.entries.forEach { mode ->
-                                val isSelected = layersState.appearanceMode == mode
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (isSelected) colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    border = BorderStroke(
-                                        if (isSelected) 1.5.dp else 1.dp,
-                                        if (isSelected) colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                                    ),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable {
-                                            cardScope.launch {
-                                                settingsRepository.setAppearanceMode(mode)
-                                            }
-                                        }
-                                        .testTag("offline_appearance_mode_${mode.name}")
-                                ) {
-                                    Box(
-                                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = mode.title,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = stringResource(R.string.setting_map_follows_app),
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Switch(
-                                checked = layersState.mapFollowsApp,
-                                onCheckedChange = { enabled ->
-                                    cardScope.launch {
-                                        settingsRepository.setMapFollowsApp(enabled)
-                                    }
-                                },
-                                colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.primary),
-                                modifier = Modifier.testTag("offline_map_follows_app_switch")
-                            )
-                        }
-
-                        if (!layersState.mapFollowsApp) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                MapThemeOverride.entries.forEach { overrideMode ->
-                                    val isSelected = layersState.mapThemeOverride == overrideMode
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = if (isSelected) colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                        border = BorderStroke(
-                                            if (isSelected) 1.5.dp else 1.dp,
-                                            if (isSelected) colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                                        ),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clickable {
-                                                cardScope.launch {
-                                                    settingsRepository.setMapThemeOverride(overrideMode)
-                                                }
-                                            }
-                                            .testTag("offline_map_override_${overrideMode.name}")
-                                    ) {
-                                        Box(
-                                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = overrideMode.title,
-                                                fontSize = 11.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (isSelected) colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -417,8 +290,8 @@ fun OfflineTrailsScreen(
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = downloadProgressText.ifBlank { "Henter offline data..." },
-                                fontSize = 13.sp,
+                                text = downloadProgressText.ifBlank { stringResource(R.string.offline_downloading_data) },
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 fontWeight = FontWeight.Medium
                             )
@@ -457,7 +330,7 @@ fun OfflineTrailsScreen(
                         ) {
                             Text(
                                 text = errorMsg,
-                                fontSize = 13.sp,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier
@@ -465,7 +338,7 @@ fun OfflineTrailsScreen(
                                     .testTag("offline_refuse_error_text")
                             )
                             TextButton(onClick = { viewModel.clearDownloadRefuseError() }) {
-                                Text("OK", fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.btn_ok), fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -477,7 +350,7 @@ fun OfflineTrailsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = stringResource(R.string.ui_offlinetrailsscreen_gemte_ruter_og_kortfliser_92),
-                        fontSize = 16.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(top = 8.dp)
@@ -504,8 +377,8 @@ fun OfflineTrailsScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Kun på Wi-Fi (kortfliser)",
-                                    fontSize = 13.sp,
+                                    text = stringResource(R.string.offline_wifi_only_map_tiles),
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
@@ -520,7 +393,7 @@ fun OfflineTrailsScreen(
                 }
             }
 
-            // List of downloaded trails
+            // List of downloaded trails, routes, plans, and areas
             if (downloadedTrails.isEmpty()) {
                 item(key = "empty_trails") {
                     Card(
@@ -544,13 +417,13 @@ fun OfflineTrailsScreen(
                             )
                             Text(
                                 text = stringResource(R.string.ui_offlinetrailsscreen_ingen_offline_ruter_hentet_e_93),
-                                fontSize = 15.sp,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = stringResource(R.string.ui_offlinetrailsscreen_bn_en_vandrerute_og_tryk_p_h_94),
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -558,8 +431,15 @@ fun OfflineTrailsScreen(
                 }
             } else {
                 items(downloadedTrails, key = { it.trailId }) { item ->
-                    val itemMb = String.format(Locale("da", "DK"), "%.1f", item.sizeBytes / (1024.0 * 1024.0))
-                    val downloadedLabel = formatDownloadedDateDanish(item.downloadedAt)
+                    val appLocale = com.example.ui.components.rememberAppLocale()
+                    val itemMb = String.format(appLocale, "%.1f", item.sizeBytes / (1024.0 * 1024.0))
+                    val downloadedLabel = formatDownloadedDateDanish(item.downloadedAt, appLocale)
+                    val typeLabel = when (item.downloadType) {
+                        "ROUTE" -> stringResource(R.string.offline_type_custom_route)
+                        "PLAN" -> stringResource(R.string.offline_type_plan)
+                        "AREA" -> stringResource(R.string.offline_type_area)
+                        else -> stringResource(R.string.offline_type_trail)
+                    }
 
                     Card(
                         shape = RoundedCornerShape(14.dp),
@@ -583,8 +463,13 @@ fun OfflineTrailsScreen(
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
-                                        imageVector = Icons.Default.CloudDone,
-                                        contentDescription = null,
+                                        imageVector = when (item.downloadType) {
+                                            "ROUTE" -> Icons.Default.Route
+                                            "PLAN" -> Icons.Default.CheckCircle
+                                            "AREA" -> Icons.Default.Storage
+                                            else -> Icons.Default.CloudDone
+                                        },
+                                        contentDescription = typeLabel,
                                         tint = colorScheme.primary,
                                         modifier = Modifier.size(20.dp)
                                     )
@@ -594,15 +479,32 @@ fun OfflineTrailsScreen(
                             Spacer(modifier = Modifier.width(12.dp))
 
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = item.trailName,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = item.trailName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = colorScheme.primaryContainer
+                                    ) {
+                                        Text(
+                                            text = typeLabel,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = colorScheme.onPrimaryContainer,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
                                 Text(
                                     text = "$itemMb MB · ${item.tileCount} fliser · $downloadedLabel",
-                                    style = TabularBodyStyle.copy(fontSize = 16.sp),
+                                    style = TabularBodyStyle,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.testTag("offline_trail_downloaded_date_${item.trailId}")
                                 )

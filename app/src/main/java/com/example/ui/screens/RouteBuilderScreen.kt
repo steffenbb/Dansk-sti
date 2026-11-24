@@ -114,6 +114,8 @@ fun RouteBuilderScreen(
     var showPlannerMenu by remember { mutableStateOf(false) }
     var showLayersSheet by remember { mutableStateOf(false) }
     var showHowToGuide by remember { mutableStateOf(false) }
+    var showPlannerOfflineDownloadDialog by remember { mutableStateOf(false) }
+    val isOfflineRouteOutdated = false
     var hasZoomedToInitialRoute by remember { mutableStateOf(false) }
 
     var mapViewInstance by remember { mutableStateOf<MapView?>(null) }
@@ -630,7 +632,7 @@ fun RouteBuilderScreen(
                                 Text(
                                     text = kmLabel,
                                     color = MaterialTheme.colorScheme.onPrimary,
-                                    fontSize = 14.sp,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
@@ -642,6 +644,8 @@ fun RouteBuilderScreen(
                         activeDownloadProgress = activeDownloadProgress,
                         context = context,
                         viewModel = viewModel,
+                        isOfflineRouteOutdated = isOfflineRouteOutdated,
+                        onUpdateOfflineRoute = { showPlannerOfflineDownloadDialog = true },
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .fillMaxWidth()

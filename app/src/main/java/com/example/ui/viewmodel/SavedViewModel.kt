@@ -62,6 +62,7 @@ sealed class DeletedLibraryItem {
 }
 
 class SavedViewModel(application: Application) : AndroidViewModel(application) {
+    init { DanskStiApp.registerViewModelScope(viewModelScope) }
 
     private val app: DanskStiApp
         get() = try { DanskStiApp.instance } catch (_: Exception) { getApplication() as DanskStiApp }
@@ -100,6 +101,27 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
     // 5. Offline
     val downloadedTrails: StateFlow<List<DownloadedTrailEntity>> = repository.getAllDownloadedTrails()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val gearItemsByPlanId: StateFlow<Map<Long, List<com.example.data.model.TripGearItemEntity>>> =
+        dao.getAllGearItems()
+            .map { items -> items.groupBy { it.planId } }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    val diaryEntriesByKey: StateFlow<Map<String, com.example.data.model.TripDiaryEntryEntity>> =
+        dao.getAllDiaryEntries()
+            .map { entries -> entries.associateBy { "${it.planId}_${it.dayNumber}" } }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    val routeGeometryHashes: StateFlow<Map<Long, String>> =
+        customRoutes
+            .map { routes ->
+                withContext(Dispatchers.IO) {
+                    routes.associate { route ->
+                        route.id to repository.computeCustomRouteGeometryHash(route)
+                    }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     private val _brouterWifiOnly = MutableStateFlow(storageManager.isWifiOnlyDefault())
     private val _brouterDiskStateTrigger = MutableStateFlow(System.currentTimeMillis())
@@ -350,10 +372,13 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun deleteCustomRouteWithUndo(route: CustomRouteEntity) {
+    fun deleteCustomRouteWithUndo(route: CustomRouteEntity, alsoDeleteOfflineMap: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             undoMutex.lock()
             try {
+                if (alsoDeleteOfflineMap) {
+                    repository.commitDownloadedTrailPermanentDelete("route:${route.id}")
+                }
                 val legs = runCatching {
                     if (route.geometryFile.isNotBlank()) {
                         RouteGeometryStorageManager.loadLegs(app, route.geometryFile)
@@ -383,15 +408,102 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun deletePlanWithUndo(plan: TripPlanEntity) {
+    fun deletePlanWithUndo(plan: TripPlanEntity, alsoDeleteOfflineMap: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             undoMutex.lock()
             try {
+                if (alsoDeleteOfflineMap) {
+                    repository.commitDownloadedTrailPermanentDelete("plan:${plan.id}")
+                }
                 replacePendingDeletedItem(snapshotPlanForUndo(plan))
                 repository.hideTripPlanInDb(plan.id)
             } finally {
                 undoMutex.unlock()
             }
+        }
+    }
+
+    fun downloadCustomRouteOffline(
+        route: CustomRouteEntity,
+        corridorKm: Double = 1.0,
+        maxZoom: Int = 16,
+        wifiOnly: Boolean = false,
+        includeAerial: Boolean = false,
+        includeTerrain: Boolean = false
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val hash = repository.computeCustomRouteGeometryHash(route)
+            com.example.util.OfflineDownloadManager.enqueueDownload(
+                context = app,
+                trailId = "route:${route.id}",
+                trailName = route.name,
+                corridorKm = corridorKm,
+                maxZoom = maxZoom,
+                wifiOnly = wifiOnly,
+                downloadType = com.example.util.OfflineDownloadManager.TYPE_ROUTE,
+                includeAerial = includeAerial,
+                includeTerrain = includeTerrain,
+                geometryHash = hash
+            )
+        }
+    }
+
+    fun downloadTripPlanOffline(
+        plan: TripPlanEntity,
+        corridorKm: Double = 1.0,
+        maxZoom: Int = 16,
+        wifiOnly: Boolean = false,
+        includeAerial: Boolean = false,
+        includeTerrain: Boolean = false
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            com.example.util.OfflineDownloadManager.enqueueDownload(
+                context = app,
+                trailId = "plan:${plan.id}",
+                trailName = plan.trailName,
+                corridorKm = corridorKm,
+                maxZoom = maxZoom,
+                wifiOnly = wifiOnly,
+                downloadType = com.example.util.OfflineDownloadManager.TYPE_PLAN,
+                includeAerial = includeAerial,
+                includeTerrain = includeTerrain
+            )
+        }
+    }
+
+    fun ensureDefaultGearItemsForPlan(plan: TripPlanEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.ensureDefaultGearItemsForPlan(plan.id, plan.overnightType)
+        }
+    }
+
+    fun updateGearItem(item: com.example.data.model.TripGearItemEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateGearItem(item)
+        }
+    }
+
+    fun addGearItem(planId: Long, category: String, title: String, weightGrams: Int?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.addGearItem(planId, category, title, weightGrams)
+        }
+    }
+
+    fun deleteGearItem(item: com.example.data.model.TripGearItemEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deleteGearItem(item.id)
+        }
+    }
+
+    fun copyGearItemsFromPlan(sourcePlanId: Long, targetPlanId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.copyGearItemsFromPlan(sourcePlanId, targetPlanId)
+        }
+    }
+
+    fun saveTripDiaryEntry(planId: Long, dayNumber: Int, note: String, photoPaths: List<String>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.saveTripDiaryEntry(planId, dayNumber, note, photoPaths)
         }
     }
 

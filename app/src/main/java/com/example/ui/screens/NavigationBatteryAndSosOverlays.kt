@@ -40,6 +40,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -47,11 +49,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.model.DanishEmergencyInfo
 import com.example.data.model.RecordedDayStatEntity
+import com.example.data.model.TripDiaryEntryEntity
 import com.example.service.NavigationLiveState
+import com.example.ui.components.TripDiaryEditorSection
+import com.example.ui.components.TripDiarySummaryList
 import com.example.ui.components.formatDanishKm
 import com.example.ui.theme.DanskStiTheme
 import com.example.ui.theme.TabularBodyStyle
@@ -107,7 +111,7 @@ fun NavigationBatterySaverScreen(
                     Text(
                         text = stringResource(R.string.nav_battery_saver_label),
                         color = danskStiColors.success,
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -128,7 +132,7 @@ fun NavigationBatterySaverScreen(
                         Text(
                             text = stringResource(R.string.nav_battery_saver_exit),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -146,14 +150,14 @@ fun NavigationBatterySaverScreen(
                 Text(
                     text = todayStageText,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 16.sp,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium
                 )
 
                 Text(
                     text = cueBannerPrimaryText,
                     color = danskStiColors.warning,
-                    fontSize = 18.sp,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.testTag("battery_mode_cue_text")
                 )
@@ -175,7 +179,7 @@ fun NavigationBatterySaverScreen(
                             Text(
                                 text = stringResource(R.string.nav_off_route_banner_format, offMeters),
                                 color = MaterialTheme.colorScheme.onError,
-                                fontSize = 15.sp,
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.ExtraBold,
                                 modifier = Modifier.testTag("battery_mode_off_route_text")
                             )
@@ -197,7 +201,7 @@ fun NavigationBatterySaverScreen(
                                     Text(
                                         text = stringResource(R.string.nav_reroute_back),
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
+                                        style = MaterialTheme.typography.labelMedium
                                     )
                                 }
                                 OutlinedButton(
@@ -212,7 +216,7 @@ fun NavigationBatterySaverScreen(
                                     Text(
                                         text = stringResource(R.string.nav_taking_detour),
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
+                                        style = MaterialTheme.typography.labelMedium
                                     )
                                 }
                             }
@@ -222,17 +226,17 @@ fun NavigationBatterySaverScreen(
 
                 Text(
                     text = stringResource(R.string.ui_markedroutedetailsheet_km_19, formatDanishKm(distanceRemainingToday, 1)),
-                    style = TabularBodyStyle.copy(
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontSize = 54.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = (-1).sp
+                    style = MaterialTheme.typography.headlineLarge.merge(
+                        TabularBodyStyle.copy(
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontWeight = FontWeight.Black
+                        )
                     )
                 )
                 Text(
                     text = stringResource(R.string.nav_remaining_today_label),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 15.sp
+                    style = MaterialTheme.typography.bodyMedium
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -244,16 +248,17 @@ fun NavigationBatterySaverScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             text = stringResource(R.string.ui_navigationscreen_km_t_57, formatDanishKm(speedKmh, 1)),
-                            style = TabularBodyStyle.copy(
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold
+                            style = MaterialTheme.typography.headlineMedium.merge(
+                                TabularBodyStyle.copy(
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
                             )
                         )
                         Text(
                             text = stringResource(R.string.nav_walking_pace_label),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
+                            style = MaterialTheme.typography.labelMedium
                         )
                     }
 
@@ -261,16 +266,17 @@ fun NavigationBatterySaverScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 text = stringResource(R.string.ui_markedroutedetailsheet_km_19, formatDanishKm(next.distanceRemainingKm, 1)),
-                                style = TabularBodyStyle.copy(
-                                    color = danskStiColors.warning,
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Bold
+                                style = MaterialTheme.typography.headlineMedium.merge(
+                                    TabularBodyStyle.copy(
+                                        color = danskStiColors.warning,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 )
                             )
                             Text(
                                 text = next.name,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 maxLines = 2
                             )
                         }
@@ -287,16 +293,17 @@ fun NavigationBatterySaverScreen(
                         val movSecs = currentDayStat?.movingTimeSeconds ?: 0L
                         Text(
                             text = formatMovingTime(movSecs),
-                            style = TabularBodyStyle.copy(
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold
+                            style = MaterialTheme.typography.titleLarge.merge(
+                                TabularBodyStyle.copy(
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
                             )
                         )
                         Text(
                             text = stringResource(R.string.nav_active_time_label),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
+                            style = MaterialTheme.typography.labelMedium
                         )
                     }
 
@@ -304,16 +311,17 @@ fun NavigationBatterySaverScreen(
                         val ascent = currentDayStat?.ascentMeters ?: 0
                         Text(
                             text = stringResource(R.string.ui_navigationscreen_m_58, ascent),
-                            style = TabularBodyStyle.copy(
-                                color = danskStiColors.success,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold
+                            style = MaterialTheme.typography.titleLarge.merge(
+                                TabularBodyStyle.copy(
+                                    color = danskStiColors.success,
+                                    fontWeight = FontWeight.Bold
+                                )
                             )
                         )
                         Text(
                             text = stringResource(R.string.stat_elevation),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
+                            style = MaterialTheme.typography.labelMedium
                         )
                     }
                 }
@@ -350,7 +358,7 @@ fun NavigationBatterySaverScreen(
                             Text(
                                 text = stringResource(R.string.nav_sos_112),
                                 color = MaterialTheme.colorScheme.onError,
-                                fontSize = 13.sp,
+                                style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -379,7 +387,7 @@ fun NavigationBatterySaverScreen(
                             Text(
                                 text = if (hasGpsFix) stringResource(R.string.nav_sos_share_location) else stringResource(R.string.nav_sos_waiting_gps),
                                 color = if (hasGpsFix) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline,
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -390,7 +398,7 @@ fun NavigationBatterySaverScreen(
                     Text(
                         text = em.decimalCoords,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
+                        style = MaterialTheme.typography.labelMedium
                     )
                 }
             }
@@ -436,7 +444,7 @@ fun NavigationSosBottomSheet(
 
             Text(
                 text = stringResource(R.string.ui_navigationscreen_dansk_n_dkald_112_74),
-                fontSize = 20.sp,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = danskStiColors.danger
             )
@@ -449,7 +457,7 @@ fun NavigationSosBottomSheet(
                 Column(modifier = Modifier.padding(14.dp)) {
                     Text(
                         text = stringResource(R.string.ui_navigationscreen_din_n_jagtige_gps_position_75),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     val coordsText = emergencyInfo?.decimalCoords
@@ -460,9 +468,10 @@ fun NavigationSosBottomSheet(
                         }
                     Text(
                         text = coordsText,
-                        style = TabularBodyStyle.copy(
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
+                        style = MaterialTheme.typography.titleMedium.merge(
+                            TabularBodyStyle.copy(
+                                fontWeight = FontWeight.Bold
+                            )
                         ),
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -470,7 +479,7 @@ fun NavigationSosBottomSheet(
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = stringResource(R.string.ui_navigationscreen_l_ses_h_jt_til_alarmcent_76, spoken),
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Normal,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -514,7 +523,7 @@ fun NavigationSosBottomSheet(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = stringResource(R.string.ui_navigationscreen_ring_112_nu_77),
-                    fontSize = 16.sp,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onError
                 )
@@ -546,9 +555,13 @@ fun NavigationCampAndContinuePrompts(
     nextWater: NextStopInfo?,
     onDismissCampArrival: () -> Unit
 ) {
+    val context = LocalContext.current
+    val diaryEntries by viewModel.diaryEntries.collectAsState()
+    val currentDayDiaryEntry = diaryEntries.firstOrNull { it.dayNumber == currentDay }
+
     liveState.autoAdvancedDayMessage?.let { msg ->
         Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("nav_auto_advanced_day_banner")) {
-            Text(text = msg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.padding(12.dp))
+            Text(text = msg, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.padding(12.dp))
         }
     }
     if (isNearTonightCamp && campNameForArrival != null) {
@@ -569,7 +582,7 @@ fun NavigationCampAndContinuePrompts(
             ) {
                 Text(
                     text = stringResource(R.string.nav_camp_arrival_prompt_format, campNameForArrival),
-                    fontSize = 16.sp,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -584,8 +597,21 @@ fun NavigationCampAndContinuePrompts(
                         formatMovingTime(movSecs),
                         ascent
                     ),
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TripDiaryEditorSection(
+                    dayNumber = currentDay,
+                    existingEntry = currentDayDiaryEntry,
+                    onSaveEntry = { day, note, photos ->
+                        viewModel.saveDiaryEntry(liveState.planId, day, note, photos)
+                    },
+                    onCopyPhotoToInternalStorage = { day, _, uri ->
+                        viewModel.copyAndResizeDiaryPhoto(liveState.planId, day, uri) {}
+                    },
+                    onDeletePhotoFile = { path ->
+                        viewModel.deleteDiaryPhotoFile(path)
+                    }
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -638,7 +664,7 @@ fun NavigationCampAndContinuePrompts(
             ) {
                 Text(
                     text = stringResource(R.string.nav_continue_day_title_format, currentDay),
-                    fontSize = 16.sp,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -649,7 +675,7 @@ fun NavigationCampAndContinuePrompts(
                         firstWaterText,
                         sunsetTime
                     ),
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Button(
@@ -674,112 +700,56 @@ fun NavigationCampAndContinuePrompts(
     }
 }
 
-/**
- * Trip completion summary dialog displaying distance, time, ascent, and days when RouteTracker reports completed.
- */
 @Composable
 fun NavigationTripCompletedSummaryDialog(
-    trailName: String,
-    totalDistanceKm: Double,
-    totalMovingSeconds: Long,
-    totalAscentMeters: Int,
-    totalDays: Int,
-    onDismiss: () -> Unit,
-    onFinishAndBack: () -> Unit
+    trailName: String, totalDistanceKm: Double, totalMovingSeconds: Long,
+    totalAscentMeters: Int, totalDays: Int, diaryEntries: List<TripDiaryEntryEntity> = emptyList(),
+    onShareTrip: (() -> Unit)? = null, onDismiss: () -> Unit, onFinishAndBack: () -> Unit
 ) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag("nav_trip_completed_summary_dialog"),
-        title = {
-            Text(
-                text = stringResource(R.string.nav_trip_completed_title),
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 20.sp
-            )
-        },
+        title = { Text(text = stringResource(R.string.nav_trip_completed_title), fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (trailName.isNotBlank()) {
-                    Text(
-                        text = trailName,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Text(text = trailName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                 }
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(stringResource(R.string.nav_trip_completed_distance_label), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                            Text(
-                                text = "${formatDanishKm(totalDistanceKm, 1)} km",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                modifier = Modifier.testTag("nav_completed_distance_text")
-                            )
+                Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(stringResource(R.string.nav_trip_completed_distance_label), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                            Text(text = "${formatDanishKm(totalDistanceKm, 1)} km", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("nav_completed_distance_text"))
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(stringResource(R.string.nav_trip_completed_time_label), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                            Text(
-                                text = formatMovingTime(totalMovingSeconds),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                modifier = Modifier.testTag("nav_completed_time_text")
-                            )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(stringResource(R.string.nav_trip_completed_time_label), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                            Text(text = formatMovingTime(totalMovingSeconds), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("nav_completed_time_text"))
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(stringResource(R.string.nav_trip_completed_ascent_label), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                            Text(
-                                text = "+$totalAscentMeters m",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                modifier = Modifier.testTag("nav_completed_ascent_text")
-                            )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(stringResource(R.string.nav_trip_completed_ascent_label), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                            Text(text = "+$totalAscentMeters m", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("nav_completed_ascent_text"))
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(stringResource(R.string.nav_trip_completed_days_label), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                            Text(
-                                text = "$totalDays ${if (totalDays == 1) stringResource(R.string.day_singular) else stringResource(R.string.day_plural)}",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                modifier = Modifier.testTag("nav_completed_days_text")
-                            )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(stringResource(R.string.nav_trip_completed_days_label), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                            Text(text = "$totalDays ${if (totalDays == 1) stringResource(R.string.day_singular) else stringResource(R.string.day_plural)}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("nav_completed_days_text"))
                         }
                     }
                 }
-                Text(
-                    text = stringResource(R.string.nav_trip_completed_footer),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                TripDiarySummaryList(entries = diaryEntries)
+                Text(text = stringResource(R.string.nav_trip_completed_footer), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
+        dismissButton = if (onShareTrip != null) {
+            {
+                OutlinedButton(onClick = onShareTrip, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).testTag("nav_trip_completed_share_button")) {
+                    Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Del", fontWeight = FontWeight.Bold)
+                }
+            }
+        } else null,
         confirmButton = {
-            Button(
-                onClick = onFinishAndBack,
-                modifier = Modifier
-                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                    .testTag("nav_trip_completed_close_button")
-            ) {
+            Button(onClick = onFinishAndBack, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).testTag("nav_trip_completed_close_button")) {
                 Text(stringResource(R.string.nav_trip_completed_finish_button), fontWeight = FontWeight.Bold)
             }
         }

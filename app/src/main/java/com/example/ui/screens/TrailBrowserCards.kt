@@ -44,6 +44,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,7 +55,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.model.DiscoveredHikingRouteDto
 import com.example.data.model.GeoPointDto
@@ -92,6 +93,7 @@ fun TrailCard(
     sheltersCount: Int,
     friTeltningCount: Int,
     ascentMeters: Int? = null,
+    dailyTargetKm: Double? = null,
     downloadedAt: Long? = null,
     downloadProgress: TrailDownloadProgress? = null,
     isSaved: Boolean = false,
@@ -101,12 +103,17 @@ fun TrailCard(
     testTagOverride: String? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val appLocale = com.example.ui.components.rememberAppLocale()
+    val settingsRepo = remember(context) { com.example.DanskStiApp.getSettingsRepository(context) }
+    val settings by settingsRepo.settingsFlow.collectAsState(initial = remember(settingsRepo) { settingsRepo.currentSettingsSnapshot() })
+    val effectiveDailyTargetKm = dailyTargetKm ?: settings.dailyTargetKm
     val totalKm = trail.computedWalkingKm
-    val estimatedDays = max(1, ceil(totalKm / 18.0).toInt())
+    val estimatedDays = GeoUtils.estimateDays(totalKm, effectiveDailyTargetKm)
     val computedRegion = remember(trail) { GeoUtils.computeDanishRegionForTrail(trail) }
     val displayRegion = computedRegion.ifEmpty { stringResource(R.string.explore_region_after_download) }
 
-    val computedAscent = remember(points, ascentMeters, totalKm) {
+    val computedAscent: Int? = remember(points, ascentMeters) {
         if (ascentMeters != null && ascentMeters > 0) {
             ascentMeters
         } else if (!points.isNullOrEmpty()) {
@@ -114,23 +121,23 @@ fun TrailCard(
             for (i in 0 until points.size - 1) {
                 val e1 = points[i].ele
                 val e2 = points[i + 1].ele
-                if (e1 != null && e2 != null) {
+                if (e1 != null && e2 != null && (e1 != 0.0 || e2 != 0.0)) {
                     val diff = e2 - e1
                     if (diff > 0) gain += diff
                 }
             }
-            if (gain > 0) gain.toInt() else (totalKm * 8.5).toInt()
+            if (gain > 0) gain.toInt() else null
         } else {
-            (totalKm * 8.5).toInt()
+            null
         }
     }
 
     val kmFormatted = if (totalKm >= 100.0) {
-        String.format(Locale("da", "DK"), "%.0f", totalKm)
+        String.format(appLocale, "%.0f", totalKm)
     } else {
-        formatDanishKm(totalKm, decimals = 1)
+        formatDanishKm(totalKm, decimals = 1, locale = appLocale)
     }
-    val ascentFormatted = formatDanishElevationMeters(computedAscent)
+    val ascentFormatted = computedAscent?.let { formatDanishElevationMeters(it, appLocale) }
 
     Card(
         shape = CardShape,
@@ -224,12 +231,18 @@ fun TrailCard(
                     }
                 }
 
-                // Real computed stats line: "215 km · +1.850 m · ca. 14 dage" or "Længde kendes efter download"
+                // Real computed stats line: "215 km · +1.850 m · ca. 14 dage" or "215 km · ca. 14 dage"
                 if (totalKm > 0.0) {
+                    val dayUnit = if (estimatedDays == 1) stringResource(R.string.day_singular) else stringResource(R.string.day_plural)
+                    val statsText = if (ascentFormatted != null) {
+                        stringResource(R.string.ui_trailbrowserscreen_km_m_ca_184, kmFormatted, ascentFormatted, estimatedDays, dayUnit)
+                    } else {
+                        stringResource(R.string.trail_card_stats_no_ascent_fmt, kmFormatted, estimatedDays, dayUnit)
+                    }
                     Text(
-                        text = stringResource(R.string.ui_trailbrowserscreen_km_m_ca_184, kmFormatted, ascentFormatted, estimatedDays, if (estimatedDays == 1) "dag" else "dage"),
-                        style = TabularBodyStyle.copy(
-                            fontSize = 16.sp,
+                        text = statsText,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontFeatureSettings = "tnum",
                             fontWeight = FontWeight.SemiBold
                         ),
                         color = MaterialTheme.colorScheme.primary
@@ -305,7 +318,7 @@ fun TrailCard(
                 // Downloaded date badge ("Hentet <dato>") when trail is downloaded offline
                 if (downloadedAt != null) {
                     Text(
-                        text = formatDownloadedDateDanish(downloadedAt),
+                        text = formatDownloadedDateDanish(downloadedAt, appLocale, stringResource(R.string.downloaded_date_prefix)),
                         style = TabularLabelStyle,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
@@ -379,8 +392,6 @@ fun DiscoveredHikingRouteCard(
                                     append(" · ")
                                     append(it)
                                 }
-                                append(" · OSM #")
-                                append(route.osmRelationId)
                             },
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

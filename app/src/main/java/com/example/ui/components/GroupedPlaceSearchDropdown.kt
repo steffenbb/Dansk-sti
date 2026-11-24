@@ -256,7 +256,7 @@ private fun SearchGroupHeader(
     ) {
         Text(
             text = title,
-            fontSize = 11.sp,
+            style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
@@ -297,7 +297,7 @@ private fun PlaceActionButtonsRow(
             Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = stringResource(R.string.search_action_route_here),
-                fontSize = 11.sp,
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -318,7 +318,7 @@ private fun PlaceActionButtonsRow(
             Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = stringResource(R.string.search_action_add_as_point),
-                fontSize = 11.sp,
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -339,7 +339,7 @@ private fun PlaceActionButtonsRow(
             Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = stringResource(R.string.search_action_show_on_map),
-                fontSize = 11.sp,
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold
             )
         }

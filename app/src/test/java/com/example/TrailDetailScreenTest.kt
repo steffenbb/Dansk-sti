@@ -21,27 +21,35 @@ class TrailDetailScreenTest {
 
     @Test
     fun testTrailDetailScreenRendersWithoutCrashing() {
-        val app = ApplicationProvider.getApplicationContext<DanskStiApp>()
-        runBlocking {
-            app.repository.initializePreseededDataIfEmpty()
+        com.example.data.remote.OverpassClient.customTransport = { _, _ ->
+            com.example.data.remote.OverpassClient.HttpResult(code = 200, body = """{"elements":[]}""")
         }
-        val viewModel = TrailViewModel(app)
-        runBlocking {
-            viewModel.loadTrail("trail_ohavsstien")
-        }
+        try {
+            val app = ApplicationProvider.getApplicationContext<DanskStiApp>()
+            runBlocking {
+                app.repository.initializePreseededDataIfEmpty()
+            }
+            val viewModel = TrailViewModel(app)
+            runBlocking {
+                viewModel.loadTrail("trail_ohavsstien")
+            }
 
-        composeTestRule.setContent {
-            TrailDetailScreen(
-                trailId = "trail_ohavsstien",
-                viewModel = viewModel,
-                onBack = {},
-                onPlanTrip = {},
-                onStartNavigation = {},
-                onOpenFullscreenMap = {},
-                onDownloadOffline = {}
-            )
-        }
+            composeTestRule.setContent {
+                TrailDetailScreen(
+                    trailId = "trail_ohavsstien",
+                    viewModel = viewModel,
+                    onBack = {},
+                    onPlanTrip = {},
+                    onStartNavigation = {},
+                    onOpenFullscreenMap = {},
+                    onDownloadOffline = {}
+                )
+            }
 
-        composeTestRule.waitForIdle()
+            composeTestRule.waitForIdle()
+            viewModel.cancelTrailDownload()
+        } finally {
+            com.example.data.remote.OverpassClient.customTransport = null
+        }
     }
 }

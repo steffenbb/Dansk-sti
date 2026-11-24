@@ -268,7 +268,7 @@ class OsmPoiRepository(private val context: Context) {
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun parseOverpassJson(jsonStr: String): OsmPoiResult {
+    fun parseOverpassJson(jsonStr: String): OsmPoiResult {
         val root = try {
             moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any> ?: return OsmPoiResult()
         } catch (e: Exception) {
@@ -298,9 +298,26 @@ class OsmPoiRepository(private val context: Context) {
 
             val name = tags["name"]?.trim()
             val openingHours = tags["opening_hours"]?.trim()
+            val seasonal = tags["seasonal"]?.trim()
             val operator = tags["operator"]?.trim()
             val website = (tags["website"] ?: tags["contact:website"] ?: tags["url"])?.trim()
-            val fee = tags["fee"]?.equals("yes", ignoreCase = true) == true
+            val feeTag = tags["fee"]?.trim()?.lowercase()
+            val feeNullable: Boolean? = when (feeTag) {
+                "yes" -> true
+                "no" -> false
+                else -> null
+            }
+            val feeBool = feeNullable == true
+            val hasFireRing: Boolean? = when (tags["fireplace"]?.trim()?.lowercase()) {
+                "yes" -> true
+                "no" -> false
+                else -> null
+            }
+            val dogAllowed: Boolean? = when (tags["dog"]?.trim()?.lowercase()) {
+                "yes", "leashed" -> true
+                "no" -> false
+                else -> null
+            }
             val access = tags["access"]?.trim()
             val now = System.currentTimeMillis()
 
@@ -314,6 +331,7 @@ class OsmPoiRepository(private val context: Context) {
             if (amenity == "shelter" || tourism == "camp_site" || tourism == "wilderness_hut") {
                 val shelterType = tags["shelter_type"] ?: if (tourism == "camp_site") "Teltplads" else "Shelter"
                 val cap = tags["capacity"]?.toIntOrNull()
+                val isBookingReq = tags["reservation"]?.equals("required", ignoreCase = true) == true
                 shelters.add(
                     ShelterEntity(
                         id = "osm_${type}_$id",
@@ -321,15 +339,18 @@ class OsmPoiRepository(private val context: Context) {
                         lat = lat,
                         lng = lng,
                         description = tags["description"]?.trim() ?: tags["note"]?.trim(),
-                        bookingRequired = tags["reservation"]?.equals("required", ignoreCase = true) == true,
+                        bookingRequired = isBookingReq,
                         ownership = operator,
                         capacity = cap,
                         hasWaterNearby = false,
                         hasToiletNearby = false,
                         source = "osm",
-                        bookingUrl = website,
+                        bookingUrl = if (isBookingReq) website else null,
+                        infoUrl = if (!isBookingReq) website else null,
+                        hasFireRing = hasFireRing,
+                        dogAllowed = dogAllowed,
                         shelterType = shelterType,
-                        fee = fee,
+                        fee = feeNullable,
                         fetchedAt = now
                     )
                 )
@@ -369,8 +390,9 @@ class OsmPoiRepository(private val context: Context) {
                         lat = lat,
                         lng = lng,
                         access = access,
-                        fee = fee,
+                        fee = feeBool,
                         openingHours = openingHours,
+                        seasonal = seasonal,
                         operator = operator,
                         website = website,
                         source = "osm",
@@ -388,7 +410,7 @@ class OsmPoiRepository(private val context: Context) {
                         lat = lat,
                         lng = lng,
                         access = access,
-                        fee = fee,
+                        fee = feeBool,
                         openingHours = openingHours,
                         operator = operator,
                         website = website,
@@ -426,7 +448,7 @@ class OsmPoiRepository(private val context: Context) {
                         lat = lat,
                         lng = lng,
                         access = access,
-                        fee = fee,
+                        fee = feeBool,
                         openingHours = openingHours,
                         operator = operator,
                         website = website,

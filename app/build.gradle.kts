@@ -67,8 +67,8 @@ android {
       all {
         it.maxHeapSize = "1024m"
         it.jvmArgs("-XX:MaxMetaspaceSize=320m", "-XX:+UseG1GC", "-XX:G1PeriodicGCInterval=2000", "-XX:+G1PeriodicGCInvokesConcurrent")
-        it.maxParallelForks = 1
-        it.forkEvery = 10
+        it.maxParallelForks = 2
+        it.forkEvery = 30
         it.testLogging {
           events("passed", "skipped", "failed")
         }

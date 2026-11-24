@@ -117,10 +117,13 @@ fun PlannerBottomSheet(
     onCustomWaypointClicked: (UserCustomWaypointEntity) -> Unit = {},
     onDeleteCustomWaypoint: (String) -> Unit = {},
     onDeleteCustomWaypointPhoto: (String) -> Unit = {},
+    packingSummaryText: String? = null,
+    onOpenPackingList: (() -> Unit)? = null,
     availableHeightDp: Float? = null,
     isSidePanel: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val locale = com.example.ui.components.rememberAppLocale()
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     // Compute heights from the real available height (no 700 dp floor); the map always keeps at least 40 %
@@ -290,7 +293,7 @@ fun PlannerBottomSheet(
                 uiState.stats.pathShareFormatted
             }
             val peekSummaryText = String.format(
-                Locale.GERMANY,
+                locale,
                 stringResource(R.string.planner_sheet_peek_with_path_format),
                 totalDays,
                 dayWord,
@@ -302,10 +305,7 @@ fun PlannerBottomSheet(
 
             Text(
                 text = peekSummaryText,
-                style = com.example.ui.theme.TabularStatsTextStyle,
-                fontSize = 12.sp,
-                lineHeight = 14.sp,
-                fontWeight = FontWeight.Bold,
+                style = com.example.ui.theme.TabularLabelStyle.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -341,7 +341,7 @@ fun PlannerBottomSheet(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = uiState.routeEngineModeLabel,
-                                fontSize = 11.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.testTag("route_engine_mode_label")
@@ -359,7 +359,7 @@ fun PlannerBottomSheet(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = stringResource(R.string.planner_calculating_route),
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -519,7 +519,9 @@ fun PlannerBottomSheet(
                                     onZoomToCoordinate = onZoomToCoordinate,
                                     onUpdateOptions = onUpdateOptions,
                                     onOpenSaveDialog = onOpenSaveDialog,
-                                    onStartNavigation = onStartNavigation
+                                    onStartNavigation = onStartNavigation,
+                                    packingSummaryText = packingSummaryText,
+                                    onOpenPackingList = onOpenPackingList
                                 )
                             }
                         }
@@ -552,7 +554,7 @@ internal fun PlannerTabButton(
         ) {
             Text(
                 text = label,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
             )

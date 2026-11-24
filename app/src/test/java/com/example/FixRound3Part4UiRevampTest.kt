@@ -213,7 +213,7 @@ class FixRound3Part4UiRevampTest {
 
         composeTestRule.onNodeWithTag("trail_card_haervejen").assertIsDisplayed()
         composeTestRule.onNodeWithText("Hærvejen").assertIsDisplayed()
-        composeTestRule.onNodeWithText("215 km · +1.850 m · ca. 12 dage").assertIsDisplayed()
+        composeTestRule.onNodeWithText("215 km · +1.850 m · ca. 15 dage").assertIsDisplayed()
         composeTestRule.onNodeWithText("42 shelters · 9 fri teltning").assertIsDisplayed()
         composeTestRule.onNodeWithTag("bookmark_trail_haervejen").performClick()
         assertTrue(bookmarkClicked)

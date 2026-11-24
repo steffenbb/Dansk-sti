@@ -70,6 +70,9 @@ class AuditAndImprovementsTest {
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
         app.repository.isOnlineOverrideForTests = false
+        com.example.data.remote.OverpassClient.customTransport = { _, _ ->
+            com.example.data.remote.OverpassClient.HttpResult(code = 200, body = """{"elements":[]}""")
+        }
         settingsRepository = DanskStiApp.getSettingsRepository(app)
         runBlocking {
             app.repository.initializePreseededDataIfEmpty()
@@ -368,7 +371,7 @@ class AuditAndImprovementsTest {
     }
 
     @Test
-    fun test5_routeToNearestPreservesExistingRoute_andReplaceOvernightComputesAmenities() = runBlocking {
+    fun test5_routeToNearestPreservesExistingRoute_andReplaceOvernightComputesAmenities(): Unit = runBlocking {
         val vm = RouteBuilderViewModel(app)
         vm.routingEngine = object : RoutingEngine {
             override suspend fun routeLeg(
@@ -391,13 +394,20 @@ class AuditAndImprovementsTest {
         val wp1 = RouteWaypoint(id = "wp_start", lat = 56.000, lng = 10.000, role = WaypointRole.START, name = "Start")
         val wp2 = RouteWaypoint(id = "wp_end", lat = 56.020, lng = 10.020, role = WaypointRole.END, name = "Slut")
 
-        // Seed a nearby water POI and Fri Teltning with water/toilet within 500 m
+        // Seed a nearby water POI, toilet POI and Fri Teltning within 500 m
         val nearWaterPoi = PoiEntity(
             id = "test_water_nearest",
             type = "water",
             name = "Kildevæld Vandpost",
             lat = 56.010,
             lng = 10.011
+        )
+        val nearToiletPoi = PoiEntity(
+            id = "test_toilet_nearest",
+            type = "toilet",
+            name = "Skovbryn Toilet",
+            lat = 56.0103,
+            lng = 10.0113
         )
         val nearFriTeltning = FriTeltningEntity(
             id = "test_ft_amenities",
@@ -409,7 +419,7 @@ class AuditAndImprovementsTest {
             waterDistanceMeters = 150,
             rulesSummary = "1-2-3 reglen"
         )
-        app.database.dao().insertPois(listOf(nearWaterPoi))
+        app.database.dao().insertPois(listOf(nearWaterPoi, nearToiletPoi))
         app.database.dao().insertFriTeltning(listOf(nearFriTeltning))
 
         // Set up an existing 2-point route in the ViewModel
@@ -443,5 +453,6 @@ class AuditAndImprovementsTest {
         assertNotNull("Expected Skovbryn Fri Teltning in replaceOvernightCandidates", ftCand)
         assertTrue("FriTeltning candidate with waterDistanceMeters=150 must have hasWaterNearby=true", ftCand!!.hasWaterNearby)
         assertTrue("FriTeltning candidate with toiletDistanceMeters=200 must have hasToiletNearby=true", ftCand.hasToiletNearby)
+        vm.corridorAccessJob?.cancel()
     }
 }

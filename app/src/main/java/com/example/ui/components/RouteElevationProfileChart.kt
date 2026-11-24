@@ -91,7 +91,7 @@ fun RouteElevationProfileChart(
         ) {
             Text(
                 text = stringResource(R.string.elevation_no_data_available),
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("elevation_no_data_text")
             )
@@ -175,7 +175,7 @@ fun RouteElevationProfileChart(
                 )
                 Text(
                     text = labelText,
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Bold,
                     color = primaryColor,
                     modifier = Modifier.testTag("elevation_scrub_label")
@@ -188,7 +188,7 @@ fun RouteElevationProfileChart(
                         minEle,
                         maxEle
                     ),
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -205,7 +205,7 @@ fun RouteElevationProfileChart(
                 Spacer(modifier = Modifier.width(3.dp))
                 Text(
                     text = stringResource(R.string.elevation_slope_low),
-                    fontSize = 10.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -218,7 +218,7 @@ fun RouteElevationProfileChart(
                 Spacer(modifier = Modifier.width(3.dp))
                 Text(
                     text = stringResource(R.string.elevation_slope_medium),
-                    fontSize = 10.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -231,7 +231,7 @@ fun RouteElevationProfileChart(
                 Spacer(modifier = Modifier.width(3.dp))
                 Text(
                     text = stringResource(R.string.elevation_slope_high),
-                    fontSize = 10.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

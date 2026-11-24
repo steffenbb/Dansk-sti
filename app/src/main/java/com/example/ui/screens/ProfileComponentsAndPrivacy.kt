@@ -93,6 +93,134 @@ internal fun ProfileSectionCard(
     }
 }
 
+@Composable
+internal fun ProfileStatisticsSectionCard(
+    stats: com.example.util.HikingStatisticsSummary,
+    locale: Locale
+) {
+    ProfileSectionCard(title = stringResource(R.string.profile_section_my_statistics)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("profile_statistics_card"),
+            verticalArrangement = Arrangement.spacedBy(Spacing.s3)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.profile_stats_total_km_label),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.profile_stats_km_value_fmt,
+                            String.format(locale, "%.1f", stats.totalKmWalked)
+                        ),
+                        style = TabularBodyStyle,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("profile_stats_total_km")
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.profile_stats_hiking_days_label),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = stats.hikingDaysCount.toString(),
+                        style = TabularBodyStyle,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("profile_stats_hiking_days")
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.profile_stats_total_ascent_label),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    val ascentStr = stats.totalAscentMeters?.let { "+${it.toInt()} m" } ?: "—"
+                    Text(
+                        text = ascentStr,
+                        style = TabularBodyStyle,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("profile_stats_total_ascent")
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            Text(
+                text = stringResource(R.string.profile_stats_completed_trails_title),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            if (stats.completedTrails.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.profile_stats_no_completed_trails),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("profile_stats_completed_trails_empty")
+                )
+            } else {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(Spacing.s1),
+                    modifier = Modifier.testTag("profile_stats_completed_trails_list")
+                ) {
+                    stats.completedTrails.forEach { trail ->
+                        val dateText = com.example.ui.components.formatDownloadedDateDanish(
+                            trail.completedAtMillis,
+                            locale
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("profile_stats_completed_trail_${trail.trailId}"),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f).padding(end = Spacing.s2)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = DanskStiTheme.colors.success,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(Spacing.s2))
+                                Text(
+                                    text = trail.trailName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Text(
+                                text = dateText,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PrivacyScreen(
@@ -109,7 +237,8 @@ fun PrivacyScreen(
         stringResource(R.string.privacy_service_overpass_title) to stringResource(R.string.privacy_service_overpass_desc),
         stringResource(R.string.privacy_service_openmeteo_title) to stringResource(R.string.privacy_service_openmeteo_desc),
         stringResource(R.string.privacy_service_dataforsyningen_title) to stringResource(R.string.privacy_service_dataforsyningen_desc),
-        stringResource(R.string.privacy_service_tiles_title) to stringResource(R.string.privacy_service_tiles_desc)
+        stringResource(R.string.privacy_service_tiles_title) to stringResource(R.string.privacy_service_tiles_desc),
+        stringResource(R.string.privacy_service_wikimedia_title) to stringResource(R.string.privacy_service_wikimedia_desc)
     )
 
     Scaffold(
@@ -274,6 +403,7 @@ internal fun ProfileStorageSectionCard(
     onClearCache: () -> Unit,
     cacheClearedMessage: String?
 ) {
+    val appLocale = com.example.ui.components.rememberAppLocale()
     ProfileSectionCard(title = stringResource(R.string.profile_section_storage)) {
         Row(
             modifier = Modifier
@@ -307,7 +437,7 @@ internal fun ProfileStorageSectionCard(
                 }
             }
             Text(
-                text = String.format(Locale.forLanguageTag("da-DK"), "%.1f MB", totalOfflineMapsMb),
+                text = String.format(appLocale, "%.1f MB", totalOfflineMapsMb),
                 style = TabularBodyStyle,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -382,7 +512,7 @@ internal fun ProfileStorageSectionCard(
             }
             Text(
                 text = String.format(
-                    Locale.forLanguageTag("da-DK"),
+                    appLocale,
                     "%.1f / %.0f MB",
                     brouterDownloadedMb,
                     brouterTotalMb

@@ -406,7 +406,7 @@ class NavigationMapOverlayManager(
                         outlinePaint.color = danskStiColors.success.copy(alpha = 0.5f).toArgb()
                         outlinePaint.strokeWidth = dp(1.5f)
                         title = ft.name
-                        subDescription = "Fri teltning (${ft.forestType})"
+                        subDescription = ft.forestType?.takeIf { it.isNotBlank() }?.let { "Fri teltning ($it)" } ?: "Fri teltning"
                         setOnClickListener { _, _, _ ->
                             onSelectPoi(ft)
                             true

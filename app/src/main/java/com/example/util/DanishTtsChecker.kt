@@ -31,7 +31,18 @@ object DanishTtsChecker {
     /**
      * Checks whether the given initialized [TextToSpeech] instance has an installed Danish voice.
      */
-    fun isDanishTtsSupported(tts: TextToSpeech?): Boolean {
+    fun isDanishTtsSupported(tts: TextToSpeech?): Boolean = isTtsLocaleSupported(tts, DANISH_LOCALE)
+
+    fun resolveTtsLocale(context: Context): Locale {
+        val cfgLocale = AppLocaleHelper.configurationLocale(AppLocaleHelper.createLocalizedContext(context))
+        return when (cfgLocale.language.lowercase(Locale.ROOT)) {
+            "en" -> Locale.ENGLISH
+            "de" -> Locale.GERMAN
+            else -> DANISH_LOCALE
+        }
+    }
+
+    fun isTtsLocaleSupported(tts: TextToSpeech?, targetLocale: Locale = DANISH_LOCALE): Boolean {
         isDanishVoiceInstalledOverrideForTests?.let {
             _isDanishVoiceInstalled.value = it
             return it
@@ -41,22 +52,24 @@ object DanishTtsChecker {
             return false
         }
         return try {
-            val avail = tts.isLanguageAvailable(DANISH_LOCALE)
+            val avail = tts.isLanguageAvailable(targetLocale)
             if (avail == TextToSpeech.LANG_MISSING_DATA || avail == TextToSpeech.LANG_NOT_SUPPORTED || avail < TextToSpeech.LANG_AVAILABLE) {
                 _isDanishVoiceInstalled.value = false
                 return false
             }
             val voices = runCatching { tts.voices }.getOrNull()
             if (!voices.isNullOrEmpty()) {
-                val hasInstalledDanishVoice = voices.any { voice ->
+                val targetLang = targetLocale.language.lowercase(Locale.ROOT)
+                val hasInstalledVoice = voices.any { voice ->
                     val lang = voice.locale?.language?.lowercase(Locale.ROOT).orEmpty()
-                    val isDa = lang == "da" || lang == "dan"
+                    val matches = lang == targetLang || (targetLang == "da" && lang == "dan") ||
+                        (targetLang == "en" && lang == "eng") || (targetLang == "de" && (lang == "deu" || lang == "ger"))
                     val features = voice.features ?: emptySet()
                     val notInstalled = features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
-                    isDa && !notInstalled
+                    matches && !notInstalled
                 }
-                _isDanishVoiceInstalled.value = hasInstalledDanishVoice
-                hasInstalledDanishVoice
+                _isDanishVoiceInstalled.value = hasInstalledVoice
+                hasInstalledVoice
             } else {
                 val supported = avail >= TextToSpeech.LANG_AVAILABLE
                 _isDanishVoiceInstalled.value = supported
@@ -77,11 +90,12 @@ object DanishTtsChecker {
             onResult(overrideVal)
             return
         }
+        val targetLocale = resolveTtsLocale(context)
         var engine: TextToSpeech? = null
         try {
             engine = TextToSpeech(context.applicationContext) { status ->
                 val installed = if (status == TextToSpeech.SUCCESS) {
-                    isDanishTtsSupported(engine)
+                    isTtsLocaleSupported(engine, targetLocale)
                 } else {
                     _isDanishVoiceInstalled.value = false
                     false

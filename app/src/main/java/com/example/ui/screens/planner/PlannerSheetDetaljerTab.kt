@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.ZoomIn
@@ -48,11 +49,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.model.RoadSectionWarning
 import com.example.data.model.WaypointWeatherEta
 import com.example.ui.components.RouteElevationProfileChart
+import com.example.ui.components.rememberAppLocale
 import com.example.ui.theme.DanskStiTheme
 import com.example.ui.viewmodel.RouteBuilderState
 import com.example.util.routing.LegGeometryData
@@ -61,7 +62,6 @@ import com.example.util.routing.RouteOptions
 import com.example.util.routing.RoutePoint3D
 import com.example.util.routing.RouteWaypoint
 import com.example.util.routing.WaypointRole
-import java.util.Locale
 
 @Composable
 internal fun PlannerDetaljerTabContent(
@@ -72,7 +72,9 @@ internal fun PlannerDetaljerTabContent(
     onZoomToCoordinate: (Double, Double) -> Unit,
     onUpdateOptions: (RouteOptions) -> Unit,
     onOpenSaveDialog: () -> Unit,
-    onStartNavigation: () -> Unit
+    onStartNavigation: () -> Unit,
+    packingSummaryText: String? = null,
+    onOpenPackingList: (() -> Unit)? = null
 ) {
     val allPoints = remember(uiState.legs, uiState.waypoints) {
         val ordered = mutableListOf<LegGeometryData>()
@@ -91,7 +93,7 @@ internal fun PlannerDetaljerTabContent(
 
     Text(
         text = stringResource(R.string.planner_elevation_chart_title),
-        fontSize = 13.sp,
+        style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.onSurface
     )
@@ -109,10 +111,56 @@ internal fun PlannerDetaljerTabContent(
         modifier = Modifier.testTag("planner_elevation_chart")
     )
 
+    // Round 21 D1: Packing list card for a saved plan in the Detaljer tab
+    if (onOpenPackingList != null) {
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onOpenPackingList() }
+                .testTag("planner_detaljer_packing_list_card")
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Checklist,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.packing_list_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Text(
+                    text = packingSummaryText ?: stringResource(R.string.packing_list_open_action),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.testTag("planner_detaljer_packing_summary")
+                )
+            }
+        }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = stringResource(R.string.planner_route_quality_title),
-            fontSize = 13.sp,
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
         )
@@ -123,7 +171,7 @@ internal fun PlannerDetaljerTabContent(
                     R.string.planner_way_info_unknown_full,
                     stringResource(R.string.planner_way_info_unknown)
                 ),
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("way_info_unknown_text")
             )
@@ -134,7 +182,7 @@ internal fun PlannerDetaljerTabContent(
                     uiState.stats.pathShareFormatted,
                     uiState.stats.roadKmFormatted
                 ),
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("way_info_summary_text")
             )
@@ -235,7 +283,7 @@ internal fun PlannerDetaljerTabContent(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = stringResource(R.string.planner_road_warning_header),
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = dsColors.overnight
                 )
@@ -255,7 +303,7 @@ internal fun PlannerDetaljerTabContent(
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
                 text = stringResource(R.string.ui_traildetailscreen_vejrudsigt_open_meteo_206),
-                fontSize = 13.sp,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -267,7 +315,7 @@ internal fun PlannerDetaljerTabContent(
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
                 text = stringResource(R.string.ui_traildetailscreen_vejrudsigt_open_meteo_206),
-                fontSize = 13.sp,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -278,11 +326,9 @@ internal fun PlannerDetaljerTabContent(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Dag ${day.dayNumber}: " + stringResource(
-                            R.string.planner_night_weather_format,
-                            day.nightWeatherSummary
-                        ),
-                        fontSize = 12.sp,
+                        text = stringResource(R.string.day_number_prefix_fmt, day.dayNumber) +
+                            stringResource(R.string.planner_night_weather_format, day.nightWeatherSummary),
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
                             .padding(horizontal = 10.dp, vertical = 6.dp)
@@ -316,6 +362,7 @@ fun QualityRowItem(
     km: Double,
     pct: Double
 ) {
+    val locale = rememberAppLocale()
     val safeKm = if (km.isFinite()) km else 0.0
     val safePct = if (pct.isFinite()) pct.toInt() else 0
     Row(
@@ -329,8 +376,13 @@ fun QualityRowItem(
                 .background(color, CircleShape)
         )
         Text(
-            text = stringResource(R.string.ui_plannerbottomsheet_km_222, label, String.format(Locale.GERMANY, "%.1f", safeKm), safePct),
-            fontSize = 11.sp,
+            text = stringResource(
+                R.string.ui_plannerbottomsheet_km_222,
+                label,
+                String.format(locale, "%.1f", safeKm),
+                safePct
+            ),
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
@@ -359,7 +411,7 @@ fun RoadSectionWarningCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = warning.displayText,
-                    fontSize = 11.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Medium
                 )
@@ -378,7 +430,7 @@ fun RoadSectionWarningCard(
                 Spacer(modifier = Modifier.width(2.dp))
                 Text(
                     stringResource(R.string.planner_btn_show),
-                    fontSize = 11.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     color = dsColors.overnight,
                     fontWeight = FontWeight.Bold
                 )
@@ -391,6 +443,7 @@ fun RoadSectionWarningCard(
 fun WaypointWeatherEtaCard(
     weather: WaypointWeatherEta
 ) {
+    val locale = rememberAppLocale()
     val dsColors = DanskStiTheme.colors
     Card(
         shape = RoundedCornerShape(10.dp),
@@ -414,11 +467,11 @@ fun WaypointWeatherEtaCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = if (weather.isOvernight) "⛺ " else "🏁 ",
-                        fontSize = 14.sp
+                        style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
                         text = weather.waypointName,
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -431,7 +484,7 @@ fun WaypointWeatherEtaCard(
                 ) {
                     Text(
                         text = stringResource(R.string.ui_plannerbottomsheet_eta_223, weather.etaFormatted),
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
@@ -442,13 +495,13 @@ fun WaypointWeatherEtaCard(
 
             Text(
                 text = String.format(
-                    Locale.GERMANY,
+                    locale,
                     stringResource(R.string.planner_weather_eta_distance_format),
                     weather.kmFromStart,
                     weather.etaMinutesFromStart / 60,
                     weather.etaMinutesFromStart % 60
                 ),
-                fontSize = 11.sp,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
@@ -462,20 +515,20 @@ fun WaypointWeatherEtaCard(
                 ) {
                     Text(
                         text = stringResource(R.string.ui_plannerbottomsheet_c_224, weather.weatherIcon ?: "🌤️", weather.tempC.toInt()),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold
                     )
                     if (weather.precipMm != null) {
                         Text(
-                            text = stringResource(R.string.ui_plannerbottomsheet_mm_225, String.format(Locale.US, "%.1f", weather.precipMm)),
-                            fontSize = 11.sp,
+                            text = stringResource(R.string.ui_plannerbottomsheet_mm_225, String.format(locale, "%.1f", weather.precipMm)),
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     if (weather.windMs != null) {
                         Text(
-                            text = stringResource(R.string.ui_plannerbottomsheet_m_s_226, String.format(Locale.US, "%.1f", weather.windMs)),
-                            fontSize = 11.sp,
+                            text = stringResource(R.string.ui_plannerbottomsheet_m_s_226, String.format(locale, "%.1f", weather.windMs)),
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -483,7 +536,7 @@ fun WaypointWeatherEtaCard(
             } else {
                 Text(
                     text = stringResource(R.string.planner_weather_arrival_unavailable),
-                    fontSize = 11.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -492,7 +545,7 @@ fun WaypointWeatherEtaCard(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = stringResource(R.string.planner_sunset_time_format, weather.sunsetTime),
-                    fontSize = 11.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -506,7 +559,7 @@ fun WaypointWeatherEtaCard(
                 ) {
                     Text(
                         text = weather.warningMessage,
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(6.dp)
@@ -525,7 +578,7 @@ internal fun PlannerRoutingOptionsSection(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = stringResource(R.string.planner_routing_options_title),
-            fontSize = 13.sp,
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
         )
@@ -537,12 +590,12 @@ internal fun PlannerRoutingOptionsSection(
             ) {
                 Text(
                     stringResource(R.string.planner_avoid_roads),
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     stringResource(R.string.ui_offlinetrailsscreen_fmt_86, (options.avoidRoads * 100).toInt()),
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -567,7 +620,7 @@ internal fun PlannerRoutingOptionsSection(
         ) {
             Text(
                 stringResource(R.string.planner_prefer_nature),
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Switch(
@@ -587,7 +640,7 @@ internal fun PlannerRoutingOptionsSection(
         ) {
             Text(
                 stringResource(R.string.planner_allow_ferries),
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Switch(
@@ -685,11 +738,10 @@ fun SheetHeightChip(
         ) {
             Text(
                 text = label,
-                fontSize = 11.sp,
+                style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
 }
-

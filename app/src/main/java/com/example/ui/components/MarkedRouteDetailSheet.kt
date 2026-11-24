@@ -42,6 +42,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -94,8 +95,22 @@ fun MarkedRouteDetailSheet(
     route: MarkedRouteDto,
     onSaveAsTrail: suspend (MarkedRouteDto) -> Result<TrailEntity>,
     onOpenTrailDetails: (String) -> Unit = {},
+    paceKmhOverride: Double? = null,
     onDismiss: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val appLocale = rememberAppLocale()
+    val settingsRepo = remember(context) { com.example.DanskStiApp.getSettingsRepository(context) }
+    val settings by settingsRepo.settingsFlow.collectAsState(
+        initial = remember(settingsRepo) { settingsRepo.currentSettingsSnapshot() }
+    )
+    val paceKmh = (paceKmhOverride ?: settings.mitTempoKmh).takeIf { it > 0.5 } ?: 4.0
+    val formattedPace = if (paceKmh % 1.0 == 0.0) {
+        String.format(appLocale, "%.0f", paceKmh)
+    } else {
+        String.format(appLocale, "%.1f", paceKmh)
+    }
+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val primaryColor = MaterialTheme.colorScheme.primary
@@ -105,7 +120,7 @@ fun MarkedRouteDetailSheet(
     var savedTrail by remember { mutableStateOf<TrailEntity?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    val walkHours = route.lengthKm / 4.0
+    val walkHours = route.lengthKm / paceKmh
     val estHours = walkHours.toInt()
     val estMins = ((walkHours - estHours) * 60).toInt()
     val timeEstimateStr = if (estHours > 0) "${estHours}t ${estMins}m" else "${estMins}m"
@@ -150,7 +165,7 @@ fun MarkedRouteDetailSheet(
                     ) {
                         Text(
                             text = route.networkDescription,
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = routeColor,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
@@ -174,7 +189,7 @@ fun MarkedRouteDetailSheet(
             // Route Name
             Text(
                 text = route.name,
-                fontSize = 20.sp,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -206,12 +221,12 @@ fun MarkedRouteDetailSheet(
                         Column {
                             Text(
                                 text = stringResource(R.string.ui_markedroutedetailsheet_distance_18),
-                                fontSize = 10.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = stringResource(R.string.ui_markedroutedetailsheet_km_19, String.format(Locale.US, "%.1f", route.lengthKm)),
-                                fontSize = 13.sp,
+                                text = stringResource(R.string.ui_markedroutedetailsheet_km_19, String.format(appLocale, "%.1f", route.lengthKm)),
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -238,15 +253,17 @@ fun MarkedRouteDetailSheet(
                         Spacer(modifier = Modifier.width(6.dp))
                         Column {
                             Text(
-                                text = stringResource(R.string.ui_markedroutedetailsheet_g_tid_4_km_t_20),
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = stringResource(R.string.marked_route_walking_time_label, formattedPace),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.testTag("marked_route_walking_time_label")
                             )
                             Text(
                                 text = timeEstimateStr,
-                                fontSize = 13.sp,
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.testTag("marked_route_walking_time_value")
                             )
                         }
                     }
@@ -271,41 +288,36 @@ fun MarkedRouteDetailSheet(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = stringResource(R.string.ui_markedroutedetailsheet_operat_r_21),
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = route.displayOperator,
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = stringResource(R.string.ui_markedroutedetailsheet_osm_relation_22),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = stringResource(R.string.ui_markedroutedetailsheet_fmt_23, route.osmRelationId),
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = stringResource(R.string.marked_route_source_osm),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.testTag("marked_route_source_osm")
                         )
                     }
                     if (!route.symbol.isNullOrBlank()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = stringResource(R.string.ui_markedroutedetailsheet_afm_rkning_24),
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
                                 text = route.symbol,
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
@@ -336,7 +348,7 @@ fun MarkedRouteDetailSheet(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = stringResource(R.string.ui_markedroutedetailsheet_ruten_er_gemt_som_vandrerute_25),
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor
                         )
@@ -376,7 +388,7 @@ fun MarkedRouteDetailSheet(
                     Text(
                         text = errorMessage ?: "",
                         color = MaterialTheme.colorScheme.error,
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                 }
@@ -421,7 +433,7 @@ fun MarkedRouteDetailSheet(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = stringResource(R.string.ui_markedroutedetailsheet_gem_som_vandrerute_28),
-                            fontSize = 15.sp,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                     }

@@ -1,8 +1,14 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.net.Uri
+import android.os.Build
 import android.util.Log
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.DanskStiApp
@@ -13,13 +19,17 @@ import com.example.data.model.GeoPointDto
 import com.example.data.model.PlannedRoute
 import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
+import com.example.data.model.TripDiaryEntryEntity
 import com.example.data.model.TripPlanEntity
 import com.example.data.model.TripStage
 import com.example.data.model.UserHazardNoteEntity
+import com.example.data.remote.TrailWeatherInfo
+import com.example.data.remote.WeatherInterpreter
 import com.example.data.repository.DanskStiRepository
 import com.example.data.repository.PlannedRouteRepository
 import com.example.service.NavigationLiveState
 import com.example.service.NavigationTrackingService
+import com.example.util.AppLocaleHelper
 import com.example.util.GeoUtils
 import com.example.util.SunCalculator
 import com.example.util.routing.BRouterOfflineEngine
@@ -41,7 +51,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class NavigationViewModel(application: Application) : AndroidViewModel(application) {
-
+    init { DanskStiApp.registerViewModelScope(viewModelScope) }
     private val app: DanskStiApp
         get() = try { DanskStiApp.instance } catch (_: Exception) { getApplication() as DanskStiApp }
     private val repository: DanskStiRepository
@@ -179,6 +189,32 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private val _voiceGuidance = MutableStateFlow(false)
     val voiceGuidance: StateFlow<Boolean> = _voiceGuidance.asStateFlow()
 
+    private val _rainAlertEnabled = MutableStateFlow(true)
+    val rainAlertEnabled: StateFlow<Boolean> = _rainAlertEnabled.asStateFlow()
+
+    // Part D2: Trip diary entries for active plan
+    private val _diaryEntries = MutableStateFlow<List<TripDiaryEntryEntity>>(emptyList())
+    val diaryEntries: StateFlow<List<TripDiaryEntryEntity>> = _diaryEntries.asStateFlow()
+    private var observedDiaryPlanId: Long = 0L
+    private var diaryObserverJob: Job? = null
+
+    // Part E1: Navigation weather (refreshed at most once per 60 min or 5 km) & tonight's camp weather
+    private val _navigationWeather = MutableStateFlow<TrailWeatherInfo?>(null)
+    val navigationWeather: StateFlow<TrailWeatherInfo?> = _navigationWeather.asStateFlow()
+
+    private val _tonightCampWeather = MutableStateFlow<TrailWeatherInfo?>(null)
+    val tonightCampWeather: StateFlow<TrailWeatherInfo?> = _tonightCampWeather.asStateFlow()
+
+    internal var lastWeatherFetchMs: Long = 0L
+    internal var lastWeatherFetchLat: Double = Double.NaN
+    internal var lastWeatherFetchLng: Double = Double.NaN
+    internal var lastRainAlertPostedMs: Long = 0L
+    internal var lastPrefetchedCampDay: Int = -1
+    @Volatile
+    private var weatherFetchJob: Job? = null
+    @Volatile
+    private var campWeatherPrefetchJob: Job? = null
+
     private fun MutableStateFlow<Boolean>.combineWithLiveState(): StateFlow<Boolean> {
         val flow = MutableStateFlow(false)
         viewModelScope.launch {
@@ -190,15 +226,28 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     init {
+        latestInstance = this
         viewModelScope.launch {
             settingsRepository.settingsFlow.collect { settings ->
                 _mitTempoKmh.value = settings.mitTempoKmh
                 _keepScreenOn.value = settings.keepScreenOn
                 _voiceGuidance.value = settings.voiceGuidance
+                _rainAlertEnabled.value = settings.rainAlertEnabled
             }
         }
         viewModelScope.launch {
             NavigationTrackingService.liveState.collect { state ->
+                if (latestInstance !== this@NavigationViewModel) return@collect
+                val currentActivePlanId = _activePlan.value?.id
+                if (currentActivePlanId != null && state.planId > 0L && state.planId != currentActivePlanId) {
+                    return@collect
+                }
+                val effPlanId = if (state.planId > 0L) state.planId else (currentActivePlanId ?: 0L)
+                if (effPlanId > 0L && effPlanId != observedDiaryPlanId) {
+                    observedDiaryPlanId = effPlanId
+                    observeDiaryEntriesForPlan(effPlanId)
+                }
+
                 if (state.plannedRoute != null && _plannedRoute.value == null) {
                     _plannedRoute.value = state.plannedRoute
                     loadRouteCorridorPois(state.plannedRoute)
@@ -238,6 +287,8 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 )
 
                 refreshNavigationSunset(state)
+                maybePrefetchTonightCampWeather(state)
+                maybeUpdateNavigationWeather(state)
 
                 if (state.currentLat != null && state.currentLng != null && state.currentLat != 0.0 && state.isTracking) {
                     _emergencyInfo.value = repository.getEmergencyInfo(state.currentLat, state.currentLng)
@@ -246,13 +297,106 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    private fun observeDiaryEntriesForPlan(planId: Long) {
+        diaryObserverJob?.cancel()
+        diaryObserverJob = viewModelScope.launch {
+            repository.getDiaryEntriesForPlanFlow(planId).collect { _diaryEntries.value = it }
+        }
+    }
+
+    fun saveDiaryEntry(planId: Long, dayNumber: Int, note: String, photoUris: List<String>) {
+        if (planId <= 0L) return
+        viewModelScope.launch(Dispatchers.IO) { repository.saveDiaryEntry(planId, dayNumber, note, photoUris) }
+    }
+
+    fun copyAndResizeDiaryPhoto(planId: Long, dayNumber: Int, sourceUri: Uri, onComplete: (String?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val savedPath = com.example.ui.components.TripDiaryPhotoHelper.copyAndResizePhotoToInternalStorage(
+                context = getApplication(), sourceUri = sourceUri, planId = planId, dayNumber = dayNumber
+            )
+            withContext(Dispatchers.Main) { onComplete(savedPath) }
+        }
+    }
+
+    fun deleteDiaryPhotoFile(path: String) {
+        viewModelScope.launch(Dispatchers.IO) { com.example.ui.components.TripDiaryPhotoHelper.deleteDiaryPhotoFile(path) }
+    }
+
+    internal fun maybePrefetchTonightCampWeather(state: NavigationLiveState) {
+        val stage = state.currentStage ?: _plannedRoute.value?.stages?.getOrNull(_currentDay.value - 1) ?: return
+        if (stage.stopLat == 0.0 && stage.stopLng == 0.0) return
+        val dayNum = if (state.currentDay > 0) state.currentDay else _currentDay.value
+        if (dayNum == lastPrefetchedCampDay && _tonightCampWeather.value != null) return
+        if (campWeatherPrefetchJob?.isActive == true) return
+        lastPrefetchedCampDay = dayNum
+        campWeatherPrefetchJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                repository.getTrailWeather(stage.stopLat, stage.stopLng, forceNetworkRefresh = false)
+                    ?.let { _tonightCampWeather.value = it }
+            } catch (e: Exception) {
+                Log.w("NavigationViewModel", "Failed to prefetch tonight camp weather: ${e.message}")
+            }
+        }
+    }
+
+    internal fun maybeUpdateNavigationWeather(state: NavigationLiveState, nowMs: Long = System.currentTimeMillis()) {
+        val route = _plannedRoute.value ?: state.plannedRoute
+        val lat = state.currentLat ?: state.currentSnappedPoint?.lat ?: route?.points?.firstOrNull()?.lat ?: return
+        val lng = state.currentLng ?: state.currentSnappedPoint?.lng ?: route?.points?.firstOrNull()?.lng ?: return
+
+        val shouldRefresh = WeatherInterpreter.shouldRefreshNavigationWeather(
+            lastFetchMs = lastWeatherFetchMs, lastLat = lastWeatherFetchLat, lastLng = lastWeatherFetchLng,
+            currentLat = lat, currentLng = lng, nowMs = nowMs
+        )
+        if (!shouldRefresh && _navigationWeather.value != null) return
+        if (weatherFetchJob?.isActive == true) return
+
+        weatherFetchJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val weather = if (shouldRefresh) {
+                    repository.getTrailWeather(lat, lng, forceNetworkRefresh = false, nowMs = nowMs)?.also {
+                        lastWeatherFetchMs = nowMs
+                        lastWeatherFetchLat = lat
+                        lastWeatherFetchLng = lng
+                    }
+                } else repository.getCachedTrailWeatherOnly(lat, lng)
+
+                if (weather != null) {
+                    _navigationWeather.value = weather
+                    if (_rainAlertEnabled.value && state.isTracking && !state.isPaused) {
+                        WeatherInterpreter.shouldPostRainAlert(weather, lastRainAlertPostedMs, nowMs)?.let { alertBlock ->
+                            lastRainAlertPostedMs = nowMs
+                            postRainAlertNotification(alertBlock.precipitationMm, alertBlock.timeLabel)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("NavigationViewModel", "Failed updating navigation weather: ${e.message}")
+            }
+        }
+    }
+
+    internal fun postRainAlertNotification(precipMm: Double, timeLabel: String) {
+        postNavigationRainAlertNotification(
+            appCtx = getApplication(), channelId = CHANNEL_RAIN_ALERT_ID,
+            notificationId = RAIN_ALERT_NOTIFICATION_ID, precipMm = precipMm, timeLabel = timeLabel
+        )
+    }
+
+    companion object {
+        const val CHANNEL_RAIN_ALERT_ID = "dansk_sti_rain_alert"
+        const val RAIN_ALERT_NOTIFICATION_ID = 4049
+        @Volatile
+        private var latestInstance: NavigationViewModel? = null
+        fun clearActiveInstance() {
+            latestInstance = null
+        }
+    }
+
     fun refreshNavigationSunset(state: NavigationLiveState = liveState.value) {
         _sunsetTime.value = computeNavigationSunsetForState(
-            liveState = state,
-            currentDay = _currentDay.value,
-            activePlan = _activePlan.value,
-            activeStages = _activeStages.value,
-            plannedRoute = _plannedRoute.value ?: state.plannedRoute
+            liveState = state, currentDay = _currentDay.value, activePlan = _activePlan.value,
+            activeStages = _activeStages.value, plannedRoute = _plannedRoute.value ?: state.plannedRoute
         )
     }
 
@@ -262,36 +406,22 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun setActivePlanAndStagesForNavigation(
-        plan: TripPlanEntity?,
-        stages: List<TripStage>,
-        route: PlannedRoute? = _plannedRoute.value
+        plan: TripPlanEntity?, stages: List<TripStage>, route: PlannedRoute? = _plannedRoute.value
     ) {
         _activePlan.value = plan
         _activeStages.value = stages
-        if (route != null) {
-            _plannedRoute.value = route
-        }
+        if (route != null) _plannedRoute.value = route
         refreshNavigationSunset()
     }
 
     private fun recalculateRouteStopsAndAhead(
-        route: PlannedRoute?,
-        currentWalkKm: Double,
-        currentDay: Int,
-        currentStage: TripStage?,
-        remainingTodayKm: Double
+        route: PlannedRoute?, currentWalkKm: Double, currentDay: Int, currentStage: TripStage?, remainingTodayKm: Double
     ) {
         if (route == null || route.points.isEmpty()) return
         val result = computeRouteStopsAndAhead(
-            route = route,
-            currentWalkKm = currentWalkKm,
-            currentDay = currentDay,
-            currentStage = currentStage,
-            remainingTodayKm = remainingTodayKm,
-            waters = _routeWaters.value,
-            shops = _routeShops.value,
-            shelters = _routeShelters.value,
-            previousNextOvernight = _nextOvernight.value
+            route = route, currentWalkKm = currentWalkKm, currentDay = currentDay, currentStage = currentStage,
+            remainingTodayKm = remainingTodayKm, waters = _routeWaters.value, shops = _routeShops.value,
+            shelters = _routeShelters.value, previousNextOvernight = _nextOvernight.value
         )
         _nextWater.value = result.nextWater
         _nextShop.value = result.nextShop
@@ -338,51 +468,24 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 }
 
                 val trailId = route.trailId
-                val geoPoints = route.points.map { GeoPointDto(it.lat, it.lng, it.ele) }
-
                 withContext(Dispatchers.IO) {
-                    val initialShelters = repository.getSheltersForTrail(trailId)
-                    val initialPois = repository.getPoisForTrail(trailId)
-                    applyRouteCorridorSheltersAndPois(route, initialShelters, initialPois)
-
-                    if (initialShelters.isEmpty() && initialPois.isEmpty() && geoPoints.isNotEmpty()) {
-                        if (trailId.startsWith("route_")) {
-                            val routeId = trailId.removePrefix("route_")
-                            if (repository.getActiveRoutePoiSyncJob(routeId)?.isActive != true) {
-                                repository.enqueueRouteCorridorPoiSync(routeId, geoPoints)
-                            }
-                        } else {
-                            viewModelScope.launch(Dispatchers.IO) {
-                                try {
-                                    repository.getTrailById(trailId)?.let { repository.syncCorridorPois(it) }
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    Log.w("NavigationViewModel", "Failed to sync corridor POIs for $trailId", e)
-                                    _corridorPoisErrorMessage.value =
-                                        getApplication<Application>().getString(R.string.nav_corridor_pois_error)
-                                }
+                    val data = loadInitialCorridorDataForRoute(repository, route)
+                    applyRouteCorridorSheltersAndPois(route, data.initialShelters, data.initialPois)
+                    if (data.needsTrailCorridorSync) {
+                        viewModelScope.launch(Dispatchers.IO) {
+                            try {
+                                repository.getTrailById(trailId)?.let { repository.syncCorridorPois(it) }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                Log.w("NavigationViewModel", "Failed to sync corridor POIs for $trailId", e)
+                                _corridorPoisErrorMessage.value =
+                                    getApplication<Application>().getString(R.string.nav_corridor_pois_error)
                             }
                         }
                     }
-
-                    val allFri = repository.getAllFriTeltningList()
-                    val corridorFri = if (geoPoints.isNotEmpty()) {
-                        allFri.filter { ft ->
-                            val (_, detourM) = GeoUtils.projectPointOnPolyline(
-                                GeoPointDto(ft.centerLat, ft.centerLng),
-                                geoPoints
-                            )
-                            detourM <= 3000.0
-                        }
-                    } else emptyList()
-
-                    _routeFriTeltning.value = corridorFri.map { ft ->
-                        ft to parseFriTeltningPolygonCoords(ft.polygonJson)
-                    }
-
-                    val hazards = repository.getHazardNotesForTrail(trailId).firstOrNull() ?: emptyList()
-                    _routeHazards.value = hazards
+                    _routeFriTeltning.value = data.friTeltningWithPolygons
+                    _routeHazards.value = data.hazards
                 }
 
                 // Compute navigation sunset from current position or tonight's overnight point,
@@ -392,11 +495,8 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 combine(
                     repository.observeSheltersForTrail(trailId),
                     repository.observePoisForTrail(trailId)
-                ) { shelters, pois ->
-                    shelters to pois
-                }.collect { (shelters, pois) ->
-                    applyRouteCorridorSheltersAndPois(route, shelters, pois)
-                }
+                ) { shelters, pois -> shelters to pois }
+                    .collect { (shelters, pois) -> applyRouteCorridorSheltersAndPois(route, shelters, pois) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -413,40 +513,23 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun initPlan(planId: Long?) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val targetId = if (planId != null && planId > 0L) {
-                    planId
-                } else {
-                    val last = plannedRouteRepo.getLastActivePlanId()
-                    if (last > 0L) last else null
-                } ?: return@withContext
+        viewModelScope.launch(Dispatchers.IO) {
+            val targetId = if (planId != null && planId > 0L) planId
+            else plannedRouteRepo.getLastActivePlanId().takeIf { it > 0L } ?: return@launch
 
-                val plan = repository.getTripPlanById(targetId)
-                if (plan != null) {
-                    _activePlan.value = plan
-                }
-                val stages = repository.getStagesForPlan(targetId)
-                if (stages.isNotEmpty()) {
-                    _activeStages.value = stages
-                }
-                val route = plannedRouteRepo.loadPlannedRoute(targetId)
-                if (route != null) {
-                    _plannedRoute.value = route
-                    loadRouteCorridorPois(route)
-                }
-                refreshNavigationSunset()
-
-                if (!NavigationTrackingService.liveState.value.isTracking) {
-                    startTrip(targetId)
-                }
+            repository.getTripPlanById(targetId)?.let { _activePlan.value = it }
+            val stages = repository.getStagesForPlan(targetId)
+            if (stages.isNotEmpty()) _activeStages.value = stages
+            plannedRouteRepo.loadPlannedRoute(targetId)?.let {
+                _plannedRoute.value = it
+                loadRouteCorridorPois(it)
             }
+            refreshNavigationSunset()
+            if (!NavigationTrackingService.liveState.value.isTracking) startTrip(targetId)
         }
     }
 
-    fun hasLocationPermission(): Boolean {
-        return NavigationTrackingService.hasLocationPermission(getApplication())
-    }
+    fun hasLocationPermission(): Boolean = NavigationTrackingService.hasLocationPermission(getApplication())
 
     fun hasNotificationPermission(): Boolean {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return true
@@ -457,41 +540,32 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun startTrip(planId: Long) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val plan = repository.getTripPlanById(planId) ?: return@withContext
-                _activePlan.value = plan
-                val stages = repository.getStagesForPlan(planId)
-                _activeStages.value = stages
-                val route = plannedRouteRepo.loadPlannedRoute(planId)
-                if (route != null) {
-                    _plannedRoute.value = route
-                    loadRouteCorridorPois(route)
-                }
-                refreshNavigationSunset()
-
-                plannedRouteRepo.saveLastActivePlanId(planId)
-                pendingStartPlanId = planId
-
-                if (!hasLocationPermission()) {
-                    _needsLocationPermission.value = true
-                    return@withContext
-                }
-                _needsLocationPermission.value = false
-
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
-                    !hasNotificationPermission() && !notificationPermissionPromptedThisSession
-                ) {
-                    notificationPermissionPromptedThisSession = true
-                    _needsNotificationPermission.value = true
-                    return@withContext
-                }
-
-                NavigationTrackingService.start(
-                    context = getApplication(),
-                    planId = planId
-                )
+        viewModelScope.launch(Dispatchers.IO) {
+            val plan = repository.getTripPlanById(planId) ?: return@launch
+            _activePlan.value = plan
+            _activeStages.value = repository.getStagesForPlan(planId)
+            plannedRouteRepo.loadPlannedRoute(planId)?.let {
+                _plannedRoute.value = it
+                loadRouteCorridorPois(it)
             }
+            refreshNavigationSunset()
+            plannedRouteRepo.saveLastActivePlanId(planId)
+            pendingStartPlanId = planId
+
+            if (!hasLocationPermission()) {
+                _needsLocationPermission.value = true
+                return@launch
+            }
+            _needsLocationPermission.value = false
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+                !hasNotificationPermission() && !notificationPermissionPromptedThisSession
+            ) {
+                notificationPermissionPromptedThisSession = true
+                _needsNotificationPermission.value = true
+                return@launch
+            }
+            NavigationTrackingService.start(context = getApplication(), planId = planId)
         }
     }
 
@@ -505,10 +579,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 notificationPermissionPromptedThisSession = true
                 _needsNotificationPermission.value = true
             } else {
-                NavigationTrackingService.start(
-                    context = getApplication(),
-                    planId = targetId
-                )
+                NavigationTrackingService.start(context = getApplication(), planId = targetId)
             }
         } else {
             _needsLocationPermission.value = true
@@ -519,10 +590,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         _needsNotificationPermission.value = false
         val targetId = pendingStartPlanId ?: _activePlan.value?.id ?: return
         if (hasLocationPermission()) {
-            NavigationTrackingService.start(
-                context = getApplication(),
-                planId = targetId
-            )
+            NavigationTrackingService.start(context = getApplication(), planId = targetId)
         }
     }
 
@@ -535,18 +603,9 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         plannedRouteRepo.clearLastActivePlanId()
     }
 
-    fun stopForToday() {
-        NavigationTrackingService.stopForToday(getApplication())
-    }
-
-    fun togglePause() {
-        val nextPaused = !liveState.value.isPaused
-        NavigationTrackingService.setPaused(getApplication(), nextPaused)
-    }
-
-    fun setPaused(paused: Boolean) {
-        NavigationTrackingService.setPaused(getApplication(), paused)
-    }
+    fun stopForToday() = NavigationTrackingService.stopForToday(getApplication())
+    fun togglePause() = NavigationTrackingService.setPaused(getApplication(), !liveState.value.isPaused)
+    fun setPaused(paused: Boolean) = NavigationTrackingService.setPaused(getApplication(), paused)
 
     fun takeDetour(nowMs: Long = System.currentTimeMillis()) {
         NavigationTrackingService.takeDetour(getApplication(), nowMs)
@@ -574,33 +633,17 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val from = LatLng(curLat, curLng)
-                val to = LatLng(targetPt.lat, targetPt.lng)
-                val errText = getApplication<Application>().getString(R.string.nav_route_back_error)
-                val customRouter = customBackToRouteRouter
-                if (customRouter != null) {
-                    val customRes = customRouter(from, to)
-                    if (customRes is RouteLegResult.Success && customRes.points.size >= 2) {
-                        _backToRoutePoints.value = customRes.points
-                    } else {
-                        _backToRoutePoints.value = emptyList()
-                        _routeBackErrorMessage.value = errText
-                    }
-                    return@launch
-                }
-                val offlineEngine = BRouterOfflineEngine(getApplication<Application>())
-                val offlineRes = offlineEngine.routeLeg(from, to, RouteOptions())
-                if (offlineRes is RouteLegResult.Success && offlineRes.points.size >= 2) {
-                    _backToRoutePoints.value = offlineRes.points
+                val pts = computeBackToRouteLegPoints(
+                    app = getApplication(),
+                    from = LatLng(curLat, curLng),
+                    to = LatLng(targetPt.lat, targetPt.lng),
+                    customRouter = customBackToRouteRouter
+                )
+                if (pts != null) {
+                    _backToRoutePoints.value = pts
                 } else {
-                    val onlineEngine = BRouterOnlineEngine(getApplication<Application>())
-                    val onlineRes = onlineEngine.routeLeg(from, to, RouteOptions())
-                    if (onlineRes is RouteLegResult.Success && onlineRes.points.size >= 2) {
-                        _backToRoutePoints.value = onlineRes.points
-                    } else {
-                        _backToRoutePoints.value = emptyList()
-                        _routeBackErrorMessage.value = errText
-                    }
+                    _backToRoutePoints.value = emptyList()
+                    _routeBackErrorMessage.value = getApplication<Application>().getString(R.string.nav_route_back_error)
                 }
             } catch (_: Exception) {
                 _backToRoutePoints.value = emptyList()
@@ -625,16 +668,12 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
     fun setMapMode(mode: NavigationMapMode) {
         overviewReturnJob?.cancel()
-        if (mode != NavigationMapMode.OVERVIEW) {
-            previousFollowMode = mode
-        }
+        if (mode != NavigationMapMode.OVERVIEW) previousFollowMode = mode
         _mapMode.value = mode
         if (mode == NavigationMapMode.OVERVIEW) {
             overviewReturnJob = viewModelScope.launch {
                 delay(10_000L)
-                if (_mapMode.value == NavigationMapMode.OVERVIEW) {
-                    _mapMode.value = previousFollowMode
-                }
+                if (_mapMode.value == NavigationMapMode.OVERVIEW) _mapMode.value = previousFollowMode
             }
         }
     }
@@ -648,21 +687,15 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
     fun setKeepScreenOn(enabled: Boolean) {
         _keepScreenOn.value = enabled
-        viewModelScope.launch {
-            settingsRepository.setKeepScreenOn(enabled)
-        }
+        viewModelScope.launch { settingsRepository.setKeepScreenOn(enabled) }
     }
 
     fun setVoiceGuidance(enabled: Boolean) {
         _voiceGuidance.value = enabled
-        viewModelScope.launch {
-            settingsRepository.setVoiceGuidance(enabled)
-        }
+        viewModelScope.launch { settingsRepository.setVoiceGuidance(enabled) }
     }
 
-    fun dismissContinueDayPrompt() {
-        NavigationTrackingService.dismissContinueDayPrompt()
-    }
+    fun dismissContinueDayPrompt() = NavigationTrackingService.dismissContinueDayPrompt()
 
     fun toggleBatterySaver() {
         val next = !_isBatterySaverMode.value
@@ -675,23 +708,14 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         NavigationTrackingService.setBatterySaverMode(enabled)
     }
 
-    fun setSosSheet(show: Boolean) {
-        _showSosSheet.value = show
-    }
-
-    fun cycleMapTileMode() {
-        _mapTileMode.value = when (_mapTileMode.value) {
-            "topo" -> "offline"
-            else -> "topo"
-        }
-    }
+    fun setSosSheet(show: Boolean) { _showSosSheet.value = show }
+    fun cycleMapTileMode() { _mapTileMode.value = if (_mapTileMode.value == "topo") "offline" else "topo" }
 
     private val _allRecordedDayStats = MutableStateFlow<List<com.example.data.model.RecordedDayStatEntity>>(emptyList())
     val allRecordedDayStats: StateFlow<List<com.example.data.model.RecordedDayStatEntity>> = _allRecordedDayStats.asStateFlow()
 
     private val _currentDayStat = MutableStateFlow<com.example.data.model.RecordedDayStatEntity?>(null)
     val currentDayStat: StateFlow<com.example.data.model.RecordedDayStatEntity?> = _currentDayStat.asStateFlow()
-
     private var dayStatsObserverJob: Job? = null
 
     init {
@@ -713,14 +737,34 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun exportDayGpx(context: android.content.Context, dayNumber: Int) {
-        viewModelScope.launch {
-            exportDayGpxForPlan(context, repository, liveState.value, dayNumber)
-        }
+        viewModelScope.launch { exportDayGpxForPlan(context, repository, liveState.value, dayNumber) }
     }
 
     fun exportWholeTripGpx(context: android.content.Context) {
-        viewModelScope.launch {
-            exportWholeTripGpxForPlan(context, repository, liveState.value)
+        viewModelScope.launch { exportWholeTripGpxForPlan(context, repository, liveState.value) }
+    }
+
+    fun shareCompletedTripWithDiary(
+        context: android.content.Context,
+        trailName: String,
+        totalDistanceKm: Double,
+        totalMovingSeconds: Long,
+        totalAscentMeters: Int,
+        totalDays: Int
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val pId = if (liveState.value.planId > 0L) liveState.value.planId else (_activePlan.value?.id ?: 0L)
+            shareCompletedTripWithDiaryHelper(
+                context = context,
+                repository = repository,
+                planId = pId,
+                fallbackEntries = _diaryEntries.value,
+                trailName = trailName,
+                totalDistanceKm = totalDistanceKm,
+                totalMovingSeconds = totalMovingSeconds,
+                totalAscentMeters = totalAscentMeters,
+                totalDays = totalDays
+            )
         }
     }
 

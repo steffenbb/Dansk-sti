@@ -46,8 +46,11 @@ import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -109,6 +112,9 @@ internal fun TrailDetailDetailsSection(
     val isOfflineMapDownloading by viewModel.isOfflineMapDownloading.collectAsState()
     val offlineMapProgressPct by viewModel.offlineMapProgressPct.collectAsState()
     val startNowStatusMessage by viewModel.startNowStatusMessage.collectAsState()
+    val nearestStartTransport by viewModel.nearestStartTransport.collectAsState()
+    val nearestEndTransport by viewModel.nearestEndTransport.collectAsState()
+    val trailPhotos by viewModel.trailPhotos.collectAsState()
 
     if (showOfflineConfirmDialog && offlineEstimate != null) {
         TrailOfflineDownloadDialog(
@@ -134,6 +140,7 @@ internal fun TrailDetailDetailsSection(
         ) {
             // Title Block: title, region, data date + "Hentet <dato>" when downloaded
             item {
+                val appLocale = com.example.ui.components.rememberAppLocale()
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -155,18 +162,21 @@ internal fun TrailDetailDetailsSection(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.testTag("trail_detail_region")
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = stringResource(R.string.ui_traildetailscreen_data_okt_2026_198),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                            modifier = Modifier.testTag("trail_detail_data_date")
-                        )
+                        val formattedOsmDate = GeoUtils.formatOsmTimestampMonthYear(t.osmTimestamp, appLocale)
+                        if (formattedOsmDate != null) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.trail_detail_data_date_fmt, formattedOsmDate),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                modifier = Modifier.testTag("trail_detail_data_date")
+                            )
+                        }
                     }
                     downloadedTrail?.let { dl ->
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = com.example.ui.components.formatDownloadedDateDanish(dl.downloadedAt),
+                            text = com.example.ui.components.formatDownloadedDateDanish(dl.downloadedAt, appLocale, stringResource(R.string.downloaded_date_prefix)),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary,
@@ -178,23 +188,40 @@ internal fun TrailDetailDetailsSection(
 
             // Stats Row: Længde, Stigning, Estimeret tid, Type
             item {
-                Row(
+                val appLocale = com.example.ui.components.rememberAppLocale()
+                val hasRealElevation = elevationGain > 0 || points.any { it.ele != null && it.ele != 0.0 }
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        StatCardItem(label = stringResource(R.string.trail_detail_stat_length), value = "${String.format(Locale("da", "DK"), "%.1f", totalKm)} km")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            StatCardItem(label = stringResource(R.string.trail_detail_stat_length), value = "${String.format(appLocale, "%.1f", totalKm)} km")
+                        }
+                        if (hasRealElevation) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                StatCardItem(label = stringResource(R.string.trail_detail_stat_ascent), value = "+${elevationGain} m")
+                            }
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            StatCardItem(label = stringResource(R.string.trail_detail_stat_estimated_time), value = "$estimatedDays ${if (estimatedDays == 1) stringResource(R.string.day_singular) else stringResource(R.string.day_plural)}")
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            StatCardItem(label = stringResource(R.string.trail_detail_stat_type), value = routeType)
+                        }
                     }
-                    Box(modifier = Modifier.weight(1f)) {
-                        StatCardItem(label = stringResource(R.string.trail_detail_stat_ascent), value = "+${elevationGain} m")
-                    }
-                    Box(modifier = Modifier.weight(1f)) {
-                        StatCardItem(label = stringResource(R.string.trail_detail_stat_estimated_time), value = "$estimatedDays ${if (estimatedDays == 1) stringResource(R.string.day_singular) else stringResource(R.string.day_plural)}")
-                    }
-                    Box(modifier = Modifier.weight(1f)) {
-                        StatCardItem(label = stringResource(R.string.trail_detail_stat_type), value = routeType)
+                    if (!hasRealElevation) {
+                        Text(
+                            text = stringResource(R.string.trail_detail_ascent_after_download),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.testTag("trail_detail_ascent_after_download")
+                        )
                     }
                 }
             }
@@ -315,6 +342,13 @@ internal fun TrailDetailDetailsSection(
                     stringResource(R.string.trail_detail_tab_weather),
                     stringResource(R.string.trail_detail_tab_transport)
                 )
+                val tabTags = listOf(
+                    "tab_oversigt",
+                    "tab_overnatning",
+                    "tab_vand_&_mad",
+                    "tab_vejr",
+                    "tab_transport"
+                )
                 ScrollableTabRow(
                     selectedTabIndex = selectedTabIndex,
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -336,12 +370,12 @@ internal fun TrailDetailDetailsSection(
                             text = {
                                 Text(
                                     text = title,
-                                    fontSize = 14.sp,
+                                    style = MaterialTheme.typography.titleSmall,
                                     fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Medium,
                                     color = if (selectedTabIndex == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             },
-                            modifier = Modifier.testTag("tab_${title.lowercase().replace(" ", "_")}")
+                            modifier = Modifier.testTag(tabTags.getOrElse(index) { "tab_$index" })
                         )
                     }
                 }
@@ -351,6 +385,7 @@ internal fun TrailDetailDetailsSection(
             when (selectedTabIndex) {
                 0 -> {
                     item {
+                        val appLocale = com.example.ui.components.rememberAppLocale()
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -360,19 +395,18 @@ internal fun TrailDetailDetailsSection(
                             if (t.description.isNotBlank()) {
                                 Text(
                                     text = t.description,
-                                    fontSize = 14.sp,
-                                    lineHeight = 22.sp,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
 
-                            // Show relation's description, note, operator, website and distance tags when present, labelled "Ifølge OpenStreetMap"
-                            OsmRelationTagsCard(osmTags = osmRelationTags)
+                            // Show relation's description, note, operator, website, from, to and distance tags when present, labelled "Ifølge OpenStreetMap"
+                            OsmRelationTagsCard(osmTags = osmRelationTags, trail = t)
 
-                            if (points.any { it.ele != null }) {
+                            if (points.any { it.ele != null && it.ele != 0.0 }) {
                                 Text(
                                     text = stringResource(R.string.ui_traildetailscreen_h_jdeprofil_199),
-                                    fontSize = 16.sp,
+                                    style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
@@ -388,7 +422,7 @@ internal fun TrailDetailDetailsSection(
 
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_underlag_200),
-                                fontSize = 16.sp,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -396,21 +430,21 @@ internal fun TrailDetailDetailsSection(
 
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_forsyning_p_ruten_201),
-                                fontSize = 16.sp,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             if (isSyncingPois) {
                                 Text(
                                     text = stringResource(R.string.ui_traildetailscreen_henter_data_202),
-                                    fontSize = 14.sp,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.testTag("supply_gaps_loading_text")
                                 )
                             } else {
                                 Text(
-                                    text = stringResource(R.string.ui_traildetailscreen_l_ngste_str_k_uden_vand__203, String.format(Locale.GERMANY, "%.1f", longestGapWithoutWaterKm), String.format(Locale.GERMANY, "%.1f", longestGapWithoutOvernightKm)),
-                                    fontSize = 13.sp,
+                                    text = stringResource(R.string.ui_traildetailscreen_l_ngste_str_k_uden_vand__203, String.format(appLocale, "%.1f", longestGapWithoutWaterKm), String.format(appLocale, "%.1f", longestGapWithoutOvernightKm)),
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.testTag("supply_gaps_summary_text")
                                 )
@@ -470,6 +504,7 @@ internal fun TrailDetailDetailsSection(
 
                 3 -> {
                     item {
+                        val appLocale = com.example.ui.components.rememberAppLocale()
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -478,7 +513,7 @@ internal fun TrailDetailDetailsSection(
                         ) {
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_vejrudsigt_open_meteo_206),
-                                fontSize = 16.sp,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -489,7 +524,7 @@ internal fun TrailDetailDetailsSection(
                             )
 
                             WeatherForecastCard(
-                                title = stringResource(R.string.trail_detail_weather_end_fmt, points.lastOrNull()?.let { "km ${String.format(Locale.US, "%.1f", totalKm)}" } ?: ""),
+                                title = stringResource(R.string.trail_detail_weather_end_fmt, points.lastOrNull()?.let { "km ${String.format(appLocale, "%.1f", totalKm)}" } ?: ""),
                                 weather = weatherEnd
                             )
                         }
@@ -548,7 +583,7 @@ internal fun TrailDetailDetailsSection(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = stringResource(R.string.btn_plan_trip),
-                        fontSize = 15.sp,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -572,7 +607,7 @@ internal fun TrailDetailDetailsSection(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = stringResource(R.string.trail_detail_start_now),
-                        fontSize = 15.sp,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -610,105 +645,3 @@ internal fun TrailDetailDetailsSection(
     }
 }
 
-/**
- * Show the relation's description, note, operator, website and distance tags when present,
- * labelled "Ifølge OpenStreetMap".
- */
-@Composable
-fun OsmRelationTagsCard(
-    osmTags: Map<String, String>,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val description = (osmTags["description:da"] ?: osmTags["description"])?.trim()?.takeIf { it.isNotEmpty() }
-    val note = osmTags["note"]?.trim()?.takeIf { it.isNotEmpty() }
-    val operator = osmTags["operator"]?.trim()?.takeIf { it.isNotEmpty() }
-    val website = (osmTags["website"] ?: osmTags["contact:website"] ?: osmTags["url"])?.trim()?.takeIf { it.isNotEmpty() }
-    val distance = osmTags["distance"]?.trim()?.takeIf { it.isNotEmpty() }
-
-    if (description == null && note == null && operator == null && website == null && distance == null) {
-        return
-    }
-
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("trail_osm_tags_card")
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = stringResource(R.string.trail_detail_osm_header),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.testTag("trail_osm_tags_header")
-            )
-
-            if (description != null) {
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.testTag("trail_osm_tag_description")
-                )
-            }
-
-            if (note != null) {
-                Text(
-                    text = stringResource(R.string.trail_detail_osm_note_fmt, note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("trail_osm_tag_note")
-                )
-            }
-
-            if (operator != null) {
-                Text(
-                    text = stringResource(R.string.trail_detail_osm_operator_fmt, operator),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("trail_osm_tag_operator")
-                )
-            }
-
-            if (distance != null) {
-                Text(
-                    text = stringResource(R.string.trail_detail_osm_distance_fmt, distance),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("trail_osm_tag_distance")
-                )
-            }
-
-            if (website != null) {
-                Text(
-                    text = website,
-                    style = MaterialTheme.typography.bodySmall.copy(textDecoration = TextDecoration.Underline),
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clickable {
-                            try {
-                                val normalizedUrl = if (website.startsWith("http://") || website.startsWith("https://")) {
-                                    website
-                                } else {
-                                    "https://$website"
-                                }
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(normalizedUrl)))
-                            } catch (_: ActivityNotFoundException) {
-                                Toast.makeText(context, context.getString(R.string.toast_no_app_for_link), Toast.LENGTH_SHORT).show()
-                            } catch (_: Exception) {
-                                Toast.makeText(context, context.getString(R.string.toast_no_app_for_link), Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                        .testTag("trail_osm_tag_website")
-                )
-            }
-        }
-    }
-}

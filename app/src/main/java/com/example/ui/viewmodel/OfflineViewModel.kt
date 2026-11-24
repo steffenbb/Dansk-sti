@@ -46,6 +46,7 @@ data class BRouterDataState(
 )
 
 class OfflineViewModel(application: Application) : AndroidViewModel(application) {
+    init { DanskStiApp.registerViewModelScope(viewModelScope) }
 
     private val repository: DanskStiRepository = (application as DanskStiApp).repository
     private val settingsRepository: SettingsRepository = DanskStiApp.getSettingsRepository(application)

@@ -83,9 +83,20 @@ import java.io.File
 import java.util.Locale
 import kotlin.math.roundToInt
 
+import android.os.Build
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.Watch
+import com.example.ui.components.rememberAppLocale
+import com.example.util.AppLanguageOption
+import com.example.util.AppLocaleHelper
+import com.example.util.HikingStatisticsCalculator
+
 /**
- * Profil settings: Mit tempo, daily target, start time, voice guidance & Danish TTS check,
- * "Udseende" + "Kortet følger appen", data and storage, Om appen / data credits / privacy.
+ * Profil settings: Min statistik, Mit tempo, daily target, start time, voice guidance & Danish TTS check,
+ * watch turn cues, rain alert, "Udseende" + "Kortet følger appen", Sprog (Android 13+), data and storage,
+ * Om appen / data credits / privacy.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -98,7 +109,9 @@ fun ProfileScreen(
     val context = LocalContext.current
     val app = context.applicationContext as DanskStiApp
     val settingsRepository = remember { app.settingsRepository }
+    val dao = remember { app.database.dao() }
     val coroutineScope = rememberCoroutineScope()
+    val appLocale = rememberAppLocale()
 
     val appSettings by settingsRepository.settingsFlow.collectAsState(
         initial = remember { settingsRepository.currentSettingsSnapshot() }
@@ -106,6 +119,24 @@ fun ProfileScreen(
     val downloadedTrails by offlineViewModel.downloadedTrails.collectAsState()
     val brouterState by offlineViewModel.brouterDataState.collectAsState()
     val isDanishVoiceInstalled by DanishTtsChecker.isDanishVoiceInstalled.collectAsState()
+
+    val recordedDayStats by dao.getAllRecordedDayStats().collectAsState(initial = emptyList())
+    val tripPlans by dao.getAllTripPlans().collectAsState(initial = emptyList())
+    val completedTripProgress by dao.getCompletedTripProgressFlow().collectAsState(initial = emptyList())
+    val allTrails by dao.getAllTrails().collectAsState(initial = emptyList())
+
+    val hikingStats = remember(recordedDayStats, tripPlans, completedTripProgress, allTrails) {
+        HikingStatisticsCalculator.calculate(
+            dayStats = recordedDayStats,
+            plans = tripPlans,
+            progressList = completedTripProgress,
+            trails = allTrails
+        )
+    }
+
+    var selectedLanguageOption by remember(appLocale) {
+        mutableStateOf(AppLocaleHelper.getCurrentLanguageOption(context))
+    }
 
     LaunchedEffect(Unit) {
         DanishTtsChecker.checkDanishVoiceAvailability(context)
@@ -189,11 +220,21 @@ fun ProfileScreen(
             )
         }
 
-        // Section 1: Vandring & Tempo (Mit tempo, daily target, start time, voice guidance)
+        // Section 0: Min statistik (Part D3)
+        item {
+            ProfileStatisticsSectionCard(
+                stats = hikingStats,
+                locale = appLocale
+            )
+        }
+
+        // Section 1: Vandring & Tempo (Mit tempo, daily target, start time, voice guidance, watch cues, rain alert)
         item {
             ProfileSectionCard(title = stringResource(R.string.profile_section_hiking)) {
-                val daLocale = Locale.forLanguageTag("da-DK")
-                val paceFormatted = String.format(daLocale, "%.1f km/t", appSettings.mitTempoKmh)
+                val paceFormatted = stringResource(
+                    R.string.profile_pace_value_fmt,
+                    String.format(appLocale, "%.1f", appSettings.mitTempoKmh)
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -252,7 +293,10 @@ fun ProfileScreen(
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
 
-                val targetFormatted = String.format(daLocale, "%.0f km / dag", appSettings.dailyTargetKm)
+                val targetFormatted = stringResource(
+                    R.string.profile_daily_target_value_fmt,
+                    String.format(appLocale, "%.0f", appSettings.dailyTargetKm)
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -445,10 +489,90 @@ fun ProfileScreen(
                         modifier = Modifier.testTag("profile_danish_tts_missing_text")
                     )
                 }
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = Spacing.s2),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                // Part H2: Vis sving på ur
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f).padding(end = Spacing.s2)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Watch,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(Spacing.s2))
+                        Text(
+                            text = stringResource(R.string.profile_watch_turn_cues),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Switch(
+                        checked = appSettings.watchTurnCuesEnabled,
+                        onCheckedChange = { enabled ->
+                            coroutineScope.launch {
+                                settingsRepository.setWatchTurnCuesEnabled(enabled)
+                            }
+                        },
+                        modifier = Modifier.testTag("profile_watch_turn_cues_switch")
+                    )
+                }
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = Spacing.s2),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                // Part E1: Regnvarsel
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f).padding(end = Spacing.s2)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WaterDrop,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(Spacing.s2))
+                        Text(
+                            text = stringResource(R.string.profile_rain_alert),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Switch(
+                        checked = appSettings.rainAlertEnabled,
+                        onCheckedChange = { enabled ->
+                            coroutineScope.launch {
+                                settingsRepository.setRainAlertEnabled(enabled)
+                            }
+                        },
+                        modifier = Modifier.testTag("profile_rain_alert_switch")
+                    )
+                }
             }
         }
 
-        // Section 2: Kort & Visning ("Udseende", "Kortet følger appen", Enheder)
+        // Section 2: Kort & Visning ("Udseende", "Kortet følger appen", "Sprog" on Android 13+)
         item {
             ProfileSectionCard(title = stringResource(R.string.profile_section_map_display)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -554,6 +678,68 @@ fun ProfileScreen(
                                 modifier = Modifier
                                     .heightIn(min = MinTouchTargetSize)
                                     .testTag("profile_map_override_chip_${overrideMode.name.lowercase()}")
+                            )
+                        }
+                    }
+                }
+
+                // Part G3: Per-app language selector via LocaleManager on Android 13+ (hidden on Android 12 and older)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = Spacing.s2),
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Language,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(Spacing.s2))
+                        Text(
+                            text = stringResource(R.string.setting_language),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(Spacing.s2))
+                    FlowRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("profile_language_selector"),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.s2),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.s1)
+                    ) {
+                        AppLanguageOption.entries.forEach { option ->
+                            val selected = selectedLanguageOption == option
+                            val labelText = when (option) {
+                                AppLanguageOption.SYSTEM -> stringResource(R.string.language_follow_phone)
+                                AppLanguageOption.DANISH -> stringResource(R.string.language_danish)
+                                AppLanguageOption.ENGLISH -> stringResource(R.string.language_english)
+                                AppLanguageOption.GERMAN -> stringResource(R.string.language_german)
+                            }
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    selectedLanguageOption = option
+                                    AppLocaleHelper.setApplicationLanguage(context, option)
+                                },
+                                label = {
+                                    Text(
+                                        text = labelText,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                ),
+                                modifier = Modifier
+                                    .heightIn(min = MinTouchTargetSize)
+                                    .testTag("profile_language_chip_${option.name.lowercase()}")
                             )
                         }
                     }

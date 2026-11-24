@@ -41,9 +41,11 @@ import com.example.data.model.UserHazardNoteEntity
         com.example.data.model.WaterFeatureEntity::class,
         com.example.data.model.WaterTileCacheEntity::class,
         com.example.data.model.PlannerDraftEntity::class,
-        com.example.data.model.OfflineDownloadInProgressEntity::class
+        com.example.data.model.OfflineDownloadInProgressEntity::class,
+        com.example.data.model.TripDiaryEntryEntity::class,
+        com.example.data.model.WeatherCacheEntity::class
     ],
-    version = 27,
+    version = 28,
     exportSchema = true
 )
 abstract class DanskStiDatabase : RoomDatabase() {
@@ -624,10 +626,188 @@ abstract class DanskStiDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Recreate shelters with nullable facility columns and infoUrl, nullifying facilities where source = 'geofa'
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `shelters_new` (
+                        `id` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `lat` REAL NOT NULL,
+                        `lng` REAL NOT NULL,
+                        `description` TEXT,
+                        `bookingRequired` INTEGER NOT NULL,
+                        `ownership` TEXT,
+                        `capacity` INTEGER,
+                        `hasWaterNearby` INTEGER NOT NULL,
+                        `hasToiletNearby` INTEGER NOT NULL,
+                        `source` TEXT NOT NULL,
+                        `trailCorridorId` TEXT,
+                        `bookingUrl` TEXT,
+                        `hasFireRing` INTEGER,
+                        `hasFirewood` INTEGER,
+                        `fee` INTEGER,
+                        `priceDkk` INTEGER NOT NULL,
+                        `maxNights` INTEGER,
+                        `accessibility` TEXT,
+                        `shelterType` TEXT NOT NULL,
+                        `hasElectricity` INTEGER,
+                        `dogAllowed` INTEGER,
+                        `fetchedAt` INTEGER NOT NULL,
+                        `infoUrl` TEXT,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `shelters_new` (
+                        `id`, `name`, `lat`, `lng`, `description`, `bookingRequired`, `ownership`, `capacity`,
+                        `hasWaterNearby`, `hasToiletNearby`, `source`, `trailCorridorId`, `bookingUrl`,
+                        `hasFireRing`, `hasFirewood`, `fee`, `priceDkk`, `maxNights`, `accessibility`,
+                        `shelterType`, `hasElectricity`, `dogAllowed`, `fetchedAt`, `infoUrl`
+                    )
+                    SELECT
+                        `id`, `name`, `lat`, `lng`, `description`, `bookingRequired`, `ownership`, `capacity`,
+                        `hasWaterNearby`, `hasToiletNearby`, `source`, `trailCorridorId`, `bookingUrl`,
+                        CASE WHEN `source` = 'geofa' THEN NULL ELSE `hasFireRing` END,
+                        CASE WHEN `source` = 'geofa' THEN NULL ELSE `hasFirewood` END,
+                        CASE WHEN `source` = 'geofa' THEN NULL ELSE `fee` END,
+                        `priceDkk`,
+                        CASE WHEN `source` = 'geofa' THEN NULL ELSE `maxNights` END,
+                        CASE WHEN `source` = 'geofa' THEN NULL ELSE `accessibility` END,
+                        `shelterType`,
+                        CASE WHEN `source` = 'geofa' THEN NULL ELSE `hasElectricity` END,
+                        CASE WHEN `source` = 'geofa' THEN NULL ELSE `dogAllowed` END,
+                        `fetchedAt`,
+                        NULL
+                    FROM `shelters`
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE `shelters`")
+                db.execSQL("ALTER TABLE `shelters_new` RENAME TO `shelters`")
+
+                // 2. Recreate fri_teltning with nullable forestType, openFireAllowed, waterDistanceMeters, toiletDistanceMeters, hammockFriendly
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `fri_teltning_new` (
+                        `id` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `centerLat` REAL NOT NULL,
+                        `centerLng` REAL NOT NULL,
+                        `polygonJson` TEXT NOT NULL,
+                        `rulesSummary` TEXT,
+                        `rulesUrl` TEXT NOT NULL,
+                        `areaHa` REAL NOT NULL,
+                        `trailCorridorId` TEXT,
+                        `forestType` TEXT,
+                        `maxTents` INTEGER NOT NULL,
+                        `maxPersonsPerTent` INTEGER NOT NULL,
+                        `openFireAllowed` INTEGER,
+                        `waterDistanceMeters` INTEGER,
+                        `toiletDistanceMeters` INTEGER,
+                        `zoneType` TEXT NOT NULL,
+                        `hammockFriendly` INTEGER,
+                        `source` TEXT NOT NULL,
+                        `cvrNavn` TEXT,
+                        `fetchedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `fri_teltning_new` (
+                        `id`, `name`, `centerLat`, `centerLng`, `polygonJson`, `rulesSummary`, `rulesUrl`,
+                        `areaHa`, `trailCorridorId`, `forestType`, `maxTents`, `maxPersonsPerTent`,
+                        `openFireAllowed`, `waterDistanceMeters`, `toiletDistanceMeters`, `zoneType`,
+                        `hammockFriendly`, `source`, `cvrNavn`, `fetchedAt`
+                    )
+                    SELECT
+                        `id`, `name`, `centerLat`, `centerLng`, `polygonJson`, `rulesSummary`, `rulesUrl`,
+                        `areaHa`, `trailCorridorId`, NULL, `maxTents`, `maxPersonsPerTent`,
+                        NULL, NULL, NULL, `zoneType`,
+                        NULL, `source`, `cvrNavn`, `fetchedAt`
+                    FROM `fri_teltning`
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE `fri_teltning`")
+                db.execSQL("ALTER TABLE `fri_teltning_new` RENAME TO `fri_teltning`")
+
+                // 3. Add seasonal to pois
+                db.execSQL("ALTER TABLE `pois` ADD COLUMN `seasonal` TEXT")
+
+                // 4. Add relation tags and start/end/town metadata to trails
+                db.execSQL("ALTER TABLE `trails` ADD COLUMN `osmWebsite` TEXT")
+                db.execSQL("ALTER TABLE `trails` ADD COLUMN `osmOperator` TEXT")
+                db.execSQL("ALTER TABLE `trails` ADD COLUMN `osmFrom` TEXT")
+                db.execSQL("ALTER TABLE `trails` ADD COLUMN `osmTo` TEXT")
+                db.execSQL("ALTER TABLE `trails` ADD COLUMN `osmDistanceTag` TEXT")
+                db.execSQL("ALTER TABLE `trails` ADD COLUMN `startLat` REAL")
+                db.execSQL("ALTER TABLE `trails` ADD COLUMN `startLng` REAL")
+                db.execSQL("ALTER TABLE `trails` ADD COLUMN `endLat` REAL")
+                db.execSQL("ALTER TABLE `trails` ADD COLUMN `endLng` REAL")
+                db.execSQL("ALTER TABLE `trails` ADD COLUMN `nearestTown` TEXT")
+
+                // 5. Add offline download columns to downloaded_trails and offline_downloads_in_progress
+                db.execSQL("ALTER TABLE `downloaded_trails` ADD COLUMN `downloadType` TEXT NOT NULL DEFAULT 'TRAIL'")
+                db.execSQL("ALTER TABLE `downloaded_trails` ADD COLUMN `geometryHash` TEXT")
+                db.execSQL("ALTER TABLE `downloaded_trails` ADD COLUMN `minLat` REAL")
+                db.execSQL("ALTER TABLE `downloaded_trails` ADD COLUMN `maxLat` REAL")
+                db.execSQL("ALTER TABLE `downloaded_trails` ADD COLUMN `minLng` REAL")
+                db.execSQL("ALTER TABLE `downloaded_trails` ADD COLUMN `maxLng` REAL")
+                db.execSQL("ALTER TABLE `downloaded_trails` ADD COLUMN `includeAerial` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `downloaded_trails` ADD COLUMN `includeTerrain` INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL("ALTER TABLE `offline_downloads_in_progress` ADD COLUMN `downloadType` TEXT NOT NULL DEFAULT 'TRAIL'")
+                db.execSQL("ALTER TABLE `offline_downloads_in_progress` ADD COLUMN `geometryHash` TEXT")
+                db.execSQL("ALTER TABLE `offline_downloads_in_progress` ADD COLUMN `minLat` REAL")
+                db.execSQL("ALTER TABLE `offline_downloads_in_progress` ADD COLUMN `maxLat` REAL")
+                db.execSQL("ALTER TABLE `offline_downloads_in_progress` ADD COLUMN `minLng` REAL")
+                db.execSQL("ALTER TABLE `offline_downloads_in_progress` ADD COLUMN `maxLng` REAL")
+                db.execSQL("ALTER TABLE `offline_downloads_in_progress` ADD COLUMN `includeAerial` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `offline_downloads_in_progress` ADD COLUMN `includeTerrain` INTEGER NOT NULL DEFAULT 0")
+
+                // 6. Add weightGrams to trip_gear_items
+                db.execSQL("ALTER TABLE `trip_gear_items` ADD COLUMN `weightGrams` INTEGER")
+
+                // 7. Create trip_diary_entries
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `trip_diary_entries` (
+                        `planId` INTEGER NOT NULL,
+                        `dayNumber` INTEGER NOT NULL,
+                        `note` TEXT NOT NULL,
+                        `photoPathsJson` TEXT NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`planId`, `dayNumber`)
+                    )
+                    """.trimIndent()
+                )
+
+                // 8. Create weather_cache
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `weather_cache` (
+                        `cacheKey` TEXT NOT NULL,
+                        `latRounded` REAL NOT NULL,
+                        `lngRounded` REAL NOT NULL,
+                        `fetchedAt` INTEGER NOT NULL,
+                        `forecastJson` TEXT NOT NULL,
+                        `modelUsed` TEXT NOT NULL,
+                        PRIMARY KEY(`cacheKey`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var lastAppContextRef: java.lang.ref.WeakReference<Context>? = null
 
         fun resetInstance() {
+            com.example.DanskStiApp.cancelAllViewModelScopes()
             com.example.DanskStiApp.cancelActiveInitJob()
             synchronized(this) {
                 runCatching { INSTANCE?.close() }
@@ -637,7 +817,10 @@ abstract class DanskStiDatabase : RoomDatabase() {
         }
 
         fun getInstance(context: Context): DanskStiDatabase {
-            val appCtx = context.applicationContext ?: context
+            val appCtx = (context.applicationContext as? com.example.DanskStiApp)
+                ?: (context as? com.example.DanskStiApp)
+                ?: runCatching { com.example.DanskStiApp.instance }.getOrNull()
+                ?: (context.applicationContext ?: context)
             appFilesDir = appCtx.filesDir
             val current = INSTANCE
             if (current != null && current.isOpen && lastAppContextRef?.get() === appCtx) {
@@ -663,7 +846,7 @@ abstract class DanskStiDatabase : RoomDatabase() {
                         MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
                         MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21,
                         MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
-                        MIGRATION_25_26, MIGRATION_26_27
+                        MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28
                     )
                         .build()
                     INSTANCE = instance

@@ -35,6 +35,9 @@ data class OvernightCandidate(
 
 object StagePlanner {
 
+    fun estimateDays(km: Double, dailyTargetKm: Double = 15.0): Int =
+        GeoUtils.estimateDays(km, dailyTargetKm)
+
     private val moshi = Moshi.Builder().build()
     private val geoPointListType = Types.newParameterizedType(List::class.java, GeoPointDto::class.java)
     private val geoPointListAdapter = moshi.adapter<List<GeoPointDto>>(geoPointListType)
@@ -229,20 +232,10 @@ object StagePlanner {
                     val nearestToiletDist = localToiletPois.minOfOrNull {
                         GeoUtils.distanceMeters(chosenPt.lat, chosenPt.lng, it.lat, it.lng)
                     }?.roundToInt()
-                    val hasWater = ft.waterDistanceMeters <= 500 || (nearestWaterDist != null && nearestWaterDist <= 500)
-                    val hasToilet = ft.toiletDistanceMeters <= 500 || (nearestToiletDist != null && nearestToiletDist <= 500)
-                    val waterDistM = when {
-                        ft.waterDistanceMeters in 1..2000 -> ft.waterDistanceMeters
-                        nearestWaterDist != null && nearestWaterDist <= 1000 -> nearestWaterDist
-                        ft.waterDistanceMeters == 0 -> 50
-                        else -> null
-                    }
-                    val toiletDistM = when {
-                        ft.toiletDistanceMeters in 1..2000 -> ft.toiletDistanceMeters
-                        nearestToiletDist != null && nearestToiletDist <= 1000 -> nearestToiletDist
-                        ft.toiletDistanceMeters == 0 -> 50
-                        else -> null
-                    }
+                    val hasWater = nearestWaterDist != null && nearestWaterDist <= 500
+                    val hasToilet = nearestToiletDist != null && nearestToiletDist <= 500
+                    val waterDistM = if (nearestWaterDist != null && nearestWaterDist <= 1000) nearestWaterDist else null
+                    val toiletDistM = if (nearestToiletDist != null && nearestToiletDist <= 1000) nearestToiletDist else null
 
                     candidates.add(
                         OvernightCandidate(
@@ -497,7 +490,7 @@ object StagePlanner {
                     GeoUtils.distanceMeters(onWp.lat, onWp.lng, it.lat, it.lng) <= 500.0
                 }
                 val hasToilet = onWp.hasToiletNearby || shelterMatch?.hasToiletNearby == true ||
-                    friMatch?.toiletDistanceMeters?.let { it <= 500 } == true || toiletPois.any {
+                    toiletPois.any {
                         GeoUtils.distanceMeters(onWp.lat, onWp.lng, it.lat, it.lng) <= 500.0
                     }
                 val booking = onWp.bookingRequired || shelterMatch?.bookingRequired == true

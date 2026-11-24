@@ -187,7 +187,7 @@ fun MapLayersBottomSheet(
                     )
                     Text(
                         text = stringResource(R.string.ui_maplayersbottomsheet_kortlag_visning_15),
-                        fontSize = 20.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -209,7 +209,7 @@ fun MapLayersBottomSheet(
             // 1. BASE MAP SECTION
             Text(
                 text = stringResource(R.string.ui_maplayersbottomsheet_grundkort_16),
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
                 color = primaryColor
@@ -268,7 +268,7 @@ fun MapLayersBottomSheet(
                 )
                 Text(
                     text = stringResource(R.string.setting_appearance),
-                    fontSize = 14.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -288,7 +288,7 @@ fun MapLayersBottomSheet(
                         label = {
                             Text(
                                 text = mode.displayName,
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.bodySmall,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
                             )
                         },
@@ -314,7 +314,7 @@ fun MapLayersBottomSheet(
             ) {
                 Text(
                     text = stringResource(R.string.setting_map_follows_app),
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -339,7 +339,7 @@ fun MapLayersBottomSheet(
                             label = {
                                 Text(
                                     text = overrideMode.displayName,
-                                    fontSize = 12.sp,
+                                    style = MaterialTheme.typography.bodySmall,
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
                                 )
                             },
@@ -365,7 +365,7 @@ fun MapLayersBottomSheet(
             // 2. OVERLAYS SECTION
             Text(
                 text = stringResource(R.string.ui_maplayersbottomsheet_overlejringer_kortlag_17),
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
                 color = primaryColor
@@ -539,13 +539,13 @@ private fun BaseMapOptionCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    fontSize = 15.sp,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = subtitle,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 16.sp
                 )
@@ -596,13 +596,13 @@ private fun LayerToggleRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = subtitle,
-                fontSize = 11.sp,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 15.sp
             )
@@ -683,7 +683,7 @@ fun MapAttributionPill(
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = activeCredits,
-                    fontSize = 9.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     lineHeight = 11.sp,
                     color = contentColor,
                     modifier = Modifier.testTag("map_attribution_credits_text")

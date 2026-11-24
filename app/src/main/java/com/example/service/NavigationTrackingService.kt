@@ -121,6 +121,8 @@ class NavigationTrackingService : Service() {
     private lateinit var settingsRepository: com.example.data.local.SettingsRepository
     @Volatile
     private var userPaceKmh: Double = com.example.data.local.SettingsRepository.cachedMitTempoKmh
+    @Volatile
+    internal var watchTurnCueNotificationsEnabled: Boolean = false
     internal var routeTracker: RouteTracker? = null
     internal var currentPlannedRoute: PlannedRoute? = null
     internal var planId: Long = 0L
@@ -132,6 +134,15 @@ class NavigationTrackingService : Service() {
     internal var pausedAnchorLocation: Location? = null
     private var alerted150CueWalkKm: Double? = null
     private var alerted30CueWalkKm: Double? = null
+    internal var activeTurnCueNotificationWalkKm: Double? = null
+    internal var serviceTurnCueVibrationCount: Int = 0
+    internal var turnCueNotificationPostCount: Int = 0
+    internal var lastTurnCueVibrationPattern: LongArray? = null
+    internal var lastTurnCueChannelId: String? = null
+    internal var lastWidgetUpdateMs: Long = 0L
+    internal var lastWidgetDay: Int = -1
+    internal var lastWidgetCampName: String = ""
+    internal var lastWidgetTracking: Boolean? = null
 
     // Evidence-based stationary detection & movement confirmation with exponential backoff
     internal var movementAnchorLocation: Location? = null
@@ -223,9 +234,11 @@ class NavigationTrackingService : Service() {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         plannedRouteRepo = PlannedRouteRepository(applicationContext)
         settingsRepository = DanskStiApp.getSettingsRepository(applicationContext)
+        watchTurnCueNotificationsEnabled = settingsRepository.currentSettingsSnapshot().watchTurnCueNotificationsEnabled
         serviceScope.launch {
             settingsRepository.settingsFlow.collect { settings ->
                 userPaceKmh = settings.mitTempoKmh
+                watchTurnCueNotificationsEnabled = settings.watchTurnCueNotificationsEnabled
             }
         }
     }
@@ -328,6 +341,8 @@ class NavigationTrackingService : Service() {
                 nextTurnCue = if (firstCueDistM != null && firstCueDistM <= 500.0) firstCueAhead else null,
                 distanceToNextCueMeters = if (firstCueDistM != null && firstCueDistM <= 500.0) firstCueDistM else null
             )
+
+            maybeUpdateActiveTripWidget(force = true)
 
             // Prefetch access polygons along the next 25 km route corridor (max 10 tiles, BACKGROUND priority)
             prefetchAccessPolygonsForRouteCorridor(plannedRoute, initialWalkKm)
@@ -894,19 +909,23 @@ class NavigationTrackingService : Service() {
             triggerOffTrailVibration()
         }
 
-        // 3b. Evaluate next turn cue (cached per PlannedRoute instance) and double vibration at 150 m and 30 m
+        // 3b. Evaluate next turn cue (cached per PlannedRoute instance) and alert at 150 m and 30 m
         val allCues = getOrComputeTurnCues(plannedRoute)
         val upcomingCue = allCues.firstOrNull { it.walkKm >= trackResult.currentWalkKm - 0.005 }
         val cueDistM = upcomingCue?.let {
             maxOf(0.0, (it.walkKm - trackResult.currentWalkKm) * 1000.0)
         }
+        val activeNotifWalkKm = activeTurnCueNotificationWalkKm
+        if (activeNotifWalkKm != null && (upcomingCue == null || upcomingCue.walkKm != activeNotifWalkKm)) {
+            cancelTurnCueNotification()
+        }
         if (upcomingCue != null && cueDistM != null && !trackResult.isOffRoute) {
             if (cueDistM in 30.0..150.0 && alerted150CueWalkKm != upcomingCue.walkKm) {
                 alerted150CueWalkKm = upcomingCue.walkKm
-                triggerTurnCueDoubleVibration()
+                dispatchTurnCueAlert(upcomingCue, cueDistM)
             } else if (cueDistM < 30.0 && alerted30CueWalkKm != upcomingCue.walkKm) {
                 alerted30CueWalkKm = upcomingCue.walkKm
-                triggerTurnCueDoubleVibration()
+                dispatchTurnCueAlert(upcomingCue, cueDistM)
             }
         }
 
@@ -1000,7 +1019,8 @@ class NavigationTrackingService : Service() {
             notifManager?.notify(OFF_ROUTE_ALERT_NOTIFICATION_ID, alertNotif)
         }
 
-        val stageName = trackResult.currentStage?.stopName ?: getString(com.example.R.string.notif_nav_default_stage)
+        val stageName = trackResult.currentStage?.stopName
+            ?: com.example.util.AppLocaleHelper.createLocalizedContext(this).getString(com.example.R.string.notif_nav_default_stage)
         maybePostOngoingNotification(
             trailName = plannedRoute.trailName,
             stageName = stageName,
@@ -1011,6 +1031,15 @@ class NavigationTrackingService : Service() {
             offRouteMeters = trackResult.offRouteDistanceM,
             walkedTodayKm = trackResult.walkedTodayKm,
             isPaused = _liveState.value.isPaused,
+            nowMs = now,
+            force = false
+        )
+
+        // 5b. Update home-screen widget at most every 5 min or on day/camp/tracking state change
+        maybeUpdateActiveTripWidget(
+            dayNumber = trackResult.currentDay,
+            campName = stageName,
+            isTracking = !trackResult.isCompleted,
             nowMs = now,
             force = false
         )
@@ -1040,38 +1069,143 @@ class NavigationTrackingService : Service() {
         maybeCheckPrivateForestSunsetWarning(location, now)
     }
 
+    internal fun maybeUpdateActiveTripWidget(
+        dayNumber: Int = _liveState.value.currentDay,
+        campName: String = _liveState.value.currentStage?.stopName.orEmpty(),
+        isTracking: Boolean = _liveState.value.isTracking,
+        nowMs: Long = System.currentTimeMillis(),
+        force: Boolean = false
+    ) {
+        val stateChanged = dayNumber != lastWidgetDay ||
+            campName != lastWidgetCampName ||
+            isTracking != lastWidgetTracking
+        val intervalElapsed = lastWidgetUpdateMs == 0L ||
+            (nowMs - lastWidgetUpdateMs) >= com.example.widget.ActiveTripAppWidgetProvider.WIDGET_UPDATE_MIN_INTERVAL_MS
+        if (force || stateChanged || intervalElapsed) {
+            lastWidgetUpdateMs = nowMs
+            lastWidgetDay = dayNumber
+            lastWidgetCampName = campName
+            lastWidgetTracking = isTracking
+            try {
+                com.example.widget.ActiveTripAppWidgetProvider.updateAllWidgets(
+                    context = this,
+                    liveState = _liveState.value,
+                    nowMs = nowMs
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
     internal fun triggerOffTrailVibration() {
+        vibrateWaveform(VIBRATION_PATTERN_OFF_ROUTE)
+    }
+
+    internal fun triggerTurnCueDoubleVibration(
+        direction: String = "STRAIGHT"
+    ) {
+        val pattern = vibrationPatternForTurnDirection(direction)
+        lastTurnCueVibrationPattern = pattern
+        serviceTurnCueVibrationCount++
+        vibrateWaveform(pattern)
+    }
+
+    private fun vibrateWaveform(pattern: LongArray) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
                 val vibrator = vibratorManager?.defaultVibrator
-                vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 350, 150, 450), -1))
+                vibrator?.vibrate(VibrationEffect.createWaveform(pattern, -1))
             } else {
                 @Suppress("DEPRECATION")
                 val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                 @Suppress("DEPRECATION")
-                vibrator?.vibrate(longArrayOf(0, 350, 150, 450), -1)
+                vibrator?.vibrate(pattern, -1)
             }
         } catch (e: Exception) {
             Log.e("NavService", "Vibration failed: ${e.message}")
         }
     }
 
-    internal fun triggerTurnCueDoubleVibration() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                val vibrator = vibratorManager?.defaultVibrator
-                vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 180, 120, 180), -1))
-            } else {
-                @Suppress("DEPRECATION")
-                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                @Suppress("DEPRECATION")
-                vibrator?.vibrate(longArrayOf(0, 180, 120, 180), -1)
-            }
-        } catch (e: Exception) {
-            Log.e("NavService", "Turn cue vibration failed: ${e.message}")
+    internal fun canTurnCueChannelVibrate(channelId: String): Boolean {
+        val hasPostNotifPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            true
         }
+        if (!hasPostNotifPermission) return false
+        if (!androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+            return false
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+                ?: return false
+            var channel = notifManager.getNotificationChannel(channelId)
+            if (channel == null) {
+                runCatching { (applicationContext as? DanskStiApp)?.createNotificationChannels() }
+                channel = notifManager.getNotificationChannel(channelId)
+            }
+            if (channel == null) return false
+            if (channel.importance <= android.app.NotificationManager.IMPORTANCE_NONE) return false
+            if (!channel.shouldVibrate()) return false
+        }
+        return true
+    }
+
+    internal fun dispatchTurnCueAlert(
+        cue: com.example.data.model.TurnCue,
+        distanceMeters: Double
+    ) {
+        val channelId = channelIdForTurnDirection(cue.direction)
+        val shouldUseWatchNotification = watchTurnCueNotificationsEnabled && canTurnCueChannelVibrate(channelId)
+        if (shouldUseWatchNotification) {
+            val notif = buildTurnCueNotification(cue, distanceMeters, channelId)
+            val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            notifManager?.notify(TURN_CUE_NOTIFICATION_ID, notif)
+            activeTurnCueNotificationWalkKm = cue.walkKm
+            lastTurnCueChannelId = channelId
+            turnCueNotificationPostCount++
+        } else {
+            triggerTurnCueDoubleVibration(cue.direction)
+        }
+    }
+
+    internal fun buildTurnCueNotification(
+        cue: com.example.data.model.TurnCue,
+        distanceMeters: Double,
+        channelId: String = channelIdForTurnDirection(cue.direction)
+    ): Notification {
+        val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(this)
+        val launchIntent = buildLaunchNavigationIntent(planId)
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            20,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val distInt = distanceMeters.toInt().coerceAtLeast(1)
+        val title = "${cue.instructionText} om $distInt m"
+        val trailTitle = currentPlannedRoute?.trailName?.takeIf { it.isNotBlank() }
+            ?: localizedCtx.getString(com.example.R.string.app_name)
+        return NotificationCompat.Builder(this, channelId)
+            .setContentTitle(title)
+            .setContentText(trailTitle)
+            .setSmallIcon(com.example.R.drawable.ic_notif_navigation)
+            .setContentIntent(pendingIntent)
+            .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setTimeoutAfter(60_000L)
+            .build()
+    }
+
+    internal fun cancelTurnCueNotification() {
+        activeTurnCueNotificationWalkKm = null
+        val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+        notifManager?.cancel(TURN_CUE_NOTIFICATION_ID)
     }
 
     internal fun setPausedInternal(paused: Boolean) {
@@ -1112,9 +1246,10 @@ class NavigationTrackingService : Service() {
         val route = currentPlannedRoute
         if (route != null) {
             val st = _liveState.value
+            val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(this)
             maybePostOngoingNotification(
                 trailName = route.trailName,
-                stageName = st.currentStage?.stopName ?: getString(com.example.R.string.notif_nav_default_stage),
+                stageName = st.currentStage?.stopName ?: localizedCtx.getString(com.example.R.string.notif_nav_default_stage),
                 speedKmh = st.speedKmh,
                 remainingTodayKm = st.distanceRemainingTodayKm,
                 remainingTripKm = st.distanceRemainingTripKm,
@@ -1125,6 +1260,7 @@ class NavigationTrackingService : Service() {
                 nowMs = System.currentTimeMillis(),
                 force = true
             )
+            maybeUpdateActiveTripWidget(force = true)
         }
     }
 
@@ -1214,7 +1350,8 @@ class NavigationTrackingService : Service() {
         isPaused: Boolean = false,
         nowMs: Long = System.currentTimeMillis()
     ): Pair<String, String> {
-        val title = getString(com.example.R.string.notif_nav_hiking_title, trailName)
+        val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(this)
+        val title = localizedCtx.getString(com.example.R.string.notif_nav_hiking_title, trailName)
         val baseContent = if (remainingTodayKm != null) {
             val configuredPace = com.example.data.local.SettingsRepository.cachedMitTempoKmh.takeIf { it > 0.0 } ?: userPaceKmh
             val arrivalClock = com.example.util.SunCalculator.computeArrivalClock(
@@ -1223,16 +1360,17 @@ class NavigationTrackingService : Service() {
                 configuredPaceKmh = configuredPace,
                 nowMillis = nowMs
             )
-            val etaString = getString(com.example.R.string.notif_nav_eta_prefix, "kl. $arrivalClock")
-            getString(com.example.R.string.notif_nav_next_camp_with_dist, stageName, remainingTodayKm, etaString)
+            val etaString = localizedCtx.getString(com.example.R.string.notif_nav_eta_prefix, "kl. $arrivalClock")
+            localizedCtx.getString(com.example.R.string.notif_nav_next_camp_with_dist, stageName, remainingTodayKm, etaString)
         } else {
-            getString(com.example.R.string.notif_nav_next_camp_only, stageName)
+            localizedCtx.getString(com.example.R.string.notif_nav_next_camp_only, stageName)
         }
         val content = if (isPaused) "Sat på pause • $baseContent" else baseContent
         return title to content
     }
 
     internal fun buildOffRouteAlertNotification(offRouteMeters: Double): Notification {
+        val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(this)
         val launchIntent = buildLaunchNavigationIntent(planId)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -1249,7 +1387,7 @@ class NavigationTrackingService : Service() {
             detourIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val title = getString(com.example.R.string.notif_nav_off_route_title, offRouteMeters.toInt())
+        val title = localizedCtx.getString(com.example.R.string.notif_nav_off_route_title, offRouteMeters.toInt())
         val text = "Du er uden for ruten. Tjek kortet eller vælg 'Jeg tager en omvej'."
         return NotificationCompat.Builder(this, DanskStiApp.CHANNEL_ALERTS_ID)
             .setContentTitle(title)
@@ -1281,6 +1419,7 @@ class NavigationTrackingService : Service() {
         isPaused: Boolean = false,
         nowMs: Long = System.currentTimeMillis()
     ): Notification {
+        val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(this)
         val launchIntent = buildLaunchNavigationIntent(planId)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -1322,7 +1461,7 @@ class NavigationTrackingService : Service() {
 
         // Always post ongoing notification on low-importance navigation channel with setOnlyAlertOnce(true)
         val channelId = DanskStiApp.CHANNEL_NAVIGATION_ID
-        val pauseActionLabel = getString(
+        val pauseActionLabel = localizedCtx.getString(
             if (isPaused) com.example.R.string.notif_nav_action_resume else com.example.R.string.notif_nav_action_pause
         )
 
@@ -1340,7 +1479,7 @@ class NavigationTrackingService : Service() {
             )
             .addAction(
                 com.example.R.drawable.ic_notif_stop,
-                getString(com.example.R.string.notif_nav_action_stop_today),
+                localizedCtx.getString(com.example.R.string.notif_nav_action_stop_today),
                 stopTodayPending
             )
             .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
@@ -1404,12 +1543,14 @@ class NavigationTrackingService : Service() {
         corridorPrefetchJob = null
         sunsetCheckJob?.cancel()
         sunsetCheckJob = null
+        cancelTurnCueNotification()
         unregisterCorridorNetworkCallbackIfNeeded()
         unregisterScreenReceiverIfNeeded()
         try {
             locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
         } catch (_: Exception) {}
         _liveState.value = _liveState.value.copy(isTracking = false)
+        maybeUpdateActiveTripWidget(isTracking = false, force = true)
         try {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } catch (_: Exception) {}
@@ -1472,7 +1613,7 @@ class NavigationTrackingService : Service() {
 
         lastSunsetPolygonCheckMs = nowMs
         val sunsetStrSnapshot = cachedSunsetStr
-        sunsetCheckJob = serviceScope.launch(Dispatchers.Main.immediate) {
+        sunsetCheckJob = serviceScope.launch(Dispatchers.IO) {
             checkPrivateForestSunsetWarning(location, sunsetStrSnapshot, nowMs)
         }
     }
@@ -1496,7 +1637,8 @@ class NavigationTrackingService : Service() {
                 val effectiveSunsetStr = sunsetStr.ifBlank {
                     com.example.util.SunCalculator.calculateSunset(lat = pt.lat, lng = pt.lng, epochMillis = nowMs)
                 }
-                val warningText = getString(com.example.R.string.notif_private_forest_closing_short, effectiveSunsetStr)
+                val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(this)
+                val warningText = localizedCtx.getString(com.example.R.string.notif_private_forest_closing_short, effectiveSunsetStr)
                 if (_liveState.value.privateForestSunsetWarning != warningText) {
                     _liveState.value = _liveState.value.copy(privateForestSunsetWarning = warningText)
                 }
@@ -1517,6 +1659,7 @@ class NavigationTrackingService : Service() {
 
     private fun showSunsetWarningNotification(sunsetTime: String) {
         val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
+        val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(this)
         val launchIntent = buildLaunchNavigationIntent(planId)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -1525,10 +1668,10 @@ class NavigationTrackingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val shortText = getString(com.example.R.string.notif_private_forest_closing_short, sunsetTime)
-        val longText = getString(com.example.R.string.notif_private_forest_closing_long, sunsetTime)
+        val shortText = localizedCtx.getString(com.example.R.string.notif_private_forest_closing_short, sunsetTime)
+        val longText = localizedCtx.getString(com.example.R.string.notif_private_forest_closing_long, sunsetTime)
         val notif = NotificationCompat.Builder(this, DanskStiApp.CHANNEL_ALERTS_ID)
-            .setContentTitle(getString(com.example.R.string.notif_private_forest_title))
+            .setContentTitle(localizedCtx.getString(com.example.R.string.notif_private_forest_title))
             .setContentText(shortText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(longText))
             .setSmallIcon(com.example.R.drawable.ic_notif_alert)
@@ -1561,6 +1704,30 @@ class NavigationTrackingService : Service() {
         const val NOTIFICATION_ID = 4040
         const val SUNSET_WARNING_NOTIFICATION_ID = 4041
         const val OFF_ROUTE_ALERT_NOTIFICATION_ID = 4042
+        const val TURN_CUE_NOTIFICATION_ID = 4043
+
+        // Part B4 distinct vibration patterns
+        val VIBRATION_PATTERN_LEFT: LongArray = longArrayOf(0, 120, 90, 120)
+        val VIBRATION_PATTERN_RIGHT: LongArray = longArrayOf(0, 320)
+        val VIBRATION_PATTERN_OTHER: LongArray = longArrayOf(0, 180, 120, 180)
+        val VIBRATION_PATTERN_OFF_ROUTE: LongArray = longArrayOf(0, 400, 150, 400, 150, 400)
+
+        fun vibrationPatternForTurnDirection(direction: String): LongArray {
+            return when (direction.trim().uppercase(java.util.Locale.ROOT)) {
+                "LEFT", "SLIGHT_LEFT", "SHARP_LEFT" -> VIBRATION_PATTERN_LEFT
+                "RIGHT", "SLIGHT_RIGHT", "SHARP_RIGHT" -> VIBRATION_PATTERN_RIGHT
+                else -> VIBRATION_PATTERN_OTHER
+            }
+        }
+
+        fun channelIdForTurnDirection(direction: String): String {
+            return when (direction.trim().uppercase(java.util.Locale.ROOT)) {
+                "LEFT", "SLIGHT_LEFT", "SHARP_LEFT" -> DanskStiApp.CHANNEL_TURN_CUE_LEFT_ID
+                "RIGHT", "SLIGHT_RIGHT", "SHARP_RIGHT" -> DanskStiApp.CHANNEL_TURN_CUE_RIGHT_ID
+                else -> DanskStiApp.CHANNEL_TURN_CUE_OTHER_ID
+            }
+        }
+
         const val ONGOING_NOTIFICATION_MIN_INTERVAL_MS = 10_000L
         const val ACCURATE_FIX_MAX_M = 30.0f
         const val MOVEMENT_THRESHOLD_M = 20.0

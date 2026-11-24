@@ -80,9 +80,11 @@ internal fun TrailBrowserListContent(
     savedTrails: List<TrailEntity>,
     savedTrailIds: Set<String>,
     nearbyTrails: List<TrailEntity>,
+    shortTrailsNearYou: List<TrailEntity> = emptyList(),
     userLocation: Pair<Double, Double>?,
     userLocationStaleMessage: String? = null,
     onPickAnotherStart: () -> Unit = {},
+    onCreateLoopFromHere: () -> Unit = {},
     shelterCounts: Map<String, Int>,
     friTeltningCounts: Map<String, Int>,
     trailMetrics: Map<String, TrailCardMetrics>,
@@ -177,6 +179,46 @@ internal fun TrailBrowserListContent(
                             onBookmarkClick = { onToggleBookmark(trail.id) },
                             onClick = { onTrailClick(trail.id) },
                             testTagOverride = "near_trail_card_${trail.id}"
+                        )
+                    }
+                }
+
+                // Part F4: "Korte ture nær dig" section (3-20 km within 15 km + "Lav en rundtur herfra" card)
+                item(key = "section_short_trails_near_you_header", span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        text = "Korte ture nær dig",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier
+                            .padding(top = Spacing.s2)
+                            .testTag("section_short_trails_near_you")
+                    )
+                }
+
+                item(key = "create_loop_from_here_card", span = { GridItemSpan(maxLineSpan) }) {
+                    CreateLoopFromHereCard(onClick = onCreateLoopFromHere)
+                }
+
+                if (shortTrailsNearYou.isNotEmpty()) {
+                    gridItems(
+                        items = shortTrailsNearYou,
+                        key = { "short_near_${it.id}" }
+                    ) { trail ->
+                        val metrics = trailMetrics[trail.id]
+                        val points = allGeometries[trail.id] ?: metrics?.geometryPoints
+                        val isSaved = savedTrailIds.contains(trail.id)
+                        TrailCard(
+                            trail = trail,
+                            points = points,
+                            sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
+                            friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
+                            ascentMeters = metrics?.ascentMeters,
+                            downloadedAt = downloadedTrailMap[trail.id]?.downloadedAt,
+                            isSaved = isSaved,
+                            isSelected = selectedTrailForPeek?.id == trail.id,
+                            onBookmarkClick = { onToggleBookmark(trail.id) },
+                            onClick = { onTrailClick(trail.id) },
+                            testTagOverride = "short_near_trail_card_${trail.id}"
                         )
                     }
                 }
@@ -365,6 +407,46 @@ internal fun TrailBrowserListContent(
                     }
                 }
 
+                // Part F4: "Korte ture nær dig" section (3-20 km within 15 km + "Lav en rundtur herfra" card)
+                item(key = "section_short_trails_near_you_header") {
+                    Text(
+                        text = "Korte ture nær dig",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier
+                            .padding(top = Spacing.s2)
+                            .testTag("section_short_trails_near_you")
+                    )
+                }
+
+                item(key = "create_loop_from_here_card") {
+                    CreateLoopFromHereCard(onClick = onCreateLoopFromHere)
+                }
+
+                if (shortTrailsNearYou.isNotEmpty()) {
+                    items(
+                        items = shortTrailsNearYou,
+                        key = { "short_near_${it.id}" }
+                    ) { trail ->
+                        val metrics = trailMetrics[trail.id]
+                        val points = allGeometries[trail.id] ?: metrics?.geometryPoints
+                        val isSaved = savedTrailIds.contains(trail.id)
+                        TrailCard(
+                            trail = trail,
+                            points = points,
+                            sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
+                            friTeltningCount = friTeltningCounts[trail.id] ?: metrics?.friTeltningCount ?: 0,
+                            ascentMeters = metrics?.ascentMeters,
+                            downloadedAt = downloadedTrailMap[trail.id]?.downloadedAt,
+                            isSaved = isSaved,
+                            isSelected = selectedTrailForPeek?.id == trail.id,
+                            onBookmarkClick = { onToggleBookmark(trail.id) },
+                            onClick = { onTrailClick(trail.id) },
+                            testTagOverride = "short_near_trail_card_${trail.id}"
+                        )
+                    }
+                }
+
                 item(key = "section_saved_header") {
                     Text(
                         text = stringResource(R.string.explore_section_saved),
@@ -468,6 +550,52 @@ internal fun TrailBrowserListContent(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreateLoopFromHereCard(onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        shape = CardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("create_loop_from_here_card")
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.s4),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Lav en rundtur herfra",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    text = "Planlæg en rundtur på 5–20 km direkte fra din nuværende position",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                )
+            }
+            Spacer(modifier = Modifier.width(Spacing.s3))
+            Button(
+                onClick = onClick,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .sizeIn(minHeight = 48.dp)
+                    .testTag("create_loop_from_here_button")
+            ) {
+                Text("Planlæg")
             }
         }
     }
@@ -615,183 +743,4 @@ private fun MoreMarkedRoutesEmptyCard() {
             modifier = Modifier.padding(Spacing.s4)
         )
     }
-}
-
-@Composable
-internal fun TrailBrowserMapContent(
-    isDark: Boolean,
-    trails: List<TrailEntity>,
-    allGeometries: Map<String, List<GeoPointDto>>,
-    trailMetrics: Map<String, TrailCardMetrics>,
-    shelterCounts: Map<String, Int>,
-    friTeltningCounts: Map<String, Int>,
-    downloadedTrailMap: Map<String, DownloadedTrailEntity>,
-    savedTrailIds: Set<String>,
-    selectedTrailForPeek: TrailEntity?,
-    viewModel: ExploreViewModel,
-    onMapReady: (MapView) -> Unit,
-    onCenterDenmark: () -> Unit,
-    onOpenRouteBuilder: (Double, Double, String) -> Unit,
-    onTrailClick: (String) -> Unit
-) {
-    val coroutineScope = rememberCoroutineScope()
-    var lastExploreRouteSig by remember { mutableIntStateOf(0) }
-    var currentZoomTier by remember { mutableIntStateOf(0) }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        DanskStiMap(
-            modifier = Modifier.fillMaxSize(),
-            mapTestTag = "explore_full_screen_map",
-            initialCenter = GeoPoint(55.9, 10.4),
-            initialZoom = 7.5,
-            interceptParentTouchScroll = true,
-            appIsDark = isDark,
-            controlsTopPadding = 16.dp,
-            controlsEndPadding = 16.dp,
-            attributionBottomPadding = 24.dp,
-            layersButtonTestTag = "open_layers_sheet_button",
-            compassButtonTestTag = "center_denmark_button",
-            myLocationButtonTestTag = "explore_my_location_button",
-            onCompassClick = onCenterDenmark,
-            onMapReady = onMapReady,
-            onAddToRouteFromDropPin = onOpenRouteBuilder,
-            onRouteHereFromDropPin = onOpenRouteBuilder,
-            onUseMarkedRouteInPlanner = { markedRoute ->
-                coroutineScope.launch {
-                    viewModel.saveMarkedRouteAsTrail(markedRoute)
-                }
-            },
-            onCameraChanged = { _, zoom, _ ->
-                val tier = computeUdforskZoomTier(zoom)
-                if (tier != currentZoomTier) {
-                    currentZoomTier = tier
-                }
-            },
-            updateOverlaysKey = Pair(Triple(trails, allGeometries, selectedTrailForPeek), currentZoomTier),
-            onUpdateOverlays = { mapView, overlayManager, isDarkMap ->
-                val tier = computeUdforskZoomTier(mapView.zoomLevelDouble)
-                if (tier != currentZoomTier) {
-                    currentZoomTier = tier
-                }
-                var sig = if (isDarkMap) 1231 else 1237
-                sig = 31 * sig + tier
-                sig = 31 * sig + trails.size
-                sig = 31 * sig + allGeometries.size
-                sig = 31 * sig + (selectedTrailForPeek?.id?.hashCode() ?: 0)
-                if (sig != lastExploreRouteSig) {
-                    lastExploreRouteSig = sig
-                    val density = mapView.context.resources.displayMetrics.density
-                    val children = ArrayList<Overlay>()
-                    val defaultCasingColor = if (isDarkMap) {
-                        RouteMarkerHelper.COLOR_PLANNED_CASING_DARK
-                    } else {
-                        RouteMarkerHelper.COLOR_PLANNED_CASING_LIGHT
-                    }
-
-                    trails.forEachIndexed { index, trail ->
-                        val rawPoints = allGeometries[trail.id] ?: emptyList()
-                        if (rawPoints.isNotEmpty()) {
-                            val decimatedPoints = decimateCatalogueTrailForZoomTier(rawPoints, tier)
-                            val geoPoints = decimatedPoints.map { GeoPoint(it.lat, it.lng) }
-                            val isSelected = selectedTrailForPeek?.id == trail.id
-                            val casing = Polyline(mapView).apply {
-                                setPoints(geoPoints)
-                                outlinePaint.color = defaultCasingColor
-                                outlinePaint.strokeWidth = (if (isSelected) 7.5f else 5.0f) * density
-                                outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
-                                outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
-                                outlinePaint.isAntiAlias = true
-                            }
-                            children.add(casing)
-
-                            val polyline = Polyline(mapView).apply {
-                                setPoints(geoPoints)
-                                outlinePaint.color = if (isSelected) {
-                                    if (isDarkMap) RouteMarkerHelper.COLOR_PLANNED_ROUTE_DARK
-                                    else RouteMarkerHelper.COLOR_PLANNED_ROUTE_LIGHT
-                                } else {
-                                    TRAIL_LINE_COLORS[index % TRAIL_LINE_COLORS.size]
-                                }
-                                outlinePaint.strokeWidth = (if (isSelected) 5.0f else 3.2f) * density
-                                outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
-                                outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
-                                outlinePaint.isAntiAlias = true
-
-                                setOnClickListener { _, _, _ ->
-                                    viewModel.selectTrailForPeek(trail)
-                                    true
-                                }
-                            }
-                            children.add(polyline)
-                        }
-                    }
-                    overlayManager.updateFolderOverlay(
-                        MapLayersOverlayManager.KEY_ROUTE,
-                        children
-                    )
-                }
-            }
-        )
-
-        selectedTrailForPeek?.let { peekTrail ->
-            val metrics = trailMetrics[peekTrail.id]
-            val points = allGeometries[peekTrail.id] ?: metrics?.geometryPoints
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .imePadding()
-                    .padding(Spacing.s4)
-            ) {
-                TrailCard(
-                    trail = peekTrail,
-                    points = points,
-                    sheltersCount = shelterCounts[peekTrail.id] ?: metrics?.shelterCount ?: 0,
-                    friTeltningCount = friTeltningCounts[peekTrail.id] ?: metrics?.friTeltningCount ?: 0,
-                    ascentMeters = metrics?.ascentMeters,
-                    downloadedAt = downloadedTrailMap[peekTrail.id]?.downloadedAt,
-                    isSaved = savedTrailIds.contains(peekTrail.id),
-                    isSelected = true,
-                    onBookmarkClick = { viewModel.toggleBookmark(peekTrail.id) },
-                    onClick = { onTrailClick(peekTrail.id) }
-                )
-            }
-        }
-    }
-}
-
-// Zoom tiers for Udforsk map: 0 (zoom < 9.5), 1 (9.5..12.0), 2 (zoom >= 12.0 full geometry)
-internal fun computeUdforskZoomTier(zoom: Double): Int = when {
-    zoom < 9.5 -> 0
-    zoom < 12.0 -> 1
-    else -> 2
-}
-
-// Decimates catalogue trail points for Udforsk overview map only when zoom < 12.0.
-internal fun decimateCatalogueTrailForZoomTier(
-    points: List<GeoPointDto>,
-    zoomTier: Int
-): List<GeoPointDto> {
-    if (zoomTier >= 2 || points.size <= 2) return points
-    val minSpacingMeters = if (zoomTier == 0) 150.0 else 35.0
-    val minSpacingSq = minSpacingMeters * minSpacingMeters
-    val refLat = points[0].lat
-    val cosLat = kotlin.math.cos(Math.toRadians(refLat)).coerceAtLeast(0.1)
-    val metersPerDegLat = 111_320.0
-    val metersPerDegLng = 111_320.0 * cosLat
-    val result = ArrayList<GeoPointDto>(points.size / 4 + 2)
-    var lastKept = points[0]
-    result.add(lastKept)
-    for (i in 1 until points.size - 1) {
-        val pt = points[i]
-        val dy = (pt.lat - lastKept.lat) * metersPerDegLat
-        val dx = (pt.lng - lastKept.lng) * metersPerDegLng
-        if (dx * dx + dy * dy >= minSpacingSq) {
-            result.add(pt)
-            lastKept = pt
-        }
-    }
-    result.add(points.last())
-    return result
 }

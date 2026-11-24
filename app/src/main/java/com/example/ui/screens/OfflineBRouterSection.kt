@@ -97,7 +97,7 @@ internal fun OfflineBRouterDenmarkCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = stringResource(R.string.ui_offlinetrailsscreen_rutedata_for_danmark_85),
-                        fontSize = 16.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -108,13 +108,13 @@ internal fun OfflineBRouterDenmarkCard(
                         } else {
                             stringResource(R.string.offline_routing_data_denmark_mb_format, brouterState.totalSizeMb)
                         },
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = if (brouterState.isAllDownloaded) colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if (brouterState.hasVersionMismatch) {
                         Text(
                             text = stringResource(R.string.routing_version_mismatch_update_needed),
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
                             color = danskStiColors.danger,
                             modifier = Modifier.testTag("brouter_version_mismatch_badge")
@@ -122,7 +122,7 @@ internal fun OfflineBRouterDenmarkCard(
                     } else if (brouterState.isUpdateAvailable) {
                         Text(
                             text = stringResource(R.string.routing_update_available),
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
                             color = colorScheme.primary,
                             modifier = Modifier.testTag("brouter_update_available_badge")
@@ -147,12 +147,12 @@ internal fun OfflineBRouterDenmarkCard(
                             text = if (brouterState.currentSegmentName.isNotBlank())
                                 "Henter ${brouterState.currentSegmentName}..."
                             else "Henter rutedata...",
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = stringResource(R.string.ui_offlinetrailsscreen_fmt_86, brouterState.progressPercent),
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
                             color = colorScheme.primary
                         )
@@ -178,7 +178,7 @@ internal fun OfflineBRouterDenmarkCard(
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                             modifier = Modifier.testTag("btn_brouter_cancel")
                         ) {
-                            Text(stringResource(R.string.btn_cancel), fontSize = 12.sp)
+                            Text(stringResource(R.string.btn_cancel), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -193,7 +193,7 @@ internal fun OfflineBRouterDenmarkCard(
                 ) {
                     Text(
                         text = if (isSegmentsExpanded) "Skjul dækning og filstørrelser" else "Vis dækning og filstørrelser (5 filer)",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = colorScheme.primary,
                         fontWeight = FontWeight.Medium
                     )
@@ -231,13 +231,13 @@ internal fun OfflineBRouterDenmarkCard(
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = stringResource(R.string.ui_offlinetrailsscreen_fmt_87, seg.filename, seg.name),
-                                        fontSize = 11.sp,
+                                        style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                                 Text(
                                     text = stringResource(R.string.ui_offlinetrailsscreen_mb_88, seg.sizeMb),
-                                    fontSize = 11.sp,
+                                    style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -263,7 +263,7 @@ internal fun OfflineBRouterDenmarkCard(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = stringResource(R.string.ui_offlinetrailsscreen_hent_kun_via_wi_fi_89),
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -285,7 +285,7 @@ internal fun OfflineBRouterDenmarkCard(
                     ) {
                         Text(
                             text = brouterState.lastUpdatedDate?.let { "Opdateret: $it" } ?: "Hentet lokalt",
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.testTag("brouter_last_updated_text")
                         )

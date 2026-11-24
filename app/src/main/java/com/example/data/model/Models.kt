@@ -1,5 +1,6 @@
 package com.example.data.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -179,10 +180,26 @@ data class TrailEntity(
     val bboxWest: Double? = null,
     val isGeometryDownloaded: Boolean = false,
     val lastUpdated: Long = System.currentTimeMillis(),
-    val source: String = "OSM wiki Denmark Walking Routes"
+    val source: String = "OSM wiki Denmark Walking Routes",
+    val osmWebsite: String? = null,
+    val osmOperator: String? = null,
+    val osmFrom: String? = null,
+    val osmTo: String? = null,
+    val osmDistanceTag: String? = null,
+    val startLat: Double? = null,
+    val startLng: Double? = null,
+    val endLat: Double? = null,
+    val endLng: Double? = null,
+    val nearestTown: String? = null
 ) {
     val lengthKm: Double
         get() = computedWalkingKm
+
+    val osmDescription: String
+        get() = description
+
+    val osmDistance: String?
+        get() = osmDistanceTag
 }
 
 @Entity(tableName = "shelters")
@@ -200,16 +217,17 @@ data class ShelterEntity(
     val source: String = "geofa", // "geofa", "osm"
     val trailCorridorId: String? = null,
     val bookingUrl: String? = null,
-    val hasFireRing: Boolean = true,
-    val hasFirewood: Boolean = false,
-    val fee: Boolean = false,
+    val hasFireRing: Boolean? = null,
+    val hasFirewood: Boolean? = null,
+    val fee: Boolean? = null,
     val priceDkk: Int = 0,
-    val maxNights: Int = 2,
-    val accessibility: String = "Til fods / cykel",
+    val maxNights: Int? = null,
+    val accessibility: String? = null,
     val shelterType: String = "Klassisk træshelter",
-    val hasElectricity: Boolean = false,
-    val dogAllowed: Boolean = true,
-    val fetchedAt: Long = System.currentTimeMillis()
+    val hasElectricity: Boolean? = null,
+    val dogAllowed: Boolean? = null,
+    val fetchedAt: Long = System.currentTimeMillis(),
+    val infoUrl: String? = null
 )
 
 @Entity(tableName = "fri_teltning")
@@ -223,14 +241,14 @@ data class FriTeltningEntity(
     val rulesUrl: String = "https://naturstyrelsen.dk/aktiviteter-i-naturen/overnatning-i-naturen/fri-teltning/",
     val areaHa: Double = 0.0,
     val trailCorridorId: String? = null,
-    val forestType: String = "Løvskov",
+    val forestType: String? = null,
     val maxTents: Int = 2,
     val maxPersonsPerTent: Int = 3,
-    val openFireAllowed: Boolean = false,
-    val waterDistanceMeters: Int = 500,
-    val toiletDistanceMeters: Int = 800,
+    val openFireAllowed: Boolean? = null,
+    val waterDistanceMeters: Int? = null,
+    val toiletDistanceMeters: Int? = null,
     val zoneType: String = "Fri teltningsskov (1-2-3 reglen)",
-    val hammockFriendly: Boolean = true,
+    val hammockFriendly: Boolean? = null,
     val source: String = "geofa",
     val cvrNavn: String? = null,
     val fetchedAt: Long = System.currentTimeMillis()
@@ -250,7 +268,8 @@ data class PoiEntity(
     val operator: String? = null,
     val website: String? = null,
     val source: String = "geofa",
-    val fetchedAt: Long = System.currentTimeMillis()
+    val fetchedAt: Long = System.currentTimeMillis(),
+    val seasonal: String? = null
 )
 
 @Entity(
@@ -328,7 +347,8 @@ data class GearChecklistItem(
     val title: String,
     val subtitle: String,
     val isMandatory: Boolean,
-    var isChecked: Boolean = false
+    var isChecked: Boolean = false,
+    val weightGrams: Int? = null
 )
 
 // --- Danish 112 SOS (Enhancement 14) ---
@@ -346,10 +366,26 @@ data class DownloadedTrailEntity(
     val tileCount: Int = 0,
     val corridorKm: Double = 1.0,
     val minZoom: Int = 8,
-    val maxZoom: Int = 16
+    val maxZoom: Int = 16,
+    @androidx.room.ColumnInfo(defaultValue = "'TRAIL'")
+    val downloadType: String = "TRAIL", // "TRAIL", "ROUTE", "PLAN", "AREA"
+    val geometryHash: String? = null,
+    val minLat: Double? = null,
+    val maxLat: Double? = null,
+    val minLng: Double? = null,
+    val maxLng: Double? = null,
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val includeAerial: Boolean = false,
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val includeTerrain: Boolean = false
 ) {
     val estimatedSizeMb: Double
         get() = sizeBytes / (1024.0 * 1024.0)
+
+    val bboxJson: String?
+        get() = if (minLat != null && maxLat != null && minLng != null && maxLng != null) {
+            String.format(java.util.Locale.US, "{\"minLat\":%.6f,\"maxLat\":%.6f,\"minLng\":%.6f,\"maxLng\":%.6f}", minLat, maxLat, minLng, maxLng)
+        } else null
 }
 
 @Entity(tableName = "saved_trails")
@@ -364,7 +400,8 @@ data class TripGearItemEntity(
     val planId: Long,
     val category: String, // "Ly & Søvn", "Vand & Mad", "Sikkerhed & Førstehjælp", "Navigation & Energi", "Beklædning"
     val title: String,
-    val isPacked: Boolean = false
+    val isPacked: Boolean = false,
+    val weightGrams: Int? = null
 )
 
 // --- Phase 7a: Recorded GPS Track Points (Accuracy-filtered) ---
@@ -423,13 +460,55 @@ data class NearbyOvernightSpot(
 @Entity(tableName = "offline_downloads_in_progress")
 data class OfflineDownloadInProgressEntity(
     @PrimaryKey val trailId: String,
-    val startedAt: Long = System.currentTimeMillis()
+    val startedAt: Long = System.currentTimeMillis(),
+    @androidx.room.ColumnInfo(defaultValue = "'TRAIL'")
+    val downloadType: String = "TRAIL",
+    val geometryHash: String? = null,
+    val minLat: Double? = null,
+    val maxLat: Double? = null,
+    val minLng: Double? = null,
+    val maxLng: Double? = null,
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val includeAerial: Boolean = false,
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val includeTerrain: Boolean = false
+) {
+    val bboxJson: String?
+        get() = if (minLat != null && maxLat != null && minLng != null && maxLng != null) {
+            String.format(java.util.Locale.US, "{\"minLat\":%.6f,\"maxLat\":%.6f,\"minLng\":%.6f,\"maxLng\":%.6f}", minLat, maxLat, minLng, maxLng)
+        } else null
+}
+
+@Entity(
+    tableName = "trip_diary_entries",
+    primaryKeys = ["planId", "dayNumber"]
+)
+data class TripDiaryEntryEntity(
+    val planId: Long,
+    val dayNumber: Int,
+    val note: String = "",
+    val photoPathsJson: String = "[]",
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    val noteText: String
+        get() = note
+}
+
+@Entity(tableName = "weather_cache")
+data class WeatherCacheEntity(
+    @PrimaryKey val cacheKey: String,
+    val latRounded: Double,
+    val lngRounded: Double,
+    val fetchedAt: Long,
+    val forecastJson: String,
+    val modelUsed: String = "default"
 )
 
 data class TrailShelterCountTuple(
     val trailKey: String,
     val shelterCount: Int
 )
+
 
 
 

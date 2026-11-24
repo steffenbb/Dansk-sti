@@ -401,12 +401,20 @@ class DanskStiRepository(
                         Log.e("DanskStiRepo", "Failed to load initial GeoFA data: ${t.message}", t)
                     }
                 } else {
+                    runGeoFaBookingBackfillIfNeeded()
                     val existingShops = dao.getPoisByType("shop")
                     if (existingShops.isEmpty()) {
                         val bundledOsm = osmPoiRepository.loadBundledPois("trail_ohavsstien")
                         val extraPois = bundledOsm.pois.distinctBy { it.id }
                         extraPois.chunked(250).forEach { dao.insertPois(it) }
                     }
+                }
+
+                // Apply bundled catalogue_metadata.json if its generatedAt is newer than last applied (Part F1)
+                try {
+                    applyBundledCatalogueMetadataAssetIfNeeded()
+                } catch (e: Exception) {
+                    Log.w("DanskStiRepo", "Bundled catalogue metadata asset apply skipped: ${e.message}")
                 }
 
                 // Fetch or load 30-day cached tags & bounding boxes for catalogue relations
@@ -419,6 +427,194 @@ class DanskStiRepository(
                 Log.e("DanskStiRepo", "Error in initializePreseededDataIfEmpty: ${t.message}", t)
             }
         }
+    }
+
+    /**
+     * Part F1: Applies `assets/catalogue/catalogue_metadata.json` on app start when its `generatedAt`
+     * is newer than the last applied timestamp, updating trail bounding boxes, regions, and relation tags
+     * (`description`, `website`, `operator`, `from`, `to`, `distance`) on existing installs.
+     */
+    suspend fun applyBundledCatalogueMetadataAssetIfNeeded(
+        assetJsonOverride: String? = null,
+        force: Boolean = false
+    ): Int = withContext(Dispatchers.IO) {
+        val rawJson = assetJsonOverride ?: runCatching {
+            context.assets.open("catalogue/catalogue_metadata.json").bufferedReader().use { it.readText() }
+        }.getOrNull() ?: return@withContext 0
+
+        if (rawJson.isBlank()) return@withContext 0
+        val root = runCatching { org.json.JSONObject(rawJson) }.getOrNull() ?: return@withContext 0
+        val generatedAt = root.optLong("generatedAt", 0L)
+        if (generatedAt <= 0L) return@withContext 0
+
+        val settingsRepo = runCatching { com.example.DanskStiApp.getSettingsRepository(context) }.getOrNull()
+        val prefs = context.getSharedPreferences("dansk_sti_migration_prefs", Context.MODE_PRIVATE)
+        val lastApplied = settingsRepo?.currentSettingsSnapshot()?.lastAppliedCatalogueMetadataGeneratedAt
+            ?.toLongOrNull()?.takeIf { it > 0L }
+            ?: prefs.getLong("last_applied_catalogue_metadata_generated_at", 0L)
+
+        if (!force && generatedAt <= lastApplied) {
+            // Still populate inMemoryCatalogueMeta so getRelationOsmTags has the bundled tags
+            populateInMemoryCatalogueMetaFromAsset(root)
+            return@withContext 0
+        }
+
+        val trailsArr = root.optJSONArray("trails") ?: return@withContext 0
+        var updatedCount = 0
+        for (i in 0 until trailsArr.length()) {
+            val item = trailsArr.optJSONObject(i) ?: continue
+            val trailId = item.optString("id", "").takeIf { it.isNotBlank() } ?: continue
+            val relId = item.optLong("osmRelationId", 0L).takeIf { it > 0L }
+            val bboxSouth = item.optDouble("bboxSouth", Double.NaN).takeIf { !it.isNaN() }
+            val bboxWest = item.optDouble("bboxWest", Double.NaN).takeIf { !it.isNaN() }
+            val bboxNorth = item.optDouble("bboxNorth", Double.NaN).takeIf { !it.isNaN() }
+            val bboxEast = item.optDouble("bboxEast", Double.NaN).takeIf { !it.isNaN() }
+
+            val tagsObj = item.optJSONObject("tags")
+            val tagsMap = LinkedHashMap<String, String>()
+            if (tagsObj != null) {
+                val keys = tagsObj.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val v = tagsObj.optString(k, "").trim()
+                    if (v.isNotEmpty()) tagsMap[k] = v
+                }
+            }
+            val osmDesc = item.optString("osmDescription", "").trim().ifEmpty { tagsMap["description"] ?: tagsMap["description:da"] }
+            val osmWebsite = item.optString("osmWebsite", "").trim().ifEmpty { tagsMap["website"] ?: tagsMap["url"] ?: tagsMap["contact:website"] }
+            val osmOperator = item.optString("osmOperator", "").trim().ifEmpty { tagsMap["operator"] }
+            val osmFrom = item.optString("osmFrom", "").trim().ifEmpty { tagsMap["from"] }
+            val osmTo = item.optString("osmTo", "").trim().ifEmpty { tagsMap["to"] }
+            val osmDistance = item.optString("osmDistance", "").trim().ifEmpty { tagsMap["distance"] }
+
+            if (relId != null) {
+                inMemoryCatalogueMeta[relId] = com.example.data.model.CatalogueRelationMetaDto(
+                    relationId = relId,
+                    bboxSouth = bboxSouth,
+                    bboxWest = bboxWest,
+                    bboxNorth = bboxNorth,
+                    bboxEast = bboxEast,
+                    tags = tagsMap
+                )
+            }
+
+            val existing = dao.getTrailById(trailId) ?: continue
+            val s = if (existing.isGeometryDownloaded) (existing.bboxSouth ?: bboxSouth) else (bboxSouth ?: existing.bboxSouth)
+            val w = if (existing.isGeometryDownloaded) (existing.bboxWest ?: bboxWest) else (bboxWest ?: existing.bboxWest)
+            val n = if (existing.isGeometryDownloaded) (existing.bboxNorth ?: bboxNorth) else (bboxNorth ?: existing.bboxNorth)
+            val e = if (existing.isGeometryDownloaded) (existing.bboxEast ?: bboxEast) else (bboxEast ?: existing.bboxEast)
+            val computedReg = if (s != null && w != null && n != null && e != null) {
+                GeoUtils.computeDanishRegionFromBbox(s, w, n, e)
+            } else {
+                item.optString("region", "").takeIf { it.isNotBlank() } ?: existing.region
+            }
+
+            val updatedTrail = existing.copy(
+                region = computedReg,
+                parentRegion = computedReg,
+                bboxSouth = s,
+                bboxWest = w,
+                bboxNorth = n,
+                bboxEast = e,
+                description = osmDesc?.takeIf { it.isNotBlank() } ?: existing.description,
+                osmWebsite = osmWebsite?.takeIf { it.isNotBlank() } ?: existing.osmWebsite,
+                osmOperator = osmOperator?.takeIf { it.isNotBlank() } ?: existing.osmOperator,
+                osmFrom = osmFrom?.takeIf { it.isNotBlank() } ?: existing.osmFrom,
+                osmTo = osmTo?.takeIf { it.isNotBlank() } ?: existing.osmTo,
+                osmDistanceTag = osmDistance?.takeIf { it.isNotBlank() } ?: existing.osmDistanceTag
+            )
+            if (updatedTrail != existing) {
+                dao.insertTrail(updatedTrail)
+                updatedCount++
+            }
+        }
+
+        prefs.edit().putLong("last_applied_catalogue_metadata_generated_at", generatedAt).apply()
+        runCatching { settingsRepo?.setLastAppliedCatalogueMetadataGeneratedAt(generatedAt) }
+        updatedCount
+    }
+
+    private fun populateInMemoryCatalogueMetaFromAsset(root: org.json.JSONObject) {
+        val trailsArr = root.optJSONArray("trails") ?: return
+        for (i in 0 until trailsArr.length()) {
+            val item = trailsArr.optJSONObject(i) ?: continue
+            val relId = item.optLong("osmRelationId", 0L).takeIf { it > 0L } ?: continue
+            val bboxSouth = item.optDouble("bboxSouth", Double.NaN).takeIf { !it.isNaN() }
+            val bboxWest = item.optDouble("bboxWest", Double.NaN).takeIf { !it.isNaN() }
+            val bboxNorth = item.optDouble("bboxNorth", Double.NaN).takeIf { !it.isNaN() }
+            val bboxEast = item.optDouble("bboxEast", Double.NaN).takeIf { !it.isNaN() }
+            val tagsObj = item.optJSONObject("tags")
+            val tagsMap = LinkedHashMap<String, String>()
+            if (tagsObj != null) {
+                val keys = tagsObj.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val v = tagsObj.optString(k, "").trim()
+                    if (v.isNotEmpty()) tagsMap[k] = v
+                }
+            }
+            inMemoryCatalogueMeta.putIfAbsent(
+                relId,
+                com.example.data.model.CatalogueRelationMetaDto(
+                    relationId = relId,
+                    bboxSouth = bboxSouth,
+                    bboxWest = bboxWest,
+                    bboxNorth = bboxNorth,
+                    bboxEast = bboxEast,
+                    tags = tagsMap
+                )
+            )
+        }
+    }
+
+    /**
+     * Once after the 27 -> 28 migration, re-parses the bundled GeoFA shelters asset with the new
+     * booking vs info-link rules and updates only bookingRequired, bookingUrl, and infoUrl on
+     * existing rows with source = 'geofa' and the same id (leaving hasWaterNearby, hasToiletNearby,
+     * trailCorridorId, and everything else untouched).
+     */
+    suspend fun runGeoFaBookingBackfillIfNeeded(force: Boolean = false): Int = withContext(Dispatchers.IO) {
+        val prefs = context.getSharedPreferences("dansk_sti_migration_prefs", Context.MODE_PRIVATE)
+        if (!force && prefs.getBoolean("geofa_booking_backfill_v28_done", false)) {
+            return@withContext 0
+        }
+        val bundled = geoFaRepository.loadBundledShelters()
+        val updatedCount = backfillGeoFaShelterBookingFromList(bundled)
+        prefs.edit().putBoolean("geofa_booking_backfill_v28_done", true).apply()
+        updatedCount
+    }
+
+    suspend fun backfillGeoFaShelterBookingFromList(bundledShelters: List<ShelterEntity>): Int = withContext(Dispatchers.IO) {
+        var updatedRows = 0
+        for (sh in bundledShelters) {
+            if (sh.source == "geofa") {
+                updatedRows += dao.updateGeoFaShelterBookingFields(
+                    id = sh.id,
+                    bookingRequired = sh.bookingRequired,
+                    bookingUrl = sh.bookingUrl,
+                    infoUrl = sh.infoUrl
+                )
+            }
+        }
+        updatedRows
+    }
+
+    fun mergeGeoFaAndOsmShelter(gf: ShelterEntity, osmSh: ShelterEntity): ShelterEntity {
+        return gf.copy(
+            description = if (gf.description.isNullOrBlank() || gf.description == "Ukendt") osmSh.description ?: gf.description else gf.description,
+            bookingUrl = gf.bookingUrl ?: osmSh.bookingUrl,
+            infoUrl = gf.infoUrl ?: osmSh.infoUrl,
+            ownership = gf.ownership ?: osmSh.ownership,
+            capacity = gf.capacity ?: osmSh.capacity,
+            shelterType = if (gf.shelterType == "Shelter" && !osmSh.shelterType.isNullOrBlank()) osmSh.shelterType else gf.shelterType,
+            hasFireRing = gf.hasFireRing ?: osmSh.hasFireRing,
+            dogAllowed = gf.dogAllowed ?: osmSh.dogAllowed,
+            fee = gf.fee ?: osmSh.fee,
+            hasFirewood = gf.hasFirewood ?: osmSh.hasFirewood,
+            hasElectricity = gf.hasElectricity ?: osmSh.hasElectricity,
+            maxNights = gf.maxNights ?: osmSh.maxNights,
+            accessibility = gf.accessibility ?: osmSh.accessibility
+        )
     }
 
     fun getAllTrails(): Flow<List<TrailEntity>> = dao.getAllTrails()
@@ -634,15 +830,64 @@ class DanskStiRepository(
         return stageAdapter.toJson(stages)
     }
 
-    suspend fun getTrailWeather(lat: Double, lng: Double): TrailWeatherInfo = withContext(Dispatchers.IO) {
-        if (!isDeviceOnline()) return@withContext TrailWeatherInfo()
-        try {
-            val response = weatherService.getTrailWeather(lat, lng)
-            WeatherInterpreter.parseWeather(response)
-        } catch (e: Exception) {
-            Log.w("DanskStiRepo", "Could not fetch live weather: ${e.message}")
-            TrailWeatherInfo()
+    suspend fun getTrailWeather(
+        lat: Double,
+        lng: Double,
+        forceNetworkRefresh: Boolean = true,
+        nowMs: Long = System.currentTimeMillis()
+    ): TrailWeatherInfo = withContext(Dispatchers.IO) {
+        val latRounded = WeatherInterpreter.roundCoord005(lat)
+        val lngRounded = WeatherInterpreter.roundCoord005(lng)
+        val cacheKey = String.format(java.util.Locale.US, "%.2f_%.2f", latRounded, lngRounded)
+        val cached = runCatching { dao.getWeatherCache(latRounded, lngRounded) }.getOrNull()
+
+        if (!forceNetworkRefresh && cached != null) {
+            val cachedResp = WeatherInterpreter.deserializeResponseFromJson(cached.forecastJson)
+            if (cachedResp != null) {
+                return@withContext WeatherInterpreter.parseWeather(cachedResp, fetchedAtMillis = cached.fetchedAt)
+            }
         }
+
+        if (isDeviceOnline()) {
+            try {
+                val response = try {
+                    weatherService.getTrailWeather(lat = lat, lon = lng, models = "dmi_seamless")
+                } catch (_: Exception) {
+                    weatherService.getTrailWeather(lat = lat, lon = lng, models = null)
+                }
+                val json = WeatherInterpreter.serializeResponseToJson(response)
+                runCatching {
+                    dao.insertWeatherCache(
+                        com.example.data.model.WeatherCacheEntity(
+                            cacheKey = cacheKey,
+                            latRounded = latRounded,
+                            lngRounded = lngRounded,
+                            fetchedAt = nowMs,
+                            forecastJson = json
+                        )
+                    )
+                }
+                return@withContext WeatherInterpreter.parseWeather(response, fetchedAtMillis = nowMs)
+            } catch (e: Exception) {
+                Log.w("DanskStiRepo", "Could not fetch live weather, falling back to cache: ${e.message}")
+            }
+        }
+
+        if (cached != null) {
+            val cachedResp = WeatherInterpreter.deserializeResponseFromJson(cached.forecastJson)
+            if (cachedResp != null) {
+                return@withContext WeatherInterpreter.parseWeather(cachedResp, fetchedAtMillis = cached.fetchedAt)
+            }
+        }
+        TrailWeatherInfo()
+    }
+
+    suspend fun getCachedTrailWeatherOnly(lat: Double, lng: Double): TrailWeatherInfo? = withContext(Dispatchers.IO) {
+        val latRounded = WeatherInterpreter.roundCoord005(lat)
+        val lngRounded = WeatherInterpreter.roundCoord005(lng)
+        val cached = runCatching { dao.getWeatherCache(latRounded, lngRounded) }.getOrNull() ?: return@withContext null
+        val cachedResp = WeatherInterpreter.deserializeResponseFromJson(cached.forecastJson) ?: return@withContext null
+        WeatherInterpreter.parseWeather(cachedResp, fetchedAtMillis = cached.fetchedAt)
     }
 
     // --- Corridor POI sync & attachment ---
@@ -697,13 +942,7 @@ class DanskStiRepository(
                 }
                 if (matchIdx >= 0) {
                     val gf = existingShelters[matchIdx]
-                    val merged = gf.copy(
-                        description = if (gf.description.isNullOrBlank() || gf.description == "Ukendt") osmSh.description ?: gf.description else gf.description,
-                        bookingUrl = gf.bookingUrl ?: osmSh.bookingUrl,
-                        ownership = gf.ownership ?: osmSh.ownership,
-                        capacity = gf.capacity ?: osmSh.capacity,
-                        shelterType = if (gf.shelterType == "Shelter" && !osmSh.shelterType.isNullOrBlank()) osmSh.shelterType else gf.shelterType
-                    )
+                    val merged = mergeGeoFaAndOsmShelter(gf, osmSh)
                     existingShelters[matchIdx] = merged
                     updatedShelters.add(merged)
                 } else {
@@ -723,6 +962,7 @@ class DanskStiRepository(
                     val gf = existingPois[matchIdx]
                     val merged = gf.copy(
                         openingHours = gf.openingHours ?: osmPoi.openingHours,
+                        seasonal = gf.seasonal ?: osmPoi.seasonal,
                         operator = gf.operator ?: osmPoi.operator,
                         website = gf.website ?: osmPoi.website
                     )
@@ -805,11 +1045,46 @@ class DanskStiRepository(
         routeId: String,
         points: List<GeoPointDto>
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val cleanId = routeId.removePrefix("route_")
+        val cleanId = routeId.removePrefix("route_").removePrefix("route:").removePrefix("plan_").removePrefix("plan:")
         val mutex = getRoutePoiSyncMutex(cleanId)
         mutex.withLock {
             syncCorridorPoisForRouteInternal(cleanId, points)
         }
+    }
+
+    suspend fun syncCorridorPoisForPolyline(
+        downloadId: String,
+        points: List<GeoPointDto>
+    ): Result<Unit> = syncCorridorPoisForRoute(downloadId, points)
+
+    fun getCustomRouteOrderedPoints(route: com.example.data.model.CustomRouteEntity): List<GeoPointDto> {
+        val legs = runCatching {
+            com.example.util.routing.RouteGeometryStorageManager.loadLegs(context, route.geometryFile)
+        }.getOrDefault(emptyMap())
+        val waypoints = com.example.util.routing.RouteWaypoint.listFromJson(route.waypointsJson)
+        val orderedPoints = mutableListOf<GeoPointDto>()
+        for (i in 0 until waypoints.size - 1) {
+            val key = "${waypoints[i].id}_to_${waypoints[i + 1].id}"
+            legs[key]?.points?.forEach { pt ->
+                orderedPoints.add(GeoPointDto(pt.lat, pt.lng, pt.ele))
+            }
+        }
+        if (orderedPoints.isEmpty()) {
+            legs.values.flatMap { it.points }.forEach { pt ->
+                orderedPoints.add(GeoPointDto(pt.lat, pt.lng, pt.ele))
+            }
+        }
+        if (orderedPoints.isEmpty()) {
+            waypoints.forEach { wp ->
+                orderedPoints.add(GeoPointDto(wp.lat, wp.lng))
+            }
+        }
+        return orderedPoints
+    }
+
+    fun computeCustomRouteGeometryHash(route: com.example.data.model.CustomRouteEntity): String {
+        val pts = getCustomRouteOrderedPoints(route)
+        return com.example.util.OfflineDownloadManager.computeGeometryHash(pts)
     }
 
     private suspend fun syncCorridorPoisForRouteInternal(
@@ -857,13 +1132,7 @@ class DanskStiRepository(
                     }
                     if (matchIdx >= 0) {
                         val gf = existingShelters[matchIdx]
-                        val merged = gf.copy(
-                            description = if (gf.description.isNullOrBlank() || gf.description == "Ukendt") osmSh.description ?: gf.description else gf.description,
-                            bookingUrl = gf.bookingUrl ?: osmSh.bookingUrl,
-                            ownership = gf.ownership ?: osmSh.ownership,
-                            capacity = gf.capacity ?: osmSh.capacity,
-                            shelterType = if (gf.shelterType == "Shelter" && !osmSh.shelterType.isNullOrBlank()) osmSh.shelterType else gf.shelterType
-                        )
+                        val merged = mergeGeoFaAndOsmShelter(gf, osmSh)
                         existingShelters[matchIdx] = merged
                         updatedShelters.add(merged)
                     } else {
@@ -883,6 +1152,7 @@ class DanskStiRepository(
                         val gf = existingPois[matchIdx]
                         val merged = gf.copy(
                             openingHours = gf.openingHours ?: osmPoi.openingHours,
+                            seasonal = gf.seasonal ?: osmPoi.seasonal,
                             operator = gf.operator ?: osmPoi.operator,
                             website = gf.website ?: osmPoi.website
                         )
@@ -1776,13 +2046,117 @@ class DanskStiRepository(
         }
     }
 
-    // --- Trip Gear Checklist in Room (Phase 6) ---
+    // --- Trip Gear Checklist in Room (Phase 6 & Round 21 D1) ---
     fun getGearItemsForPlan(planId: Long): Flow<List<com.example.data.model.TripGearItemEntity>> =
         dao.getGearItemsForPlan(planId)
 
     suspend fun updateGearItem(item: com.example.data.model.TripGearItemEntity) = withContext(Dispatchers.IO) {
         dao.updateGearItem(item)
     }
+
+    suspend fun addGearItem(
+        planId: Long,
+        title: String,
+        category: String,
+        weightGrams: Int?
+    ): com.example.data.model.TripGearItemEntity = withContext(Dispatchers.IO) {
+        val item = com.example.data.model.TripGearItemEntity(
+            id = java.util.UUID.randomUUID().toString(),
+            planId = planId,
+            category = category.ifBlank { "Andet" },
+            title = title.trim(),
+            isPacked = false,
+            weightGrams = weightGrams
+        )
+        dao.insertGearItems(listOf(item))
+        item
+    }
+
+    suspend fun deleteGearItem(id: String) = withContext(Dispatchers.IO) {
+        dao.deleteGearItem(id)
+    }
+
+    suspend fun ensureDefaultGearItemsForPlan(planId: Long, overnightTypeStr: String = "BOTH") = withContext(Dispatchers.IO) {
+        val existing = dao.getGearItemsForPlanSync(planId)
+        if (existing.isNotEmpty()) return@withContext
+        val ovType = when (overnightTypeStr.uppercase(java.util.Locale.ROOT)) {
+            "TENT", "FRI_TELTNING" -> OvernightType.FRI_TELTNING
+            "SHELTER" -> OvernightType.SHELTER
+            else -> OvernightType.BOTH
+        }
+        val defaults = getDefaultGearChecklist(ovType, 10.0)
+        val entities = defaults.map { d ->
+            com.example.data.model.TripGearItemEntity(
+                id = java.util.UUID.randomUUID().toString(),
+                planId = planId,
+                category = d.category,
+                title = d.title,
+                isPacked = false,
+                weightGrams = d.weightGrams
+            )
+        }
+        dao.insertGearItems(entities)
+    }
+
+    suspend fun copyGearItemsFromPlan(sourcePlanId: Long, targetPlanId: Long) = withContext(Dispatchers.IO) {
+        if (sourcePlanId == targetPlanId) return@withContext
+        val sourceItems = dao.getGearItemsForPlanSync(sourcePlanId)
+        if (sourceItems.isEmpty()) return@withContext
+        dao.deleteGearItemsForPlan(targetPlanId)
+        val copied = sourceItems.map { src ->
+            com.example.data.model.TripGearItemEntity(
+                id = java.util.UUID.randomUUID().toString(),
+                planId = targetPlanId,
+                category = src.category,
+                title = src.title,
+                isPacked = false,
+                weightGrams = src.weightGrams
+            )
+        }
+        dao.insertGearItems(copied)
+    }
+
+    // --- Trip Diary Entries in Room (Round 21 D2) ---
+    fun observeTripDiaryEntriesForPlan(planId: Long): Flow<List<com.example.data.model.TripDiaryEntryEntity>> =
+        dao.observeTripDiaryEntriesForPlan(planId)
+
+    fun getDiaryEntriesForPlanFlow(planId: Long): Flow<List<com.example.data.model.TripDiaryEntryEntity>> =
+        dao.observeTripDiaryEntriesForPlan(planId)
+
+    suspend fun getTripDiaryEntriesForPlanSync(planId: Long): List<com.example.data.model.TripDiaryEntryEntity> =
+        withContext(Dispatchers.IO) {
+            dao.getTripDiaryEntriesForPlanSync(planId)
+        }
+
+    suspend fun getDiaryEntriesForPlanSync(planId: Long): List<com.example.data.model.TripDiaryEntryEntity> =
+        getTripDiaryEntriesForPlanSync(planId)
+
+    suspend fun saveTripDiaryEntry(
+        planId: Long,
+        dayNumber: Int,
+        noteText: String,
+        photoPaths: List<String>
+    ) = withContext(Dispatchers.IO) {
+        val cappedPhotos = photoPaths.filter { it.isNotBlank() }.take(5)
+        val jsonArr = org.json.JSONArray()
+        cappedPhotos.forEach { jsonArr.put(it) }
+        dao.insertOrUpdateTripDiaryEntry(
+            com.example.data.model.TripDiaryEntryEntity(
+                planId = planId,
+                dayNumber = dayNumber,
+                note = noteText,
+                photoPathsJson = jsonArr.toString(),
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+    }
+
+    suspend fun saveDiaryEntry(
+        planId: Long,
+        dayNumber: Int,
+        note: String,
+        photoPaths: List<String>
+    ) = saveTripDiaryEntry(planId, dayNumber, note, photoPaths)
 
     // --- Trip Progress & Navigation State ---
     fun getTripProgress(planId: Long): Flow<TripProgressEntity?> = dao.getTripProgress(planId)
@@ -1994,11 +2368,20 @@ class DanskStiRepository(
             }
         }
 
-        // 2. Fri Teltning
+        // 2. Fri Teltning (Part A2: count water/toilet only from real POIs within 500 m)
+        val allPois = dao.getAllPoisList()
+        val realWaterPois = allPois.filter { it.type == "water" }
+        val realToiletPois = allPois.filter { it.type == "toilet" }
         val friTeltnings = dao.getAllFriTeltningList()
         for (ft in friTeltnings) {
             val d = GeoUtils.distanceMeters(userLat, userLng, ft.centerLat, ft.centerLng)
             if (d <= maxMeters) {
+                val hasRealWater = realWaterPois.any {
+                    GeoUtils.distanceMeters(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0
+                }
+                val hasRealToilet = realToiletPois.any {
+                    GeoUtils.distanceMeters(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0
+                }
                 results.add(
                     com.example.data.model.NearbyOvernightSpot(
                         id = "friteltning_${ft.id}",
@@ -2009,8 +2392,8 @@ class DanskStiRepository(
                         distanceMeters = d,
                         bookingRequired = false,
                         bookingUrl = ft.rulesUrl,
-                        hasWaterNearby = true,
-                        hasToiletNearby = false,
+                        hasWaterNearby = hasRealWater,
+                        hasToiletNearby = hasRealToilet,
                         description = ft.rulesSummary ?: "Fri teltning efter 1-2-3 reglen"
                     )
                 )
@@ -2391,12 +2774,18 @@ class DanskStiRepository(
 
             // 4. photos/
             val validWaypoints = dao.getAllCustomWaypointsList()
-            val validPhotoNames = validWaypoints
-                .mapNotNull { it.photoPath?.takeIf { p -> p.isNotBlank() } }
+            val diaryEntries = runCatching { dao.getAllTripDiaryEntriesList() }.getOrDefault(emptyList())
+            val diaryPhotoRawPaths = diaryEntries.flatMap { entry ->
+                runCatching {
+                    val arr = org.json.JSONArray(entry.photoPathsJson)
+                    (0 until arr.length()).mapNotNull { idx -> arr.optString(idx)?.takeIf { it.isNotBlank() } }
+                }.getOrDefault(emptyList())
+            }
+            val allKnownPhotoRawPaths = validWaypoints.mapNotNull { it.photoPath?.takeIf { p -> p.isNotBlank() } } + diaryPhotoRawPaths
+            val validPhotoNames = allKnownPhotoRawPaths
                 .map { java.io.File(it).name }
                 .toSet()
-            val validPhotoPaths = validWaypoints
-                .mapNotNull { it.photoPath?.takeIf { p -> p.isNotBlank() } }
+            val validPhotoPaths = allKnownPhotoRawPaths
                 .map { java.io.File(it).absolutePath }
                 .toSet()
             val photosDir = java.io.File(baseFilesDir, "photos")

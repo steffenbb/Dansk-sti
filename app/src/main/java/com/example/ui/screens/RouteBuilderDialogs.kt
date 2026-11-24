@@ -116,7 +116,7 @@ internal fun RouteBuilderBasicDialogs(
             title = { Text(stringResource(R.string.bookmark_add_cd)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.ui_routebuilderscreen_angiv_et_navn_til_din_rute_114), fontSize = 13.sp)
+                    Text(stringResource(R.string.ui_routebuilderscreen_angiv_et_navn_til_din_rute_114), style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(
                         value = renameRouteName,
                         onValueChange = onRenameRouteNameChange,
@@ -251,7 +251,7 @@ internal fun RouteBuilderBasicDialogs(
                 Text(
                     text = stringResource(R.string.planner_on_trail_at_km_fmt, String.format(Locale.GERMANY, "%.1f", tap.trailKm)),
                     fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
+                    style = MaterialTheme.typography.titleMedium
                 )
             },
             text = {
@@ -261,7 +261,7 @@ internal fun RouteBuilderBasicDialogs(
                 ) {
                     Text(
                         text = stringResource(R.string.ui_routebuilderscreen_v_lg_handling_for_dette_punk_123),
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
@@ -362,14 +362,14 @@ internal fun RouteBuilderBasicDialogs(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(Icons.Default.NightShelter, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text(stringResource(R.string.ui_routebuilderscreen_skift_overnatning_121), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(stringResource(R.string.ui_routebuilderscreen_skift_overnatning_121), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 }
             },
             text = {
                 if (uiState.replaceOvernightCandidates.isEmpty()) {
                     Text(
                         text = stringResource(R.string.ui_routebuilderscreen_ingen_andre_shelters_ell_130, String.format(Locale.GERMANY, "%.1f", uiState.maxDetourKm)),
-                        fontSize = 13.sp
+                        style = MaterialTheme.typography.bodySmall
                     )
                 } else {
                     LazyColumn(
@@ -398,11 +398,11 @@ internal fun RouteBuilderBasicDialogs(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(cand.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text(cand.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
                                         val typeLabel = if (cand.type == "FRI_TELTNING") stringResource(R.string.planner_pref_free_tent) else stringResource(R.string.poi_type_shelter)
                                         Text(
                                             text = stringResource(R.string.ui_routebuilderscreen_km_m_omvej_131, typeLabel, String.format(Locale.GERMANY, "%.1f", cand.walkKm), cand.detourMeters.toInt()),
-                                            fontSize = 12.sp,
+                                            style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
@@ -413,7 +413,7 @@ internal fun RouteBuilderBasicDialogs(
                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                         modifier = Modifier.heightIn(min = 30.dp)
                                     ) {
-                                        Text(stringResource(R.string.ui_routebuilderscreen_v_lg_132), fontSize = 12.sp)
+                                        Text(stringResource(R.string.ui_routebuilderscreen_v_lg_132), style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
                             }
@@ -535,7 +535,7 @@ internal fun TripSettingsDialog(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text(stringResource(R.string.ui_routebuilderscreen_indstillinger_for_turen_102), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.ui_routebuilderscreen_indstillinger_for_turen_102), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
             }
         },
         text = {
@@ -551,10 +551,10 @@ internal fun TripSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(stringResource(R.string.setting_my_pace), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.setting_my_pace), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                         Text(
                             text = String.format(Locale.GERMANY, "%.1f km/t", pace),
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.testTag("trip_settings_pace_value")
@@ -578,10 +578,10 @@ internal fun TripSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(stringResource(R.string.ui_routebuilderscreen_dagsm_l_km_dag_166), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.ui_routebuilderscreen_dagsm_l_km_dag_166), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                         Text(
                             text = stringResource(R.string.ui_markedroutedetailsheet_km_19, dailyKm.toInt()),
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.testTag("trip_settings_daily_km_value")
@@ -605,10 +605,10 @@ internal fun TripSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(stringResource(R.string.ui_routebuilderscreen_maks_omvej_til_overnatning_167), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.ui_routebuilderscreen_maks_omvej_til_overnatning_167), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                         Text(
                             text = String.format(Locale.GERMANY, "%.1f km (%d m)", maxDetourKm, (maxDetourKm * 1000).toInt()),
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -628,14 +628,14 @@ internal fun TripSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(stringResource(R.string.ui_routebuilderscreen_startdato_168), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.ui_routebuilderscreen_startdato_168), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                         Text(
                             text = if (startDateOffsetDays == 0) {
                                 stringResource(R.string.planner_start_date_today_fmt, formattedStartDate)
                             } else {
                                 stringResource(R.string.planner_start_date_in_days_fmt, startDateOffsetDays, formattedStartDate)
                             },
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -656,10 +656,10 @@ internal fun TripSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(stringResource(R.string.setting_start_time), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.setting_start_time), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                         Text(
                             text = String.format(Locale.GERMANY, "kl. %s", startTimeStr),
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.testTag("trip_settings_start_time_value")
@@ -676,7 +676,7 @@ internal fun TripSettingsDialog(
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(stringResource(R.string.ui_routebuilderscreen_overnatningstype_169), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.ui_routebuilderscreen_overnatningstype_169), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -702,7 +702,7 @@ internal fun TripSettingsDialog(
                                     .weight(1f)
                                     .heightIn(min = 34.dp)
                             ) {
-                                Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                             }
                         }
                     }

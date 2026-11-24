@@ -70,34 +70,44 @@ import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.roundToInt
 
-/**
- * Danish formatting helpers for tabular distance and elevation figures.
- */
-fun formatDanishKm(km: Double, decimals: Int = -1): String {
-    return when {
-        decimals == 0 -> String.format(Locale("da", "DK"), "%.0f", km)
-        decimals > 0 -> String.format(Locale("da", "DK"), "%.${decimals}f", km)
-        km >= 100.0 || km % 1.0 == 0.0 -> String.format(Locale("da", "DK"), "%.0f", km)
-        else -> String.format(Locale("da", "DK"), "%.1f", km)
+@Composable
+fun rememberAppLocale(): Locale {
+    val config = androidx.compose.ui.platform.LocalConfiguration.current
+    val locales = config.locales
+    return if (!locales.isEmpty) {
+        locales[0] ?: com.example.util.AppLocaleHelper.DEFAULT_DANISH_LOCALE
+    } else {
+        com.example.util.AppLocaleHelper.DEFAULT_DANISH_LOCALE
     }
 }
 
-fun formatDanishElevationMeters(meters: Int): String {
-    val nf = NumberFormat.getIntegerInstance(Locale("da", "DK"))
+/**
+ * Locale-aware formatting helpers for tabular distance and elevation figures.
+ */
+fun formatDanishKm(km: Double, decimals: Int = -1, locale: Locale = com.example.util.AppLocaleHelper.DEFAULT_DANISH_LOCALE): String {
+    return when {
+        decimals == 0 -> String.format(locale, "%.0f", km)
+        decimals > 0 -> String.format(locale, "%.${decimals}f", km)
+        km >= 100.0 || km % 1.0 == 0.0 -> String.format(locale, "%.0f", km)
+        else -> String.format(locale, "%.1f", km)
+    }
+}
+
+fun formatDanishElevationMeters(meters: Int, locale: Locale = com.example.util.AppLocaleHelper.DEFAULT_DANISH_LOCALE): String {
+    val nf = NumberFormat.getIntegerInstance(locale)
     return nf.format(meters.coerceAtLeast(0))
 }
 
-fun formatDanishElevationMeters(meters: Double): String {
-    return formatDanishElevationMeters(meters.roundToInt())
+fun formatDanishElevationMeters(meters: Double, locale: Locale = com.example.util.AppLocaleHelper.DEFAULT_DANISH_LOCALE): String {
+    return formatDanishElevationMeters(meters.roundToInt(), locale)
 }
 
 /**
- * Formats a timestamp in Danish as "Hentet <dato>", e.g. "Hentet 27. okt. 2026".
+ * Formats a timestamp as "Hentet <dato>", e.g. "Hentet 27. okt. 2026".
  */
-fun formatDownloadedDateDanish(epochMillis: Long): String {
-    val safeMillis = if (epochMillis > 0L) epochMillis else System.currentTimeMillis()
-    val sdf = java.text.SimpleDateFormat("d. MMM yyyy", Locale("da", "DK"))
-    return "Hentet ${sdf.format(java.util.Date(safeMillis))}"
+fun formatDownloadedDateDanish(epochMillis: Long, locale: Locale = com.example.util.AppLocaleHelper.DEFAULT_DANISH_LOCALE, prefix: String = "Hentet"): String {
+    val datePart = com.example.util.AppLocaleHelper.formatShortDate(epochMillis, locale)
+    return "$prefix $datePart"
 }
 
 /**

@@ -217,7 +217,10 @@ class RoutePhase12Test {
                 lat: Double,
                 lon: Double,
                 current: String,
+                hourly: String,
                 daily: String,
+                forecastHours: Int,
+                models: String?,
                 windSpeedUnit: String,
                 timezone: String
             ): OpenMeteoResponse {

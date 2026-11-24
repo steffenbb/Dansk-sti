@@ -45,13 +45,14 @@ enum class OvernightFilter(val label: String) {
 data class TrailCardMetrics(
     val shelterCount: Int = 0,
     val friTeltningCount: Int = 0,
-    val ascentMeters: Int = 0,
+    val ascentMeters: Int? = null,
     val estimatedDays: Int = 1,
     val geometryPoints: List<GeoPointDto> = emptyList()
 )
 
 @OptIn(FlowPreview::class)
 class ExploreViewModel(application: Application) : AndroidViewModel(application) {
+    init { DanskStiApp.registerViewModelScope(viewModelScope) }
 
     private val app: DanskStiApp
         get() = try { DanskStiApp.instance } catch (_: Exception) { getApplication() as DanskStiApp }
@@ -309,7 +310,12 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                 withContext(Dispatchers.IO) {
                     runCatching { repository.initializePreseededDataIfEmpty() }
                 }
-                allTrails.collect { trails ->
+                combine(
+                    allTrails,
+                    settingsRepository.settingsFlow.map { it.dailyTargetKm }
+                ) { trails, dailyTargetKm ->
+                    trails to dailyTargetKm
+                }.collect { (trails, dailyTargetKm) ->
                     if (trails.isNotEmpty()) {
                         _errorMessage.value = null
                         withContext(Dispatchers.IO) {
@@ -339,15 +345,14 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                                     val cachedGeom = getOrLoadCachedGeometryForTrail(t)
                                     val pts = cachedGeom?.points ?: emptyList()
                                     val geomWalkingKm = cachedGeom?.walkingKm ?: 0.0
-                                    val geomAscentM = cachedGeom?.ascentM
+                                    val geomAscentM = cachedGeom?.ascentM?.takeIf { it > 0 }
                                     val computedKm = geomWalkingKm.takeIf { it > 0.0 } ?: t.computedWalkingKm
-                                    val ascentM = geomAscentM ?: (computedKm * 8.5).toInt()
-                                    val estDays = kotlin.math.ceil(computedKm / 20.0).toInt().coerceAtLeast(1)
+                                    val estDays = GeoUtils.estimateDays(computedKm, dailyTargetKm)
 
                                     metricsMap[t.id] = TrailCardMetrics(
                                         shelterCount = sCount,
                                         friTeltningCount = fCount,
-                                        ascentMeters = ascentM,
+                                        ascentMeters = geomAscentM,
                                         estimatedDays = estDays,
                                         geometryPoints = pts
                                     )
@@ -452,16 +457,74 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                 val north = t.bboxNorth
                 val west = t.bboxWest
                 val east = t.bboxEast
+                val sLat = t.startLat
+                val sLng = t.startLng
                 if (south != null && north != null && west != null && east != null) {
                     val cLat = (south + north) / 2.0
                     val cLng = (west + east) / 2.0
                     Pair(t, GeoUtils.haversineMeters(uLat, uLng, cLat, cLng))
+                } else if (sLat != null && sLng != null && (sLat != 0.0 || sLng != 0.0)) {
+                    Pair(t, GeoUtils.haversineMeters(uLat, uLng, sLat, sLng))
                 } else {
                     null
                 }
             }.sortedBy { it.second }.map { it.first }.take(4)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val shortTrailsNearYou: StateFlow<List<TrailEntity>> = combine(
+        allTrails,
+        _userLocation
+    ) { trails, loc ->
+        if (loc == null) {
+            emptyList()
+        } else {
+            filterShortTrailsNearYou(trails, loc.first, loc.second)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    companion object {
+        /**
+         * Part F4: Returns trails of 3–20 km within 15 km of the user's position ([userLat], [userLng]),
+         * sorted by distance from the user.
+         */
+        fun filterShortTrailsNearYou(
+            trails: List<TrailEntity>,
+            userLat: Double,
+            userLng: Double,
+            minKm: Double = 3.0,
+            maxKm: Double = 20.0,
+            maxRadiusMeters: Double = 15_000.0
+        ): List<TrailEntity> {
+            return trails.mapNotNull { t ->
+                val km = t.computedWalkingKm
+                if (km < minKm || km > maxKm) return@mapNotNull null
+
+                val sLat = t.startLat
+                val sLng = t.startLng
+                val eLat = t.endLat
+                val eLng = t.endLng
+
+                val distM = when {
+                    sLat != null && sLng != null && (sLat != 0.0 || sLng != 0.0) -> {
+                        val startDist = GeoUtils.haversineMeters(userLat, userLng, sLat, sLng)
+                        val endDist = if (eLat != null && eLng != null && (eLat != 0.0 || eLng != 0.0)) {
+                            GeoUtils.haversineMeters(userLat, userLng, eLat, eLng)
+                        } else Double.MAX_VALUE
+                        minOf(startDist, endDist)
+                    }
+                    t.bboxSouth != null && t.bboxNorth != null && t.bboxWest != null && t.bboxEast != null -> {
+                        val cLat = (t.bboxSouth + t.bboxNorth) / 2.0
+                        val cLng = (t.bboxWest + t.bboxEast) / 2.0
+                        GeoUtils.haversineMeters(userLat, userLng, cLat, cLng)
+                    }
+                    else -> Double.MAX_VALUE
+                }
+
+                if (distM <= maxRadiusMeters) Pair(t, distM) else null
+            }.sortedBy { it.second }.map { it.first }
+        }
+    }
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query

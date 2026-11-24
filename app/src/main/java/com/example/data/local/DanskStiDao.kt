@@ -551,6 +551,99 @@ interface DanskStiDao {
 
     @Query("DELETE FROM cached_route_legs")
     suspend fun clearAllCachedRouteLegs()
+
+    // Round 21: GeoFA booking backfill on existing installs
+    @Query("UPDATE shelters SET bookingRequired = :bookingRequired, bookingUrl = :bookingUrl, infoUrl = :infoUrl WHERE id = :id AND source = 'geofa'")
+    suspend fun updateGeoFaShelterBookingFields(
+        id: String,
+        bookingRequired: Boolean,
+        bookingUrl: String?,
+        infoUrl: String?
+    ): Int
+
+    // Round 21: Packing list helpers
+    @Query("SELECT * FROM trip_gear_items ORDER BY category ASC, title ASC")
+    fun getAllGearItems(): kotlinx.coroutines.flow.Flow<List<com.example.data.model.TripGearItemEntity>>
+
+    @Query("SELECT * FROM trip_gear_items WHERE planId = :planId ORDER BY category ASC, title ASC")
+    suspend fun getGearItemsForPlanSync(planId: Long): List<com.example.data.model.TripGearItemEntity>
+
+    @Query("DELETE FROM trip_gear_items WHERE planId = :planId")
+    suspend fun deleteGearItemsForPlan(planId: Long)
+
+    // Round 21: Trip Diary (trip_diary_entries)
+    @Query("SELECT * FROM trip_diary_entries WHERE planId = :planId ORDER BY dayNumber ASC")
+    fun getDiaryEntriesForPlan(planId: Long): kotlinx.coroutines.flow.Flow<List<com.example.data.model.TripDiaryEntryEntity>>
+
+    fun observeTripDiaryEntriesForPlan(planId: Long): kotlinx.coroutines.flow.Flow<List<com.example.data.model.TripDiaryEntryEntity>> =
+        getDiaryEntriesForPlan(planId)
+
+    @Query("SELECT * FROM trip_diary_entries WHERE planId = :planId ORDER BY dayNumber ASC")
+    suspend fun getDiaryEntriesForPlanSync(planId: Long): List<com.example.data.model.TripDiaryEntryEntity>
+
+    suspend fun getTripDiaryEntriesForPlanSync(planId: Long): List<com.example.data.model.TripDiaryEntryEntity> =
+        getDiaryEntriesForPlanSync(planId)
+
+    @Query("SELECT * FROM trip_diary_entries")
+    fun getAllDiaryEntries(): kotlinx.coroutines.flow.Flow<List<com.example.data.model.TripDiaryEntryEntity>>
+
+    @Query("SELECT * FROM trip_diary_entries")
+    suspend fun getAllTripDiaryEntriesList(): List<com.example.data.model.TripDiaryEntryEntity>
+
+    @Query("SELECT * FROM trip_diary_entries WHERE planId = :planId AND dayNumber = :dayNumber LIMIT 1")
+    fun getDiaryEntry(planId: Long, dayNumber: Int): kotlinx.coroutines.flow.Flow<com.example.data.model.TripDiaryEntryEntity?>
+
+    @Query("SELECT * FROM trip_diary_entries WHERE planId = :planId AND dayNumber = :dayNumber LIMIT 1")
+    suspend fun getDiaryEntrySync(planId: Long, dayNumber: Int): com.example.data.model.TripDiaryEntryEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDiaryEntry(entry: com.example.data.model.TripDiaryEntryEntity)
+
+    suspend fun insertOrUpdateTripDiaryEntry(entry: com.example.data.model.TripDiaryEntryEntity) =
+        upsertDiaryEntry(entry)
+
+    @Query("DELETE FROM trip_diary_entries WHERE planId = :planId")
+    suspend fun deleteDiaryEntriesForPlan(planId: Long)
+
+    // Round 21: Weather Cache (weather_cache)
+    @Query("SELECT * FROM weather_cache WHERE cacheKey = :cacheKey LIMIT 1")
+    suspend fun getWeatherCache(cacheKey: String): com.example.data.model.WeatherCacheEntity?
+
+    @Query("SELECT * FROM weather_cache WHERE latRounded = :latRounded AND lngRounded = :lngRounded LIMIT 1")
+    suspend fun getWeatherCacheByCoords(latRounded: Double, lngRounded: Double): com.example.data.model.WeatherCacheEntity?
+
+    suspend fun getWeatherCache(latRounded: Double, lngRounded: Double): com.example.data.model.WeatherCacheEntity? =
+        getWeatherCache(String.format(java.util.Locale.US, "%.2f_%.2f", latRounded, lngRounded))
+            ?: getWeatherCacheByCoords(latRounded, lngRounded)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertWeatherCache(cache: com.example.data.model.WeatherCacheEntity)
+
+    suspend fun insertWeatherCache(cache: com.example.data.model.WeatherCacheEntity) =
+        upsertWeatherCache(cache)
+
+    @Query("DELETE FROM weather_cache WHERE fetchedAt < :expiredBefore")
+    suspend fun deleteExpiredWeatherCache(expiredBefore: Long)
+
+    // Round 21: Statistics & Widget helpers
+    @Query("SELECT * FROM recorded_day_stats ORDER BY lastTimestamp DESC")
+    suspend fun getAllRecordedDayStatsList(): List<com.example.data.model.RecordedDayStatEntity>
+
+    @Query("SELECT * FROM trip_progress")
+    suspend fun getAllTripProgressList(): List<TripProgressEntity>
+
+    @Query("SELECT * FROM trip_progress")
+    fun getAllTripProgressSync(): List<TripProgressEntity>
+
+    @Query("SELECT * FROM trip_plans WHERE id = :id LIMIT 1")
+    fun getSavedPlanByIdSync(id: Long): TripPlanEntity?
+
+    @Query("SELECT * FROM trip_stages WHERE planId = :planId ORDER BY dayNumber ASC")
+    fun getStagesForPlanSync(planId: Long): List<com.example.data.model.TripStageEntity>
+
+    @Query("SELECT * FROM marked_routes")
+    suspend fun getAllMarkedRoutesList(): List<com.example.data.model.MarkedRouteEntity>
 }
+
 
 

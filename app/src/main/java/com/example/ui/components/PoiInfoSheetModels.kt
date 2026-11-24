@@ -24,6 +24,7 @@ data class PoiInfoSheetData(
     val bookingText: String? = null,
     val bookingRequired: Boolean? = null,
     val bookingUrl: String? = null,
+    val infoUrl: String? = null,
     val facilities: List<String> = emptyList(),
     val description: String? = null,
     val dataSource: String = "OpenStreetMap / GeoFA",
@@ -92,7 +93,7 @@ data class PoiInfoSheetData(
                     if (item.subText.contains("Booking", ignoreCase = true)) "Kræver booking" else "Fri afbenyttelse"
                 } else null,
                 bookingRequired = if (isOvernight) item.subText.contains("Booking", ignoreCase = true) else null,
-                facilities = facList,
+                facilities = facList.ifEmpty { if (norm == "shelter") listOf("Faciliteter ikke oplyst") else emptyList() },
                 dataSource = if (norm == "shelter" || norm == "tent" || norm == "fri_teltning") {
                     "GeoFA / Naturstyrelsen"
                 } else {
@@ -102,14 +103,27 @@ data class PoiInfoSheetData(
         }
 
         fun fromShelter(s: ShelterEntity): PoiInfoSheetData {
-            val facilities = buildList {
+            val rawFacilities = buildList {
                 if (s.hasWaterNearby) add("Drikkevand i nærheden")
                 if (s.hasToiletNearby) add("Toilet i nærheden")
-                if (s.hasFireRing) add("Bålplads")
-                if (s.hasFirewood) add("Brænde")
-                if (s.dogAllowed) add("Hund i snor tilladt")
-                if (s.hasElectricity) add("Strøm")
-                if (s.fee && s.priceDkk > 0) add("Pris: ${s.priceDkk} kr.") else if (!s.fee) add("Gratis")
+                if (s.hasFireRing == true) add("Bålplads")
+                if (s.hasFirewood == true) add("Brænde")
+                if (s.dogAllowed == true) add("Hund i snor tilladt")
+                if (s.hasElectricity == true) add("Strøm")
+                if (s.fee == true && s.priceDkk > 0) {
+                    add("Pris: ${s.priceDkk} kr.")
+                } else if (s.fee == true) {
+                    add("Betaling påkrævet")
+                } else if (s.fee == false) {
+                    add("Gratis")
+                }
+                s.maxNights?.takeIf { it > 0 }?.let { add("Maks. $it overnatninger") }
+                s.accessibility?.takeIf { it.isNotBlank() }?.let { add(it) }
+            }
+            val facilities = if (rawFacilities.isEmpty()) {
+                listOf("Faciliteter ikke oplyst")
+            } else {
+                rawFacilities
             }
             val sourceLabel = when (s.source.lowercase()) {
                 "geofa" -> "GeoFA / Naturstyrelsen"
@@ -127,6 +141,7 @@ data class PoiInfoSheetData(
                 bookingText = if (s.bookingRequired) "Kræver booking" else "Fri afbenyttelse (først-til-mølle)",
                 bookingRequired = s.bookingRequired,
                 bookingUrl = s.bookingUrl,
+                infoUrl = s.infoUrl,
                 facilities = facilities,
                 description = s.description,
                 dataSource = sourceLabel,
@@ -137,8 +152,12 @@ data class PoiInfoSheetData(
         fun fromFriTeltning(f: FriTeltningEntity): PoiInfoSheetData {
             val facilities = buildList {
                 add("1-2-3 reglen (maks. 1 nat, ${f.maxTents} telte, ${f.maxPersonsPerTent}-pers. telte)")
-                if (f.hammockFriendly) add("Hængekøje tilladt")
-                if (f.openFireAllowed) add("Åben ild ved bålplads") else add("Kun stormkøkken")
+                if (f.hammockFriendly == true) add("Hængekøje tilladt")
+                if (f.openFireAllowed == true) {
+                    add("Åben ild ved bålplads")
+                } else {
+                    add("Åben ild kun på anviste bålpladser")
+                }
             }
             val sourceLabel = when (f.source.lowercase()) {
                 "geofa" -> "GeoFA / Naturstyrelsen"
@@ -174,9 +193,12 @@ data class PoiInfoSheetData(
                 if (norm.contains("water") || norm == "vand") add("Drikkevand")
                 if (norm.contains("toilet")) add("Toilet")
                 if (norm.contains("shop") || norm == "supermarket" || norm == "convenience" || norm == "bakery") add("Dagligvarer / indkøb")
+                p.seasonal?.takeIf { it.isNotBlank() && !it.equals("no", ignoreCase = true) }?.let {
+                    add("Sæsonåben")
+                }
                 p.openingHours?.takeIf { it.isNotBlank() }?.let { add("Åbningstider: $it") }
                 p.operator?.takeIf { it.isNotBlank() }?.let { add("Operatør: $it") }
-                if (p.fee) add("Betaling påkrævet") else add("Gratis adgang")
+                if (p.fee) add("Betaling påkrævet")
             }
             val sourceLabel = when (p.source.lowercase()) {
                 "geofa" -> "GeoFA / OpenStreetMap"
@@ -193,7 +215,8 @@ data class PoiInfoSheetData(
                 capacityText = null,
                 bookingText = null,
                 bookingRequired = null,
-                bookingUrl = p.website,
+                bookingUrl = null,
+                infoUrl = p.website,
                 facilities = facilities,
                 dataSource = sourceLabel,
                 fetchedAtMillis = p.fetchedAt
