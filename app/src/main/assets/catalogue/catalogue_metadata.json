@@ -1,4 +1,906 @@
 {
-  "generatedAt": 0,
-  "trails": []
+  "generatedAt": 1795729212,
+  "trails": [
+    {
+      "id": "trail_ohavsstien",
+      "osmRelationId": 1202410,
+      "computedWalkingKm": 217.8,
+      "bboxSouth": 54.8493769,
+      "bboxWest": 10.1484707,
+      "bboxNorth": 55.1759205,
+      "bboxEast": 10.9058424,
+      "tags": {
+        "distance": "220",
+        "name": "Øhavsstien",
+        "network": "rwn",
+        "osmc:symbol": "blue:blue:white_hiker",
+        "route": "hiking",
+        "symbol": "vandringsmand",
+        "type": "superroute",
+        "website": "http://www.detsydfynskeoehav.dk/23-havsstien.html",
+        "wikidata": "Q12341954",
+        "wikipedia": "da:Øhavsstien"
+      }
+    },
+    {
+      "id": "trail_haervejen",
+      "osmRelationId": 1792585,
+      "computedWalkingKm": 644.8,
+      "bboxSouth": 54.8338058,
+      "bboxWest": 9.0987614,
+      "bboxNorth": 57.5912536,
+      "bboxEast": 10.5367858,
+      "tags": {
+        "from": "Frederikshavn;Hirtshals",
+        "name": "Hærvejen",
+        "name:da": "Hærvejen",
+        "name:de": "Ochsenweg",
+        "network": "nwn",
+        "operator": "Udvikling Hærvejen",
+        "route": "hiking",
+        "to": "Padborg",
+        "type": "superroute",
+        "via": "Viborg",
+        "website": "https://www.haervej.dk/",
+        "wikidata": "Q66368284",
+        "wikimedia_commons": "Category:Hærvejen, Denmark"
+      }
+    },
+    {
+      "id": "trail_gendarmstien",
+      "osmRelationId": 443124,
+      "computedWalkingKm": 84.3,
+      "bboxSouth": 54.817243,
+      "bboxWest": 9.360942,
+      "bboxNorth": 54.9111595,
+      "bboxEast": 9.9954486,
+      "tags": {
+        "from": "Padborg",
+        "name": "Gendarmstien",
+        "network": "rwn",
+        "osmc:symbol": "blue:white:blue_hiker",
+        "ref": "GEND",
+        "route": "hiking",
+        "to": "Skovby",
+        "type": "superroute",
+        "website": "http://www.gendarmsti.dk/",
+        "wikidata": "Q1501319",
+        "wikipedia": "da:Gendarmstien"
+      }
+    },
+    {
+      "id": "trail_e1",
+      "osmRelationId": 297398,
+      "computedWalkingKm": 651.1,
+      "bboxSouth": 54.83487,
+      "bboxWest": 9.0987614,
+      "bboxNorth": 57.4379793,
+      "bboxEast": 10.9212161,
+      "tags": {
+        "contact:website": "https://www.era-ewv-ferp.org/e-paths/e1/e1-in-denmark/",
+        "from": "Grenaa",
+        "name": "European long distance path E1 - part Denmark",
+        "name:da": "Fjernvandrevej E1",
+        "name:de": "Europäischer Fernwanderweg E1 - Dänischer Abschnitt",
+        "name:en": "European Long distance path E1 - part Denmark",
+        "network": "iwn",
+        "operator:da": "Dansk Vandrelaug",
+        "ref": "E1",
+        "route": "hiking",
+        "to": "Kruså",
+        "type": "superroute",
+        "via": "Vrads"
+      }
+    },
+    {
+      "id": "trail_pilgrimsruten",
+      "osmRelationId": 1792586,
+      "computedWalkingKm": 115.1,
+      "bboxSouth": 54.8338058,
+      "bboxWest": 9.0987614,
+      "bboxNorth": 55.475922,
+      "bboxEast": 9.3779891,
+      "tags": {
+        "description:da": "Vejen - Grænsen",
+        "description:de": "Vejen - Grenze",
+        "name": "Pilgrimsruten/Pilgerroute - part Denmark",
+        "network": "rwn",
+        "note": "A joint Danish/German tourist project; not associated with Santiagopilgrimme.dk",
+        "route": "hiking",
+        "type": "superroute"
+      }
+    },
+    {
+      "id": "trail_haervejen_nordvest",
+      "osmRelationId": 4004055,
+      "computedWalkingKm": 161.8,
+      "bboxSouth": 56.794803,
+      "bboxWest": 9.2619357,
+      "bboxNorth": 57.5912536,
+      "bboxEast": 9.9562959,
+      "tags": {
+        "name": "Hærvejen nordvest",
+        "type": "superroute",
+        "route": "hiking"
+      }
+    },
+    {
+      "id": "trail_haervejen_nordoest",
+      "osmRelationId": 4004054,
+      "computedWalkingKm": 137.5,
+      "bboxSouth": 56.794803,
+      "bboxWest": 9.4919881,
+      "bboxNorth": 57.4379793,
+      "bboxEast": 10.5367858,
+      "tags": {
+        "name": "Hærvejen nordøst",
+        "type": "superroute",
+        "route": "hiking"
+      }
+    },
+    {
+      "id": "trail_aarhus_silkeborg",
+      "osmRelationId": 3029875,
+      "computedWalkingKm": 79.3,
+      "bboxSouth": 56.0191525,
+      "bboxWest": 9.5514654,
+      "bboxNorth": 56.1648302,
+      "bboxEast": 10.1957346,
+      "tags": {
+        "colour": "#1277bd",
+        "distance": "80",
+        "from": "Aarhus",
+        "name": "Vandreruten Aarhus-Silkeborg",
+        "network": "rwn",
+        "noref": "yes",
+        "operator": "Naturstyrelsen og kommunerne",
+        "osmc:symbol": "red:green:red_dot",
+        "route": "hiking",
+        "to": "Silkeborg",
+        "type": "superroute",
+        "website": "https://udinaturen.dk/rute/vandrerute/?routeid=3177B6C3-2BE0-438A-AD9E-B8425571CA12"
+      }
+    },
+    {
+      "id": "trail_haervejen_nord",
+      "osmRelationId": 4003809,
+      "computedWalkingKm": 60.6,
+      "bboxSouth": 56.4505084,
+      "bboxWest": 9.3066004,
+      "bboxNorth": 56.794803,
+      "bboxEast": 9.5122196,
+      "tags": {
+        "name": "Hærvejen nord",
+        "type": "superroute",
+        "route": "hiking"
+      }
+    },
+    {
+      "id": "trail_himmerlandsstien",
+      "osmRelationId": 3031529,
+      "computedWalkingKm": 75.9,
+      "bboxSouth": 56.4574126,
+      "bboxWest": 9.2620695,
+      "bboxNorth": 56.9679287,
+      "bboxEast": 9.5255019,
+      "tags": {
+        "name": "Himmerlandsstien",
+        "network": "rwn",
+        "ref": "HIM",
+        "route": "hiking",
+        "type": "route",
+        "wikidata": "Q12316794",
+        "wikipedia": "da:Himmerlandsstien"
+      }
+    },
+    {
+      "id": "trail_mols_bjerge",
+      "osmRelationId": 178382,
+      "computedWalkingKm": 77.3,
+      "bboxSouth": 56.1768277,
+      "bboxWest": 10.2305546,
+      "bboxNorth": 56.4073905,
+      "bboxEast": 10.9212161,
+      "tags": {
+        "colour": "#1277bd",
+        "from": "Grenaa",
+        "name": "Molsruten",
+        "network": "rwn",
+        "ref": "Mols",
+        "route": "hiking",
+        "to": "Aarhus",
+        "type": "route",
+        "website": "https://dvl.dk/aarhus/vores-omraade/molsruten/"
+      }
+    },
+    {
+      "id": "trail_traekstien",
+      "osmRelationId": 1710241,
+      "computedWalkingKm": 73.3,
+      "bboxSouth": 56.1742207,
+      "bboxWest": 9.5551877,
+      "bboxNorth": 56.4592153,
+      "bboxEast": 10.0389987,
+      "tags": {
+        "alt_name": "Pramdragerstien Silkeborg-Randers",
+        "distance": "75",
+        "from": "Silkeborg",
+        "name": "Trækstien Pramdragerstien",
+        "network": "rwn",
+        "ref": "TP",
+        "route": "hiking",
+        "to": "Randers",
+        "type": "route",
+        "website": "https://udinaturen.dk/rute/vandrerute/?routeid=b65e6193-63e5-43c5-92a2-3cb5dfc4923d",
+        "wikidata": "Q12343398",
+        "wikipedia": "da:Trækstien"
+      }
+    },
+    {
+      "id": "trail_skjoldungestien",
+      "osmRelationId": 1458788,
+      "computedWalkingKm": 46.6,
+      "bboxSouth": 55.5601347,
+      "bboxWest": 11.8565741,
+      "bboxNorth": 55.6597918,
+      "bboxEast": 12.0817302,
+      "tags": {
+        "name": "Skjoldungestien",
+        "network": "rwn",
+        "ref": "Skj",
+        "route": "hiking",
+        "source": "http://www.friluftsguiden.dk/?group_ad=2703&action=trail&region=1",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_drivvejen",
+      "osmRelationId": 1166772,
+      "computedWalkingKm": 341.3,
+      "bboxSouth": 54.9037573,
+      "bboxWest": 8.1549175,
+      "bboxNorth": 56.6936954,
+      "bboxEast": 8.9598632,
+      "tags": {
+        "colour": "#1277bd",
+        "description": "Tønder - Ribe - Varde - Skjern - Holstebro - Thyborøn",
+        "from": "Tønder",
+        "name": "Drivvejen",
+        "network": "rwn",
+        "osmc:symbol": "blue:blue:white_hiker",
+        "ref": "Driv",
+        "route": "hiking",
+        "to": "Thyborøn",
+        "type": "route",
+        "website": "https://www.rksk.dk/Files/Files/Borger/Kultur-fritid/Vandreture/37_Drivvejen_-_en_del_af_the_North_Sea_Trail.pdf"
+      }
+    },
+    {
+      "id": "trail_nordsjaelland",
+      "osmRelationId": 3481232,
+      "computedWalkingKm": 99.5,
+      "bboxSouth": 55.6407781,
+      "bboxWest": 12.0928359,
+      "bboxNorth": 56.0586077,
+      "bboxEast": 12.6161326,
+      "tags": {
+        "name": "Nordsjællandsruten",
+        "network": "rwn",
+        "operator": "Dansk Vandrelaug",
+        "ref": "NSR",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_e6",
+      "osmRelationId": 556666,
+      "computedWalkingKm": 450.8,
+      "bboxSouth": 54.8323308,
+      "bboxWest": 9.4013805,
+      "bboxNorth": 56.0586077,
+      "bboxEast": 12.6519766,
+      "tags": {
+        "description": "Kastrup - Ishøj - Roskilde - Ringsted - Slagelse - Korsør - Nyborg - Svendborg - Ærø - Als - Kruså",
+        "distance": "326",
+        "name": "European long distance path E6 - part Denmark",
+        "name:de": "Europäischer Fernwanderweg E6, Dänemark",
+        "network": "iwn",
+        "note": "distance excluding ferries and Great Belt tunnel",
+        "operator": "Dansk Vandrelaug",
+        "ref": "E6",
+        "route": "hiking",
+        "type": "route",
+        "url": "http://www.dvl.dk"
+      }
+    },
+    {
+      "id": "trail_nordsoestien",
+      "osmRelationId": 2203180,
+      "computedWalkingKm": 615.2,
+      "bboxSouth": 56.1542272,
+      "bboxWest": 8.226796,
+      "bboxNorth": 57.7512703,
+      "bboxEast": 10.9584706,
+      "tags": {
+        "colour": "#1277bd",
+        "description": "Agger - Hanstholm - Hirtshals - Skagen - Frederikshavn - Sæby - Hals- Hadsund- Udbyhøj - Grenå - Ebeltoft",
+        "from": "Agger",
+        "name": "Nordsøstien",
+        "network": "rwn",
+        "ref": "NS",
+        "route": "hiking",
+        "to": "Ebeltoft",
+        "type": "route",
+        "website": "https://www.visitnordvestkysten.dk/nordvestkysten/planlaeg-din-tur/nordsoestien-gdk839173"
+      }
+    },
+    {
+      "id": "trail_sjaellandsleden",
+      "osmRelationId": 1970035,
+      "computedWalkingKm": 547,
+      "bboxSouth": 54.8785621,
+      "bboxWest": 11.1351611,
+      "bboxNorth": 55.9813852,
+      "bboxEast": 12.5510729,
+      "tags": {
+        "name": "Sjællandsleden",
+        "network": "rwn",
+        "operator": "Region Sjælland",
+        "ref": "SJL",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_fjordstien",
+      "osmRelationId": 1595942,
+      "computedWalkingKm": 286.7,
+      "bboxSouth": 55.6394683,
+      "bboxWest": 11.6045498,
+      "bboxNorth": 55.9707914,
+      "bboxEast": 12.1278587,
+      "tags": {
+        "name": "Fjordstien Vandresti",
+        "network": "rwn",
+        "osmc:symbol": "blue:blue:white_hiker",
+        "route": "hiking",
+        "source": "Fjordstien",
+        "type": "route",
+        "website": "https://naturstyrelsen.dk/publikationer/andre-foldere/fjordstien/",
+        "wikidata": "Q12311508",
+        "wikipedia": "da:Fjordstien"
+      }
+    },
+    {
+      "id": "trail_sjaellandsleden_2012",
+      "osmRelationId": 2813821,
+      "computedWalkingKm": 231.4,
+      "bboxSouth": 54.6142915,
+      "bboxWest": 10.9767901,
+      "bboxNorth": 55.9563041,
+      "bboxEast": 12.4499929,
+      "tags": {
+        "name": "Sjællandsleden 2012",
+        "network": "rwn",
+        "operator": "Region Sjælland",
+        "ref": "SJL",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_sydsjaellandsleden",
+      "osmRelationId": 309907,
+      "computedWalkingKm": 171.7,
+      "bboxSouth": 54.9668934,
+      "bboxWest": 11.715438,
+      "bboxNorth": 55.254622,
+      "bboxEast": 12.3775687,
+      "tags": {
+        "name": "Sydsjællandsleden",
+        "network": "rwn",
+        "operator": "Sjællandsleden/Kommunerne",
+        "ref": "SYD",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_moen_rundt",
+      "osmRelationId": 2839163,
+      "computedWalkingKm": 174.5,
+      "bboxSouth": 54.8785621,
+      "bboxWest": 11.9885451,
+      "bboxNorth": 55.05142,
+      "bboxEast": 12.5510765,
+      "tags": {
+        "distance": "175 km",
+        "name": "Camønoen",
+        "network": "rwn",
+        "network:type": "rwn",
+        "operator": "Sjællandsleden/Vordingborg Kommune",
+        "osmc:symbol": "orange:white:orange_circle",
+        "ref": "MBF",
+        "route": "hiking",
+        "source:url": "https://camoenoen.dk/map/digitalt-camoenokort",
+        "type": "route",
+        "website": "https://www.museerne.dk/camonoen/"
+      }
+    },
+    {
+      "id": "trail_kyst_til_kyst_stien",
+      "osmRelationId": 374893,
+      "computedWalkingKm": 135.7,
+      "bboxSouth": 55.5385767,
+      "bboxWest": 8.0852624,
+      "bboxNorth": 55.7103678,
+      "bboxEast": 9.5530711,
+      "tags": {
+        "colour": "#1277bd",
+        "distance": "132",
+        "from": "Blåvandshuk",
+        "name": "Kyst til Kyst Stien",
+        "network": "rwn",
+        "osmc:symbol": "blue:blue:white_hiker",
+        "ref": "KtK",
+        "route": "hiking",
+        "to": "Vejle",
+        "type": "route",
+        "website": "https://www.kyst-kyststien.dk/",
+        "wikidata": "Q129206536",
+        "wikipedia": "da:Kyst til Kyst Stien"
+      }
+    },
+    {
+      "id": "trail_camino_haderslev_naes",
+      "osmRelationId": 8220396,
+      "computedWalkingKm": 101.6,
+      "bboxSouth": 55.1415826,
+      "bboxWest": 9.4183472,
+      "bboxNorth": 55.2750967,
+      "bboxEast": 9.7577802,
+      "tags": {
+        "name": "Camino Haderslev Næs",
+        "network": "rwn",
+        "osmc:symbol": "white::black_circle",
+        "route": "hiking",
+        "type": "route",
+        "url": "https://caminohaderslev.dk/"
+      }
+    },
+    {
+      "id": "trail_vestkyststien",
+      "osmRelationId": 1166751,
+      "computedWalkingKm": 97.6,
+      "bboxSouth": 56.7018832,
+      "bboxWest": 8.226796,
+      "bboxNorth": 57.1567447,
+      "bboxEast": 9.0282043,
+      "tags": {
+        "description": "Agger-Bulbjerg",
+        "description:de": "Der Weg ist mit einem stilisierten Rettungsboot markiert, das man problemlos auch für eine Muschel halten kann",
+        "distance": "95 km",
+        "name": "Vestkyststien",
+        "network": "rwn",
+        "network:type": "rcn",
+        "osmc:symbol": "green:green:white_shell",
+        "route": "hiking",
+        "source:url": "https://naturstyrelsen.dk/aktiviteter-i-naturen/vandreruter/vestkyststien-agger-bulbjerg#",
+        "symbol": "White emergency-boat in green ground or green emergency-boat on white ground",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_paradisruten",
+      "osmRelationId": 2836954,
+      "computedWalkingKm": 71.1,
+      "bboxSouth": 54.6142802,
+      "bboxWest": 11.358826,
+      "bboxNorth": 54.7582156,
+      "bboxEast": 11.8550145,
+      "tags": {
+        "name": "Paradisruten",
+        "network": "rwn",
+        "operator": "Sjællandsleden/Lolland og Guldborgsund Kommune",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_sejeroe_bugt_ruten",
+      "osmRelationId": 2838931,
+      "computedWalkingKm": 70.5,
+      "bboxSouth": 55.7424581,
+      "bboxWest": 11.2996293,
+      "bboxNorth": 55.9813852,
+      "bboxEast": 11.668992,
+      "tags": {
+        "colour": "blue",
+        "name": "Sejerø Bugt Ruten",
+        "network": "rwn",
+        "operator": "Sjællandsleden",
+        "ref": "SEJ",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_lagunestien",
+      "osmRelationId": 2820402,
+      "computedWalkingKm": 69.4,
+      "bboxSouth": 55.1764236,
+      "bboxWest": 11.1351611,
+      "bboxNorth": 55.3568011,
+      "bboxEast": 11.7570472,
+      "tags": {
+        "colour": "blue",
+        "name": "Lagunestien",
+        "network": "rwn",
+        "operator": "Sjællandsleden/Kommunerne",
+        "osmc:symbol": "blue:blue:white_hiker",
+        "ref": "LAG",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_gudernes_straede",
+      "osmRelationId": 2717313,
+      "computedWalkingKm": 66.6,
+      "bboxSouth": 55.5530934,
+      "bboxWest": 11.8055378,
+      "bboxNorth": 55.7381977,
+      "bboxEast": 12.2654452,
+      "tags": {
+        "name": "Gudernes Stræde",
+        "network": "rwn",
+        "ref": "GS",
+        "route": "hiking",
+        "type": "route",
+        "website": "https://gudernes-straede.dk/"
+      }
+    },
+    {
+      "id": "trail_kongeaastien",
+      "osmRelationId": 2021716,
+      "computedWalkingKm": 56.4,
+      "bboxSouth": 55.3721705,
+      "bboxWest": 8.6473477,
+      "bboxNorth": 55.4475025,
+      "bboxEast": 9.2236187,
+      "tags": {
+        "colour": "#e10010",
+        "from": "Kongeåslusen",
+        "name": "Kongeåstien",
+        "network": "rwn",
+        "noref": "yes",
+        "route": "hiking",
+        "to": "Fårkrog",
+        "type": "route",
+        "url": "http://www.kongeaastien.dk/",
+        "wikidata": "Q92395241",
+        "wikimedia_commons": "Category:Kongeåstien"
+      }
+    },
+    {
+      "id": "trail_alsstien",
+      "osmRelationId": 1727731,
+      "computedWalkingKm": 61,
+      "bboxSouth": 54.8597579,
+      "bboxWest": 9.6812106,
+      "bboxNorth": 55.058175,
+      "bboxEast": 10.0680303,
+      "tags": {
+        "distance": "64",
+        "from": "Hardeshøj",
+        "name": "Alsstien",
+        "network": "rwn",
+        "noref": "yes",
+        "osmc:symbol": "blue:blue:white_hiker",
+        "route": "hiking",
+        "to": "Drejet",
+        "type": "route",
+        "url": "https://www.visitsonderjylland.dk/turist/oplevelser/aktiv-sammen/alsstien",
+        "via": "Fynshav"
+      }
+    },
+    {
+      "id": "trail_bryrupbanestien",
+      "osmRelationId": 3029770,
+      "computedWalkingKm": 58.3,
+      "bboxSouth": 55.8788112,
+      "bboxWest": 9.4683628,
+      "bboxNorth": 56.1629857,
+      "bboxEast": 9.8230588,
+      "tags": {
+        "alt_name": "Naturstien Horsens-Silkeborg",
+        "from": "Horsens",
+        "name": "Naturstien Bryrupbanestien",
+        "network": "rwn",
+        "ref": "NB",
+        "route": "hiking",
+        "to": "Silkeborg",
+        "type": "route",
+        "wikidata": "Q12328445",
+        "wikipedia": "da:Naturstien Horsens-Silkeborg"
+      }
+    },
+    {
+      "id": "trail_jyderupstien",
+      "osmRelationId": 2076253,
+      "computedWalkingKm": 58.3,
+      "bboxSouth": 55.3760553,
+      "bboxWest": 11.3822872,
+      "bboxNorth": 55.7231913,
+      "bboxEast": 11.5390602,
+      "tags": {
+        "name": "Jyderupstien",
+        "network": "rwn",
+        "route": "hiking",
+        "type": "route",
+        "wikidata": "Q65096225",
+        "wikipedia": "da:Jyderupstien"
+      }
+    },
+    {
+      "id": "trail_musholmleden",
+      "osmRelationId": 2838766,
+      "computedWalkingKm": 60.6,
+      "bboxSouth": 55.3568011,
+      "bboxWest": 11.0407834,
+      "bboxNorth": 55.6579642,
+      "bboxEast": 11.2297047,
+      "tags": {
+        "colour": "blue",
+        "name": "Musholmleden",
+        "network": "rwn",
+        "operator": "Sjællandsleden",
+        "ref": "MUS",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_nibe_hvalpsund",
+      "osmRelationId": 3030656,
+      "computedWalkingKm": 56.1,
+      "bboxSouth": 56.6873406,
+      "bboxWest": 9.1886373,
+      "bboxNorth": 56.9772601,
+      "bboxEast": 9.6272444,
+      "tags": {
+        "name": "Naturstien Nibe-Hvalpsund",
+        "network": "rwn",
+        "operator": "Naturstyrelsen",
+        "route": "hiking",
+        "type": "route",
+        "website": "https://naturstyrelsen.dk/publikationer/2008/dec/naturstien-nibe-hvalpsund/"
+      }
+    },
+    {
+      "id": "trail_marskstien",
+      "osmRelationId": 8397167,
+      "computedWalkingKm": 54.2,
+      "bboxSouth": 54.893103,
+      "bboxWest": 8.6603863,
+      "bboxNorth": 54.9869616,
+      "bboxEast": 8.8769976,
+      "tags": {
+        "name": "Marskstien",
+        "network": "rwn",
+        "operator": "Tøndermarsk Initiativet",
+        "osmc:symbol": "blue:blue:white_hiker",
+        "ref": "MS",
+        "route": "hiking",
+        "type": "route",
+        "website": "https://toendermarsken.dk/marskstien/"
+      }
+    },
+    {
+      "id": "trail_halsninoen",
+      "osmRelationId": 13577498,
+      "computedWalkingKm": 48.4,
+      "bboxSouth": 55.9096557,
+      "bboxWest": 11.8499236,
+      "bboxNorth": 56.0048517,
+      "bboxEast": 12.1150855,
+      "tags": {
+        "name": "Halsninoen",
+        "network": "rwn",
+        "osmc:symbol": "blue:blue:orange_fork",
+        "roundtrip": "no",
+        "route": "hiking",
+        "source:url": "https://halsnaes.dk/borger/natur/ture-og-oplevelser/halsninoen",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_alhedestien",
+      "osmRelationId": 3031593,
+      "computedWalkingKm": 47.7,
+      "bboxSouth": 56.1315977,
+      "bboxWest": 8.993105,
+      "bboxNorth": 56.4472102,
+      "bboxEast": 9.4033968,
+      "tags": {
+        "name": "Alhedestien",
+        "network": "rwn",
+        "ref": "21",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_gjernstien",
+      "osmRelationId": 1710329,
+      "computedWalkingKm": 40.5,
+      "bboxSouth": 56.1644411,
+      "bboxWest": 9.5514654,
+      "bboxNorth": 56.3833847,
+      "bboxEast": 9.9201499,
+      "tags": {
+        "alt_name": "Gjernstien",
+        "name": "Naturstien Gjernstien",
+        "network": "rwn",
+        "ref": "NG",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_trelleborgleden",
+      "osmRelationId": 2843842,
+      "computedWalkingKm": 39.3,
+      "bboxSouth": 55.3568011,
+      "bboxWest": 11.1351863,
+      "bboxNorth": 55.3941215,
+      "bboxEast": 11.5390602,
+      "tags": {
+        "name": "Trelleborgleden",
+        "network": "rwn",
+        "operator": "Sjællandsleden/Slagelse Kommune",
+        "ref": "TRL",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_moelleaadalen",
+      "osmRelationId": 3038370,
+      "computedWalkingKm": 32.7,
+      "bboxSouth": 55.7727381,
+      "bboxWest": 12.2335734,
+      "bboxNorth": 55.8213655,
+      "bboxEast": 12.5824295,
+      "tags": {
+        "name": "Mølleådalen",
+        "network": "rwn",
+        "osmc:symbol": "blue:blue:white_wheel",
+        "ref": "MÅ",
+        "route": "hiking",
+        "type": "route",
+        "website": "https://www.ltk.dk/oplevelser-og-fritid/sevaerdigheder/moelleaadalen-og-industriens-vugge"
+      }
+    },
+    {
+      "id": "trail_den_skaeve_bane",
+      "osmRelationId": 3030189,
+      "computedWalkingKm": 34.5,
+      "bboxSouth": 55.9705032,
+      "bboxWest": 9.1127469,
+      "bboxNorth": 56.1369807,
+      "bboxEast": 9.46664,
+      "tags": {
+        "distance": "35",
+        "name": "Den Skæve Bane",
+        "network": "rwn",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_gjerrildbanestien",
+      "osmRelationId": 2932602,
+      "computedWalkingKm": 32.1,
+      "bboxSouth": 56.3781837,
+      "bboxWest": 10.5039567,
+      "bboxNorth": 56.5127252,
+      "bboxEast": 10.8142041,
+      "tags": {
+        "name": "Gjerrildbanestien",
+        "network": "rwn",
+        "ref": "gjs",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_fjord_til_fjord_naturstien",
+      "osmRelationId": 2466789,
+      "computedWalkingKm": 25.9,
+      "bboxSouth": 55.0764515,
+      "bboxWest": 11.770705,
+      "bboxNorth": 55.1358803,
+      "bboxEast": 12.0352626,
+      "tags": {
+        "name": "Fra Fjord til Fjord Naturstien",
+        "network": "rwn",
+        "operator": "Foreningen Fra Fjord til Fjord Naturstien",
+        "ref": "FtF",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_susaaleden",
+      "osmRelationId": 2830942,
+      "computedWalkingKm": 30.2,
+      "bboxSouth": 55.2271218,
+      "bboxWest": 11.5348621,
+      "bboxNorth": 55.3741131,
+      "bboxEast": 11.7575295,
+      "tags": {
+        "name": "Susåleden",
+        "network": "rwn",
+        "operator": "Sjællandsleden/Kommunerne",
+        "ref": "SUS",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_falster_rundt",
+      "osmRelationId": 2835117,
+      "computedWalkingKm": 30.2,
+      "bboxSouth": 54.7224432,
+      "bboxWest": 12.0132481,
+      "bboxNorth": 54.892203,
+      "bboxEast": 12.1555965,
+      "tags": {
+        "name": "Falster Rundt",
+        "network": "rwn",
+        "operator": "Sjællandsleden/Guldborgsund Kommune",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_oestersoestien",
+      "osmRelationId": 2836839,
+      "computedWalkingKm": 30,
+      "bboxSouth": 54.6572817,
+      "bboxWest": 10.9767901,
+      "bboxNorth": 54.7914496,
+      "bboxEast": 11.3544534,
+      "tags": {
+        "name": "Østersøstien",
+        "network": "rwn",
+        "operator": "Sjællandsleden/Lolland Kommune",
+        "route": "hiking",
+        "type": "route"
+      }
+    },
+    {
+      "id": "trail_djurslandstien",
+      "osmRelationId": 14190349,
+      "computedWalkingKm": 168,
+      "bboxSouth": 56.1581609,
+      "bboxWest": 10.2306712,
+      "bboxNorth": 56.6067929,
+      "bboxEast": 10.9584706,
+      "tags": {
+        "from": "Risskov",
+        "name": "Djurslandstien",
+        "network": "rwn",
+        "network:type": "rwn",
+        "operator": "Norddjurs Kommune og Syddjurs Kommune",
+        "osmc:symbol": "blue:white:blue_hiker",
+        "route": "foot",
+        "source:url": "https://www.dr.dk/nyheder/indland/ferievaner-fra-tiden-med-corona-bider-sig-fast-ny-vandrerute-paa-djursland-skal",
+        "to": "Udbyhøj",
+        "type": "route"
+      }
+    }
+  ]
 }
