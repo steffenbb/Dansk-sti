@@ -1,55 +1,310 @@
 {
   "trails": {
-    "trail_ohavsstien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_haervejen": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_camoenoen": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_bornholm_kyststi": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_gendarmstien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_himmerlandsstien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_amarminoen": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_mols_bjerge": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_traekstien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_skjoldungestien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_drivvejen": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_nordsjaelland": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_e1": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_e6": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_nordsoestien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_sjaellandsleden": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_pilgrimsruten": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_fjordstien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_sjaellandsleden_2012": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_sydsjaellandsleden": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_haervejen_nordvest": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_moen_rundt": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_haervejen_nordoest": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_kyst_til_kyst_stien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_camino_haderslev_naes": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_vestkyststien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_paradisruten": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_sejeroe_bugt_ruten": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_lagunestien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_gudernes_straede": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_kongeaastien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_aarhus_silkeborg": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_alsstien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_haervejen_nord": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_bryrupbanestien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_jyderupstien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_musholmleden": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_nibe_hvalpsund": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_marskstien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_halsninoen": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_alhedestien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_gjernstien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_trelleborgleden": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_moelleaadalen": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_den_skaeve_bane": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_gjerrildbanestien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_fjord_til_fjord_naturstien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_susaaleden": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_falster_rundt": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_oestersoestien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" },
-    "trail_djurslandstien": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" }
+    "trail_ohavsstien": {
+      "description": "Vandrerute gennem Det Sydfynske Øhav fra Faldsled over Faaborg og Svendborg til Tåsinge, Langeland og Ærø. Ruten går mest på naturstier langs kysten, gennem skove og bakket landskab og er afmærket med en hvid vandrer på blå bund.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://visitfyn.com/fyn/experiences/archipelago-trail"
+    },
+    "trail_haervejen": {
+      "description": "Hærvejen er den gamle hær- og handelsvej ned gennem Jylland, i dag en afmærket vandrerute fra Frederikshavn og Hirtshals over Viborg til grænsen ved Padborg. Undervejs passerer man kirker, gravhøje, hede og plantager langs den historiske vej.",
+      "bestSeason": "Kan gås hele året. Maj–september giver lange lyse dage til de længere etaper; om vinteren kan markveje og skovstier være våde.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/haervejen-gdk603273"
+    },
+    "trail_camoenoen": {
+      "description": "Camønoen kalder sig \"Kongerigets venligste vandrerute\" og går rundt på Møn, Bogø og Nyord i ti etaper. Ruten fører forbi Møns Klint, gennem skove, enge og små landsbyer.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://museerne.dk/en/camonoen"
+    },
+    "trail_bornholm_kyststi": {
+      "description": "Kyststien følger Bornholms kyst hele vejen rundt om øen – fra klipperne ved Hammeren og Jons Kapel i nord til sandstrandene ved Dueodde i syd. Ruten er delt i etaper, så den kan gås i bidder.",
+      "bestSeason": "Kan gås hele året. Klippestierne i nord kan være glatte i regnvejr; om sommeren er der flest turister ved strandene i syd.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://bornholm.info/en/bornholms-vandreguide/"
+    },
+    "trail_gendarmstien": {
+      "description": "Gendarmstien følger den sti, som grænsegendarmerne patruljerede langs Flensborg Fjord. Den afmærkede rute går fra Padborg langs fjorden forbi Kollund og Gråsten og videre til Als, ofte helt tæt ved vandet.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/the-gendarme-path-gdk611136"
+    },
+    "trail_himmerlandsstien": {
+      "description": "Himmerlandsstien forbinder Løgstør ved Limfjorden med Viborg via Løgstrup, store dele på en nedlagt jernbanestrækning. Stien går gennem åbent landbrugsland, ådale og små stationsbyer.",
+      "bestSeason": "Kan gås hele året. Stien er jævn og fast, så den egner sig også til vinterture.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/himmerlandsstien-gdk597428"
+    },
+    "trail_amarminoen": {
+      "description": "Amarminoen er en vandrerute på Amager, inspireret af de lange pilgrimsruter. Den fører gennem øens grønne områder – tæt på København, men med masser af natur.",
+      "bestSeason": "Kan gås hele året. Maj–september giver de længste dage, mens forår og efterår ofte er roligere på stierne.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitcopenhagen.com/copenhagen/planning/amarminoen-27-km-trail-gdk1122069"
+    },
+    "trail_mols_bjerge": {
+      "description": "Molsruten går fra Grenaa over Mols Bjerge til Aarhus og er en del af den europæiske fjernvandrevej E1. Ruten krydser Nationalpark Mols Bjerge med bakker, overdrev og skov.",
+      "bestSeason": "Kan gås hele året. Maj–september giver de længste dage, mens forår og efterår ofte er roligere på stierne.",
+      "dogsNote": "Hunde skal være i snor – der går dyr på græs flere steder langs ruten. Følg skiltningen undervejs.",
+      "officialUrl": "https://dvl.dk/aarhus/vores-omraade/the-mols-route/"
+    },
+    "trail_traekstien": {
+      "description": "Trækstien følger Gudenåen fra Silkeborg til Randers ad den gamle sti, hvor pramdragerne trak prammene op ad åen. Ruten går gennem ådalen, skove og forbi Tange Sø.",
+      "bestSeason": "Kan gås hele året. Bøgeskovene springer ud i begyndelsen af maj, og efterårsfarverne topper typisk i oktober.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/traekstien-part-of-the-gudena-trail-between-silkeborg-and-randers-gdk604579"
+    },
+    "trail_skjoldungestien": {
+      "description": "Skjoldungestien går mellem Roskilde og Lejre gennem Nationalpark Skjoldungernes Land. Undervejs passerer man Gammel Lejre med skibssætninger og minder fra vikingetiden.",
+      "bestSeason": "Kan gås hele året. Bøgeskovene springer ud i begyndelsen af maj, og efterårsfarverne topper typisk i oktober.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/skjoldungestien-hiking-trail-gdk1151767"
+    },
+    "trail_drivvejen": {
+      "description": "Drivvejen følger den gamle handelsrute op langs Vestjylland, hvor kvæg blev drevet mod markederne. Ruten går fra Tønder over Ribe, Varde, Skjern og Holstebro til Thyborøn og er en del af North Sea Trail.",
+      "bestSeason": "Kan gås hele året. Maj–september giver lange lyse dage til de længere etaper; om vinteren kan markveje og skovstier være våde.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_nordsjaelland": {
+      "description": "Nordsjællandsruten går fra Roskilde-egnen op gennem Nordsjælland mod Helsingør-egnen, gennem skove og landsbyer. Ruten vedligeholdes af Dansk Vandrelaug.",
+      "bestSeason": "Kan gås hele året. Bøgeskovene springer ud i begyndelsen af maj, og efterårsfarverne topper typisk i oktober.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_e1": {
+      "description": "Den danske del af den europæiske fjernvandrevej E1, som går fra Nordkap til Sicilien. I Danmark begynder den i Grenaa, krydser Mols og Midtjylland og følger store dele af Hærvejen til grænsen ved Kruså.",
+      "bestSeason": "Kan gås hele året. Maj–september giver lange lyse dage til de længere etaper; om vinteren kan markveje og skovstier være våde.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://era-ewv-ferp.org/e-paths/e1/e1-in-denmark"
+    },
+    "trail_e6": {
+      "description": "Den danske del af den europæiske fjernvandrevej E6. Ruten går fra Kastrup over Roskilde, Ringsted, Slagelse og Korsør, videre over Fyn til Svendborg, Ærø og Als og ender ved grænsen i Kruså. Storebælt krydses med tog, og øerne nås med færge.",
+      "bestSeason": "Kan gås hele året. Maj–september giver lange lyse dage til de længere etaper; om vinteren kan markveje og skovstier være våde.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.era-ewv-ferp.org/?p=3099"
+    },
+    "trail_nordsoestien": {
+      "description": "Nordsøstien er den danske del af North Sea Trail. Den følger kysten fra Agger over Hanstholm, Hirtshals og Skagen og videre ned langs Kattegat forbi Frederikshavn, Sæby, Hals og Grenaa til Ebeltoft.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_sjaellandsleden": {
+      "description": "Sjællandsleden er et net af afmærkede vandreruter på Sjælland, Lolland-Falster og Møn, som forbinder kyster, skove og landsbyer. Denne rute samler ledens strækninger gennem Vest- og Sydsjælland.",
+      "bestSeason": "Kan gås hele året. Maj–september giver lange lyse dage til de længere etaper; om vinteren kan markveje og skovstier være våde.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/sjaellandsleden-hiking-gdk1107466"
+    },
+    "trail_pilgrimsruten": {
+      "description": "Den danske del af den dansk-tyske pilgrimsrute, fra Vejen ned gennem Sønderjylland til grænsen. Ruten er et fælles dansk-tysk turistprojekt.",
+      "bestSeason": "Kan gås hele året. Maj–september giver de længste dage, mens forår og efterår ofte er roligere på stierne.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_fjordstien": {
+      "description": "Fjordstien er en lang vandrerute omkring Isefjorden og Roskilde Fjord. Den byder på udsigt over fjordene, skove og åbent land.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_sjaellandsleden_2012": {
+      "description": "Sjællandsledens strækninger, som de blev registreret i 2012, gennem Syd- og Vestsjælland og på Lolland-Falster. Afmærkningen kan være ændret siden – følg skiltene på stedet.",
+      "bestSeason": "Kan gås hele året. Maj–september giver lange lyse dage til de længere etaper; om vinteren kan markveje og skovstier være våde.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_sydsjaellandsleden": {
+      "description": "Del af Sjællandsleden gennem Sydsjælland omkring Vordingborg, med kyster, skove og landsbyer.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_haervejen_nordvest": {
+      "description": "Hærvejens nordvestlige gren fra Hirtshals ned gennem Vendsyssel til hovedruten i Himmerland.",
+      "bestSeason": "Kan gås hele året. Maj–september giver lange lyse dage til de længere etaper; om vinteren kan markveje og skovstier være våde.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_moen_rundt": {
+      "description": "Ruten rundt på Møn er i OpenStreetMap registreret som Camønoen – \"Kongerigets venligste vandrerute\" på Møn, Bogø og Nyord. Den fører forbi Møns Klint, gennem skove, enge og små landsbyer.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://museerne.dk/en/camonoen"
+    },
+    "trail_haervejen_nordoest": {
+      "description": "Hærvejens nordøstlige gren fra Frederikshavn ned gennem Vendsyssel til hovedruten i Himmerland.",
+      "bestSeason": "Kan gås hele året. Maj–september giver lange lyse dage til de længere etaper; om vinteren kan markveje og skovstier være våde.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_kyst_til_kyst_stien": {
+      "description": "Kyst til Kyst Stien krydser Jylland fra Blåvandshuk ved Vesterhavet til Vejle ved Vejle Fjord. Undervejs skifter landskabet fra klitter og plantager til ådale og bakket land.",
+      "bestSeason": "Kan gås hele året. Lyngen blomstrer typisk fra midt i august til september.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.kyst-kyststien.dk/"
+    },
+    "trail_camino_haderslev_naes": {
+      "description": "Camino Haderslev Næs er en pilgrimsinspireret rundtur på halvøen øst for Haderslev. Ruten fører forbi landsbykirker, langs Lillebælt og gennem det åbne land.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/camino-haderslev-naes-hiking-route-gdk1114134"
+    },
+    "trail_vestkyststien": {
+      "description": "Vestkyststien går fra Agger til Bulbjerg langs Vesterhavet gennem Nationalpark Thy, med klitter, hede og fiskerlejer som Vorupør og Klitmøller. Ruten er afmærket med en stiliseret redningsbåd.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://naturstyrelsen.dk/media/widbsa3h/vestkyststien-agger-bulbjerg-folder.pdf"
+    },
+    "trail_paradisruten": {
+      "description": "Afmærket vandrerute på Lolland og Falster og en del af Sjællandsleden. Ruten vedligeholdes i samarbejde med Lolland og Guldborgsund Kommuner.",
+      "bestSeason": "Kan gås hele året. Maj–september giver de længste dage, mens forår og efterår ofte er roligere på stierne.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_sejeroe_bugt_ruten": {
+      "description": "Del af Sjællandsleden langs Sejerø Bugt i Vestsjælland, med udsigt over bugten og Sejerø.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_lagunestien": {
+      "description": "Lagunestien følger Sydvestsjællands lavvandede kyst med nor og laguner fra Korsør over Skælskør og Bisserup til Næstved. Ruten er en del af Sjællandsleden.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/lagunestien-hiking-trail-naestved-bisserup-gdk1107460"
+    },
+    "trail_gudernes_straede": {
+      "description": "Gudernes Stræde går fra Køge Bugt ved Mosede ind gennem landet til Lejre-egnen og Nationalpark Skjoldungernes Land. Undervejs findes flere afmærkede rundture, så ruten også kan gås i kortere stykker.",
+      "bestSeason": "Kan gås hele året. Maj–september giver de længste dage, mens forår og efterår ofte er roligere på stierne.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/gudernes-straede-hiking-trail-gdk1151781"
+    },
+    "trail_kongeaastien": {
+      "description": "Kongeåstien følger Kongeåen, som var grænse mellem Danmark og Tyskland fra 1864 til 1920. Ruten går fra Kongeåslusen ved Vadehavet ind i landet til Fårkrog gennem ådal og enge.",
+      "bestSeason": "Kan gås hele året. Maj–september giver de længste dage, mens forår og efterår ofte er roligere på stierne.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_aarhus_silkeborg": {
+      "description": "Vandreruten mellem Aarhus og Silkeborg går gennem skove, ådale og søhøjlandet. Naturstyrelsen og kommunerne står bag ruten.",
+      "bestSeason": "Kan gås hele året. Bøgeskovene springer ud i begyndelsen af maj, og efterårsfarverne topper typisk i oktober.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_alsstien": {
+      "description": "Alsstien går på tværs af Als fra Hardeshøj ved Alssund over Fynshav til Drejet. Ruten krydser øen gennem skov og åbent land.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_haervejen_nord": {
+      "description": "Den nordlige del af Hærvejens hovedrute gennem Himmerland ned mod Viborg.",
+      "bestSeason": "Kan gås hele året. Maj–september giver lange lyse dage til de længere etaper; om vinteren kan markveje og skovstier være våde.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_bryrupbanestien": {
+      "description": "Naturstien mellem Horsens og Silkeborg følger den nedlagte Bryrupbane gennem skove, ådale og søhøjlandet.",
+      "bestSeason": "Kan gås hele året. Stien er jævn og fast, så den egner sig også til vinterture.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitaarhus.com/aarhus-region/plan-your-trip/nature-trail-silkeborg-horsens-gdk1093264"
+    },
+    "trail_jyderupstien": {
+      "description": "Jyderupstien er en natur- og cykelsti i Vestsjælland med Jyderup i den nordlige ende. Stien går gennem skov og landbrugsland.",
+      "bestSeason": "Kan gås hele året. Maj–september giver de længste dage, mens forår og efterår ofte er roligere på stierne.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitodsherred.com/tourist/explore/cycling-and-hiking-trip-jyderupstien-gdk1088926"
+    },
+    "trail_musholmleden": {
+      "description": "Del af Sjællandsleden langs Storebælt mellem Korsør og Reersø, med udsigt over Musholm Bugt.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/musholmleden-reerso-til-korsor-gdk1158004"
+    },
+    "trail_nibe_hvalpsund": {
+      "description": "Naturstien forbinder Nibe ved Limfjorden med Hvalpsund og går gennem Himmerlands åbne land. Ruten vedligeholdes af Naturstyrelsen.",
+      "bestSeason": "Kan gås hele året. Maj–september giver de længste dage, mens forår og efterår ofte er roligere på stierne.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_marskstien": {
+      "description": "Marskstien er en rundtur i Tøndermarsken ved Vadehavet, langs diger, sluser og marskens åbne enge. Der går får på græs mange steder langs ruten.",
+      "bestSeason": "Kan gås hele året. Forår og efterår kan man være heldig at opleve \"sort sol\", når store flokke af stære samles i marsken.",
+      "dogsNote": "Hunde skal være i snor – der går dyr på græs flere steder langs ruten. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/marskstien-gdk1112873"
+    },
+    "trail_halsninoen": {
+      "description": "Halsninoen er en vandrerute gennem Halsnæs i Nordsjælland, med kyst, skov og udsigt over Kattegat og fjordene.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/halsninoen-53-km-hiking-route-through-halsnaes-gdk1129115"
+    },
+    "trail_alhedestien": {
+      "description": "Alhedestien er en kombineret gang- og cykelsti fra Herning mod Viborg via Karup, hen over Alheden.",
+      "bestSeason": "Kan gås hele året. Lyngen blomstrer typisk fra midt i august til september.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/alhedestien-bicycle-and-walking-path-gdk710485"
+    },
+    "trail_gjernstien": {
+      "description": "Naturstien Gjernstien går fra Silkeborg mod nordøst gennem Gjern Bakker og det kuperede landskab ved Gudenåen.",
+      "bestSeason": "Kan gås hele året. Bøgeskovene springer ud i begyndelsen af maj, og efterårsfarverne topper typisk i oktober.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_trelleborgleden": {
+      "description": "Del af Sjællandsleden fra Korsør ind i landet mod Slagelse, forbi vikingeborgen Trelleborg.",
+      "bestSeason": "Kan gås hele året. Maj–september giver de længste dage, mens forår og efterår ofte er roligere på stierne.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_moelleaadalen": {
+      "description": "Rundtur i Mølleådalen nord for København, langs Mølleåen med søer, skove og de gamle møller, der gav dalen tilnavnet \"industriens vugge\".",
+      "bestSeason": "Kan gås hele året. Bøgeskovene springer ud i begyndelsen af maj, og efterårsfarverne topper typisk i oktober.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_den_skaeve_bane": {
+      "description": "Stien følger den nedlagte jernbane \"Den Skæve Bane\" i Midtjylland, bl.a. mellem Ejstrupholm og Funder.",
+      "bestSeason": "Kan gås hele året. Stien er jævn og fast, så den egner sig også til vinterture.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://visitdenmark.com/denmark/plan-your-trip/den-skaeve-bane-railway-path-between-funder-and-ejstrupholm-gdk1100125"
+    },
+    "trail_gjerrildbanestien": {
+      "description": "Natursti på den nedlagte jernbane mellem Ryomgård og Gjerrild på Djursland.",
+      "bestSeason": "Kan gås hele året. Stien er jævn og fast, så den egner sig også til vinterture.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_fjord_til_fjord_naturstien": {
+      "description": "Naturstien \"Fra Fjord til Fjord\" går gennem Sydsjælland i området ved Præstø Fjord, gennem skov og landbrugsland. Stien vedligeholdes af en lokal forening.",
+      "bestSeason": "Kan gås hele året. Maj–september giver de længste dage, mens forår og efterår ofte er roligere på stierne.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/fjord-to-fjord-gdk1107451"
+    },
+    "trail_susaaleden": {
+      "description": "Del af Sjællandsleden langs Suså ved Næstved, gennem ådalen og skovene omkring åen.",
+      "bestSeason": "Kan gås hele året. Bøgeskovene springer ud i begyndelsen af maj, og efterårsfarverne topper typisk i oktober.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_falster_rundt": {
+      "description": "Afmærket vandrerute på Falster og en del af Sjællandsleden.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_oestersoestien": {
+      "description": "Del af Sjællandsleden langs Lollands sydkyst ved Østersøen.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": ""
+    },
+    "trail_djurslandstien": {
+      "description": "Djurslandstien er en kystnær vandrerute på Djursland fra Risskov ved Aarhus til Udbyhøj ved Randers Fjord.",
+      "bestSeason": "Kan gås hele året. Kyststrækningerne er smukkest fra forår til efterår og kan være meget blæsende om vinteren.",
+      "dogsNote": "Hovedreglen er, at hunde skal være i snor i naturen og altid, hvor der går dyr på græs. På strandene er der snortvang fra 1. april til 30. september. Følg skiltningen undervejs.",
+      "officialUrl": "https://www.visitdenmark.com/denmark/plan-your-trip/djurslandstien-a-coastal-hiking-trail-gdk1132525"
+    }
   }
 }
