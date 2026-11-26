@@ -125,7 +125,12 @@ object OfflineDownloadManager {
                 hasEnoughSpace = false,
                 availableBytes = available,
                 requiredBytes = requiredBytes,
-                message = "Ikke nok fri lagerplads. Download kræver $neededStr (kun $availStr ledig)."
+                message = AppLocaleHelper.strOrNull(
+                    context,
+                    com.example.R.string.offline_err_not_enough_storage_detail_fmt,
+                    neededStr,
+                    availStr
+                ) ?: "Ikke nok fri lagerplads. Download kræver $neededStr (kun $availStr ledig)."
             )
         }
         return StorageCheckResult(
@@ -163,10 +168,12 @@ object OfflineDownloadManager {
         }
         val (isConnected, isWifi) = status
         if (!isConnected) {
-            return false to "Ingen internetforbindelse. Hentning af kortfliser kræver netværksforbindelse."
+            return false to (AppLocaleHelper.strOrNull(context, com.example.R.string.offline_err_no_internet_tiles)
+                ?: "Ingen internetforbindelse. Hentning af kortfliser kræver netværksforbindelse.")
         }
         if (wifiOnly && !isWifi) {
-            return false to "Kun på Wi-Fi er slået til. Forbind til Wi-Fi eller slå 'Kun på Wi-Fi' fra."
+            return false to (AppLocaleHelper.strOrNull(context, com.example.R.string.offline_err_wifi_only_enabled)
+                ?: "Kun på Wi-Fi er slået til. Forbind til Wi-Fi eller slå 'Kun på Wi-Fi' fra.")
         }
         return true to null
     }
@@ -231,7 +238,8 @@ object OfflineDownloadManager {
                 tileCount = totalTileCount,
                 estimatedSizeBytes = totalTileCount.toLong() * 10480L,
                 isAllowed = false,
-                refuseReason = "Området er for stort – zoom ind på kortet"
+                refuseReason = AppLocaleHelper.strOrNull(context, com.example.R.string.offline_err_area_too_large_zoom_in)
+                    ?: "Området er for stort – zoom ind på kortet"
             )
         }
 
@@ -438,7 +446,12 @@ object OfflineDownloadManager {
                     tileCount = tileCount,
                     estimatedSizeBytes = tileCount * 10480L,
                     isAllowed = false,
-                    refuseReason = "Ruten kræver $tileCount kortfliser, hvilket overstiger udbyderens grænse på $MAX_PROVIDER_ALLOWED_TILES fliser per download. Vælg en smallere korridor (f.eks. 0,5 km) for at fortsætte."
+                    refuseReason = AppLocaleHelper.strOrNull(
+                        context,
+                        com.example.R.string.offline_err_provider_tile_limit_fmt,
+                        tileCount,
+                        MAX_PROVIDER_ALLOWED_TILES
+                    ) ?: "Ruten kræver $tileCount kortfliser, hvilket overstiger udbyderens grænse på $MAX_PROVIDER_ALLOWED_TILES fliser per download. Vælg en smallere korridor (f.eks. 0,5 km) for at fortsætte."
                 )
             }
 

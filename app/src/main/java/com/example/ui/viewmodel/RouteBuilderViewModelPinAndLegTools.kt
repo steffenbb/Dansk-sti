@@ -178,7 +178,7 @@ fun RouteBuilderViewModel.deleteWaypoint(waypointId: String, showUndoSnackbar: B
                 waypoints = mutableWps,
                 legs = newLegs,
                 selectedWaypointId = null,
-                deletedPinSnackbarMessage = if (showUndoSnackbar) "Punkt slettet · Fortryd" else it.deletedPinSnackbarMessage
+                deletedPinSnackbarMessage = if (showUndoSnackbar) com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_point_deleted_undo) else it.deletedPinSnackbarMessage
             )
         }
         if (mutableWps.isEmpty()) deleteCurrentDraftFromRoomNow() else scheduleDraftAutosave()
@@ -203,7 +203,7 @@ fun RouteBuilderViewModel.deleteWaypoint(waypointId: String, showUndoSnackbar: B
             legs = currentLegs,
             failedLegs = currentFailed,
             selectedWaypointId = null,
-            deletedPinSnackbarMessage = if (showUndoSnackbar) "Punkt slettet · Fortryd" else it.deletedPinSnackbarMessage
+            deletedPinSnackbarMessage = if (showUndoSnackbar) com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_point_deleted_undo) else it.deletedPinSnackbarMessage
         )
     }
 
@@ -292,15 +292,16 @@ fun RouteBuilderViewModel.activateMovePointForFailedLeg(legKey: String) {
     val parts = legKey.split("_to_")
     if (parts.size != 2) return
     val targetId = parts[1]
+    val msg = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_move_pin_instruction)
     _uiState.update {
         it.copy(
             selectedWaypointId = targetId,
             movingWaypointId = targetId,
-            errorMessage = "Tryk på kortet eller træk markøren for at flytte punktet"
+            errorMessage = msg
         )
     }
     viewModelScope.launch {
-        _userMessage.emit("Tryk på kortet eller træk markøren for at flytte punktet")
+        _userMessage.emit(msg)
     }
 }
 
@@ -438,7 +439,7 @@ fun RouteBuilderViewModel.setStartAtGps(
         lat = lat,
         lng = lng,
         role = WaypointRole.START,
-        name = "Min position"
+        name = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_my_location)
     )
 
     val updatedLegs = _uiState.value.legs.toMutableMap()
@@ -633,7 +634,7 @@ fun RouteBuilderViewModel.undoLastDelete() {
                     repository.saveCustomWaypoint(deleted)
                     val updated = repository.getCustomWaypointsForRoute(_uiState.value.routeId ?: 0L)
                     _uiState.update { it.copy(customUserWaypoints = updated) }
-                    _userMessage.emit("Punkt gendannet: ${deleted.name}")
+                    _userMessage.emit(com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_point_restored_fmt, deleted.name))
                 }
             }
         }
@@ -665,7 +666,7 @@ fun RouteBuilderViewModel.undoLastDelete() {
                             }
                         )
                     }
-                    _userMessage.emit("Foto gendannet")
+                    _userMessage.emit(com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_photo_restored))
                 }
             }
         }

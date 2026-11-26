@@ -29,7 +29,10 @@ object BRouterGeoJsonParser {
         val json = JSONObject(jsonStr)
         val features = json.optJSONArray("features")
         if (features == null || features.length() == 0) {
-            return RouteLegResult.NoRoute("Der blev ikke fundet en rute mellem punkterne.")
+            return RouteLegResult.NoRoute(
+                com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.brouter_err_no_route_between_points)
+                    ?: "Der blev ikke fundet en rute mellem punkterne."
+            )
         }
 
         val feature = features.getJSONObject(0)
@@ -38,7 +41,10 @@ object BRouterGeoJsonParser {
 
         val coordinates = geometry?.optJSONArray("coordinates")
         if (coordinates == null || coordinates.length() == 0) {
-            return RouteLegResult.NoRoute("Ingen koordinater fundet på ruten")
+            return RouteLegResult.NoRoute(
+                com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.brouter_err_no_coordinates)
+                    ?: "Ingen koordinater fundet på ruten"
+            )
         }
 
         // Extract 3D points (coordinates format: [lon, lat, ele])

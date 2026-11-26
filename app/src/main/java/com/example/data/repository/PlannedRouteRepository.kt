@@ -360,7 +360,11 @@ class PlannedRouteRepository(private val context: Context) {
             pathSharePct = stats.pathSharePct ?: 0.0,
             roadKm = stats.roadKm ?: 0.0,
             geometryFile = geomFile,
-            sourceName = if (baseTrailId != null) "Ruteplanlægger (Sti)" else "Ruteplanlægger",
+            sourceName = if (baseTrailId != null) {
+                com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.planner_source_name_trail) ?: "Ruteplanlægger (Sti)"
+            } else {
+                com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.planner_source_name) ?: "Ruteplanlægger"
+            },
             fetchedAt = now,
             baseTrailId = baseTrailId,
             isReverse = isReverse

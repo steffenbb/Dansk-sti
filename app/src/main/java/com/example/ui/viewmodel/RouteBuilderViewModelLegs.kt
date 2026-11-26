@@ -555,12 +555,16 @@ fun RouteBuilderViewModel.importGpx(inputStream: InputStream) {
             }
 
             if (result.waypoints.size < 2) {
-                _userMessage.emit("Kunne ikke indlæse rute fra GPX: For få punkter")
+                _userMessage.emit(com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_gpx_too_few_points))
                 return@launch
             }
 
             pushHistory()
-            val suggestedName = result.name ?: "Importeret rute (${String.format(Locale.US, "%.1f", result.totalOriginalKm)} km)"
+            val suggestedName = result.name ?: com.example.util.AppLocaleHelper.str(
+                getApplication(),
+                com.example.R.string.planner_gpx_imported_route_name_fmt,
+                "${String.format(Locale.US, "%.1f", result.totalOriginalKm)} km"
+            )
             val initialGpxLegs = GpxImporter.buildOriginalGpxLegs(
                 waypoints = result.waypoints,
                 originalPoints = result.originalPoints,
@@ -590,7 +594,14 @@ fun RouteBuilderViewModel.importGpx(inputStream: InputStream) {
             updateRouteStats()
             scheduleDraftAutosave()
 
-            _userMessage.emit("GPX indlæst: ${result.waypoints.size} ruteelementer. Beregner stier...")
+            _userMessage.emit(
+                com.example.util.AppLocaleHelper.str(
+                    getApplication(),
+                    com.example.R.string.planner_gpx_loaded_calculating_fmt,
+                    result.totalOriginalKm,
+                    result.waypoints.size
+                )
+            )
 
             gpxRoutingJob = viewModelScope.launch {
                 val wps = result.waypoints
@@ -673,7 +684,13 @@ fun RouteBuilderViewModel.importGpx(inputStream: InputStream) {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error importing GPX: ${e.message}")
-            _userMessage.emit("Fejl ved GPX-import: ${com.example.util.userMessageFor(e)}")
+            _userMessage.emit(
+                com.example.util.AppLocaleHelper.str(
+                    getApplication(),
+                    com.example.R.string.planner_gpx_import_error_fmt,
+                    com.example.util.userMessageFor(e)
+                )
+            )
         }
     }
 }

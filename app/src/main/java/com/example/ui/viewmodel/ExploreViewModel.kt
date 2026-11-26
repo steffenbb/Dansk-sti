@@ -29,17 +29,32 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-enum class LengthFilter(val label: String) {
-    ALL("Alle længder"),
-    SHORT("< 50 km"),
-    MEDIUM("50–150 km"),
-    LONG("> 150 km")
+enum class LengthFilter {
+    ALL,
+    SHORT,
+    MEDIUM,
+    LONG;
+
+    val label: String
+        get() = when (this) {
+            ALL -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.explore_length_all) ?: "Alle længder"
+            SHORT -> "< 50 km"
+            MEDIUM -> "50–150 km"
+            LONG -> "> 150 km"
+        }
 }
 
-enum class OvernightFilter(val label: String) {
-    ALL("Alle"),
-    SHELTERS("Shelters undervejs"),
-    FRI_TELTNING("Fri teltning")
+enum class OvernightFilter {
+    ALL,
+    SHELTERS,
+    FRI_TELTNING;
+
+    val label: String
+        get() = when (this) {
+            ALL -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.explore_overnight_all) ?: "Alle"
+            SHELTERS -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.explore_filter_shelters) ?: "Shelters undervejs"
+            FRI_TELTNING -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.explore_filter_fri_teltning) ?: "Fri teltning"
+        }
 }
 
 data class TrailCardMetrics(
@@ -152,6 +167,15 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
 
     private val _userLocation = MutableStateFlow<Pair<Double, Double>?>(null)
     val userLocation: StateFlow<Pair<Double, Double>?> = _userLocation.asStateFlow()
+
+    private val _searchedMapFocus = MutableStateFlow<Pair<Double, Double>?>(null)
+    val searchedMapFocus: StateFlow<Pair<Double, Double>?> = _searchedMapFocus.asStateFlow()
+
+    fun focusMapOnSearchedPlace(lat: Double, lng: Double) {
+        if (lat.isFinite() && lng.isFinite() && (lat != 0.0 || lng != 0.0)) {
+            _searchedMapFocus.value = Pair(lat, lng)
+        }
+    }
 
     private val _userLocationStaleMessage = MutableStateFlow<String?>(null)
     val userLocationStaleMessage: StateFlow<String?> = _userLocationStaleMessage.asStateFlow()
@@ -367,7 +391,7 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                 throw e
             } catch (e: Exception) {
                 if (allTrails.value.isEmpty()) {
-                    _errorMessage.value = "Kunne ikke indlæse ruter. Tjek din forbindelse og prøv igen."
+                    _errorMessage.value = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.explore_error_load_trails)
                 }
             }
         }

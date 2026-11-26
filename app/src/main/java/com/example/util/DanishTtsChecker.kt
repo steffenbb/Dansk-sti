@@ -94,8 +94,9 @@ object DanishTtsChecker {
      * Resolves the TTS voice locale to use:
      * 1. Prefer the active app locale voice if installed/supported.
      * 2. If the active app locale voice is unavailable and a Danish voice is available,
-     *    fall back to Danish ([DANISH_LOCALE]) and mark [_isDanishVoiceInstalled] = false
-     *    so the Profile screen displays the voice fallback warning note.
+     *    fall back to Danish ([DANISH_LOCALE]) and mark [_isUsingDanishFallbackVoice] = true
+     *    while keeping [_isDanishVoiceInstalled] = true so the Profile screen displays
+     *    the Danish fallback note rather than the missing-voice warning.
      * 3. Return null if neither voice is available.
      */
     fun resolveEffectiveTtsLocale(
@@ -111,7 +112,7 @@ object DanishTtsChecker {
         }
         if (targetLocale.language.lowercase(Locale.ROOT) != "da" && isLocaleAvailable(DANISH_LOCALE)) {
             _isUsingDanishFallbackVoice.value = true
-            _isDanishVoiceInstalled.value = false
+            _isDanishVoiceInstalled.value = true
             return DANISH_LOCALE
         }
         _isUsingDanishFallbackVoice.value = false
@@ -135,7 +136,7 @@ object DanishTtsChecker {
     }
 
     /**
-     * Asynchronously probes the device's TextToSpeech engine to check if a voice for the active locale is installed.
+     * Asynchronously probes the device's TextToSpeech engine to check if a usable voice is installed.
      */
     fun checkDanishVoiceAvailability(context: Context, onResult: (Boolean) -> Unit = {}) {
         isDanishVoiceInstalledOverrideForTests?.let { overrideVal ->
@@ -143,14 +144,13 @@ object DanishTtsChecker {
             onResult(overrideVal)
             return
         }
-        val targetLocale = resolveTtsLocale(context)
         var engine: TextToSpeech? = null
         try {
             engine = TextToSpeech(context.applicationContext) { status ->
                 val installed = if (status == TextToSpeech.SUCCESS) {
-                    val effective = resolveEffectiveTtsLocale(context, engine)
-                    effective != null && !_isUsingDanishFallbackVoice.value && isTtsLocaleSupported(engine, targetLocale)
+                    resolveEffectiveTtsLocale(context, engine) != null
                 } else {
+                    _isUsingDanishFallbackVoice.value = false
                     _isDanishVoiceInstalled.value = false
                     false
                 }
@@ -161,6 +161,7 @@ object DanishTtsChecker {
                 onResult(installed)
             }
         } catch (_: Exception) {
+            _isUsingDanishFallbackVoice.value = false
             _isDanishVoiceInstalled.value = false
             onResult(false)
         }

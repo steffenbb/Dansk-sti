@@ -228,7 +228,8 @@ class UiRound2PlannerSearchTest {
             campLng = 10.1,
             estimatedHours = 2.75,
             overnightType = "END",
-            bookingRequired = false
+            bookingRequired = false,
+            campExplanation = "Sidste etape mod rutens slutpunkt (12,4 km)"
         )
 
         composeTestRule.setContent {

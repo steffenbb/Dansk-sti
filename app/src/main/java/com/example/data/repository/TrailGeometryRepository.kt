@@ -101,7 +101,11 @@ class TrailGeometryRepository(private val context: Context) {
             val removed = synchronized(inFlightLock) {
                 inFlightDownloads.remove(trailId)
             }
-            removed?.deferred?.cancel(kotlinx.coroutines.CancellationException("Download annulleret"))
+            removed?.deferred?.cancel(
+                kotlinx.coroutines.CancellationException(
+                    com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.planner_download_cancelled) ?: "Download cancelled"
+                )
+            )
             clearProgress(trailId)
         }
 
@@ -342,7 +346,11 @@ class TrailGeometryRepository(private val context: Context) {
                     inFlightDownloads.remove(trailId, inFlight)
                 }
                 if (!inFlight.deferred.isCompleted) {
-                    inFlight.deferred.cancel(kotlinx.coroutines.CancellationException("Download annulleret"))
+                    inFlight.deferred.cancel(
+                        kotlinx.coroutines.CancellationException(
+                            com.example.util.AppLocaleHelper.str(context, com.example.R.string.planner_download_cancelled)
+                        )
+                    )
                 }
                 clearProgress(trailId)
             }
@@ -388,7 +396,7 @@ class TrailGeometryRepository(private val context: Context) {
                     is com.example.data.remote.OverpassClient.RequestState.Queued -> {
                         emitProgressState(
                             prev.copy(
-                                stageMessage = "Venter på OpenStreetMap (${state.aheadCount} foran i køen)",
+                                stageMessage = com.example.util.AppLocaleHelper.str(context, com.example.R.string.trail_dl_waiting_osm_queue_fmt, state.aheadCount),
                                 isIndeterminate = false,
                                 queuePosition = state.aheadCount
                             )
@@ -397,7 +405,7 @@ class TrailGeometryRepository(private val context: Context) {
                     is com.example.data.remote.OverpassClient.RequestState.Running -> {
                         emitProgressState(
                             prev.copy(
-                                stageMessage = "Henter sektion $x af $y",
+                                stageMessage = com.example.util.AppLocaleHelper.str(context, com.example.R.string.trail_dl_fetching_section_fmt, x, y),
                                 isIndeterminate = false,
                                 queuePosition = 0
                             )
@@ -406,7 +414,7 @@ class TrailGeometryRepository(private val context: Context) {
                     is com.example.data.remote.OverpassClient.RequestState.Slow -> {
                         emitProgressState(
                             prev.copy(
-                                stageMessage = "Henter sektion $x af $y – det tager lidt længere end normalt…",
+                                stageMessage = com.example.util.AppLocaleHelper.str(context, com.example.R.string.trail_dl_fetching_section_slow_fmt, x, y),
                                 isIndeterminate = false,
                                 queuePosition = 0
                             )
@@ -423,7 +431,7 @@ class TrailGeometryRepository(private val context: Context) {
                                 downloadedRelations = 0,
                                 totalRelations = 1,
                                 accumulatedKm = 0.0,
-                                stageMessage = "Venter på OpenStreetMap (${state.aheadCount} foran i køen)",
+                                stageMessage = com.example.util.AppLocaleHelper.str(context, com.example.R.string.trail_dl_waiting_osm_queue_fmt, state.aheadCount),
                                 isIndeterminate = true,
                                 queuePosition = state.aheadCount
                             )
@@ -437,7 +445,7 @@ class TrailGeometryRepository(private val context: Context) {
                                 downloadedRelations = 0,
                                 totalRelations = 1,
                                 accumulatedKm = 0.0,
-                                stageMessage = "Henter rute fra OpenStreetMap…",
+                                stageMessage = com.example.util.AppLocaleHelper.str(context, com.example.R.string.trail_dl_fetching_osm),
                                 isIndeterminate = true,
                                 queuePosition = 0
                             )
@@ -451,7 +459,7 @@ class TrailGeometryRepository(private val context: Context) {
                                 downloadedRelations = 0,
                                 totalRelations = 1,
                                 accumulatedKm = 0.0,
-                                stageMessage = "Det tager lidt længere end normalt…",
+                                stageMessage = com.example.util.AppLocaleHelper.str(context, com.example.R.string.trail_dl_taking_longer),
                                 isIndeterminate = true,
                                 queuePosition = 0
                             )
@@ -470,7 +478,7 @@ class TrailGeometryRepository(private val context: Context) {
             val ok = customFetcher.invoke(relationId, rawElements) { dl, tot ->
                 sectionStarted = true
                 val frac = 0.1f + 0.55f * (dl.toFloat() / tot.coerceAtLeast(1).toFloat())
-                emitProg(frac, dl, tot, 0.0, "Henter sektion $dl af $tot")
+                emitProg(frac, dl, tot, 0.0, com.example.util.AppLocaleHelper.str(context, com.example.R.string.trail_dl_fetching_section_fmt, dl, tot))
             }
             if (!ok || rawElements.isEmpty()) {
                 Log.e("TrailGeometry", "Custom fetcher failed or returned empty elements for relation $relationId ($trailName)")
@@ -484,7 +492,7 @@ class TrailGeometryRepository(private val context: Context) {
                 onBatchProgress = { batchNum, totalBatches ->
                     sectionStarted = true
                     val frac = 0.1f + 0.55f * (batchNum.toFloat() / totalBatches.coerceAtLeast(1).toFloat())
-                    emitProg(frac, batchNum, totalBatches, 0.0, "Henter sektion $batchNum af $totalBatches")
+                    emitProg(frac, batchNum, totalBatches, 0.0, com.example.util.AppLocaleHelper.str(context, com.example.R.string.trail_dl_fetching_section_fmt, batchNum, totalBatches))
                 }
             )
             if (!success || rawElements.isEmpty()) {
@@ -493,7 +501,7 @@ class TrailGeometryRepository(private val context: Context) {
             }
         }
 
-        emitProg(0.70f, rawElements.size, rawElements.size.coerceAtLeast(1), 0.0, "Sammensætter rutegeometri...")
+        emitProg(0.70f, rawElements.size, rawElements.size.coerceAtLeast(1), 0.0, com.example.util.AppLocaleHelper.str(context, com.example.R.string.trail_dl_assembling_geometry))
         val dto = processRelationData(trailId, relationId, rawElements) { frac, km, msg ->
             emitProg(frac, rawElements.size, rawElements.size.coerceAtLeast(1), km, msg)
         }
@@ -510,7 +518,7 @@ class TrailGeometryRepository(private val context: Context) {
             rawElements.size,
             rawElements.size.coerceAtLeast(1),
             dto.totalWalkingKm,
-            "Færdig (${dto.totalWalkingKm} km)"
+            com.example.util.AppLocaleHelper.str(context, com.example.R.string.trail_dl_finished_km_fmt, dto.totalWalkingKm.toString())
         )
         return dto
     }
@@ -1198,7 +1206,11 @@ class TrailGeometryRepository(private val context: Context) {
         val prelimTotalKm = simplifiedMain
             .filter { it.type == TrailSegmentType.WALK }
             .sumOf { calculateSegmentKm(it.points) }
-        onProgress?.invoke(0.82f, roundTo1Decimal(prelimTotalKm), "Henter højdeprofil (${roundTo1Decimal(prelimTotalKm)} km)...")
+        onProgress?.invoke(
+            0.82f,
+            roundTo1Decimal(prelimTotalKm),
+            com.example.util.AppLocaleHelper.str(context, com.example.R.string.trail_dl_fetching_elevation_km_fmt, roundTo1Decimal(prelimTotalKm).toString())
+        )
 
         // Keep Douglas-Peucker (4m) points as route geometry; resample for elevation lookup
         val finalSegments = applyElevationToSegments(simplifiedMain)

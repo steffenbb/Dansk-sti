@@ -309,7 +309,7 @@ fun NavigationBottomOrSideControlsAndStats(
                         modifier = Modifier.testTag("nav_voice_guidance_menu_item")
                     )
                     DropdownMenuItem(
-                        text = { Text(if (hasGpsFix) "Del min position" else "Venter på GPS-position") },
+                        text = { Text(if (hasGpsFix) stringResource(R.string.nav_share_my_location) else stringResource(R.string.nav_waiting_for_gps)) },
                         enabled = hasGpsFix,
                         onClick = {
                             onSetShowNavMenu(false)
@@ -382,7 +382,7 @@ fun NavigationBottomOrSideControlsAndStats(
                     Spacer(modifier = Modifier.width(4.dp))
                     Icon(
                         imageVector = if (isDrawerExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                        contentDescription = if (isDrawerExpanded) "Skjul foran dig på ruten" else "Vis foran dig på ruten",
+                        contentDescription = if (isDrawerExpanded) stringResource(R.string.nav_hide_ahead_on_route) else stringResource(R.string.nav_show_ahead_on_route),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp)
                     )

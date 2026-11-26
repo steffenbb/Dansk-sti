@@ -223,7 +223,7 @@ internal fun refreshMapOverlays(
         ghostHandles.forEach { handle ->
             val ghostMarker = Marker(mapView).apply {
                 position = GeoPoint(handle.lat, handle.lng)
-                title = "Indsæt viapunkt på strækning ${handle.legIndex + 1}"
+                title = context.getString(R.string.planner_insert_via_point_on_leg_fmt, handle.legIndex + 1)
                 icon = RouteMarkerHelper.createGhostHandleIcon(context, isDimmed = hasAnySelection)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 setInfoWindow(null)

@@ -6,117 +6,62 @@ import com.example.util.routing.LatLng
  * Types of land access governed by the Danish Nature Protection Act (Naturbeskyttelsesloven kapitel 4).
  */
 enum class AccessLandType(
-    val title: String,
-    val summary: String,
     val fillColorArgb: Int,
     val strokeColorArgb: Int
 ) {
-    /**
-     * Public forest (stat eller kommune):
-     * Færdsel er tilladt til fods og på cykel på veje og stier, samt i skovbunden, døgnet rundt.
-     */
     PUBLIC_FOREST(
-        title = "Offentlig skov",
-        summary = "Færdsel døgnet rundt, både på og uden for stier.",
         fillColorArgb = 0x334CAF50, // Soft green
         strokeColorArgb = 0xFF2E7D32.toInt()
     ),
-
-    /**
-     * Private or unknown forest:
-     * Færdsel kun tilladt på veje og gode stier fra kl. 06:00 til solnedgang.
-     * Ingen adgang i skovbunden. Ikke ophold inden for 150 m fra beboelse/driftsbygninger.
-     */
     PRIVATE_FOREST(
-        title = "Privat/ukendt skov",
-        summary = "Kun på veje og stier, kl. 06:00 til solnedgang.",
         fillColorArgb = 0x38FFA000, // Amber
         strokeColorArgb = 0xFFF57C00.toInt()
     ),
-
-    /**
-     * Private uncultivated land (heath, dunes, meadow, bog):
-     * Færdsel til fods tilladt fra kl. 06:00 til solnedgang, både på og uden for stier.
-     */
     UNCULTIVATED_LAND(
-        title = "Udyrket areal (hede, klit, eng)",
-        summary = "Til fods på og uden for stier, kl. 06:00 til solnedgang.",
         fillColorArgb = 0x40FFF59D, // Light yellow
         strokeColorArgb = 0xFFFBC02D.toInt()
     ),
-
-    /**
-     * Beach / coastal shore:
-     * Færdsel til fods og kortvarigt ophold (op til 1 døgn uden telt) er tilladt døgnet rundt.
-     */
     BEACH(
-        title = "Strand og kyst",
-        summary = "Færdsel til fods og kortvarigt ophold tilladt døgnet rundt.",
         fillColorArgb = 0x4081D4FA, // Light blue
         strokeColorArgb = 0xFF0288D1.toInt()
     ),
-
-    /**
-     * Cultivated fields (farmland, orchards, farmyards):
-     * Ingen adgang uden ejerens tilladelse.
-     */
     CULTIVATED_FIELD(
-        title = "Dyrket mark",
-        summary = "Ingen adgang for offentligheden.",
         fillColorArgb = 0x00000000, // No fill
         strokeColorArgb = 0x608D6E63.toInt()
     );
 
+    val title: String
+        get() = when (this) {
+            PUBLIC_FOREST -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_public_forest_title) ?: "Offentlig skov"
+            PRIVATE_FOREST -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_private_forest_title) ?: "Privat/ukendt skov"
+            UNCULTIVATED_LAND -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_uncultivated_title) ?: "Udyrket areal (hede, klit, eng)"
+            BEACH -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_beach_title) ?: "Strand og kyst"
+            CULTIVATED_FIELD -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_cultivated_title) ?: "Dyrket mark"
+        }
+
+    val summary: String
+        get() = when (this) {
+            PUBLIC_FOREST -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_public_forest_summary) ?: "Færdsel døgnet rundt, både på og uden for stier."
+            PRIVATE_FOREST -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_private_forest_summary) ?: "Kun på veje og stier, kl. 06:00 til solnedgang."
+            UNCULTIVATED_LAND -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_uncultivated_summary) ?: "Til fods på og uden for stier, kl. 06:00 til solnedgang."
+            BEACH -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_beach_summary) ?: "Færdsel til fods og kortvarigt ophold tilladt døgnet rundt."
+            CULTIVATED_FIELD -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_cultivated_summary) ?: "Ingen adgang for offentligheden."
+        }
+
     val fullRulesDanish: String
         get() = when (this) {
-            PUBLIC_FOREST -> """
-                Offentlig skov (stat/kommune)
-                • Færdsel er tilladt døgnet rundt, både på veje, stier og i skovbunden.
-                • Cykling tilladt på veje og stier egnede til almindelig cykel.
-                • Teltning kun tilladt i udpegede fri teltning-skove eller på primitive lejrpladser/shelters.
-                
-                Følg altid skilte på stedet - ejeren kan have lovlige begrænsninger.
-            """.trimIndent()
-
-            PRIVATE_FOREST -> """
-                Privat skov
-                • Færdsel er kun tilladt på befæstede veje og gode stier fra kl. 06:00 til solnedgang.
-                • Færdsel i skovbunden er ikke tilladt.
-                • Ophold må ikke finde sted inden for 150 meter fra beboelses- og driftsbygninger.
-                • Overnatning og teltning er ikke tilladt uden ejerens tilladelse.
-                
-                Følg altid skilte på stedet - ejeren kan have lovlige begrænsninger.
-            """.trimIndent()
-
-            UNCULTIVATED_LAND -> """
-                Udyrket areal (hede, klit, mose, eng)
-                • Færdsel til fods er tilladt fra kl. 06:00 til solnedgang, både på og uden for stier.
-                • Hegnede arealer må kun betrædes ad låger, stenter eller overgange.
-                • Overnatning er ikke tilladt uden ejerens tilladelse.
-                
-                Følg altid skilte på stedet - ejeren kan have lovlige begrænsninger.
-            """.trimIndent()
-
-            BEACH -> """
-                Strand og kyststrækning
-                • Færdsel til fods og kortvarigt ophold er tilladt døgnet rundt.
-                • Ophold i kortere tid (bade, hvile, op til 1 døgn uden telt) er tilladt.
-                • Ophold må ikke finde sted inden for 50 meter fra beboelsesbygninger.
-                
-                Følg altid skilte på stedet - ejeren kan have lovlige begrænsninger.
-            """.trimIndent()
-
-            CULTIVATED_FIELD -> """
-                Dyrket mark
-                • Færdsel er ikke tilladt på dyrkede marker eller indhegnede landbrugsarealer.
-                
-                Følg altid skilte på stedet - ejeren kan have lovlige begrænsninger.
-            """.trimIndent()
+            PUBLIC_FOREST -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_public_forest_rules) ?: "Offentlig skov"
+            PRIVATE_FOREST -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_private_forest_rules) ?: "Privat skov"
+            UNCULTIVATED_LAND -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_uncultivated_rules) ?: "Udyrket areal"
+            BEACH -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_beach_rules) ?: "Strand og kyststrækning"
+            CULTIVATED_FIELD -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_cultivated_rules) ?: "Dyrket mark"
         }
 
     companion object {
         val PRIVATE_OR_UNKNOWN = PRIVATE_FOREST
-        const val GENERAL_DISCLAIMER = "Følg altid skilte på stedet - ejeren kan have lovlige begrænsninger."
+        val GENERAL_DISCLAIMER: String
+            get() = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_general_disclaimer)
+                ?: "Følg altid skilte på stedet - ejeren kan have lovlige begrænsninger."
     }
 }
 

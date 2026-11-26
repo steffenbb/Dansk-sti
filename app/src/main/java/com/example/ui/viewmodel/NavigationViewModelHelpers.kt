@@ -14,10 +14,17 @@ import kotlinx.coroutines.flow.firstOrNull
 import org.json.JSONArray
 import kotlin.math.max
 
-enum class NavigationMapMode(val label: String) {
-    FOLLOW_NORTH_UP("Følg (nord op)"),
-    FOLLOW_HEADING_UP("Følg (retning op)"),
-    OVERVIEW("Oversigt")
+enum class NavigationMapMode {
+    FOLLOW_NORTH_UP,
+    FOLLOW_HEADING_UP,
+    OVERVIEW;
+
+    val label: String
+        get() = when (this) {
+            FOLLOW_NORTH_UP -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.nav_map_mode_follow_north) ?: "Følg (nord op)"
+            FOLLOW_HEADING_UP -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.nav_map_mode_follow_heading) ?: "Følg (retning op)"
+            OVERVIEW -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.nav_map_mode_overview) ?: "Oversigt"
+        }
 }
 
 data class NextStopInfo(
@@ -493,5 +500,105 @@ internal suspend fun loadInitialCorridorDataForRoute(
         needsTrailCorridorSync = needsTrailCorridorSync
     )
 }
+
+internal suspend fun NavigationViewModel.performTonightCampWeatherPrefetch(
+    stopLat: Double,
+    stopLng: Double,
+    dayNum: Int,
+    nowMs: Long
+) {
+    try {
+        val cached = repository.getCachedTrailWeatherOnly(stopLat, stopLng, nowMs = nowMs)
+        val cacheIsFresh = cached != null && cached.hourly48h.isNotEmpty() &&
+            cached.fetchedAtMillis > 0L &&
+            (nowMs - cached.fetchedAtMillis) <= com.example.data.remote.WeatherInterpreter.CAMP_PREFETCH_MAX_AGE_MS
+        if (cacheIsFresh) {
+            applyTonightCampWeatherResult(cached, isFreshSuccess = true, dayNum = dayNum, nowMs = nowMs)
+        } else {
+            val weather = repository.getTrailWeather(stopLat, stopLng, forceNetworkRefresh = true, nowMs = nowMs)
+            val networkSucceeded = weather.hourly48h.isNotEmpty() && weather.fetchedAtMillis == nowMs
+            applyTonightCampWeatherResult(weather, isFreshSuccess = networkSucceeded, dayNum = dayNum, nowMs = nowMs)
+        }
+    } catch (e: Exception) {
+        android.util.Log.w("NavigationViewModel", "Failed to prefetch tonight camp weather: ${e.message}")
+        applyTonightCampWeatherResult(null, isFreshSuccess = false, dayNum = dayNum, nowMs = nowMs)
+    }
+}
+
+internal suspend fun NavigationViewModel.performNavigationWeatherUpdate(
+    lat: Double,
+    lng: Double,
+    shouldRefresh: Boolean,
+    state: NavigationLiveState,
+    nowMs: Long
+) {
+    try {
+        val weather = if (shouldRefresh) {
+            repository.getTrailWeather(lat, lng, forceNetworkRefresh = true, nowMs = nowMs)
+        } else {
+            repository.getCachedTrailWeatherOnly(lat, lng, nowMs = nowMs)
+        }
+        applyNavigationWeatherResult(weather, shouldRefresh, lat, lng, state, nowMs)
+    } catch (e: Exception) {
+        android.util.Log.w("NavigationViewModel", "Failed updating navigation weather: ${e.message}")
+        applyNavigationWeatherResult(null, shouldRefresh, lat, lng, state, nowMs)
+    }
+}
+
+internal fun NavigationViewModel.applyNavigationWeatherResult(
+    weather: com.example.data.remote.TrailWeatherInfo?,
+    shouldRefresh: Boolean,
+    lat: Double,
+    lng: Double,
+    state: NavigationLiveState,
+    nowMs: Long
+) {
+    val hasHourly = weather != null && weather.hourly48h.isNotEmpty()
+    val networkSucceeded = hasHourly && weather!!.fetchedAtMillis == nowMs
+    if (shouldRefresh) {
+        if (networkSucceeded) {
+            lastWeatherFetchMs = nowMs
+            lastWeatherFetchLat = lat
+            lastWeatherFetchLng = lng
+            lastWeatherFailureMs = 0L
+        } else {
+            lastWeatherFailureMs = nowMs
+        }
+    }
+    if (hasHourly && (networkSucceeded || _navigationWeather.value == null)) {
+        _navigationWeather.value = weather
+        if (_rainAlertEnabled.value && state.isTracking && !state.isPaused) {
+            com.example.data.remote.WeatherInterpreter.shouldPostRainAlert(
+                rainAlertEnabled = true,
+                lastAlertAtMs = lastRainAlertPostedMs,
+                nowMs = nowMs,
+                hourlyPoints = weather!!.hourly48h
+            )?.let { alertBlock ->
+                lastRainAlertPostedMs = nowMs
+                postRainAlertNotification(alertBlock.precipitationMm, alertBlock.hourLabel)
+            }
+        }
+    }
+}
+
+internal fun NavigationViewModel.applyTonightCampWeatherResult(
+    weather: com.example.data.remote.TrailWeatherInfo?,
+    isFreshSuccess: Boolean,
+    dayNum: Int,
+    nowMs: Long
+) {
+    val hasHourly = weather != null && weather.hourly48h.isNotEmpty()
+    if (isFreshSuccess && hasHourly) {
+        _tonightCampWeather.value = weather
+        lastPrefetchedCampDay = dayNum
+        lastCampWeatherFailureMs = 0L
+    } else {
+        lastCampWeatherFailureMs = nowMs
+        if (_tonightCampWeather.value == null && hasHourly) {
+            _tonightCampWeather.value = weather
+        }
+    }
+}
+
 
 

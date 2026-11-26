@@ -365,17 +365,30 @@ object RouteMarkerHelper {
         cumulativeKm: Double
     ): String {
         val roleText = when (waypoint.role) {
-            WaypointRole.START -> "start"
-            WaypointRole.END -> "slut"
-            WaypointRole.OVERNIGHT -> "overnatning"
-            WaypointRole.VIA -> "via"
+            WaypointRole.START -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.talkback_waypoint_role_start) ?: "start"
+            WaypointRole.END -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.talkback_waypoint_role_end) ?: "slut"
+            WaypointRole.OVERNIGHT -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.talkback_waypoint_role_overnight) ?: "overnatning"
+            WaypointRole.VIA -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.talkback_waypoint_role_via) ?: "via"
         }
         val namePart = waypoint.name?.takeIf { it.isNotBlank() }
         val kmFormatted = String.format(Locale.GERMAN, "%.1f", cumulativeKm)
         return if (namePart != null) {
-            "Punkt ${index + 1}, $roleText, $namePart, km $kmFormatted"
+            com.example.util.AppLocaleHelper.strOrNull(
+                null,
+                com.example.R.string.talkback_waypoint_with_name_fmt,
+                index + 1,
+                roleText,
+                namePart,
+                kmFormatted
+            ) ?: "Punkt ${index + 1}, $roleText, $namePart, km $kmFormatted"
         } else {
-            "Punkt ${index + 1}, $roleText, km $kmFormatted"
+            com.example.util.AppLocaleHelper.strOrNull(
+                null,
+                com.example.R.string.talkback_waypoint_no_name_fmt,
+                index + 1,
+                roleText,
+                kmFormatted
+            ) ?: "Punkt ${index + 1}, $roleText, km $kmFormatted"
         }
     }
 
@@ -385,9 +398,20 @@ object RouteMarkerHelper {
         ascentM: Double,
         legMode: LegMode
     ): String {
-        val modeText = if (legMode == LegMode.SNAP) "Følg stier" else "Lige linje"
+        val modeText = if (legMode == LegMode.SNAP) {
+            com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.talkback_leg_mode_snap) ?: "Følg stier"
+        } else {
+            com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.talkback_leg_mode_straight) ?: "Lige linje"
+        }
         val kmFormatted = String.format(Locale.GERMAN, "%.1f", lengthKm)
-        return "Strækning ${legIndex + 1}, $modeText, $kmFormatted km, ${ascentM.toInt()} m stigning"
+        return com.example.util.AppLocaleHelper.strOrNull(
+            null,
+            com.example.R.string.talkback_leg_fmt,
+            legIndex + 1,
+            modeText,
+            kmFormatted,
+            ascentM.toInt()
+        ) ?: "Strækning ${legIndex + 1}, $modeText, $kmFormatted km, ${ascentM.toInt()} m stigning"
     }
 
     /**

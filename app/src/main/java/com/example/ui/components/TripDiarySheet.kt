@@ -127,20 +127,37 @@ object TripDiaryPhotoHelper {
         val sb = StringBuilder()
         val kmStr = String.format(locale, "%.1f", totalDistanceKm)
         sb.append("# $trailName\n")
-        sb.append("Distance: $kmStr km · Tid i bevægelse: $totalMovingTimeFormatted · Opstigning: +$totalAscentMeters m · Dage: $totalDays\n")
+        val statsLine = com.example.util.AppLocaleHelper.strOrNull(
+            null,
+            R.string.diary_share_stats_line_fmt,
+            kmStr,
+            totalMovingTimeFormatted,
+            totalAscentMeters,
+            totalDays
+        ) ?: "Distance: $kmStr km · Tid i bevægelse: $totalMovingTimeFormatted · Opstigning: +$totalAscentMeters m · Dage: $totalDays"
+        sb.append(statsLine).append("\n")
         val nonEmpty = diaryEntries
             .filter { it.note.isNotBlank() || TripDiaryPhotoParser.parsePhotoPaths(it.photoPathsJson).isNotEmpty() }
             .sortedBy { it.dayNumber }
         if (nonEmpty.isNotEmpty()) {
-            sb.append("\n## Dagbog\n")
+            val heading = com.example.util.AppLocaleHelper.strOrNull(null, R.string.diary_share_heading) ?: "Dagbog"
+            sb.append("\n## $heading\n")
             nonEmpty.forEach { entry ->
-                sb.append("### Dag ${entry.dayNumber}\n")
+                val dayHeading = com.example.util.AppLocaleHelper.strOrNull(null, R.string.diary_share_day_heading_fmt, entry.dayNumber)
+                    ?: "Dag ${entry.dayNumber}"
+                sb.append("### $dayHeading\n")
                 if (entry.note.isNotBlank()) {
                     sb.append("${entry.note.trim()}\n")
                 }
                 val photos = TripDiaryPhotoParser.parsePhotoPaths(entry.photoPathsJson)
                 if (photos.isNotEmpty()) {
-                    sb.append("(${photos.size} foto${if (photos.size == 1) "" else "s"})\n")
+                    val photoText = if (photos.size == 1) {
+                        com.example.util.AppLocaleHelper.strOrNull(null, R.string.diary_share_photos_singular) ?: "(1 foto)"
+                    } else {
+                        com.example.util.AppLocaleHelper.strOrNull(null, R.string.diary_share_photos_plural_fmt, photos.size)
+                            ?: "(${photos.size} fotos)"
+                    }
+                    sb.append("$photoText\n")
                 }
             }
         }

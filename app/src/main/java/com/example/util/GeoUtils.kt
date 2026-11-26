@@ -472,7 +472,16 @@ object GeoUtils {
         val lngMin = ((lng - lngDeg) * 60).toInt()
         val lngSec = ((((lng - lngDeg) * 60) - lngMin) * 60).toInt()
 
-        return "$latDeg grader $latMin minutter $latSec sekunder Nord, $lngDeg grader $lngMin minutter $lngSec sekunder Øst"
+        return AppLocaleHelper.strOrNull(
+            null,
+            com.example.R.string.spoken_wgs84_fmt,
+            latDeg,
+            latMin,
+            latSec,
+            lngDeg,
+            lngMin,
+            lngSec
+        ) ?: "$latDeg grader $latMin minutter $latSec sekunder Nord, $lngDeg grader $lngMin minutter $lngSec sekunder Øst"
     }
 
     /**

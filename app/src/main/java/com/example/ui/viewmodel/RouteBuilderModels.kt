@@ -106,18 +106,7 @@ data class PlannerDaySummary(
     val estimatedHours: Double = 0.0,
     val overnightType: String = "SHELTER",
     val bookingRequired: Boolean = false,
-    val campExplanation: String = com.example.util.StagePlanner.buildCampExplanation(
-        stageKm = distanceKm,
-        dailyTargetKm = 15.0,
-        detourMeters = detourKm * 1000.0,
-        hasWaterNearby = false,
-        waterDistanceMeters = null,
-        hasToiletNearby = false,
-        bookingRequired = bookingRequired,
-        isAfterSunset = isAfterSunset,
-        stopType = overnightType,
-        isLastDay = overnightWaypointId == null && overnightTypeLabel == "Mål"
-    )
+    val campExplanation: String
 ) {
     val detourDistanceKm: Double?
         get() = detourKm.takeIf { it > 0.0 }

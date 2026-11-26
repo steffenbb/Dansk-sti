@@ -530,10 +530,10 @@ internal fun RouteBuilderFeatureDialogsHost(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = when (cat) {
-                                                NearestPoiCategory.SHELTER -> "Nærmeste shelter / teltplads"
-                                                NearestPoiCategory.WATER -> "Nærmeste vandpost"
-                                                NearestPoiCategory.TOILET -> "Nærmeste toilet"
-                                                NearestPoiCategory.SHOP -> "Nærmeste butik / indkøb"
+                                                NearestPoiCategory.SHELTER -> stringResource(R.string.nearest_poi_cat_shelter)
+                                                NearestPoiCategory.WATER -> stringResource(R.string.nearest_poi_cat_water)
+                                                NearestPoiCategory.TOILET -> stringResource(R.string.nearest_poi_cat_toilet)
+                                                NearestPoiCategory.SHOP -> stringResource(R.string.nearest_poi_cat_shop)
                                             },
                                             fontWeight = FontWeight.Bold,
                                             style = MaterialTheme.typography.bodySmall

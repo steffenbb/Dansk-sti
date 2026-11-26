@@ -797,7 +797,8 @@ class FixRound10ATest {
                     warnings = emptyList(),
                     nightWeatherSummary = "Nat 11°C · Nedbør 0,0 mm",
                     campLat = 56.83,
-                    campLng = 9.90
+                    campLng = 9.90,
+                    campExplanation = "Valgt for shelter tæt på dit dagsmål"
                 )
             ),
             routeQuality = RouteQualityBreakdown(

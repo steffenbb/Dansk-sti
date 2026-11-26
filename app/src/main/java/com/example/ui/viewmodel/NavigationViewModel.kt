@@ -53,7 +53,7 @@ import kotlinx.coroutines.withContext
 class NavigationViewModel(application: Application) : AndroidViewModel(application) {
     private val app: DanskStiApp
         get() = try { DanskStiApp.instance } catch (_: Exception) { getApplication() as DanskStiApp }
-    private val repository: DanskStiRepository
+    internal val repository: DanskStiRepository
         get() = app.repository
     private val plannedRouteRepo
         get() = PlannedRouteRepository(app)
@@ -188,7 +188,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private val _voiceGuidance = MutableStateFlow(false)
     val voiceGuidance: StateFlow<Boolean> = _voiceGuidance.asStateFlow()
 
-    private val _rainAlertEnabled = MutableStateFlow(true)
+    internal val _rainAlertEnabled = MutableStateFlow(true)
     val rainAlertEnabled: StateFlow<Boolean> = _rainAlertEnabled.asStateFlow()
 
     // Part D2: Trip diary entries for active plan
@@ -198,17 +198,19 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private var diaryObserverJob: Job? = null
 
     // Part E1: Navigation weather (refreshed at most once per 60 min or 5 km) & tonight's camp weather
-    private val _navigationWeather = MutableStateFlow<TrailWeatherInfo?>(null)
+    internal val _navigationWeather = MutableStateFlow<TrailWeatherInfo?>(null)
     val navigationWeather: StateFlow<TrailWeatherInfo?> = _navigationWeather.asStateFlow()
 
-    private val _tonightCampWeather = MutableStateFlow<TrailWeatherInfo?>(null)
+    internal val _tonightCampWeather = MutableStateFlow<TrailWeatherInfo?>(null)
     val tonightCampWeather: StateFlow<TrailWeatherInfo?> = _tonightCampWeather.asStateFlow()
 
     internal var lastWeatherFetchMs: Long = 0L
     internal var lastWeatherFetchLat: Double = Double.NaN
     internal var lastWeatherFetchLng: Double = Double.NaN
+    internal var lastWeatherFailureMs: Long = 0L
     internal var lastRainAlertPostedMs: Long = 0L
     internal var lastPrefetchedCampDay: Int = -1
+    internal var lastCampWeatherFailureMs: Long = 0L
     @Volatile
     private var weatherFetchJob: Job? = null
     @Volatile
@@ -323,28 +325,14 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         val stage = state.currentStage ?: _plannedRoute.value?.stages?.getOrNull(_currentDay.value - 1) ?: return
         if (stage.stopLat == 0.0 && stage.stopLng == 0.0) return
         val dayNum = if (state.currentDay > 0) state.currentDay else _currentDay.value
-        val existingCampWeather = _tonightCampWeather.value
-        val existingIsFresh = existingCampWeather != null &&
-            existingCampWeather.fetchedAtMillis > 0L &&
-            (nowMs - existingCampWeather.fetchedAtMillis) <= WeatherInterpreter.CAMP_PREFETCH_MAX_AGE_MS
+        val existing = _tonightCampWeather.value
+        val existingIsFresh = existing != null && existing.hourly48h.isNotEmpty() &&
+            existing.fetchedAtMillis > 0L && (nowMs - existing.fetchedAtMillis) <= WeatherInterpreter.CAMP_PREFETCH_MAX_AGE_MS
         if (dayNum == lastPrefetchedCampDay && existingIsFresh) return
+        if (lastCampWeatherFailureMs > 0L && (nowMs - lastCampWeatherFailureMs) < WeatherInterpreter.NAV_RETRY_INTERVAL_MS) return
         if (campWeatherPrefetchJob?.isActive == true) return
-        lastPrefetchedCampDay = dayNum
         campWeatherPrefetchJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val cached = repository.getCachedTrailWeatherOnly(stage.stopLat, stage.stopLng, nowMs = nowMs)
-                val cacheIsFresh = cached != null &&
-                    cached.fetchedAtMillis > 0L &&
-                    (nowMs - cached.fetchedAtMillis) <= WeatherInterpreter.CAMP_PREFETCH_MAX_AGE_MS
-                val weather = if (cacheIsFresh) {
-                    cached
-                } else {
-                    repository.getTrailWeather(stage.stopLat, stage.stopLng, forceNetworkRefresh = true, nowMs = nowMs)
-                }
-                weather?.let { _tonightCampWeather.value = it }
-            } catch (e: Exception) {
-                Log.w("NavigationViewModel", "Failed to prefetch tonight camp weather: ${e.message}")
-            }
+            performTonightCampWeatherPrefetch(stage.stopLat, stage.stopLng, dayNum, nowMs)
         }
     }
 
@@ -354,34 +342,15 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         val lng = state.currentLng ?: state.currentSnappedPoint?.lng ?: route?.points?.firstOrNull()?.lng ?: return
 
         val shouldRefresh = WeatherInterpreter.shouldRefreshNavigationWeather(
-            lastFetchMs = lastWeatherFetchMs, lastLat = lastWeatherFetchLat, lastLng = lastWeatherFetchLng,
+            lastFetchTimeMs = lastWeatherFetchMs, lastFetchLat = lastWeatherFetchLat, lastFetchLng = lastWeatherFetchLng,
             currentLat = lat, currentLng = lng, nowMs = nowMs
         )
         if (!shouldRefresh && _navigationWeather.value != null) return
+        if (shouldRefresh && lastWeatherFailureMs > 0L && (nowMs - lastWeatherFailureMs) < WeatherInterpreter.NAV_RETRY_INTERVAL_MS) return
         if (weatherFetchJob?.isActive == true) return
 
         weatherFetchJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val weather = if (shouldRefresh) {
-                    repository.getTrailWeather(lat, lng, forceNetworkRefresh = true, nowMs = nowMs).also {
-                        lastWeatherFetchMs = nowMs
-                        lastWeatherFetchLat = lat
-                        lastWeatherFetchLng = lng
-                    }
-                } else repository.getCachedTrailWeatherOnly(lat, lng, nowMs = nowMs)
-
-                if (weather != null) {
-                    _navigationWeather.value = weather
-                    if (_rainAlertEnabled.value && state.isTracking && !state.isPaused) {
-                        WeatherInterpreter.shouldPostRainAlert(weather, lastRainAlertPostedMs, nowMs)?.let { alertBlock ->
-                            lastRainAlertPostedMs = nowMs
-                            postRainAlertNotification(alertBlock.precipitationMm, alertBlock.timeLabel)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w("NavigationViewModel", "Failed updating navigation weather: ${e.message}")
-            }
+            performNavigationWeatherUpdate(lat, lng, shouldRefresh, state, nowMs)
         }
     }
 

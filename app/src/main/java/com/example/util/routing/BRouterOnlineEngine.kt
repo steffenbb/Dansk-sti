@@ -143,18 +143,23 @@ class BRouterOnlineEngine(
          */
         fun translateBRouterError(rawError: String?, isTimeoutException: Boolean = false): String {
             if (isTimeoutException) {
-                return "Strækningen er for lang til én beregning. Tilføj et punkt imellem."
+                return com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.brouter_err_timeout)
+                    ?: "Strækningen er for lang til én beregning. Tilføj et punkt imellem."
             }
             val lower = rawError?.lowercase(Locale.ROOT).orEmpty()
             return when {
                 lower.contains("position not mapped") || lower.contains("not mapped in existing datafile") ->
-                    "Punktet ligger for langt fra en sti eller vej. Flyt det tættere på en sti."
+                    com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.brouter_err_endpoint_not_on_network)
+                        ?: "Punktet ligger for langt fra en sti eller vej. Flyt det tættere på en sti."
                 lower.contains("target island") ->
-                    "Punktet ligger på en ø eller et område uden forbindelse. Prøv et andet punkt."
+                    com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.brouter_err_no_route_between_points)
+                        ?: "Punktet ligger på en ø eller et område uden forbindelse. Prøv et andet punkt."
                 lower.contains("operation killed") || lower.contains("time out") || lower.contains("timeout") ->
-                    "Strækningen er for lang til én beregning. Tilføj et punkt imellem."
+                    com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.brouter_err_timeout)
+                        ?: "Strækningen er for lang til én beregning. Tilføj et punkt imellem."
                 else ->
-                    "Ruten kunne ikke beregnes. Prøv igen."
+                    com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.brouter_err_could_not_calculate)
+                        ?: "Ruten kunne ikke beregnes. Prøv igen."
             }
         }
     }
@@ -349,7 +354,10 @@ class BRouterOnlineEngine(
 
                 if (code == 429 || code == 503) {
                     Log.w(TAG, "BRouter server busy (HTTP $code): $bodyStr")
-                    return@withContext RouteLegResult.ServerBusy("Ruteserveren er optaget - prøv igen")
+                    return@withContext RouteLegResult.ServerBusy(
+                        com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.brouter_err_server_busy)
+                            ?: "Ruteserveren er optaget - prøv igen"
+                    )
                 }
 
                 if (code == 400) {
@@ -410,7 +418,12 @@ class BRouterOnlineEngine(
         } catch (e: IOException) {
             Log.w(TAG, "Network/IO error calling BRouter: ${e.message}", e)
             val isTimeout = e.message?.lowercase(Locale.ROOT)?.contains("timeout") == true
-            val msg = if (isTimeout) translateBRouterError(e.message, isTimeoutException = true) else "Ingen internetforbindelse"
+            val msg = if (isTimeout) {
+                translateBRouterError(e.message, isTimeoutException = true)
+            } else {
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.routing_err_offline)
+                    ?: "Ingen internetforbindelse"
+            }
             return@withContext RouteLegResult.Offline(msg)
         } catch (e: Exception) {
             if (e is IllegalStateException && e.message == "Network on main thread") {

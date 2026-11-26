@@ -53,6 +53,7 @@ import com.example.ui.components.TripDiaryPhotoParser
 import com.example.ui.theme.DanskStiTheme
 import com.example.ui.viewmodel.ExploreViewModel
 import com.example.ui.viewmodel.TrailViewModel
+import com.example.ui.viewmodel.buildDaySummariesSync
 import com.example.util.AppLocaleHelper
 import com.example.util.DanskStiTileSourceHelper
 import com.example.util.GeoUtils
@@ -1450,6 +1451,83 @@ class Round21VerificationTest {
             "At 17:30, rain at 19:00 (+90 min) must NOT trigger rain alert",
             WeatherInterpreter.shouldPostRainAlert(true, 0L, t1730Ms, rainOnlyAt1900)
         )
+
+        // 4. Offline/failed refresh in NavigationViewModel: keeps previous forecast and allows retry after 10 min (not 60 min)
+        var shouldFailNetwork = false
+        val toggleableWeatherApi = object : com.example.data.remote.WeatherApiService {
+            override suspend fun getTrailWeather(
+                lat: Double,
+                lon: Double,
+                current: String,
+                hourly: String,
+                daily: String,
+                forecastHours: Int,
+                models: String?,
+                windSpeedUnit: String,
+                timezone: String
+            ): com.example.data.remote.OpenMeteoResponse {
+                if (shouldFailNetwork) {
+                    throw java.io.IOException("Simulated offline refresh failure")
+                }
+                networkCalls++
+                return sampleResponse
+            }
+
+            override suspend fun getElevations(
+                latitudes: String,
+                longitudes: String
+            ): com.example.data.remote.OpenMeteoElevationResponse {
+                return com.example.data.remote.OpenMeteoElevationResponse()
+            }
+        }
+        val app = context as DanskStiApp
+        val appDao = app.database.dao()
+        val navRepo = DanskStiRepository(appDao, context, weatherService = toggleableWeatherApi).apply {
+            isOnlineOverrideForTests = true
+        }
+        val repoField = DanskStiApp::class.java.getDeclaredField("repositoryField").apply { isAccessible = true }
+        val prevAppRepo = repoField.get(app)
+        repoField.set(app, navRepo)
+        try {
+            val navVm = com.example.ui.viewmodel.NavigationViewModel(app)
+            val weatherJobField = com.example.ui.viewmodel.NavigationViewModel::class.java
+                .getDeclaredField("weatherFetchJob").apply { isAccessible = true }
+            suspend fun triggerAndAwaitNavWeather(nowMs: Long) {
+                val liveState = NavigationLiveState(isTracking = true, currentLat = 56.25, currentLng = 9.25)
+                navVm.maybeUpdateNavigationWeather(liveState, nowMs = nowMs)
+                (weatherJobField.get(navVm) as? kotlinx.coroutines.Job)?.join()
+            }
+
+            // Initial successful navigation weather fetch at t1200Ms
+            triggerAndAwaitNavWeather(t1200Ms)
+            val initialNavWeather = navVm.navigationWeather.value
+            assertNotNull("Initial navigation forecast must be loaded", initialNavWeather)
+            assertTrue("Initial navigation forecast must have hourly data", initialNavWeather!!.hourly48h.isNotEmpty())
+            assertEquals(t1200Ms, initialNavWeather.fetchedAtMillis)
+
+            // At t1200Ms + 61 min, network fails (and assume cache is cleared or unavailable) -> previous forecast kept, retry after 10 min
+            shouldFailNetwork = true
+            appDao.deleteExpiredWeatherCache(Long.MAX_VALUE)
+            val tFailedRefreshMs = t1200Ms + 61 * 60_000L
+            val callsBeforeFailed = networkCalls
+            triggerAndAwaitNavWeather(tFailedRefreshMs)
+            val afterFailedWeather = navVm.navigationWeather.value
+            assertNotNull("Previous forecast must be kept when refresh fails", afterFailedWeather)
+            assertTrue("Kept forecast must still have hourly data", afterFailedWeather!!.hourly48h.isNotEmpty())
+            assertEquals(t1200Ms, afterFailedWeather.fetchedAtMillis)
+
+            // Verify retry is blocked at +5 min, but allowed at +10 min (not waiting 60 min)
+            shouldFailNetwork = false
+            triggerAndAwaitNavWeather(tFailedRefreshMs + 5 * 60_000L)
+            assertEquals("Should not retry within 5 min of failure", callsBeforeFailed, networkCalls)
+
+            val tRetry10MinMs = tFailedRefreshMs + 10 * 60_000L
+            triggerAndAwaitNavWeather(tRetry10MinMs)
+            assertEquals("Retry must be allowed 10 min after failed refresh", callsBeforeFailed + 1, networkCalls)
+            assertEquals(tRetry10MinMs, navVm.navigationWeather.value?.fetchedAtMillis)
+        } finally {
+            repoField.set(app, prevAppRepo)
+        }
     }
 
     @Test
@@ -1485,7 +1563,7 @@ class Round21VerificationTest {
     }
 
     @Test
-    fun reviewItem4_noInventedWaterDistance_noFreeBookingLine_andPlannerDaySummaryDefault() {
+    fun reviewItem4_noInventedWaterDistance_shelterBookingThreeCases_andPlannerDaySummaryExplicitExplanation() {
         // 1. Unknown water distance passes null -> "vand i nærheden" without a number
         val explanation = StagePlanner.buildCampExplanation(
             stageKm = 18.0,
@@ -1499,8 +1577,17 @@ class Round21VerificationTest {
         assertTrue("Explanation must contain 'vand i nærheden' (actual=$explanation)", explanation.contains("vand i nærheden"))
         assertFalse("Explanation must NOT contain invented '200 m' (actual=$explanation)", explanation.contains("200"))
 
-        // 2. PlannerDaySummary default campExplanation does not invent 200 m water or toilet
-        val defaultSummary = com.example.ui.viewmodel.PlannerDaySummary(
+        // 2. PlannerDaySummary requires explicit campExplanation (no default value that invents 15 km / 200 m)
+        val explicitExplanation = StagePlanner.buildCampExplanation(
+            stageKm = 16.0,
+            dailyTargetKm = 16.0,
+            detourMeters = 0.0,
+            hasWaterNearby = false,
+            waterDistanceMeters = null,
+            hasToiletNearby = false,
+            context = context
+        )
+        val summary = com.example.ui.viewmodel.PlannerDaySummary(
             dayNumber = 1,
             startKm = 0.0,
             endKm = 16.0,
@@ -1521,27 +1608,28 @@ class Round21VerificationTest {
             isAfterSunset = false,
             warnings = emptyList(),
             nightWeatherSummary = "",
+            campExplanation = explicitExplanation,
             campLat = 56.0,
             campLng = 9.5
         )
-        assertFalse("Default PlannerDaySummary campExplanation must not invent 200 m water", defaultSummary.campExplanation.contains("200"))
+        assertFalse("PlannerDaySummary campExplanation must not invent 200 m water", summary.campExplanation.contains("200"))
         assertTrue(
-            "Default PlannerDaySummary campExplanation must default to no water nearby (actual=${defaultSummary.campExplanation})",
-            defaultSummary.campExplanation.contains(context.getString(R.string.stage_warning_no_water))
-        )
-        assertTrue(
-            "Default PlannerDaySummary campExplanation must default to no toilet nearby (actual=${defaultSummary.campExplanation})",
-            defaultSummary.campExplanation.contains(context.getString(R.string.stage_warning_no_toilet))
+            "PlannerDaySummary campExplanation must reflect no water nearby (actual=${summary.campExplanation})",
+            summary.campExplanation.contains(context.getString(R.string.stage_warning_no_water))
         )
 
-        // 3. PoiInfoSheetData.fromShelter: when bookingRequired is false, bookingText is null; when true, "Kræver booking"
-        val noBookingShelter = ShelterEntity(
-            id = "s_no_book",
-            name = "Åben Shelter",
-            lat = 56.0,
-            lng = 9.5,
+        // 3. All three shelter booking cases on day cards in RouteBuilderViewModelDays:
+        //    (a) bookingRequired = true -> "Kræver booking"
+        //    (b) bookingRequired = false, fee = false -> "Gratis"
+        //    (c) bookingRequired = false, fee = null -> null (never "Gratis / først-til-mølle")
+        val baseShelter = ShelterEntity(
+            id = "s_test",
+            name = "Test Shelter",
+            lat = 56.0000,
+            lng = 9.0500,
             description = "",
             bookingRequired = false,
+            fee = null,
             ownership = "Naturstyrelsen",
             capacity = 6,
             hasWaterNearby = false,
@@ -1549,10 +1637,42 @@ class Round21VerificationTest {
             source = "geofa",
             trailCorridorId = null
         )
-        val noBookingSheet = PoiInfoSheetData.fromShelter(noBookingShelter, context)
+        val shelterReq = baseShelter.copy(id = "s_req", lat = 56.0000, lng = 9.0500, bookingRequired = true, fee = null)
+        val shelterFree = baseShelter.copy(id = "s_free", lat = 56.0000, lng = 9.1000, bookingRequired = false, fee = false)
+        val shelterUnknownFee = baseShelter.copy(id = "s_null", lat = 56.0000, lng = 9.1500, bookingRequired = false, fee = null)
+        runBlocking {
+            dao.insertShelters(listOf(shelterReq, shelterFree, shelterUnknownFee))
+        }
+
+        val rbVm = com.example.ui.viewmodel.RouteBuilderViewModel(context as Application)
+        val wps = listOf(
+            com.example.util.routing.RouteWaypoint(id = "wp_0", lat = 56.0000, lng = 9.0000, role = com.example.util.routing.WaypointRole.START, name = "Start"),
+            com.example.util.routing.RouteWaypoint(id = "wp_1", lat = 56.0000, lng = 9.0500, role = com.example.util.routing.WaypointRole.OVERNIGHT, name = "Lejr 1", linkedPoiId = "s_req"),
+            com.example.util.routing.RouteWaypoint(id = "wp_2", lat = 56.0000, lng = 9.1000, role = com.example.util.routing.WaypointRole.OVERNIGHT, name = "Lejr 2", linkedPoiId = "s_free"),
+            com.example.util.routing.RouteWaypoint(id = "wp_3", lat = 56.0000, lng = 9.1500, role = com.example.util.routing.WaypointRole.END, name = "Mål", linkedPoiId = "s_null")
+        )
+        val stages = listOf(
+            TripStage(dayNumber = 1, startKm = 0.0, endKm = 5.0, stageKm = 5.0, stopName = "Lejr 1", stopType = "SHELTER", stopLat = 56.0000, stopLng = 9.0500, bookingRequired = true),
+            TripStage(dayNumber = 2, startKm = 5.0, endKm = 10.0, stageKm = 5.0, stopName = "Lejr 2", stopType = "SHELTER", stopLat = 56.0000, stopLng = 9.1000, bookingRequired = false),
+            TripStage(dayNumber = 3, startKm = 10.0, endKm = 15.0, stageKm = 5.0, stopName = "Mål", stopType = "SHELTER", stopLat = 56.0000, stopLng = 9.1500, bookingRequired = false)
+        )
+        val dayCards = rbVm.buildDaySummariesSync(
+            state = rbVm.uiState.value,
+            wps = wps,
+            stages = stages,
+            corridorShelters = listOf(shelterReq, shelterFree, shelterUnknownFee),
+            corridorFriTeltning = emptyList()
+        )
+        assertEquals(3, dayCards.size)
+        assertEquals("Kræver booking", dayCards[0].bookingLabel)
+        assertEquals("Gratis", dayCards[1].bookingLabel)
+        assertNull("When bookingRequired=false and fee=null, bookingLabel must be null", dayCards[2].bookingLabel)
+
+        // 4. PoiInfoSheetData.fromShelter: when bookingRequired is false, bookingText is null; when true, "Kræver booking"
+        val noBookingSheet = PoiInfoSheetData.fromShelter(shelterUnknownFee, context)
         assertNull("When bookingRequired is false, bookingText must be null", noBookingSheet.bookingText)
 
-        val reqBookingSheet = PoiInfoSheetData.fromShelter(noBookingShelter.copy(bookingRequired = true), context)
+        val reqBookingSheet = PoiInfoSheetData.fromShelter(shelterReq, context)
         assertEquals(context.getString(R.string.poi_booking_required), reqBookingSheet.bookingText)
     }
 
@@ -1628,6 +1748,7 @@ class Round21VerificationTest {
             assertEquals("Turn right in 30 m", enSpeech)
 
             // 4. English voice missing, Danish voice available -> fallback to Danish voice and Danish text
+            //    isDanishVoiceInstalled stays true and isUsingDanishFallbackVoice is true
             val effectiveVoiceLocale = com.example.util.DanishTtsChecker.resolveEffectiveTtsLocale(
                 context = enCtx,
                 tts = null,
@@ -1636,7 +1757,11 @@ class Round21VerificationTest {
             assertNotNull("Should be able to speak via Danish fallback", effectiveVoiceLocale)
             assertEquals("da", effectiveVoiceLocale!!.language)
             assertTrue("Should mark fallback to Danish", com.example.util.DanishTtsChecker.isUsingDanishFallbackVoice.value)
-            assertEquals(false, com.example.util.DanishTtsChecker.isDanishVoiceInstalled.value)
+            assertEquals(
+                "isDanishVoiceInstalled must stay true when Danish fallback voice is installed",
+                true,
+                com.example.util.DanishTtsChecker.isDanishVoiceInstalled.value
+            )
 
             val daFallbackSpeech = com.example.util.DanishTtsChecker.formatSpeechCueText(
                 context = context,
@@ -1645,7 +1770,146 @@ class Round21VerificationTest {
                 effectiveVoiceLocale = effectiveVoiceLocale
             )
             assertEquals("Drej til højre om 30 m", daFallbackSpeech)
+
+            // 5. Missing voice warning has no "(TTS)"
+            assertFalse(context.getString(R.string.profile_danish_tts_missing_warning).contains("(TTS)"))
+            assertFalse(enCtx.getString(R.string.profile_danish_tts_missing_warning).contains("(TTS)"))
+
+            // 6. Profil screen shows the fallback note when isUsingDanishFallbackVoice is true
+            composeTestRule.setContent {
+                DanskStiTheme {
+                    com.example.ui.screens.ProfileScreen(
+                        onOpenCredits = {},
+                        onOpenOfflineMaps = {}
+                    )
+                }
+            }
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithTag("profile_tts_fallback_note_text", useUnmergedTree = true).assertExists()
         } finally {
+            AppLocaleHelper.setApplicationLanguageTag(context, "")
+        }
+    }
+
+    @Test
+    fun reviewItem7_englishLocalization_errorMessagesDaySummariesAccessWarningsAndStringKeyParity() {
+        val prevLocale = Locale.getDefault()
+        Locale.setDefault(Locale.ENGLISH)
+        AppLocaleHelper.setApplicationLanguageTag(context, "en")
+        try {
+            // 1. userMessageFor(NoInternetException()) returns an English message
+            val noNetMsg = com.example.util.userMessageFor(com.example.data.remote.NoInternetException())
+            assertEquals(
+                "No internet connection.",
+                noNetMsg
+            )
+
+            // 2. RouteBuilderViewModel.buildDaySummariesSync produces English labels ("Start", "Day 2 camp", "Arrival ... is after sunset")
+            val rbVm = com.example.ui.viewmodel.RouteBuilderViewModel(context as Application)
+            val wps = listOf(
+                com.example.util.routing.RouteWaypoint(id = "wp_0", lat = 56.00, lng = 9.00, role = com.example.util.routing.WaypointRole.START, name = null),
+                com.example.util.routing.RouteWaypoint(id = "wp_1", lat = 56.10, lng = 9.10, role = com.example.util.routing.WaypointRole.OVERNIGHT, name = null),
+                com.example.util.routing.RouteWaypoint(id = "wp_2", lat = 56.35, lng = 9.45, role = com.example.util.routing.WaypointRole.OVERNIGHT, name = null),
+                com.example.util.routing.RouteWaypoint(id = "wp_3", lat = 56.50, lng = 9.60, role = com.example.util.routing.WaypointRole.END, name = null)
+            )
+            val stages = listOf(
+                TripStage(dayNumber = 1, startKm = 0.0, endKm = 14.0, stageKm = 14.0, stopName = "", stopType = "SHELTER", stopLat = 56.10, stopLng = 9.10, estimatedWalkMinutes = 240, sunsetTime = "21:30", isAfterSunset = false),
+                TripStage(dayNumber = 2, startKm = 14.0, endKm = 60.0, stageKm = 46.0, stopName = "", stopType = "SHELTER", stopLat = 56.35, stopLng = 9.45, estimatedWalkMinutes = 810, sunsetTime = "21:30", isAfterSunset = true),
+                TripStage(dayNumber = 3, startKm = 60.0, endKm = 70.0, stageKm = 10.0, stopName = "", stopType = "DESTINATION", stopLat = 56.50, stopLng = 9.60, estimatedWalkMinutes = 180, sunsetTime = "21:30", isAfterSunset = false)
+            )
+            val summaries = rbVm.buildDaySummariesSync(
+                state = rbVm.uiState.value,
+                wps = wps,
+                stages = stages,
+                corridorShelters = emptyList(),
+                corridorFriTeltning = emptyList()
+            )
+            assertEquals(3, summaries.size)
+            assertEquals("Start", summaries[0].fromName)
+            assertEquals("Day 2 camp", summaries[1].toName)
+            assertTrue(
+                "Expected English after-sunset warning (actual=${summaries[1].warnings})",
+                summaries[1].warnings.any { it.startsWith("Arrival (") && it.contains("is after sunset") }
+            )
+
+            // 3. AccessGeometryUtils.evaluateRouteAccess produces an English title and message
+            val privateForest = com.example.data.model.access.AccessPolygon(
+                id = "acc_1",
+                name = "Private Woods",
+                type = com.example.data.model.access.AccessLandType.PRIVATE_FOREST,
+                coordinates = listOf(
+                    com.example.util.routing.LatLng(56.00, 9.00),
+                    com.example.util.routing.LatLng(56.02, 9.00),
+                    com.example.util.routing.LatLng(56.02, 9.02),
+                    com.example.util.routing.LatLng(56.00, 9.02),
+                    com.example.util.routing.LatLng(56.00, 9.00)
+                ),
+                source = "test"
+            )
+            val accessWps = listOf(
+                com.example.util.routing.RouteWaypoint(
+                    id = "aw_1",
+                    lat = 55.99,
+                    lng = 8.99,
+                    role = com.example.util.routing.WaypointRole.START,
+                    legModeToNext = com.example.util.routing.LegMode.STRAIGHT
+                ),
+                com.example.util.routing.RouteWaypoint(
+                    id = "aw_2",
+                    lat = 56.01,
+                    lng = 9.01,
+                    role = com.example.util.routing.WaypointRole.OVERNIGHT,
+                    legModeToNext = com.example.util.routing.LegMode.STRAIGHT
+                )
+            )
+            val accessLegs = mapOf(
+                "aw_1_to_aw_2" to com.example.util.routing.LegGeometryData(
+                    fromWaypointId = "aw_1",
+                    toWaypointId = "aw_2",
+                    legMode = com.example.util.routing.LegMode.STRAIGHT,
+                    points = listOf(
+                        com.example.util.routing.RoutePoint3D(55.99, 8.99, 0.0),
+                        com.example.util.routing.RoutePoint3D(56.01, 9.01, 0.0)
+                    ),
+                    lengthKm = 2.5,
+                    ascentM = 0.0,
+                    descentM = 0.0,
+                    pathSharePct = null,
+                    roadKm = 0.0
+                )
+            )
+            val accessWarnings = com.example.util.access.AccessGeometryUtils.evaluateRouteAccess(
+                waypoints = accessWps,
+                legs = accessLegs,
+                accessPolygons = listOf(privateForest)
+            )
+            assertTrue("Expected at least one access warning", accessWarnings.isNotEmpty())
+            assertEquals("Only on roads and paths here", accessWarnings.first().title)
+            assertTrue(
+                "Expected English access warning message (actual=${accessWarnings.first().message})",
+                accessWarnings.first().message.contains("only walk on established roads and paths")
+            )
+
+            // 4. Every <string name="..."> key in res/values/strings.xml exists in values-en and values-de
+            fun parseStringKeys(relPath: String): Set<String> {
+                val file = File(relPath).takeIf { it.exists() } ?: File("app/$relPath")
+                assertTrue("Expected $relPath to exist", file.exists())
+                val regex = Regex("""<string\s+name="([^"]+)"""")
+                return regex.findAll(file.readText()).map { it.groupValues[1] }.toSet()
+            }
+            val daKeys = parseStringKeys("src/main/res/values/strings.xml")
+            val enKeys = parseStringKeys("src/main/res/values-en/strings.xml")
+            val deKeys = parseStringKeys("src/main/res/values-de/strings.xml")
+
+            val missingInEn = daKeys - enKeys
+            val missingInDe = daKeys - deKeys
+            assertTrue("All values/strings.xml keys must exist in values-en/strings.xml (missing: $missingInEn)", missingInEn.isEmpty())
+            assertTrue("All values/strings.xml keys must exist in values-de/strings.xml (missing: $missingInDe)", missingInDe.isEmpty())
+            assertFalse("day_booking_free_first_come must be removed", daKeys.contains("day_booking_free_first_come"))
+            assertFalse("day_booking_free_first_come must be removed from EN", enKeys.contains("day_booking_free_first_come"))
+            assertFalse("day_booking_free_first_come must be removed from DE", deKeys.contains("day_booking_free_first_come"))
+        } finally {
+            Locale.setDefault(prevLocale)
             AppLocaleHelper.setApplicationLanguageTag(context, "")
         }
     }
@@ -1736,7 +2000,7 @@ class Round21VerificationTest {
     }
 
     @Test
-    fun reviewItem9_shortMarkedRoutesNearYou_filtersByLengthCatalogueAnd25KmNearestPointAndSortsByNearest() {
+    fun reviewItem9_shortMarkedRoutesNearYou_defaults3To20KmAnd15KmRadius_searchedPlaceFocus_andStageTargetKm() {
         val userLat = 56.1500
         val userLng = 10.2000
 
@@ -1765,26 +2029,64 @@ class Round21VerificationTest {
             minLat = 56.2000,
             maxLat = 56.2200
         )
-        // Route 3: 32 km (> 20 km) -> EXCLUDED
-        val tooLongRoute = nearShortRoute.copy(osmRelationId = 9003L, name = "Lang Rute", lengthKm = 32.0)
-        // Route 4: in catalogue -> EXCLUDED
+        // Route 3: 2.5 km (< 3.0 km default minKm) -> EXCLUDED
+        val tooShortRoute = nearShortRoute.copy(osmRelationId = 9006L, name = "For Kort Rute", lengthKm = 2.5)
+        // Route 4: 24 km (> 20.0 km default maxKm) -> EXCLUDED
+        val tooLongRoute = nearShortRoute.copy(osmRelationId = 9003L, name = "Lang Rute", lengthKm = 24.0)
+        // Route 5: in catalogue -> EXCLUDED
         val catalogueRoute = nearShortRoute.copy(osmRelationId = 9004L, name = "Katalog Rute")
-        // Route 5: 70 km away (> 25 km) -> EXCLUDED
+        // Route 6: ~18 km away (> 15 km default maxRadiusMeters) -> EXCLUDED
         val tooFarRoute = nearShortRoute.copy(
             osmRelationId = 9005L,
-            name = "Langt Væk Rute",
-            polylines = listOf(listOf(GeoPointDto(55.5000, 10.2000), GeoPointDto(55.5100, 10.2100))),
-            minLat = 55.5000,
-            maxLat = 55.5100
+            name = "18 Km Væk Rute",
+            polylines = listOf(listOf(GeoPointDto(56.3200, 10.2000), GeoPointDto(56.3300, 10.2100))),
+            minLat = 56.3200,
+            maxLat = 56.3300
         )
 
         val filtered = com.example.data.repository.MarkedRouteRepository.filterShortMarkedRoutesNearYou(
-            routes = listOf(midShortRoute, tooLongRoute, catalogueRoute, nearShortRoute, tooFarRoute),
+            routes = listOf(midShortRoute, tooShortRoute, tooLongRoute, catalogueRoute, nearShortRoute, tooFarRoute),
             userLat = userLat,
             userLng = userLng,
             catalogueRelationIds = setOf(9004L)
         )
         assertEquals(listOf(9001L, 9002L), filtered.map { it.osmRelationId })
+
+        // Item 6b: ExploreViewModel.focusMapOnSearchedPlace pans the map without overwriting userLocation
+        val exploreVm = ExploreViewModel(context as Application)
+        exploreVm.updateUserLocation(56.1500, 10.2000)
+        exploreVm.focusMapOnSearchedPlace(55.6761, 12.5683)
+        assertEquals(56.1500 to 10.2000, exploreVm.userLocation.value)
+        assertEquals(55.6761 to 12.5683, exploreVm.searchedMapFocus.value)
+
+        // Item 6c: StagePlanner.createTripStage passes dailyTargetKm into buildCampExplanation
+        val plannedStages = StagePlanner.planStages(
+            plannedRoute = PlannedRoute(
+                planId = 1L,
+                trailId = "t_stage_target",
+                trailName = "Test Rute",
+                isReverse = false,
+                startTrailKm = 0.0,
+                endTrailKm = 18.0,
+                totalWalkKm = 18.0,
+                points = listOf(
+                    RoutePoint(56.0, 9.0, null, 0.0, 0.0),
+                    RoutePoint(56.1, 9.1, null, 18.0, 18.0)
+                ),
+                stages = emptyList()
+            ),
+            shelters = emptyList(),
+            friTeltnings = emptyList(),
+            pois = emptyList(),
+            dailyTargetKm = 30.0,
+            numDays = 1,
+            overnightType = OvernightType.TENT
+        )
+        assertEquals(1, plannedStages.size)
+        assertTrue(
+            "18 km stage with dailyTargetKm=30.0 must say '12,0 km før dagsmålet' (actual=${plannedStages[0].campExplanation})",
+            plannedStages[0].campExplanation.contains("12,0 km før dagsmålet")
+        )
     }
 
     @Test
@@ -1844,10 +2146,23 @@ class Round21VerificationTest {
             "OpenStreetMap • 74,0 km (okt. 2025)",
             context.getString(R.string.ui_traildetailscreen_live_osm_196, "74,0 km", "(okt. 2025)")
         )
-        assertFalse(context.getString(R.string.map_layer_base_topo_subtitle).contains("SDFI"))
-        assertFalse(context.getString(R.string.map_layer_base_aerial_subtitle).contains("SDFI"))
-        assertFalse(context.getString(R.string.map_layer_base_outdoor_subtitle).contains("EPSG"))
-        assertFalse(context.getString(R.string.map_layer_terrain_subtitle).contains("DHM"))
+
+        // 3. Exact planned map layer subtitles & Klimadatastyrelsen attribution
+        assertEquals("Danmarks officielle topografiske kort", context.getString(R.string.map_layer_base_topo_subtitle))
+        assertEquals("Kort med stier og højdekurver", context.getString(R.string.map_layer_base_outdoor_subtitle))
+        assertEquals("Luftfoto i høj opløsning", context.getString(R.string.map_layer_base_aerial_subtitle))
+        assertEquals("Skyggekort og højdekurver (fra zoom 14)", context.getString(R.string.map_layer_terrain_subtitle))
+
+        val topoAttribution = DanskStiTileSourceHelper.getAttributionSummary(
+            com.example.data.local.MapLayersState(baseMap = com.example.data.local.BaseMapType.SKAERMKORT)
+        )
+        val aerialAttribution = DanskStiTileSourceHelper.getAttributionSummary(
+            com.example.data.local.MapLayersState(baseMap = com.example.data.local.BaseMapType.LUFTFOTO)
+        )
+        assertTrue(topoAttribution.contains("Klimadatastyrelsen"))
+        assertFalse(topoAttribution.contains("SDFI"))
+        assertTrue(aerialAttribution.contains("Klimadatastyrelsen"))
+        assertFalse(aerialAttribution.contains("SDFI"))
     }
 
     @Test

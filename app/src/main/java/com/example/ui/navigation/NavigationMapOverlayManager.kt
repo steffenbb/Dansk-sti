@@ -316,7 +316,13 @@ class NavigationMapOverlayManager(
                     position = GeoPoint(stg.stopLat, stg.stopLng)
                     icon = MapIconUtils.getNightCampIcon(context)
                     title = "⛺ ${stg.stopName}"
-                    subDescription = "Dag ${stg.dayNumber} mål • ${String.format(Locale.getDefault(), "%.1f", stg.stageKm)} km (${stg.stopType})"
+                    subDescription = com.example.util.AppLocaleHelper.str(
+                        context,
+                        com.example.R.string.nav_marker_stage_goal_sub_fmt,
+                        stg.dayNumber,
+                        String.format(Locale.getDefault(), "%.1f", stg.stageKm),
+                        stg.stopType
+                    )
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                     infoWindow = null
                     setOnMarkerClickListener { _, _ ->
@@ -349,7 +355,12 @@ class NavigationMapOverlayManager(
         tonightCampMarker.isEnabled = true
         tonightCampMarker.position = GeoPoint(campPt.lat, campPt.lng)
         tonightCampMarker.title = "⛺ ${stage.stopName}"
-        tonightCampMarker.subDescription = "Dagens mål (Dag ${stage.dayNumber}) • ${String.format(Locale.getDefault(), "%.1f", stage.stageKm)} km i dag"
+        tonightCampMarker.subDescription = com.example.util.AppLocaleHelper.str(
+            context,
+            com.example.R.string.nav_marker_tonight_goal_sub_fmt,
+            stage.dayNumber,
+            String.format(Locale.getDefault(), "%.1f", stage.stageKm)
+        )
         tonightCampMarker.setOnMarkerClickListener { _, _ ->
             onSelectPoi(stage)
             true
@@ -364,7 +375,11 @@ class NavigationMapOverlayManager(
                 campDetourPolyline.safeSetPoints(listOf(GeoPoint(snapped.lat, snapped.lng), GeoPoint(campPt.lat, campPt.lng)))
                 campDetourMarker.isEnabled = true
                 campDetourMarker.position = GeoPoint((campPt.lat + snapped.lat) / 2.0, (campPt.lng + snapped.lng) / 2.0)
-                campDetourMarker.title = "Afstikker til lejr: ${detourM.toInt()} m"
+                campDetourMarker.title = com.example.util.AppLocaleHelper.str(
+                    context,
+                    com.example.R.string.nav_marker_detour_to_camp_fmt,
+                    detourM.toInt()
+                )
                 campDetourMarker.icon = MapIconUtils.getCrosshairIcon(context)
             } else {
                 campDetourPolyline.safeSetPoints(emptyList())
@@ -406,7 +421,9 @@ class NavigationMapOverlayManager(
                         outlinePaint.color = danskStiColors.success.copy(alpha = 0.5f).toArgb()
                         outlinePaint.strokeWidth = dp(1.5f)
                         title = ft.name
-                        subDescription = ft.forestType?.takeIf { it.isNotBlank() }?.let { "Fri teltning ($it)" } ?: "Fri teltning"
+                        subDescription = ft.forestType?.takeIf { it.isNotBlank() }?.let {
+                            com.example.util.AppLocaleHelper.str(context, com.example.R.string.nav_marker_fri_teltning_sub_fmt, it)
+                        } ?: com.example.util.AppLocaleHelper.str(context, com.example.R.string.explore_filter_fri_teltning)
                         setOnClickListener { _, _, _ ->
                             onSelectPoi(ft)
                             true
@@ -422,13 +439,21 @@ class NavigationMapOverlayManager(
         val clusterItems = mutableListOf<MapPoiItem>()
 
         if (showShelters) {
+            val bookingReqLabel = com.example.util.AppLocaleHelper.str(context, com.example.R.string.poi_booking_required)
+            val freeUseLabel = com.example.util.AppLocaleHelper.str(context, com.example.R.string.nav_marker_free_use)
             shelters.forEach { sh ->
                 clusterItems.add(
                     MapPoiItem(
                         id = sh.id,
                         type = "shelter",
                         name = sh.name,
-                        subText = "${sh.ownership} • Plads: ${sh.capacity} • ${if (sh.bookingRequired) "Kræver booking" else "Fri afbenyttelse"}",
+                        subText = com.example.util.AppLocaleHelper.str(
+                            context,
+                            com.example.R.string.nav_marker_shelter_sub_fmt,
+                            sh.ownership.orEmpty(),
+                            sh.capacity?.toString().orEmpty(),
+                            if (sh.bookingRequired) bookingReqLabel else freeUseLabel
+                        ),
                         lat = sh.lat,
                         lng = sh.lng,
                         payload = sh
@@ -444,7 +469,11 @@ class NavigationMapOverlayManager(
                         id = ft.id,
                         type = "tent",
                         name = ft.name,
-                        subText = "${ft.zoneType} • Fri teltning tilladt",
+                        subText = com.example.util.AppLocaleHelper.str(
+                            context,
+                            com.example.R.string.nav_marker_fri_teltning_allowed_fmt,
+                            ft.zoneType
+                        ),
                         lat = ft.centerLat,
                         lng = ft.centerLng,
                         payload = ft
@@ -460,7 +489,11 @@ class NavigationMapOverlayManager(
                         id = t.id,
                         type = "toilet",
                         name = t.name,
-                        subText = "Offentligt toilet (${t.access})",
+                        subText = com.example.util.AppLocaleHelper.str(
+                            context,
+                            com.example.R.string.nav_marker_public_toilet_fmt,
+                            t.access.orEmpty()
+                        ),
                         lat = t.lat,
                         lng = t.lng,
                         payload = t
@@ -470,13 +503,14 @@ class NavigationMapOverlayManager(
         }
 
         if (showWater) {
+            val drinkingWaterSub = com.example.util.AppLocaleHelper.str(context, com.example.R.string.nav_marker_drinking_water)
             waters.forEach { w ->
                 clusterItems.add(
                     MapPoiItem(
                         id = w.id,
                         type = "water",
                         name = w.name,
-                        subText = "Drikkevandspost",
+                        subText = drinkingWaterSub,
                         lat = w.lat,
                         lng = w.lng,
                         payload = w
@@ -486,13 +520,14 @@ class NavigationMapOverlayManager(
         }
 
         if (showShops) {
+            val shoppingSub = com.example.util.AppLocaleHelper.str(context, com.example.R.string.nav_marker_shopping)
             shops.forEach { s ->
                 clusterItems.add(
                     MapPoiItem(
                         id = s.id,
                         type = "shop",
                         name = s.name,
-                        subText = "Indkøb / Dagligvarer",
+                        subText = shoppingSub,
                         lat = s.lat,
                         lng = s.lng,
                         payload = s

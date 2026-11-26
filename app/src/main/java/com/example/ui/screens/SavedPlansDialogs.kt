@@ -114,7 +114,7 @@ internal fun BRouterOfflineDataCard(
                     Text(
                         text = if (brouterState.isAllDownloaded) {
                             val date = brouterState.lastUpdatedDate ?: "Opdateret"
-                            "Klar til offline ruteplanlægning • $date"
+                            stringResource(R.string.brouter_ready_offline_planning_fmt, date)
                         } else {
                             stringResource(R.string.offline_routing_data_denmark_mb_format, brouterState.totalSizeMb)
                         },
@@ -181,7 +181,7 @@ internal fun BRouterOfflineDataCard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = if (isSegmentsExpanded) "Skjul dækning og filstørrelser" else "Vis dækning og filstørrelser (5 filer)",
+                        text = if (isSegmentsExpanded) stringResource(R.string.brouter_hide_coverage_sizes) else stringResource(R.string.brouter_show_coverage_sizes),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold

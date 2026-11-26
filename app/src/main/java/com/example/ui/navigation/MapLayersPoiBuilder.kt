@@ -72,12 +72,16 @@ internal object MapLayersPoiBuilder {
                         type = "shelter",
                         name = s.name,
                         subText = buildString {
-                            s.capacity?.let { append("Kapacitet: $it pladser") }
+                            s.capacity?.let {
+                                append(com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_poi_capacity_fmt, it) ?: "Capacity: $it")
+                            }
                             if (s.bookingRequired) {
                                 if (isNotEmpty()) append(" · ")
                                 append("Booking")
                             }
-                        }.ifEmpty { "Shelter / Lejrplads" },
+                        }.ifEmpty {
+                            com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_poi_shelter_default_sub) ?: "Shelter"
+                        },
                         lat = s.lat,
                         lng = s.lng,
                         payload = s
@@ -87,13 +91,14 @@ internal object MapLayersPoiBuilder {
         }
 
         if (state.showFriTeltning) {
+            val friTeltningSub = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_poi_fri_teltning_sub) ?: "Free camping forest"
             for (f in friTeltning) {
                 addIfUnique(
                     PoiItem(
                         id = f.id,
                         type = "tent",
                         name = f.name,
-                        subText = "Fri teltning skov",
+                        subText = friTeltningSub,
                         lat = f.centerLat,
                         lng = f.centerLng,
                         payload = f
@@ -124,10 +129,10 @@ internal object MapLayersPoiBuilder {
                         type = typeKey,
                         name = p.name.ifBlank {
                             when (typeKey) {
-                                "water" -> "Drikkevand"
-                                "toilet" -> "Toilet"
-                                "shop" -> "Indkøb"
-                                else -> "Stoppested / Station"
+                                "water" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_poi_drinking_water) ?: "Drinking water"
+                                "toilet" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_poi_toilet) ?: "Toilet"
+                                "shop" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_poi_shopping) ?: "Groceries"
+                                else -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_poi_transit_stop) ?: "Transit stop"
                             }
                         },
                         subText = p.openingHours ?: p.operator ?: "",
@@ -169,13 +174,14 @@ internal object MapLayersPoiBuilder {
         }
 
         if (state.showMyPoints) {
+            val defaultSavedPointSub = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.drop_pin_default_saved_name) ?: "Saved point"
             for (wp in customWaypoints) {
                 addIfUnique(
                     PoiItem(
                         id = "wp_${wp.id}",
                         type = "my_point",
                         name = wp.name,
-                        subText = wp.note.ifBlank { "Gemt punkt" },
+                        subText = wp.note.ifBlank { defaultSavedPointSub },
                         lat = wp.lat,
                         lng = wp.lng,
                         payload = wp
@@ -219,12 +225,16 @@ internal object MapLayersPoiBuilder {
                     type = "shelter",
                     name = s.name,
                     subText = buildString {
-                        s.capacity?.let { append("Kapacitet: $it pladser") }
+                        s.capacity?.let {
+                            append(com.example.util.AppLocaleHelper.strOrNull(mapView?.context, com.example.R.string.map_poi_capacity_fmt, it) ?: "Capacity: $it")
+                        }
                         if (s.bookingRequired) {
                             if (isNotEmpty()) append(" · ")
                             append("Booking")
                         }
-                    }.ifEmpty { "Shelter / Lejrplads" },
+                    }.ifEmpty {
+                        com.example.util.AppLocaleHelper.strOrNull(mapView?.context, com.example.R.string.map_poi_shelter_default_sub) ?: "Shelter"
+                    },
                     lat = s.lat,
                     lng = s.lng,
                     payload = s
@@ -240,7 +250,7 @@ internal object MapLayersPoiBuilder {
                     id = f.id,
                     type = "tent",
                     name = f.name,
-                    subText = "Fri teltning skov",
+                    subText = com.example.util.AppLocaleHelper.strOrNull(mapView?.context, com.example.R.string.map_poi_fri_teltning_sub) ?: "Free camping forest",
                     lat = f.centerLat,
                     lng = f.centerLng,
                     payload = f
@@ -264,9 +274,9 @@ internal object MapLayersPoiBuilder {
                     type = typeKey,
                     name = p.name.ifBlank {
                         when (typeKey) {
-                            "water" -> "Drikkevand"
-                            "toilet" -> "Toilet"
-                            else -> "Indkøb"
+                            "water" -> com.example.util.AppLocaleHelper.strOrNull(mapView?.context, com.example.R.string.map_poi_drinking_water) ?: "Drinking water"
+                            "toilet" -> com.example.util.AppLocaleHelper.strOrNull(mapView?.context, com.example.R.string.map_poi_toilet) ?: "Toilet"
+                            else -> com.example.util.AppLocaleHelper.strOrNull(mapView?.context, com.example.R.string.map_poi_shopping) ?: "Groceries"
                         }
                     },
                     subText = p.openingHours ?: p.operator ?: "",

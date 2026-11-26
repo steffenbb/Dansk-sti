@@ -39,7 +39,9 @@ class BRouterOfflineEngine(
     companion object {
         private const val TAG = "BRouterOfflineEngine"
         private const val MAX_RUNNING_TIME_MS = 15000L
-        const val VERSION_MISMATCH_MESSAGE = "Rutedata skal opdateres"
+        val VERSION_MISMATCH_MESSAGE: String
+            get() = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.brouter_err_version_mismatch)
+                ?: "Rutedata skal opdateres"
 
         @androidx.annotation.VisibleForTesting
         @Volatile
@@ -140,7 +142,11 @@ class BRouterOfflineEngine(
                 if (!storageManager.isSegmentDownloaded(segTo)) missing.add(segTo)
                 Log.w(TAG, "Missing offline segment files: ${missing.joinToString(", ")}")
                 return@withLock RouteLegResult.Offline(
-                    "Mangler offline rutedata for denne strækning (${missing.joinToString(", ")}). Hent rutedata for Danmark under Offline."
+                    com.example.util.AppLocaleHelper.str(
+                        context,
+                        com.example.R.string.brouter_err_missing_segments_fmt,
+                        missing.joinToString(", ")
+                    )
                 )
             }
 

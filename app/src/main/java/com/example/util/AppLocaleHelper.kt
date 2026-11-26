@@ -157,7 +157,30 @@ object AppLocaleHelper {
         }
         return SimpleDateFormat(pattern, locale).format(Date(safeMillis))
     }
+
+    fun resolveLocalizedContext(context: Context? = null): Context? {
+        val base = context ?: runCatching { com.example.DanskStiApp.instance }.getOrNull() ?: return null
+        return runCatching { getLocalizedContext(base) }.getOrDefault(base)
+    }
+
+    fun str(resId: Int, vararg args: Any): String {
+        val ctx = resolveLocalizedContext(null) ?: return ""
+        return if (args.isEmpty()) ctx.getString(resId) else ctx.getString(resId, *args)
+    }
+
+    fun str(context: Context?, resId: Int, vararg args: Any): String {
+        val ctx = resolveLocalizedContext(context) ?: return ""
+        return if (args.isEmpty()) ctx.getString(resId) else ctx.getString(resId, *args)
+    }
+
+    fun strOrNull(context: Context?, resId: Int, vararg args: Any): String? {
+        val ctx = resolveLocalizedContext(context) ?: return null
+        return runCatching {
+            if (args.isEmpty()) ctx.getString(resId) else ctx.getString(resId, *args)
+        }.getOrNull()
+    }
 }
 
 fun Context.appLocale(): Locale = AppLocaleHelper.getAppLocale(this)
+
 

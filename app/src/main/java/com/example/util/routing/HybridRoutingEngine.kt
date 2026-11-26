@@ -21,9 +21,12 @@ class HybridRoutingEngine(
 
     companion object {
         private const val TAG = "HybridRoutingEngine"
-        const val ONLINE_NOGO_SOURCE_NOTICE = "brouter.de (online — Rut uden om understøttes ikke offline)"
-        const val OFFLINE_NOGO_UNSUPPORTED_MESSAGE =
-            "Rut uden om kræver internetforbindelse, da offline-motoren ikke kan anvende no-go områder."
+        val ONLINE_NOGO_SOURCE_NOTICE: String
+            get() = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.routing_notice_online_nogo)
+                ?: "brouter.de (online — Rut uden om understøttes ikke offline)"
+        val OFFLINE_NOGO_UNSUPPORTED_MESSAGE: String
+            get() = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.routing_err_offline_nogo_unsupported)
+                ?: "Rut uden om kræver internetforbindelse, da offline-motoren ikke kan anvende no-go områder."
     }
 
     /**

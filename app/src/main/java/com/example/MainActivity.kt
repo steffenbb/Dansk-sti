@@ -262,7 +262,9 @@ fun DanskStiAppRoot(
             val dest = if (!stopName.isNullOrBlank()) {
                 stopName
             } else {
-                liveState.trailName.ifBlank { "dagens mål" }
+                liveState.trailName.ifBlank {
+                    com.example.util.AppLocaleHelper.strOrNull(null, R.string.nav_todays_goal_fallback) ?: "dagens mål"
+                }
             }
             ActiveTripBannerState(
                 isActive = true,

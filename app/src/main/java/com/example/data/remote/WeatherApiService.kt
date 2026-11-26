@@ -93,7 +93,7 @@ data class TrailWeatherInfo(
     val hourly48h: List<HourlyForecastPoint> = emptyList(),
     val blocks24h: List<HourlyForecastPoint> = emptyList(),
     val next6Hours: List<HourlyForecastPoint> = emptyList(),
-    val fetchedAtMillis: Long = System.currentTimeMillis()
+    val fetchedAtMillis: Long = 0L
 ) {
     fun isStale(nowMillis: Long = System.currentTimeMillis()): Boolean {
         return (nowMillis - fetchedAtMillis) > WeatherInterpreter.STALE_THRESHOLD_MS
@@ -159,6 +159,7 @@ interface WeatherApiService {
 object WeatherInterpreter {
     const val STALE_THRESHOLD_MS: Long = 6L * 3600_000L
     const val NAV_REFRESH_INTERVAL_MS: Long = 60L * 60_000L
+    const val NAV_RETRY_INTERVAL_MS: Long = 10L * 60_000L
     const val NAV_REFRESH_DISTANCE_METERS: Double = 5_000.0
     const val RAIN_ALERT_THROTTLE_MS: Long = 3L * 3600_000L
     const val RAIN_ALERT_THRESHOLD_MM_PER_H: Double = 1.0

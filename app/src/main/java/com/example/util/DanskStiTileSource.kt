@@ -1377,7 +1377,7 @@ object DanskStiTileSourceHelper {
     fun getAttributionSummary(state: MapLayersState?): String {
         if (state == null) return ATTRIBUTION_TEXT
         val base = when (state.baseMap) {
-            BaseMapType.SKAERMKORT -> "SDFI Skærmkortet"
+            BaseMapType.SKAERMKORT -> "Klimadatastyrelsen Skærmkortet"
             BaseMapType.FRILUFTSKORT -> "© OSM • Friluftskort"
             BaseMapType.LUFTFOTO -> "GeoDanmark Ortofoto"
         }
@@ -1387,7 +1387,7 @@ object DanskStiTileSourceHelper {
 
         val overlays = mutableListOf<String>()
         if (state.showTerrain && (state.baseMap != BaseMapType.LUFTFOTO || anyFeatureLayerActive)) {
-            overlays.add("SDFI DHM")
+            overlays.add("Klimadatastyrelsen DHM")
         }
         if (state.showWaterLayer && (state.baseMap != BaseMapType.LUFTFOTO || anyFeatureLayerActive)) {
             overlays.add("OSM Vand")
@@ -1571,7 +1571,9 @@ class NoKeyOverlay(
         canvas.drawRoundRect(rect, 24f, 24f, borderPaint)
 
         val centerX = width / 2f
-        val title = customMessage ?: "Kortlaget er ikke tilgængeligt"
+        val title = customMessage
+            ?: com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_tile_layer_unavailable)
+            ?: "Kortlaget er ikke tilgængeligt"
         canvas.drawText(title, centerX, height / 2f + 12f, titlePaint)
     }
 }

@@ -59,13 +59,14 @@ internal fun TrailBrowserMapContent(
     val coroutineScope = rememberCoroutineScope()
     var lastExploreRouteSig by remember { mutableIntStateOf(0) }
     var currentZoomTier by remember { mutableIntStateOf(0) }
+    val searchedFocus = viewModel.searchedMapFocus.value
 
     Box(modifier = Modifier.fillMaxSize()) {
         DanskStiMap(
             modifier = Modifier.fillMaxSize(),
             mapTestTag = "explore_full_screen_map",
-            initialCenter = GeoPoint(55.9, 10.4),
-            initialZoom = 7.5,
+            initialCenter = searchedFocus?.let { GeoPoint(it.first, it.second) } ?: GeoPoint(55.9, 10.4),
+            initialZoom = if (searchedFocus != null) 13.0 else 7.5,
             interceptParentTouchScroll = true,
             appIsDark = isDark,
             controlsTopPadding = 16.dp,
@@ -75,7 +76,13 @@ internal fun TrailBrowserMapContent(
             compassButtonTestTag = "center_denmark_button",
             myLocationButtonTestTag = "explore_my_location_button",
             onCompassClick = onCenterDenmark,
-            onMapReady = onMapReady,
+            onMapReady = { mv ->
+                onMapReady(mv)
+                viewModel.searchedMapFocus.value?.let { (fLat, fLng) ->
+                    mv.controller.setZoom(13.0)
+                    mv.controller.setCenter(GeoPoint(fLat, fLng))
+                }
+            },
             onAddToRouteFromDropPin = onOpenRouteBuilder,
             onRouteHereFromDropPin = onOpenRouteBuilder,
             onUseMarkedRouteInPlanner = { markedRoute ->

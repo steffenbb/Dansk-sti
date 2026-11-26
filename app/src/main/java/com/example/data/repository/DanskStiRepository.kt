@@ -2255,34 +2255,158 @@ class DanskStiRepository(
     fun getDefaultGearChecklist(overnightType: OvernightType, minForecastTempC: Double): List<GearChecklistItem> {
         val items = mutableListOf<GearChecklistItem>()
         val isTent = overnightType == OvernightType.TENT || overnightType == OvernightType.MIXED
+        val catShelter = com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_cat_shelter_sleep) ?: "Ly & Søvn"
+        val catSafety = com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_cat_safety_first_aid) ?: "Sikkerhed & Førstehjælp"
+        val catWater = com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_cat_water_food) ?: "Vand & Mad"
+        val catNav = com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_cat_nav_energy) ?: "Navigation & Energi"
 
-        // Ly & Søvn
         if (isTent) {
-            items.add(GearChecklistItem("g1", "Ly & Søvn", "Letvægtstelt / Bivuak", "Skal opfylde Fri Teltning 3-personers regel", true))
-            items.add(GearChecklistItem("g2", "Ly & Søvn", "Ekstra teltpløkker", "Til sandet eller hård skovbund", false))
+            items.add(
+                GearChecklistItem(
+                    "g1",
+                    catShelter,
+                    com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g1_tent_name) ?: "Letvægtstelt / Bivuak",
+                    com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g1_tent_desc) ?: "Skal opfylde Fri Teltning 3-personers regel",
+                    true
+                )
+            )
+            items.add(
+                GearChecklistItem(
+                    "g2",
+                    catShelter,
+                    com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g2_pegs_name) ?: "Ekstra teltpløkker",
+                    com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g2_pegs_desc) ?: "Til sandet eller hård skovbund",
+                    false
+                )
+            )
         } else {
-            items.add(GearChecklistItem("g1", "Ly & Søvn", "Tarp / Presenning", "Beskyttelse mod slagregn i åbne shelters", false))
+            items.add(
+                GearChecklistItem(
+                    "g1",
+                    catShelter,
+                    com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g1_tarp_name) ?: "Tarp / Presenning",
+                    com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g1_tarp_desc) ?: "Beskyttelse mod slagregn i åbne shelters",
+                    false
+                )
+            )
         }
 
-        val bagTempRating = if (minForecastTempC < 6.0) "Komfort 0°C (kold nat i vente!)" else "Komfort +7°C"
-        items.add(GearChecklistItem("g3", "Ly & Søvn", "Sovepose ($bagTempRating)", "Vejrudsigt varsler min. ${minForecastTempC.toInt()}°C om natten", true))
-        items.add(GearChecklistItem("g4", "Ly & Søvn", "Isolerende liggeunderlag", "R-værdi > 2.5 til træbunde i shelters", true))
-        items.add(GearChecklistItem("g5", "Ly & Søvn", "Myggenet / Hovednet", "Uundværligt ved danske søer og fjorde sommer/efterår", false))
+        val bagTempRating = if (minForecastTempC < 6.0) {
+            com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_bag_rating_cold) ?: "Komfort 0°C (kold nat i vente!)"
+        } else {
+            com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_bag_rating_mild) ?: "Komfort +7°C"
+        }
+        items.add(
+            GearChecklistItem(
+                "g3",
+                catShelter,
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g3_bag_name_fmt, bagTempRating) ?: "Sovepose ($bagTempRating)",
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g3_bag_desc_fmt, minForecastTempC.toInt()) ?: "Vejrudsigt varsler min. ${minForecastTempC.toInt()}°C om natten",
+                true
+            )
+        )
+        items.add(
+            GearChecklistItem(
+                "g4",
+                catShelter,
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g4_pad_name) ?: "Isolerende liggeunderlag",
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g4_pad_desc) ?: "R-værdi > 2.5 til træbunde i shelters",
+                true
+            )
+        )
+        items.add(
+            GearChecklistItem(
+                "g5",
+                catShelter,
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g5_mosquito_name) ?: "Myggenet / Hovednet",
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g5_mosquito_desc) ?: "Uundværligt ved danske søer og fjorde sommer/efterår",
+                false
+            )
+        )
 
-        // Sikkerhed & Sundhed
-        items.add(GearChecklistItem("g6", "Sikkerhed & Førstehjælp", "Flåtfjerner (Tick remover)", "Kritisk i danske skove mod skovflåt / Borrelia", true))
-        items.add(GearChecklistItem("g7", "Sikkerhed & Førstehjælp", "Vabelplaster (Compeed) & sportstape", "Til forebyggelse på hæle og trædepuder", true))
-        items.add(GearChecklistItem("g8", "Sikkerhed & Førstehjælp", "Enkeltmandsforbinding & desinfektion", "Småsår og rifter fra grene", true))
+        items.add(
+            GearChecklistItem(
+                "g6",
+                catSafety,
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g6_tick_name) ?: "Flåtfjerner (Tick remover)",
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g6_tick_desc) ?: "Kritisk i danske skove mod skovflåt / Borrelia",
+                true
+            )
+        )
+        items.add(
+            GearChecklistItem(
+                "g7",
+                catSafety,
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g7_blister_name) ?: "Vabelplaster (Compeed) & sportstape",
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g7_blister_desc) ?: "Til forebyggelse på hæle og trædepuder",
+                true
+            )
+        )
+        items.add(
+            GearChecklistItem(
+                "g8",
+                catSafety,
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g8_firstaid_name) ?: "Enkeltmandsforbinding & desinfektion",
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g8_firstaid_desc) ?: "Småsår og rifter fra grene",
+                true
+            )
+        )
 
-        // Vand & Mad
-        items.add(GearChecklistItem("g9", "Vand & Mad", "Min. 2L drikkedunke / Blære", "Vandhaner kan være lukket om vinteren", true))
-        items.add(GearChecklistItem("g10", "Vand & Mad", "Letvægts vandfilter (Sawyer/BeFree)", "Backup hvis primitiv vandhane er uklar", false))
-        items.add(GearChecklistItem("g11", "Vand & Mad", "Stormkøkken (Trangia/Gasbrænder)", "Husk tændstikker i vandtæt pose", true))
+        items.add(
+            GearChecklistItem(
+                "g9",
+                catWater,
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g9_bottles_name) ?: "Min. 2L drikkedunke / Blære",
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g9_bottles_desc) ?: "Vandhaner kan være lukket om vinteren",
+                true
+            )
+        )
+        items.add(
+            GearChecklistItem(
+                "g10",
+                catWater,
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g10_filter_name) ?: "Letvægts vandfilter (Sawyer/BeFree)",
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g10_filter_desc) ?: "Backup hvis primitiv vandhane er uklar",
+                false
+            )
+        )
+        items.add(
+            GearChecklistItem(
+                "g11",
+                catWater,
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g11_stove_name) ?: "Stormkøkken (Trangia/Gasbrænder)",
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g11_stove_desc) ?: "Husk tændstikker i vandtæt pose",
+                true
+            )
+        )
 
-        // Navigation & Energi
-        items.add(GearChecklistItem("g12", "Navigation & Energi", "Powerbank (min. 10.000 mAh)", "Offline GPS og nødkald kræver strøm", true))
-        items.add(GearChecklistItem("g13", "Navigation & Energi", "Pandelampe med rødt lys", "Rødt lys forstyrrer ikke andre i shelteret", true))
-        items.add(GearChecklistItem("g14", "Navigation & Energi", "Vandtæt pose til mobil & dokumenter", "Sikrer elektronik ved dansk regnvejr", true))
+        items.add(
+            GearChecklistItem(
+                "g12",
+                catNav,
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g12_powerbank_name) ?: "Powerbank (min. 10.000 mAh)",
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g12_powerbank_desc) ?: "Offline GPS og nødkald kræver strøm",
+                true
+            )
+        )
+        items.add(
+            GearChecklistItem(
+                "g13",
+                catNav,
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g13_headlamp_name) ?: "Pandelampe med rødt lys",
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g13_headlamp_desc) ?: "Rødt lys forstyrrer ikke andre i shelteret",
+                true
+            )
+        )
+        items.add(
+            GearChecklistItem(
+                "g14",
+                catNav,
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g14_drybag_name) ?: "Vandtæt pose til mobil & dokumenter",
+                com.example.util.AppLocaleHelper.strOrNull(context, com.example.R.string.gear_g14_drybag_desc) ?: "Sikrer elektronik ved dansk regnvejr",
+                true
+            )
+        )
 
         return items
     }

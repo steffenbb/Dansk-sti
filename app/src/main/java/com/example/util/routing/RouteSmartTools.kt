@@ -257,7 +257,8 @@ object RouteSmartTools {
         val warnings = mutableListOf<RoadSectionWarning>()
         var currentNoFootwaySectionKm = 0.0
         var currentNoFootwayStartKm = 0.0
-        var currentNoFootwayRoadName = "Vej uden fortov"
+        var currentNoFootwayRoadName = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_surface_road_no_sidewalk)
+            ?: "Vej uden fortov"
         var currentNoFootwayStartLat = 0.0
         var currentNoFootwayStartLng = 0.0
 
@@ -298,7 +299,9 @@ object RouteSmartTools {
                 val surface = wayInfo.surface?.lowercase() ?: ""
                 val sidewalk = wayInfo.rawTags["sidewalk"]?.lowercase() ?: ""
                 val foot = wayInfo.rawTags["foot"]?.lowercase() ?: ""
-                val roadName = wayInfo.rawTags["name"] ?: "Vej uden fortov"
+                val roadName = wayInfo.rawTags["name"]
+                    ?: com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_surface_road_no_sidewalk)
+                    ?: "Vej uden fortov"
 
                 val isTrail = highway in listOf("path", "footway", "pedestrian", "steps", "cycleway")
                 val isTrack = highway == "track" || surface in listOf("unpaved", "compacted", "gravel", "fine_gravel", "dirt", "ground", "earth", "grass")
@@ -455,9 +458,21 @@ object RouteSmartTools {
         val turnDistKm = (clampedTarget * 0.40) * 0.74
 
         val directions = listOf(
-            Triple("Nord", 35.0, "Nordlig sløjfe"),
-            Triple("Øst / Sydøst", 140.0, "Sydøstlig sløjfe"),
-            Triple("Vest / Sydvest", 250.0, "Vestlig sløjfe")
+            Triple(
+                com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_loop_dir_north) ?: "Nord",
+                35.0,
+                com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_loop_title_north) ?: "Nordlig sløjfe"
+            ),
+            Triple(
+                com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_loop_dir_southeast) ?: "Øst / Sydøst",
+                140.0,
+                com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_loop_title_southeast) ?: "Sydøstlig sløjfe"
+            ),
+            Triple(
+                com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_loop_dir_west) ?: "Vest / Sydvest",
+                250.0,
+                com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_loop_title_west) ?: "Vestlig sløjfe"
+            )
         )
 
         val candidates = mutableListOf<RundturCandidate>()
@@ -532,10 +547,34 @@ object RouteSmartTools {
             }
 
             // Build waypoints for loop
-            val wpStart = RouteWaypoint(id = "rnd_start_$idx", lat = start.lat, lng = start.lng, role = WaypointRole.START, name = "Start")
-            val wpTurn = RouteWaypoint(id = "rnd_turn_$idx", lat = turnLatLng.lat, lng = turnLatLng.lng, role = WaypointRole.VIA, name = "Vendepunkt ($dirLabel)")
-            val wpMid = RouteWaypoint(id = "rnd_mid_$idx", lat = returnViaLatLng.lat, lng = returnViaLatLng.lng, role = WaypointRole.VIA, name = "Returvej ($dirLabel)")
-            val wpEnd = RouteWaypoint(id = "rnd_end_$idx", lat = start.lat, lng = start.lng, role = WaypointRole.END, name = "Slut (Startsted)")
+            val wpStart = RouteWaypoint(
+                id = "rnd_start_$idx",
+                lat = start.lat,
+                lng = start.lng,
+                role = WaypointRole.START,
+                name = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.planner_day_start_label) ?: "Start"
+            )
+            val wpTurn = RouteWaypoint(
+                id = "rnd_turn_$idx",
+                lat = turnLatLng.lat,
+                lng = turnLatLng.lng,
+                role = WaypointRole.VIA,
+                name = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_loop_wp_turn_fmt, dirLabel) ?: "Vendepunkt ($dirLabel)"
+            )
+            val wpMid = RouteWaypoint(
+                id = "rnd_mid_$idx",
+                lat = returnViaLatLng.lat,
+                lng = returnViaLatLng.lng,
+                role = WaypointRole.VIA,
+                name = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_loop_wp_return_fmt, dirLabel) ?: "Returvej ($dirLabel)"
+            )
+            val wpEnd = RouteWaypoint(
+                id = "rnd_end_$idx",
+                lat = start.lat,
+                lng = start.lng,
+                role = WaypointRole.END,
+                name = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_loop_wp_end) ?: "Slut (Startsted)"
+            )
 
             val (outShare, outRoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(outResult.points, outResult.perPointWayInfo)
             val (ret1Share, ret1RoadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(ret1.points, ret1.perPointWayInfo)
@@ -713,13 +752,22 @@ object RouteSmartTools {
                 val sunsetMinutes = sHour * 60 + sMin
                 if (totalMinutes > sunsetMinutes) {
                     isAfterSunset = true
-                    warningMessage = "⚠️ Ankomst efter solnedgang (ETA $etaFormatted, solnedgang $effectiveSunset)"
+                    warningMessage = com.example.util.AppLocaleHelper.strOrNull(
+                        null,
+                        com.example.R.string.smart_sunset_warning_fmt,
+                        etaFormatted,
+                        effectiveSunset
+                    ) ?: "⚠️ Ankomst efter solnedgang (ETA $etaFormatted, solnedgang $effectiveSunset)"
                 }
 
                 results.add(
                     WaypointWeatherEta(
                         waypointId = next.id,
-                        waypointName = next.name ?: if (next.role == WaypointRole.OVERNIGHT) "Overnatning" else "Mål",
+                        waypointName = next.name ?: if (next.role == WaypointRole.OVERNIGHT) {
+                            com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.waypoint_role_overnight) ?: "Overnatning"
+                        } else {
+                            com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.waypoint_role_end) ?: "Mål"
+                        },
                         isOvernight = next.role == WaypointRole.OVERNIGHT,
                         isEnd = i + 1 == waypoints.lastIndex,
                         kmFromStart = accumulatedKm,

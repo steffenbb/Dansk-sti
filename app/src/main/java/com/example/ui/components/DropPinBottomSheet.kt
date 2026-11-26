@@ -85,13 +85,19 @@ import kotlin.math.roundToInt
  */
 object DropPinInspectorHelper {
 
-    const val ACCESS_PUBLIC_FOREST = "Statsskov - fri færdsel"
-    const val ACCESS_PRIVATE_FOREST = "Privat skov - kun veje og stier, kl. 6 til solnedgang"
-    const val ACCESS_UNKNOWN_OWNER = "Ejerforhold ukendt - følg skilte på stedet"
+    val ACCESS_PUBLIC_FOREST: String
+        get() = com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_access_public_forest)
+            ?: "Statsskov - fri færdsel"
+    val ACCESS_PRIVATE_FOREST: String
+        get() = com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_access_private_forest)
+            ?: "Privat skov - kun veje og stier, kl. 6 til solnedgang"
+    val ACCESS_UNKNOWN_OWNER: String
+        get() = com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_access_unknown_owner)
+            ?: "Ejerforhold ukendt - følg skilte på stedet"
 
     fun formatDecimalCoordinates(lat: Double, lng: Double): String {
         val latHemi = if (lat >= 0) "N" else "S"
-        val lngHemi = if (lng >= 0) "Ø" else "V"
+        val lngHemi = if (lng >= 0) (com.example.util.AppLocaleHelper.strOrNull(null, R.string.hemi_east) ?: "Ø") else (com.example.util.AppLocaleHelper.strOrNull(null, R.string.hemi_west) ?: "V")
         return String.format(Locale.US, "%.5f° %s, %.5f° %s", abs(lat), latHemi, abs(lng), lngHemi)
     }
 
@@ -104,7 +110,7 @@ object DropPinInspectorHelper {
         val absLng = abs(lng)
         val lngDeg = floor(absLng).toInt()
         val lngMin = (absLng - lngDeg) * 60.0
-        val lngHemi = if (lng >= 0) "Ø" else "V"
+        val lngHemi = if (lng >= 0) (com.example.util.AppLocaleHelper.strOrNull(null, R.string.hemi_east) ?: "Ø") else (com.example.util.AppLocaleHelper.strOrNull(null, R.string.hemi_west) ?: "V")
 
         return String.format(
             Locale.US,
@@ -143,9 +149,12 @@ object DropPinInspectorHelper {
         return when (first.type) {
             AccessLandType.PUBLIC_FOREST -> ACCESS_PUBLIC_FOREST
             AccessLandType.PRIVATE_FOREST -> ACCESS_PRIVATE_FOREST
-            AccessLandType.UNCULTIVATED_LAND -> "Udyrket areal - fri færdsel til fods kl. 6 til solnedgang"
-            AccessLandType.BEACH -> "Strand og kyst - fri færdsel til fods"
-            AccessLandType.CULTIVATED_FIELD -> "Dyrket mark - kun veje og stier"
+            AccessLandType.UNCULTIVATED_LAND -> com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_access_uncultivated)
+                ?: "Udyrket areal - fri færdsel til fods kl. 6 til solnedgang"
+            AccessLandType.BEACH -> com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_access_beach)
+                ?: "Strand og kyst - fri færdsel til fods"
+            AccessLandType.CULTIVATED_FIELD -> com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_access_cultivated)
+                ?: "Dyrket mark - kun veje og stier"
         }
     }
 
@@ -155,7 +164,9 @@ object DropPinInspectorHelper {
         targetLng: Double,
         isFixFresh: Boolean = true
     ): String {
-        if (userLocation == null || !isFixFresh) return "ukendt"
+        if (userLocation == null || !isFixFresh) {
+            return (com.example.util.AppLocaleHelper.strOrNull(null, R.string.poi_sheet_unknown) ?: "ukendt").lowercase()
+        }
         val meters = GeoUtils.distanceMeters(
             userLocation.latitude,
             userLocation.longitude,
@@ -196,10 +207,10 @@ object DropPinInspectorHelper {
             if (ele != null && !ele.isNaN()) {
                 "${ele.roundToInt()} m"
             } else {
-                "ukendt"
+                (com.example.util.AppLocaleHelper.strOrNull(null, R.string.poi_sheet_unknown) ?: "ukendt").lowercase()
             }
         } catch (_: Exception) {
-            "ukendt"
+            (com.example.util.AppLocaleHelper.strOrNull(null, R.string.poi_sheet_unknown) ?: "ukendt").lowercase()
         }
     }
 
@@ -213,14 +224,21 @@ object DropPinInspectorHelper {
         val dec = formatDecimalCoordinates(lat, lng)
         val ddm = formatDegreesMinutesCoordinates(lat, lng)
         val osmUrl = String.format(Locale.US, "https://www.openstreetmap.org/?mlat=%.5f&mlon=%.5f#map=15/%.5f/%.5f", lat, lng, lat, lng)
+        val header = com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_share_header) ?: "Punkt på kort (DanskSti)"
+        val coordsDec = com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_share_coords_dec_fmt, dec) ?: "Koordinater (dec): $dec"
+        val coordsDdm = com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_share_coords_ddm_fmt, ddm) ?: "Koordinater (grad/min): $ddm"
+        val eleLine = com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_share_elevation_fmt, elevationText) ?: "Højde: $elevationText"
+        val accessLine = com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_share_access_fmt, accessRuleText) ?: "Adgang: $accessRuleText"
+        val distLine = com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_share_distance_fmt, distanceText) ?: "Afstand i fugleflugt: $distanceText"
+        val mapLine = com.example.util.AppLocaleHelper.strOrNull(null, R.string.drop_pin_share_map_fmt, osmUrl) ?: "Kort: $osmUrl"
         return buildString {
-            appendLine("Punkt på kort (DanskSti)")
-            appendLine("Koordinater (dec): $dec")
-            appendLine("Koordinater (grad/min): $ddm")
-            appendLine("Højde: $elevationText")
-            appendLine("Adgang: $accessRuleText")
-            appendLine("Afstand i fugleflugt: $distanceText")
-            append("Kort: $osmUrl")
+            appendLine(header)
+            appendLine(coordsDec)
+            appendLine(coordsDdm)
+            appendLine(eleLine)
+            appendLine(accessLine)
+            appendLine(distLine)
+            append(mapLine)
         }
     }
 }
@@ -503,7 +521,7 @@ fun DropPinBottomSheet(
                                         routeId = routeIdForSave,
                                         lat = lat,
                                         lng = lng,
-                                        name = saveName.ifBlank { "Gemt punkt" },
+                                        name = saveName.ifBlank { context.getString(R.string.drop_pin_default_saved_name) },
                                         note = saveNote.trim()
                                     )
                                     scope.launch {
@@ -570,7 +588,7 @@ fun DropPinBottomSheet(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Start fra min position", maxLines = 1)
+                    Text(stringResource(R.string.drop_pin_start_from_my_location), maxLines = 1)
                 }
             }
 
@@ -659,14 +677,14 @@ private fun shareDropPinPosition(
     )
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, "Position fra DanskSti")
+        putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.drop_pin_share_subject))
         putExtra(Intent.EXTRA_TEXT, shareBody)
     }
     try {
-        context.startActivity(Intent.createChooser(intent, "Del position").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        context.startActivity(Intent.createChooser(intent, context.getString(R.string.nav_share_position)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     } catch (_: android.content.ActivityNotFoundException) {
-        android.widget.Toast.makeText(context, "Ingen app fundet til at dele positionen", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(context, context.getString(R.string.drop_pin_share_no_app), android.widget.Toast.LENGTH_SHORT).show()
     } catch (_: Exception) {
-        android.widget.Toast.makeText(context, "Kunne ikke dele positionen", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(context, context.getString(R.string.drop_pin_share_failed), android.widget.Toast.LENGTH_SHORT).show()
     }
 }

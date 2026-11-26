@@ -71,11 +71,11 @@ data class MarkedRouteDto(
 
     val networkDescription: String
         get() = when (network?.lowercase()) {
-            "iwn" -> "International vandrerute"
-            "nwn" -> "National vandrerute"
-            "rwn" -> "Regional vandrerute"
-            "lwn" -> "Lokal vandrerute"
-            else -> "Afmærket rute"
+            "iwn" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.marked_route_network_iwn) ?: "International hiking trail"
+            "nwn" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.marked_route_network_nwn) ?: "National hiking trail"
+            "rwn" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.marked_route_network_rwn) ?: "Regional hiking trail"
+            "lwn" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.marked_route_network_lwn) ?: "Local hiking trail"
+            else -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.marked_route_network_default) ?: "Marked route"
         }
 }
 
@@ -94,10 +94,10 @@ data class DiscoveredHikingRouteDto(
 ) {
     val networkLabel: String
         get() = when (network.lowercase()) {
-            "iwn" -> "International vandrerute (IWN)"
-            "nwn" -> "National vandrerute (NWN)"
-            "rwn" -> "Regional vandrerute (RWN)"
-            else -> "Afmærket vandrerute"
+            "iwn" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.marked_route_discovered_iwn) ?: "International hiking trail (IWN)"
+            "nwn" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.marked_route_discovered_nwn) ?: "National hiking trail (NWN)"
+            "rwn" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.marked_route_discovered_rwn) ?: "Regional hiking trail (RWN)"
+            else -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.marked_route_badge_default) ?: "Marked hiking trail"
         }
 }
 

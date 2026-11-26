@@ -444,7 +444,7 @@ fun TrailBrowserScreen(
                 },
                 onShowOnMap = { lat, lng, _ ->
                     viewModel.setSearchQuery("")
-                    viewModel.updateUserLocation(lat, lng)
+                    viewModel.focusMapOnSearchedPlace(lat, lng)
                     isMapView = true
                     mapViewRef?.controller?.animateTo(GeoPoint(lat, lng), 13.0, 600L)
                 },

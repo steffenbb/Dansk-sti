@@ -12,24 +12,30 @@ fun userMessageFor(e: Throwable): String {
     val cause = e.cause
     return when {
         e is NoInternetException || cause is NoInternetException ->
-            "Ingen internetforbindelse."
+            AppLocaleHelper.strOrNull(null, com.example.R.string.user_error_no_internet)
+                ?: "Ingen internetforbindelse."
         e is UnknownHostException || cause is UnknownHostException ||
             e is ConnectException || cause is ConnectException ->
-            "Ingen internetforbindelse."
+            AppLocaleHelper.strOrNull(null, com.example.R.string.user_error_no_internet)
+                ?: "Ingen internetforbindelse."
         e is OverpassUnavailableException || cause is OverpassUnavailableException ||
             e is SocketTimeoutException || cause is SocketTimeoutException ->
-            "Serveren svarer ikke lige nu. Prøv igen om lidt."
+            AppLocaleHelper.strOrNull(null, com.example.R.string.user_error_server_unavailable)
+                ?: "Serveren svarer ikke lige nu. Prøv igen om lidt."
         e is FileNotFoundException || cause is FileNotFoundException ||
             e is SecurityException || cause is SecurityException ->
-            "Filen kunne ikke åbnes."
+            AppLocaleHelper.strOrNull(null, com.example.R.string.user_error_file_open)
+                ?: "Filen kunne ikke åbnes."
         e is IOException && (
             e.message?.contains("file", ignoreCase = true) == true ||
                 e.message?.contains("stream", ignoreCase = true) == true ||
                 e.message?.contains("uri", ignoreCase = true) == true ||
                 e.message?.contains("gpx", ignoreCase = true) == true
             ) ->
-            "Filen kunne ikke åbnes."
+            AppLocaleHelper.strOrNull(null, com.example.R.string.user_error_file_open)
+                ?: "Filen kunne ikke åbnes."
         else ->
-            "Noget gik galt. Prøv igen."
+            AppLocaleHelper.strOrNull(null, com.example.R.string.user_error_generic)
+                ?: "Noget gik galt. Prøv igen."
     }
 }

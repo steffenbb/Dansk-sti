@@ -138,8 +138,12 @@ class BRouterStorageManager private constructor(context: Context) {
         private const val PREF_HEAD_SIZE_PREFIX = "brouter_head_size_"
         private const val PREF_HEAD_LASTMOD_PREFIX = "brouter_head_lastmod_"
 
-        const val UPDATE_AVAILABLE_LABEL = "Opdatering tilgængelig"
-        const val VERSION_MISMATCH_LABEL = "Rutedata skal opdateres"
+        val UPDATE_AVAILABLE_LABEL: String
+            get() = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.routing_update_available)
+                ?: "Opdatering tilgængelig"
+        val VERSION_MISMATCH_LABEL: String
+            get() = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.routing_version_mismatch_update_needed)
+                ?: "Rutedata skal opdateres"
 
         /**
          * Test hook for intercepting HEAD requests per segment filename.

@@ -166,8 +166,13 @@ object AccessGeometryUtils {
                     warnings.add(
                         RouteAccessWarning(
                             type = AccessWarningType.STRAIGHT_LINE_PRIVATE_FOREST_OR_FIELD,
-                            title = "Kun på veje og stier her",
-                            message = "Lige linje krydser $landName. I privat skov og på dyrkede marker må du kun færdes på anlagte veje og stier.",
+                            title = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_warn_straight_private_title)
+                                ?: "Kun på veje og stier her",
+                            message = com.example.util.AppLocaleHelper.strOrNull(
+                                null,
+                                com.example.R.string.access_warn_straight_private_msg_fmt,
+                                landName
+                            ) ?: "Lige linje krydser $landName. I privat skov og på dyrkede marker må du kun færdes på anlagte veje og stier.",
                             polygon = restrictedPoly,
                             location = LatLng((wpFrom.lat + wpTo.lat) / 2.0, (wpFrom.lng + wpTo.lng) / 2.0),
                             legIndex = i,
@@ -209,15 +214,30 @@ object AccessGeometryUtils {
                         val alreadyWarned = warnings.any { it.type == AccessWarningType.BEFORE_06_OR_AFTER_SUNSET && it.polygon?.id == poly.id }
                         if (!alreadyWarned) {
                             val timeDesc = if (isAfterSunset) {
-                                "efter solnedgang (ankomst kl. ${formatMinutesToTime(etaMinutes)}, solnedgang kl. ${formatMinutesToTime(sunsetMinutes)})"
+                                com.example.util.AppLocaleHelper.strOrNull(
+                                    null,
+                                    com.example.R.string.access_warn_time_after_sunset_fmt,
+                                    formatMinutesToTime(etaMinutes),
+                                    formatMinutesToTime(sunsetMinutes)
+                                ) ?: "efter solnedgang (ankomst kl. ${formatMinutesToTime(etaMinutes)}, solnedgang kl. ${formatMinutesToTime(sunsetMinutes)})"
                             } else {
-                                "før kl. 06:00 (ankomst kl. ${formatMinutesToTime(etaMinutes)})"
+                                com.example.util.AppLocaleHelper.strOrNull(
+                                    null,
+                                    com.example.R.string.access_warn_time_before_06_fmt,
+                                    formatMinutesToTime(etaMinutes)
+                                ) ?: "før kl. 06:00 (ankomst kl. ${formatMinutesToTime(etaMinutes)})"
                             }
                             warnings.add(
                                 RouteAccessWarning(
                                     type = AccessWarningType.BEFORE_06_OR_AFTER_SUNSET,
-                                    title = "Lukket ved solnedgang",
-                                    message = "${poly.name ?: poly.type.title} er nået $timeDesc. I privat skov og udyrkede arealer er adgang kun tilladt fra 06:00 til solnedgang.",
+                                    title = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_warn_sunset_title)
+                                        ?: "Lukket ved solnedgang",
+                                    message = com.example.util.AppLocaleHelper.strOrNull(
+                                        null,
+                                        com.example.R.string.access_warn_sunset_msg_fmt,
+                                        poly.name ?: poly.type.title,
+                                        timeDesc
+                                    ) ?: "${poly.name ?: poly.type.title} er nået $timeDesc. I privat skov og udyrkede arealer er adgang kun tilladt fra 06:00 til solnedgang.",
                                     polygon = poly,
                                     location = ptCoord,
                                     legIndex = i,
@@ -236,11 +256,17 @@ object AccessGeometryUtils {
                 if (poly != null && poly.type == AccessLandType.PRIVATE_FOREST) {
                     val hasDesignatedCamp = !wpFrom.linkedPoiId.isNullOrBlank()
                     if (!hasDesignatedCamp) {
+                        val forestLabel = poly.name ?: (com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_private_forest_title) ?: "Privat skov")
                         warnings.add(
                             RouteAccessWarning(
                                 type = AccessWarningType.OVERNIGHT_IN_PRIVATE_FOREST,
-                                title = "Ikke tilladt at overnatte her",
-                                message = "Overnatningspunktet ligger i privat skov (${poly.name ?: "Privat skov"}). Allemandsretten tillader ikke teltning eller primitiv overnatning i privat skov uden ejerens tilladelse.",
+                                title = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_warn_overnight_private_title)
+                                    ?: "Ikke tilladt at overnatte her",
+                                message = com.example.util.AppLocaleHelper.strOrNull(
+                                    null,
+                                    com.example.R.string.access_warn_overnight_private_msg_fmt,
+                                    forestLabel
+                                ) ?: "Overnatningspunktet ligger i privat skov ($forestLabel). Allemandsretten tillader ikke teltning eller primitiv overnatning i privat skov uden ejerens tilladelse.",
                                 polygon = poly,
                                 location = ptCoord,
                                 legIndex = i,
@@ -260,11 +286,17 @@ object AccessGeometryUtils {
             if (poly != null && poly.type == AccessLandType.PRIVATE_FOREST) {
                 val hasDesignatedCamp = !lastWp.linkedPoiId.isNullOrBlank()
                 if (!hasDesignatedCamp) {
+                    val forestLabel = poly.name ?: (com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_private_forest_title) ?: "Privat skov")
                     warnings.add(
                         RouteAccessWarning(
                             type = AccessWarningType.OVERNIGHT_IN_PRIVATE_FOREST,
-                            title = "Ikke tilladt at overnatte her",
-                            message = "Slutovernatningen ligger i privat skov (${poly.name ?: "Privat skov"}). Allemandsretten tillader ikke teltning eller primitiv overnatning i privat skov uden ejerens tilladelse.",
+                            title = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_warn_overnight_private_title)
+                                ?: "Ikke tilladt at overnatte her",
+                            message = com.example.util.AppLocaleHelper.strOrNull(
+                                null,
+                                com.example.R.string.access_warn_overnight_end_private_msg_fmt,
+                                forestLabel
+                            ) ?: "Slutovernatningen ligger i privat skov ($forestLabel). Allemandsretten tillader ikke teltning eller primitiv overnatning i privat skov uden ejerens tilladelse.",
                             polygon = poly,
                             location = ptCoord,
                             legIndex = waypoints.size - 1,

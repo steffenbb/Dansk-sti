@@ -142,9 +142,9 @@ fun KortScreen(
     var savePointLat by remember { mutableStateOf<Double?>(null) }
     var savePointLng by remember { mutableStateOf<Double?>(null) }
 
-    // "Hent dette område" dialog state (Part C2)
+    val defaultAreaName = stringResource(R.string.kort_default_area_name)
     var showAreaDownloadDialog by remember { mutableStateOf(false) }
-    var areaDownloadName by remember { mutableStateOf("Kortområde") }
+    var areaDownloadName by remember { mutableStateOf(defaultAreaName) }
     var areaIncludeAerial by remember { mutableStateOf(false) }
     var areaIncludeTerrain by remember { mutableStateOf(false) }
     var areaEstimate by remember { mutableStateOf<com.example.util.OfflineEstimateResult?>(null) }
@@ -548,7 +548,7 @@ fun KortScreen(
                                         areaMinLng = cLng - 0.06
                                         areaMaxLng = cLng + 0.06
                                     }
-                                    areaDownloadName = "Kortområde"
+                                    areaDownloadName = defaultAreaName
                                     showAreaDownloadDialog = true
                                 },
                                 testTag = "kort_tool_offline_maps"
@@ -673,7 +673,7 @@ fun KortScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val finalName = areaDownloadName.trim().ifBlank { "Kortområde" }
+                        val finalName = areaDownloadName.trim().ifBlank { defaultAreaName }
                         val areaId = "area:${UUID.randomUUID()}"
                         val res = com.example.util.OfflineDownloadManager.enqueueDownload(
                             context = context,

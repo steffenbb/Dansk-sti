@@ -663,7 +663,7 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
     fun downloadTrailOffline(trailId: String) {
         viewModelScope.launch {
             _isDownloading.value = true
-            _downloadProgressText.value = "Forbereder offline pakke..."
+            _downloadProgressText.value = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.saved_preparing_offline_package)
             withContext(Dispatchers.IO) {
                 repository.downloadTrailOffline(trailId) { progressText ->
                     _downloadProgressText.value = progressText
@@ -723,21 +723,62 @@ class SavedViewModel(application: Application) : AndroidViewModel(application) {
             val totalKm = plan.totalDistanceKm
             val days = plan.targetDays
             val sb = StringBuilder()
-            sb.append("Min vandretur: ${plan.trailName}\n")
-            sb.append("Samlet distance: ${String.format(java.util.Locale.US, "%.1f", totalKm)} km over $days ${if (days == 1) "dag" else "dage"}\n")
-            sb.append("Planlagt tempo: ${String.format(java.util.Locale.US, "%.1f", plan.paceKmh)} km/t\n\n")
-            sb.append("Dags-etaper & overnatning:\n")
+            val dayWord = com.example.util.AppLocaleHelper.str(
+                context,
+                if (days == 1) com.example.R.string.share_plan_day_singular else com.example.R.string.share_plan_day_plural
+            )
+            sb.append(com.example.util.AppLocaleHelper.str(context, com.example.R.string.share_plan_title_fmt, plan.trailName)).append("\n")
+            sb.append(
+                com.example.util.AppLocaleHelper.str(
+                    context,
+                    com.example.R.string.share_plan_total_dist_fmt,
+                    String.format(java.util.Locale.US, "%.1f", totalKm),
+                    days,
+                    dayWord
+                )
+            ).append("\n")
+            sb.append(
+                com.example.util.AppLocaleHelper.str(
+                    context,
+                    com.example.R.string.share_plan_pace_fmt,
+                    String.format(java.util.Locale.US, "%.1f", plan.paceKmh)
+                )
+            ).append("\n\n")
+            sb.append(com.example.util.AppLocaleHelper.str(context, com.example.R.string.share_plan_stages_header)).append("\n")
             if (stages.isNotEmpty()) {
+                val bookingReqStr = com.example.util.AppLocaleHelper.str(context, com.example.R.string.poi_booking_required)
                 stages.forEach { stage ->
-                    val bookStr = if (stage.bookingRequired) " (Kræver booking)" else ""
-                    sb.append("• Dag ${stage.dayNumber}: ${String.format(java.util.Locale.US, "%.1f", stage.stageKm)} km\n")
-                    sb.append("   Overnatning: ${stage.stopName} [${stage.stopType}]$bookStr\n")
+                    val bookStr = if (stage.bookingRequired) " ($bookingReqStr)" else ""
+                    sb.append(
+                        com.example.util.AppLocaleHelper.str(
+                            context,
+                            com.example.R.string.share_plan_stage_day_fmt,
+                            stage.dayNumber,
+                            String.format(java.util.Locale.US, "%.1f", stage.stageKm)
+                        )
+                    ).append("\n")
+                    sb.append(
+                        com.example.util.AppLocaleHelper.str(
+                            context,
+                            com.example.R.string.share_plan_stage_overnight_fmt,
+                            stage.stopName,
+                            stage.stopType,
+                            bookStr
+                        )
+                    ).append("\n")
                 }
             } else {
-                sb.append("• Overnatningstype: ${plan.overnightType}\n")
-                sb.append("• Start: km ${String.format(java.util.Locale.US, "%.1f", plan.startKm)} -> Slut: km ${String.format(java.util.Locale.US, "%.1f", plan.endKm)}\n")
+                sb.append(com.example.util.AppLocaleHelper.str(context, com.example.R.string.share_plan_overnight_type_fmt, plan.overnightType)).append("\n")
+                sb.append(
+                    com.example.util.AppLocaleHelper.str(
+                        context,
+                        com.example.R.string.share_plan_start_end_km_fmt,
+                        String.format(java.util.Locale.US, "%.1f", plan.startKm),
+                        String.format(java.util.Locale.US, "%.1f", plan.endKm)
+                    )
+                ).append("\n")
             }
-            sb.append("\nPlanlagt med Dansk Sti")
+            sb.append("\n").append(com.example.util.AppLocaleHelper.str(context, com.example.R.string.share_plan_footer))
 
             val sendIntent = android.content.Intent().apply {
                 action = android.content.Intent.ACTION_SEND

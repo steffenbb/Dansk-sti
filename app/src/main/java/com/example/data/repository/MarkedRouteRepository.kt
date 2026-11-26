@@ -127,9 +127,9 @@ class MarkedRouteRepository(
             userLat: Double,
             userLng: Double,
             catalogueRelationIds: Set<Long> = emptySet(),
-            minKm: Double = 2.0,
+            minKm: Double = 3.0,
             maxKm: Double = 20.0,
-            maxRadiusMeters: Double = 25_000.0
+            maxRadiusMeters: Double = 15_000.0
         ): List<MarkedRouteDto> {
             return routes.mapNotNull { route ->
                 if (route.osmRelationId in catalogueRelationIds) return@mapNotNull null

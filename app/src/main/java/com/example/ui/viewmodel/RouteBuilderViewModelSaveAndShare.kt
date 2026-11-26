@@ -53,7 +53,7 @@ internal fun RouteBuilderViewModel.saveRouteInternal(
     val currentState = _uiState.value
     val wps = currentState.waypoints
     if (wps.size < 2) {
-        viewModelScope.launch { _userMessage.emit("Tilføj mindst to punkter for at gemme ruten") }
+        viewModelScope.launch { _userMessage.emit(com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_add_two_points_to_save)) }
         return
     }
 
@@ -89,8 +89,8 @@ internal fun RouteBuilderViewModel.saveRouteInternal(
                 }
             }
 
-            val startName = wps.first().name ?: "Start"
-            val endName = wps.last().name ?: "Slut"
+            val startName = wps.first().name ?: com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_day_start_label)
+            val endName = wps.last().name ?: com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_day_end_label)
             val finalName = when {
                 currentState.routeName.isNotBlank() -> currentState.routeName
                 currentState.baseTrail != null -> currentState.baseTrail.name
@@ -119,7 +119,7 @@ internal fun RouteBuilderViewModel.saveRouteInternal(
                 pathSharePct = currentState.stats.pathSharePct ?: 0.0,
                 roadKm = currentState.stats.roadKm ?: 0.0,
                 geometryFile = geometryFileName,
-                sourceName = "Ruteplanlægger",
+                sourceName = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_default_title),
                 fetchedAt = now,
                 baseTrailId = currentState.baseTrailId,
                 isReverse = currentState.isReverse
@@ -227,11 +227,11 @@ internal fun RouteBuilderViewModel.saveRouteInternal(
 
             withContext(Dispatchers.Main) {
                 onSuccess(savedId, savedPlanId.toString())
-                _userMessage.emit("Turen er gemt")
+                _userMessage.emit(com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_trip_saved))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save route/plan: ${e.message}")
-            val errMsg = "Fejl ved gemning af tur: ${com.example.util.userMessageFor(e)}"
+            val errMsg = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_trip_save_error_fmt, com.example.util.userMessageFor(e))
             _uiState.update {
                 it.copy(
                     isSaving = false,
@@ -396,7 +396,7 @@ fun RouteBuilderViewModel.continueDraft() {
                     it.copy(
                         isDownloadingTrailGeometry = false,
                         trailGeometryDownloadFailed = true,
-                        errorMessage = "Ruten kunne ikke hentes"
+                        errorMessage = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_route_fetch_failed)
                     )
                 }
                 return@launch
@@ -407,7 +407,7 @@ fun RouteBuilderViewModel.continueDraft() {
                     it.copy(
                         isDownloadingTrailGeometry = false,
                         trailGeometryDownloadFailed = true,
-                        errorMessage = "Ruten kunne ikke hentes"
+                        errorMessage = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_route_fetch_failed)
                     )
                 }
                 return@launch
@@ -579,7 +579,7 @@ fun RouteBuilderViewModel.saveCustomWaypoint(name: String, note: String, photoPa
         routeId = _uiState.value.routeId,
         lat = loc.lat,
         lng = loc.lng,
-        name = name.ifBlank { "Mit punkt" },
+        name = name.ifBlank { com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.drop_pin_default_saved_name) },
         note = note,
         photoPath = photoPath
     )
@@ -588,7 +588,7 @@ fun RouteBuilderViewModel.saveCustomWaypoint(name: String, note: String, photoPa
         repository.saveCustomWaypoint(entity)
         val updated = repository.getCustomWaypointsForRoute(_uiState.value.routeId ?: 0L)
         _uiState.update { it.copy(customUserWaypoints = updated) }
-        _userMessage.emit("Punkt tilføjet: ${entity.name}")
+        _userMessage.emit(com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_point_added_fmt, entity.name))
     }
 }
 
@@ -611,10 +611,10 @@ fun RouteBuilderViewModel.deleteCustomWaypoint(id: String) {
             it.copy(
                 customUserWaypoints = updated,
                 selectedCustomWaypointForDetails = null,
-                deletedPinSnackbarMessage = "Punkt slettet · Fortryd"
+                deletedPinSnackbarMessage = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_point_deleted_undo)
             )
         }
-        _userMessage.emit("Punkt slettet")
+        _userMessage.emit(com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_point_deleted))
     }
 }
 
@@ -644,10 +644,10 @@ fun RouteBuilderViewModel.deleteCustomWaypointPhoto(id: String) {
                 } else {
                     state.selectedCustomWaypointForDetails
                 },
-                deletedPinSnackbarMessage = "Foto slettet · Fortryd"
+                deletedPinSnackbarMessage = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_photo_deleted_undo)
             )
         }
-        _userMessage.emit("Foto slettet")
+        _userMessage.emit(com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_photo_deleted))
     }
 }
 
@@ -665,7 +665,7 @@ fun RouteBuilderViewModel.shareRoute(context: Context) {
         _uiState.value.legs[key]?.let { orderedLegs.add(it) }
     }
     val points = orderedLegs.flatMap { it.points }.map { GeoPointDto(it.lat, it.lng, it.ele) }
-    val name = _uiState.value.routeName.ifBlank { "Min rute" }
+    val name = _uiState.value.routeName.ifBlank { com.example.util.AppLocaleHelper.str(context, com.example.R.string.planner_my_route_default) }
     val stats = _uiState.value.stats
     val quality = _uiState.value.routeQuality
     val overnightWaypoints = wps.filter { it.role == WaypointRole.OVERNIGHT && !it.isHelper }
@@ -673,26 +673,42 @@ fun RouteBuilderViewModel.shareRoute(context: Context) {
 
     val gpxStr = com.example.util.GpxExporter.generateCustomRouteGpx(
         routeName = name,
-        description = "Planlagt rute i Dansk Sti (${String.format(Locale.US, "%.1f", stats.totalKm)} km)",
+        description = com.example.util.AppLocaleHelper.str(
+            context,
+            com.example.R.string.gpx_planned_route_desc_fmt,
+            String.format(Locale.US, "%.1f", stats.totalKm)
+        ),
         routePoints = points,
         overnightWaypoints = overnightWaypoints,
         customWaypoints = _uiState.value.customUserWaypoints
     )
 
+    val lblRoute = com.example.util.AppLocaleHelper.str(context, com.example.R.string.share_label_route)
+    val lblDistance = com.example.util.AppLocaleHelper.str(context, com.example.R.string.share_label_distance)
+    val lblElevation = com.example.util.AppLocaleHelper.str(context, com.example.R.string.share_label_elevation)
+    val lblEstTime = com.example.util.AppLocaleHelper.str(context, com.example.R.string.share_label_estimated_time)
+    val lblOvernights = com.example.util.AppLocaleHelper.str(context, com.example.R.string.share_label_planned_overnights)
+    val lblSurface = com.example.util.AppLocaleHelper.str(context, com.example.R.string.share_label_surface)
+    val lblTrail = com.example.util.AppLocaleHelper.str(context, com.example.R.string.planner_quality_trail)
+    val lblTrack = com.example.util.AppLocaleHelper.str(context, com.example.R.string.planner_quality_track)
+    val lblAsphalt = com.example.util.AppLocaleHelper.str(context, com.example.R.string.planner_quality_asphalt)
+    val lblUnknown = com.example.util.AppLocaleHelper.str(context, com.example.R.string.poi_sheet_unknown).lowercase()
+    val lblFooter = com.example.util.AppLocaleHelper.str(context, com.example.R.string.share_footer_shared_with)
+
     val summary = buildString {
-        append("🥾 Rute: $name\n")
-        append("📏 Distance: ${String.format(Locale.US, "%.1f", stats.totalKm)} km\n")
-        append("⛰️ Højdemeter: +${stats.ascentM.toInt()} m / -${stats.descentM.toInt()} m\n")
-        append("⏱️ Estimeret tid: ${_uiState.value.timeEstimateFormatted}\n")
+        append("🥾 $lblRoute: $name\n")
+        append("📏 $lblDistance: ${String.format(Locale.US, "%.1f", stats.totalKm)} km\n")
+        append("⛰️ $lblElevation: +${stats.ascentM.toInt()} m / -${stats.descentM.toInt()} m\n")
+        append("⏱️ $lblEstTime: ${_uiState.value.timeEstimateFormatted}\n")
         if (overnights > 0) {
-            append("⛺ Planlagte overnatninger: $overnights\n")
+            append("⛺ $lblOvernights: $overnights\n")
         }
         if (stats.hasWayInfo && stats.pathSharePct != null) {
-            append("🌲 Underlag: ${quality.trailPct.toInt()}% sti, ${quality.trackPct.toInt()}% skov-/markvej, ${quality.asphaltPct.toInt()}% asfalt\n")
+            append("🌲 $lblSurface: ${quality.trailPct.toInt()}% $lblTrail, ${quality.trackPct.toInt()}% $lblTrack, ${quality.asphaltPct.toInt()}% $lblAsphalt\n")
         } else {
-            append("🌲 Underlag: ukendt\n")
+            append("🌲 $lblSurface: $lblUnknown\n")
         }
-        append("Del med Dansk Sti")
+        append(lblFooter)
     }
 
     com.example.util.GpxExporter.exportAndShareGpxWithSummary(

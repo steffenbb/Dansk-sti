@@ -119,6 +119,7 @@ fun ProfileScreen(
     val downloadedTrails by offlineViewModel.downloadedTrails.collectAsState()
     val brouterState by offlineViewModel.brouterDataState.collectAsState()
     val isDanishVoiceInstalled by DanishTtsChecker.isDanishVoiceInstalled.collectAsState()
+    val isUsingDanishFallbackVoice by DanishTtsChecker.isUsingDanishFallbackVoice.collectAsState()
 
     val recordedDayStats by dao.getAllRecordedDayStats().collectAsState(initial = emptyList())
     val tripPlans by dao.getAllTripPlans().collectAsState(initial = emptyList())
@@ -487,6 +488,14 @@ fun ProfileScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = DanskStiTheme.colors.warning,
                         modifier = Modifier.testTag("profile_danish_tts_missing_text")
+                    )
+                } else if (isUsingDanishFallbackVoice) {
+                    Spacer(modifier = Modifier.height(Spacing.s1))
+                    Text(
+                        text = stringResource(R.string.profile_tts_fallback_to_danish_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("profile_tts_fallback_note_text")
                     )
                 }
 

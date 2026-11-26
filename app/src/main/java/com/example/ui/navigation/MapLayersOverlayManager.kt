@@ -124,7 +124,7 @@ class MapLayersOverlayManager(
     fun isMarkedRouteTapsEnabled(): Boolean = markedRoutesBatchOverlay.tapsEnabled
 
     fun setLayerError(layerLabel: String, hasError: Boolean) {
-        val msg = "Kunne ikke hente $layerLabel"
+        val msg = com.example.util.AppLocaleHelper.str(context, com.example.R.string.map_layer_err_fetch_fmt, layerLabel)
         val current = _layerErrorMessages.value.toMutableSet()
         if (hasError) {
             current.add(msg)
@@ -151,8 +151,9 @@ class MapLayersOverlayManager(
         const val WATER_DEBOUNCE_MS = 600L
         const val CAMERA_DEBOUNCE_MS = 320L
 
-        const val EXPIRED_MARKED_ROUTE_MESSAGE =
-            "Ruten er ikke længere gemt. Zoom ind for at hente den igen."
+        val EXPIRED_MARKED_ROUTE_MESSAGE: String
+            get() = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_layer_expired_marked_route_msg)
+                ?: "Ruten er ikke længere gemt. Zoom ind for at hente den igen."
     }
 
     private fun handleMarkedRouteTapped(osmRelationId: Long) {
@@ -398,7 +399,7 @@ class MapLayersOverlayManager(
         } else if (!state.showWaterLayer) {
             waterDebounceJob?.cancel()
             waterFetchJob?.cancel()
-            setLayerError("Vand", false)
+            setLayerError(com.example.util.AppLocaleHelper.str(context, com.example.R.string.map_layer_name_water), false)
         }
 
         // 4. Rebuild POI cluster items only if toggles or POI lists changed
@@ -408,7 +409,7 @@ class MapLayersOverlayManager(
         markedRoutesBatchOverlay.isEnabled = state.showMarkedRoutes
         if (!state.showMarkedRoutes) {
             markedRouteFetchJob?.cancel()
-            setLayerError("Afmærkede ruter", false)
+            setLayerError(com.example.util.AppLocaleHelper.str(context, com.example.R.string.map_layer_name_marked_routes), false)
         } else if (!prevState.showMarkedRoutes || cachedMarkedRouteSnapshots.isEmpty()) {
             lastFetchedBoundsKey = null
             fetchMarkedRoutesForCurrentViewport()
@@ -418,7 +419,7 @@ class MapLayersOverlayManager(
         accessFolderOverlay.isEnabled = state.showAccessLand
         if (!state.showAccessLand) {
             accessFetchJob?.cancel()
-            setLayerError("Adgang og ejerskab", false)
+            setLayerError(com.example.util.AppLocaleHelper.str(context, com.example.R.string.map_layer_name_access), false)
         } else if (!prevState.showAccessLand || cachedAccessPolygons.isEmpty()) {
             lastAccessBoundsKey = null
             fetchAccessLandForCurrentViewport()
@@ -464,7 +465,7 @@ class MapLayersOverlayManager(
         val map = mapView ?: return
         if (!currentState.showWaterLayer) {
             waterLayerOverlay.isEnabled = false
-            setLayerError("Vand", false)
+            setLayerError(com.example.util.AppLocaleHelper.str(context, com.example.R.string.map_layer_name_water), false)
             requestMapInvalidate()
             return
         }
@@ -505,7 +506,7 @@ class MapLayersOverlayManager(
             }
             ensureActive()
             cachedWaterFeatures = features
-            setLayerError("Vand", isLiveZoom && features.isEmpty() && waterLayerRepository.lastFetchFailed)
+            setLayerError(com.example.util.AppLocaleHelper.str(context, com.example.R.string.map_layer_name_water), isLiveZoom && features.isEmpty() && waterLayerRepository.lastFetchFailed)
             val density = context.resources.displayMetrics.density
             val changed = waterLayerOverlay.updateFeatures(features, currentIsDark, density)
             if (changed) {
@@ -549,7 +550,7 @@ class MapLayersOverlayManager(
             }
             ensureActive()
             cachedMarkedRouteSnapshots = snapshots
-            setLayerError("Afmærkede ruter", isLiveZoom && snapshots.isEmpty() && markedRouteRepository.lastFetchFailed)
+            setLayerError(com.example.util.AppLocaleHelper.str(context, com.example.R.string.map_layer_name_marked_routes), isLiveZoom && snapshots.isEmpty() && markedRouteRepository.lastFetchFailed)
             // Deliver immutable render snapshot on the main thread
             withContext(Dispatchers.Main.immediate) {
                 markedRoutesBatchOverlay.setRoutesSnapshot(snapshots)
@@ -596,7 +597,7 @@ class MapLayersOverlayManager(
             }
             ensureActive()
             cachedAccessPolygons = polygons
-            setLayerError("Adgang og ejerskab", isLiveZoom && polygons.isEmpty() && AccessLandRepository.isAccessDataUnavailable)
+            setLayerError(com.example.util.AppLocaleHelper.str(context, com.example.R.string.map_layer_name_access), isLiveZoom && polygons.isEmpty() && AccessLandRepository.isAccessDataUnavailable)
             rebuildAccessOverlaysIfChanged()
         }
     }

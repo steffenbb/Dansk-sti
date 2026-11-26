@@ -185,7 +185,7 @@ fun RouteBuilderViewModel.analyzeSupplyGaps() {
     supplyGapsJob = viewModelScope.launch {
         val online = repository.isDeviceOnline()
         val offlineNotice = if (!online) {
-            "Offline – henter ikke interessepunkter langs ruten fra OpenStreetMap"
+            com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_offline_skip_corridor_pois)
         } else {
             null
         }
@@ -325,7 +325,13 @@ fun RouteBuilderViewModel.generateRundtur(startLat: Double? = null, startLng: Do
         } catch (e: Exception) {
             Log.e(TAG, "Error generating rundtur: ${e.message}", e)
             _uiState.update { it.copy(isGeneratingRundtur = false) }
-            _userMessage.emit("Kunne ikke danne rundtur: ${com.example.util.userMessageFor(e)}")
+            _userMessage.emit(
+                com.example.util.AppLocaleHelper.str(
+                    getApplication(),
+                    com.example.R.string.planner_loop_failed_fmt,
+                    com.example.util.userMessageFor(e)
+                )
+            )
         }
     }
 }
@@ -343,7 +349,13 @@ fun RouteBuilderViewModel.applyRundtur(candidate: RundturCandidate) {
     }
     updateRouteStats()
     viewModelScope.launch {
-        _userMessage.emit("Rundtur valgt: ${String.format(Locale.US, "%.1f", candidate.actualKm)} km")
+        _userMessage.emit(
+            com.example.util.AppLocaleHelper.str(
+                getApplication(),
+                com.example.R.string.planner_loop_selected_fmt,
+                String.format(Locale.US, "%.1f", candidate.actualKm)
+            )
+        )
     }
 }
 
@@ -466,13 +478,14 @@ fun RouteBuilderViewModel.resolveNearestSearchOrigin(
 fun RouteBuilderViewModel.cancelTrailGeometryDownload() {
     // Only cancel this screen's wait.
     // The shared download stops only if no one else is waiting for it.
-    trailGeometryDownloadJob?.cancel(kotlinx.coroutines.CancellationException("Download annulleret"))
+    val cancelMsg = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_download_cancelled)
+    trailGeometryDownloadJob?.cancel(kotlinx.coroutines.CancellationException(cancelMsg))
     trailGeometryDownloadJob = null
     _uiState.update {
         it.copy(
             isDownloadingTrailGeometry = false,
             trailGeometryDownloadFailed = true,
-            errorMessage = "Download annulleret"
+            errorMessage = cancelMsg
         )
     }
 }
@@ -676,7 +689,7 @@ fun RouteBuilderViewModel.routeToNearest(
                             waypoints = listOf(wpStart, wpDest),
                             legs = mapOf("${wpStart.id}_to_${wpDest.id}" to leg),
                             failedLegs = emptyMap(),
-                            routeName = "Rute til ${poi.name}",
+                            routeName = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_route_to_fmt, poi.name),
                             lastNearestExtraRouteMessage = extraMsg
                         )
                     }

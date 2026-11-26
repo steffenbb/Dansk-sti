@@ -97,7 +97,7 @@ class WaterLayerOverlay : FolderOverlay() {
                     if (geoPoints.size >= 3) {
                         val poly = Polygon().apply {
                             id = feature.id
-                            title = feature.name ?: "Sø / Vand"
+                            title = feature.name ?: AppLocaleHelper.strOrNull(null, com.example.R.string.water_feature_lake) ?: "Sø / Vand"
                             points = geoPoints
                             fillPaint.color = lakeFill
                             fillPaint.style = Paint.Style.FILL
@@ -115,7 +115,7 @@ class WaterLayerOverlay : FolderOverlay() {
                     if (geoPoints.size >= 3) {
                         val poly = Polygon().apply {
                             id = feature.id
-                            title = feature.name ?: "Vådområde"
+                            title = feature.name ?: AppLocaleHelper.strOrNull(null, com.example.R.string.water_feature_wetland) ?: "Vådområde"
                             points = geoPoints
                             fillPaint.color = wetlandFill
                             fillPaint.style = Paint.Style.FILL
@@ -144,7 +144,7 @@ class WaterLayerOverlay : FolderOverlay() {
                     if (geoPoints.size >= 2) {
                         val line = Polyline().apply {
                             id = feature.id
-                            title = feature.name ?: "Å / Kanal"
+                            title = feature.name ?: AppLocaleHelper.strOrNull(null, com.example.R.string.water_feature_river) ?: "Å / Kanal"
                             setPoints(geoPoints)
                             outlinePaint.color = waterwayColor
                             outlinePaint.strokeWidth = RIVER_WIDTH_DP * safeDensity
@@ -162,7 +162,7 @@ class WaterLayerOverlay : FolderOverlay() {
                     if (geoPoints.size >= 2) {
                         val line = Polyline().apply {
                             id = feature.id
-                            title = feature.name ?: "Bæk / Grøft"
+                            title = feature.name ?: AppLocaleHelper.strOrNull(null, com.example.R.string.water_feature_stream) ?: "Bæk / Grøft"
                             setPoints(geoPoints)
                             outlinePaint.color = waterwayColor
                             outlinePaint.strokeWidth = STREAM_WIDTH_DP * safeDensity

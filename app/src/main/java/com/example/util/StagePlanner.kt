@@ -515,6 +515,7 @@ object StagePlanner {
                     sunsetTime = daySunset,
                     waterPois = waterPois,
                     shopPois = shopPois,
+                    dailyTargetKm = dailyTargetKm,
                     spotId = onWp.linkedPoiId
                 )
                 stages.add(stage)
@@ -554,6 +555,7 @@ object StagePlanner {
                     sunsetTime = finalDaySunset,
                     waterPois = waterPois,
                     shopPois = shopPois,
+                    dailyTargetKm = dailyTargetKm,
                     spotId = null
                 )
                 stages.add(finalStage)
@@ -643,6 +645,7 @@ object StagePlanner {
                 sunsetTime = changedDaySunset,
                 waterPois = waterPois,
                 shopPois = shopPois,
+                dailyTargetKm = dailyTargetKm,
                 spotId = resolvedCandidate.id
             )
             stages.add(updatedChangedStage)
@@ -725,6 +728,7 @@ object StagePlanner {
                     sunsetTime = daySunset,
                     waterPois = waterPois,
                     shopPois = shopPois,
+                    dailyTargetKm = dailyTargetKm,
                     spotId = spotId
                 )
                 stages.add(stage)
@@ -789,6 +793,7 @@ object StagePlanner {
                         sunsetTime = daySunset,
                         waterPois = waterPois,
                         shopPois = shopPois,
+                        dailyTargetKm = dailyTargetKm,
                         spotId = best.id
                     )
                     stages.add(stage)
@@ -828,6 +833,7 @@ object StagePlanner {
                         sunsetTime = daySunset,
                         waterPois = waterPois,
                         shopPois = shopPois,
+                        dailyTargetKm = dailyTargetKm,
                         isWarningNoOvernight = true,
                         warningMessage = warnMsg
                     )
@@ -1004,6 +1010,7 @@ object StagePlanner {
         sunsetTime: String?,
         waterPois: List<PoiEntity>,
         shopPois: List<PoiEntity>,
+        dailyTargetKm: Double = 15.0,
         spotId: String? = null,
         isWarningNoOvernight: Boolean = false,
         warningMessage: String? = null
@@ -1068,7 +1075,7 @@ object StagePlanner {
 
         val campExplanation = buildCampExplanation(
             stageKm = stageKm,
-            dailyTargetKm = 15.0,
+            dailyTargetKm = dailyTargetKm,
             detourMeters = detourMeters,
             hasWaterNearby = hasWaterNearby,
             waterDistanceMeters = nearestWaterM,
@@ -1076,7 +1083,7 @@ object StagePlanner {
             bookingRequired = bookingRequired,
             isAfterSunset = isAfterSunset,
             stopType = stopType,
-            isLastDay = stopType == "END"
+            isLastDay = stopType == "END" || stopType == "DESTINATION"
         )
 
         return TripStage(

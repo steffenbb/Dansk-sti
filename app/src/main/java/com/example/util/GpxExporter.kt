@@ -31,19 +31,27 @@ object GpxExporter {
         sb.append("     xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n")
         sb.append("     xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\n")
 
+        val planTitle = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_route_plan_title_fmt, trail.name)
+            ?: "${trail.name} - DanskSti Ruteplan"
         sb.append("  <metadata>\n")
-        sb.append("    <name>${escapeXml(trail.name)} - DanskSti Ruteplan</name>\n")
+        sb.append("    <name>${escapeXml(planTitle)}</name>\n")
         sb.append("    <desc>${escapeXml(trail.description)}</desc>\n")
         sb.append("    <time>$nowIso</time>\n")
         sb.append("  </metadata>\n\n")
 
         // 1. Waypoints: Shelters
+        val unknownStr = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_unknown) ?: "Ukendt"
+        val yesStr = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_booking_yes) ?: "Ja"
+        val freeStr = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_booking_free) ?: "Fri"
         shelters.forEach { sh ->
             sb.append("  <wpt lat=\"${sh.lat}\" lon=\"${sh.lng}\">\n")
             sb.append("    <name>${escapeXml(sh.name)}</name>\n")
-            val capStr = sh.capacity?.toString() ?: "Ukendt"
-            val ownerStr = sh.ownership ?: "Ukendt"
-            sb.append("    <desc>${escapeXml(ownerStr)} • Plads: $capStr • Booking: ${if (sh.bookingRequired) "Ja" else "Fri"}</desc>\n")
+            val capStr = sh.capacity?.toString() ?: unknownStr
+            val ownerStr = sh.ownership ?: unknownStr
+            val bookingVal = if (sh.bookingRequired) yesStr else freeStr
+            val shDesc = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_shelter_desc_fmt, ownerStr, capStr, bookingVal)
+                ?: "$ownerStr • Plads: $capStr • Booking: $bookingVal"
+            sb.append("    <desc>${escapeXml(shDesc)}</desc>\n")
             sb.append("    <sym>Campground</sym>\n")
             sb.append("    <type>Shelter</type>\n")
             sb.append("  </wpt>\n")
@@ -52,9 +60,14 @@ object GpxExporter {
         // 2. Waypoints: Stage Overnight Stops
         stages.forEach { stage ->
             if (stage.stopLat != 0.0 && stage.stopLng != 0.0) {
+                val stageWptName = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_stage_goal_name_fmt, stage.dayNumber, stage.stopName)
+                    ?: "Dag ${stage.dayNumber} Mål: ${stage.stopName}"
+                val stageKmStr = String.format(Locale.US, "%.1f", stage.stageKm)
+                val stageWptDesc = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_stage_desc_fmt, stage.dayNumber, stageKmStr, stage.stopType)
+                    ?: "Etape ${stage.dayNumber}: $stageKmStr km (${stage.stopType})"
                 sb.append("  <wpt lat=\"${stage.stopLat}\" lon=\"${stage.stopLng}\">\n")
-                sb.append("    <name>Dag ${stage.dayNumber} Mål: ${escapeXml(stage.stopName)}</name>\n")
-                sb.append("    <desc>Etape ${stage.dayNumber}: ${String.format(Locale.US, "%.1f", stage.stageKm)} km (${stage.stopType})</desc>\n")
+                sb.append("    <name>${escapeXml(stageWptName)}</name>\n")
+                sb.append("    <desc>${escapeXml(stageWptDesc)}</desc>\n")
                 sb.append("    <sym>Flag, Blue</sym>\n")
                 sb.append("    <type>StageEnd</type>\n")
                 sb.append("  </wpt>\n")
@@ -63,8 +76,10 @@ object GpxExporter {
 
         // 3. Waypoints: User Hazard Notes
         hazards.forEach { h ->
+            val hazardName = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_hazard_name_fmt, h.title)
+                ?: "Fare: ${h.title}"
             sb.append("  <wpt lat=\"${h.lat}\" lon=\"${h.lng}\">\n")
-            sb.append("    <name>Fare: ${escapeXml(h.title)}</name>\n")
+            sb.append("    <name>${escapeXml(hazardName)}</name>\n")
             sb.append("    <desc>${escapeXml(h.description)}</desc>\n")
             sb.append("    <sym>Danger</sym>\n")
             sb.append("    <type>Hazard</type>\n")
@@ -86,9 +101,16 @@ object GpxExporter {
         // 4. Tracks: Multi-segment by Day if stages exist, or continuous track
         if (stages.isNotEmpty() && trailPoints.isNotEmpty()) {
             stages.forEach { stage ->
+                val stageKmStr = String.format(Locale.US, "%.1f", stage.stageKm)
+                val startKmStr = String.format(Locale.US, "%.1f", stage.startKm)
+                val endKmStr = String.format(Locale.US, "%.1f", stage.endKm)
+                val trkName = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_track_day_name_fmt, stage.dayNumber, stage.stopName, stageKmStr)
+                    ?: "Dag ${stage.dayNumber}: ${stage.stopName} ($stageKmStr km)"
+                val trkDesc = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_track_from_to_km_fmt, startKmStr, endKmStr)
+                    ?: "Fra km $startKmStr til km $endKmStr"
                 sb.append("\n  <trk>\n")
-                sb.append("    <name>Dag ${stage.dayNumber}: ${escapeXml(stage.stopName)} (${String.format(Locale.US, "%.1f", stage.stageKm)} km)</name>\n")
-                sb.append("    <desc>Fra km ${String.format(Locale.US, "%.1f", stage.startKm)} til km ${String.format(Locale.US, "%.1f", stage.endKm)}</desc>\n")
+                sb.append("    <name>${escapeXml(trkName)}</name>\n")
+                sb.append("    <desc>${escapeXml(trkDesc)}</desc>\n")
                 sb.append("    <trkseg>\n")
 
                 val stagePts = GeoUtils.slicePolylineKm(trailPoints, stage.startKm, stage.endKm)
@@ -134,17 +156,25 @@ object GpxExporter {
         sb.append("     xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n")
         sb.append("     xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\n")
 
+        val customPlanTitle = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_route_plan_title_fmt, routeName)
+            ?: "$routeName - DanskSti Ruteplan"
         sb.append("  <metadata>\n")
-        sb.append("    <name>${escapeXml(routeName)} - DanskSti Ruteplan</name>\n")
+        sb.append("    <name>${escapeXml(customPlanTitle)}</name>\n")
         sb.append("    <desc>${escapeXml(description)}</desc>\n")
         sb.append("    <time>$nowIso</time>\n")
         sb.append("  </metadata>\n\n")
 
         overnightWaypoints.forEachIndexed { idx, wp ->
             sb.append("  <wpt lat=\"${wp.lat}\" lon=\"${wp.lng}\">\n")
-            val stopLabel = wp.name?.takeIf { it.isNotBlank() } ?: "Lejr ${idx + 1}"
-            sb.append("    <name>Dag ${idx + 1} Mål: ${escapeXml(stopLabel)}</name>\n")
-            val spotDesc = wp.spotType ?: "Overnatning"
+            val stopLabel = wp.name?.takeIf { it.isNotBlank() }
+                ?: AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_camp_default_fmt, idx + 1)
+                ?: "Lejr ${idx + 1}"
+            val wptName = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_stage_goal_name_fmt, idx + 1, stopLabel)
+                ?: "Dag ${idx + 1} Mål: $stopLabel"
+            sb.append("    <name>${escapeXml(wptName)}</name>\n")
+            val spotDesc = wp.spotType
+                ?: AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_overnight_default)
+                ?: "Overnatning"
             sb.append("    <desc>${escapeXml(spotDesc)}</desc>\n")
             sb.append("    <sym>Campground</sym>\n")
             sb.append("    <type>Overnight</type>\n")
@@ -203,9 +233,17 @@ object GpxExporter {
         sb.append("     xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\n")
 
         sb.append("  <metadata>\n")
-        val title = if (dayNumber != null) "$trailName - Optaget spor Dag $dayNumber" else "$trailName - Optaget vandretur"
+        val title = if (dayNumber != null) {
+            AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_recorded_day_title_fmt, trailName, dayNumber)
+                ?: "$trailName - Optaget spor Dag $dayNumber"
+        } else {
+            AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_recorded_trip_title_fmt, trailName)
+                ?: "$trailName - Optaget vandretur"
+        }
+        val recDesc = AppLocaleHelper.strOrNull(null, com.example.R.string.gpx_recorded_desc)
+            ?: "GPS spor optaget i Dansk Sti appen"
         sb.append("    <name>${escapeXml(title)}</name>\n")
-        sb.append("    <desc>GPS spor optaget i Dansk Sti appen</desc>\n")
+        sb.append("    <desc>${escapeXml(recDesc)}</desc>\n")
         sb.append("    <time>$nowIso</time>\n")
         sb.append("  </metadata>\n\n")
 
@@ -215,9 +253,10 @@ object GpxExporter {
             val stat = dayStats.find { it.dayNumber == day }
             val kmStr = stat?.let { String.format(Locale.US, "%.1f km", it.distanceKm) } ?: ""
             val ascentStr = stat?.let { ", +${it.ascentMeters} m" } ?: ""
+            val trkDayLabel = AppLocaleHelper.strOrNull(null, com.example.R.string.diary_share_day_heading_fmt, day) ?: "Dag $day"
 
             sb.append("  <trk>\n")
-            sb.append("    <name>Dag $day $kmStr$ascentStr</name>\n")
+            sb.append("    <name>$trkDayLabel $kmStr$ascentStr</name>\n")
             sb.append("    <trkseg>\n")
             dayPts.forEach { pt ->
                 val timeIso = dateFormat.format(Date(pt.timestamp))

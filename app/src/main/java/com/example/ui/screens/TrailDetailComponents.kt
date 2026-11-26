@@ -391,7 +391,7 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (spot.detourMeters > 50) "${spot.detourMeters.toInt()} m afstikker" else "Direkte på ruten",
+                        text = if (spot.detourMeters > 50) stringResource(R.string.trail_detail_detour_m_fmt, spot.detourMeters.toInt()) else stringResource(R.string.trail_detail_directly_on_route),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

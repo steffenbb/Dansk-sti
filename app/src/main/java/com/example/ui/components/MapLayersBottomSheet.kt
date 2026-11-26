@@ -627,6 +627,9 @@ fun MapAttributionPill(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(initiallyExpanded) }
+    val dhmCredit = stringResource(R.string.map_credit_dhm_terrain)
+    val osmWaterCredit = stringResource(R.string.map_credit_osm_water)
+    val miljogisCredit = stringResource(R.string.map_credit_miljogis)
     val activeCredits = buildList {
         when (layersState.baseMap) {
             BaseMapType.SKAERMKORT -> add("© Klimadatastyrelsen (Skærmkortet)")
@@ -634,18 +637,19 @@ fun MapAttributionPill(
             BaseMapType.LUFTFOTO -> add("© GeoDanmark Ortofoto / Esri")
         }
         if (layersState.showTerrain) {
-            add("DHM Terræn")
+            add(dhmCredit)
         }
         if (layersState.showWaterLayer) {
-            add("© OSM Vand")
+            add(osmWaterCredit)
         }
         if (layersState.showAccess) {
-            add("MiljøGIS / Fredninger")
+            add(miljogisCredit)
         }
         if (layersState.showShelters || layersState.showFriTeltning) {
             add("GeoFA / Naturstyrelsen")
         }
     }.distinct().joinToString(" · ")
+    val creditsDesc = stringResource(R.string.map_credits_line_fmt, activeCredits)
 
     val containerColor = if (isDarkMode) {
         MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.85f)
@@ -663,7 +667,7 @@ fun MapAttributionPill(
         color = containerColor,
         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
-            .semantics { contentDescription = "Kortkreditter: $activeCredits" }
+            .semantics { contentDescription = creditsDesc }
             .clickable { expanded = !expanded }
     ) {
         Row(

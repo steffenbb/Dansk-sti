@@ -340,7 +340,11 @@ fun RouteBuilderViewModel.routeToPlace(
                     it.copy(
                         mode = PlannerMode.FREE,
                         interactionMode = PlannerInteractionMode.TEGN,
-                        routeName = if (destName.isNotBlank()) "Rute til $destName" else "Ny rute",
+                        routeName = if (destName.isNotBlank()) {
+                            com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_route_to_fmt, destName)
+                        } else {
+                            com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_new_route_default_name)
+                        },
                         waypoints = listOf(destWp),
                         legs = emptyMap(),
                         failedLegs = emptyMap(),
@@ -348,7 +352,7 @@ fun RouteBuilderViewModel.routeToPlace(
                         staleStartLocationMessage = null,
                         plannerSearchQuery = "",
                         plannerSearchResults = com.example.data.remote.GroupedSearchResults(),
-                        errorMessage = "Vælg startpunkt - tryk på kortet"
+                        errorMessage = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_pick_start_tap_map)
                     )
                 }
             }
@@ -390,7 +394,7 @@ internal fun RouteBuilderViewModel.applyRouteToPlaceWithStart(
         lng = startLng,
         role = WaypointRole.START,
         legModeToNext = LegMode.SNAP,
-        name = "Min position"
+        name = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_my_location)
     )
     val endWp = RouteWaypoint(
         lat = destLat,
@@ -419,7 +423,11 @@ internal fun RouteBuilderViewModel.applyRouteToPlaceWithStart(
         it.copy(
             mode = PlannerMode.FREE,
             interactionMode = PlannerInteractionMode.KIG,
-            routeName = if (destName.isNotBlank()) "Rute til $destName" else "Ny rute",
+            routeName = if (destName.isNotBlank()) {
+                com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_route_to_fmt, destName)
+            } else {
+                com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_new_route_default_name)
+            },
             waypoints = listOf(startWp, endWp),
             legs = mapOf(legKey to initialLeg),
             failedLegs = emptyMap(),
@@ -510,7 +518,7 @@ fun RouteBuilderViewModel.reorderWaypoints(fromVisibleIndex: Int, toVisibleIndex
                     descentM = sliced.descentM,
                     pathSharePct = 100.0,
                     roadKm = 0.0,
-                    sourceName = "Vandrerute"
+                    sourceName = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_hiking_route_fallback)
                 )
                 _uiState.update { it.copy(legs = retainedLegs.toMap()) }
             } else {

@@ -51,10 +51,17 @@ enum class BaseMapType(
     }
 }
 
-enum class MapDarkMode(val displayName: String) {
-    FOLLOW_SYSTEM("Følg telefonen"),
-    ALWAYS_LIGHT("Lyst"),
-    ALWAYS_DARK("Mørkt");
+enum class MapDarkMode {
+    FOLLOW_SYSTEM,
+    ALWAYS_LIGHT,
+    ALWAYS_DARK;
+
+    val displayName: String
+        get() = when (this) {
+            FOLLOW_SYSTEM -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_dark_mode_follow_system) ?: "Følg telefonen"
+            ALWAYS_LIGHT -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_dark_mode_light) ?: "Lyst"
+            ALWAYS_DARK -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_dark_mode_dark) ?: "Mørkt"
+        }
 
     val title: String
         get() = displayName
@@ -87,9 +94,15 @@ enum class MapDarkMode(val displayName: String) {
 typealias DarkMapMode = MapDarkMode
 typealias AppAppearanceMode = MapDarkMode
 
-enum class MapThemeOverride(val displayName: String) {
-    LIGHT("Lyst"),
-    DARK("Mørkt");
+enum class MapThemeOverride {
+    LIGHT,
+    DARK;
+
+    val displayName: String
+        get() = when (this) {
+            LIGHT -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_dark_mode_light) ?: "Lyst"
+            DARK -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_dark_mode_dark) ?: "Mørkt"
+        }
 
     val title: String
         get() = displayName

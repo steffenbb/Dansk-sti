@@ -74,15 +74,18 @@ sealed interface RouteLegResult {
     ) : RouteLegResult
 
     data class NoRoute(
-        val message: String = "Ingen rute fundet"
+        val message: String = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.routing_err_no_route)
+            ?: "Ingen rute fundet"
     ) : RouteLegResult
 
     data class Offline(
-        val message: String = "Ingen internetforbindelse"
+        val message: String = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.routing_err_offline)
+            ?: "Ingen internetforbindelse"
     ) : RouteLegResult
 
     data class ServerBusy(
-        val message: String = "Ruteserveren er optaget - prøv igen"
+        val message: String = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.brouter_err_server_busy)
+            ?: "Ruteserveren er optaget - prøv igen"
     ) : RouteLegResult
 
     data class Failure(

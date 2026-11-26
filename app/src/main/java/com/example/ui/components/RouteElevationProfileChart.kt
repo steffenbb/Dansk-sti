@@ -451,9 +451,9 @@ fun RouteElevationProfileChart(
 fun formatScrubbedElevationLabel(
     scrubbedKm: Float,
     ele: Double?,
-    markerFormat: String = "Markør: %1$.1f km · %2$.0f m",
-    unknownMarkerFormat: String = "Markør: %1$.1f km · %2\$s",
-    unknownElevationText: String = "Højde ukendt"
+    markerFormat: String = com.example.util.AppLocaleHelper.strOrNull(null, R.string.elevation_marker_format) ?: "Markør: %1$.1f km · %2$.0f m",
+    unknownMarkerFormat: String = com.example.util.AppLocaleHelper.strOrNull(null, R.string.elevation_marker_unknown_format) ?: "Markør: %1$.1f km · %2\$s",
+    unknownElevationText: String = com.example.util.AppLocaleHelper.strOrNull(null, R.string.elevation_unknown) ?: "Højde ukendt"
 ): String {
     return if (ele != null && ele.isFinite()) {
         String.format(Locale.GERMANY, markerFormat, scrubbedKm, ele)

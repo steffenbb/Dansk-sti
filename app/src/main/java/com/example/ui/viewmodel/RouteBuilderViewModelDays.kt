@@ -502,7 +502,7 @@ fun RouteBuilderViewModel.insertOvernightCandidate(cand: com.example.util.Overni
     computeSingleLeg(newWp, nextWp)
 
     viewModelScope.launch {
-        _userMessage.emit("Overnatning indsat: ${cand.name}")
+        _userMessage.emit(com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_overnight_inserted_fmt, cand.name))
     }
 }
 
@@ -655,8 +655,19 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
         val toWp = dayBoundaryWps.getOrNull(idx + 1)
         val isLastDay = idx == stages.lastIndex
 
-        val fromName = fromWp?.name?.ifBlank { null } ?: if (idx == 0) "Start" else "Dag $idx lejr"
-        val toName = toWp?.name?.ifBlank { null } ?: stage.stopName.ifBlank { if (isLastDay) "Slut" else "Dag ${stage.dayNumber} lejr" }
+        val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
+        val fromName = fromWp?.name?.ifBlank { null } ?: if (idx == 0) {
+            localizedCtx.getString(com.example.R.string.planner_day_start_label)
+        } else {
+            localizedCtx.getString(com.example.R.string.planner_day_camp_fmt, idx)
+        }
+        val toName = toWp?.name?.ifBlank { null } ?: stage.stopName.ifBlank {
+            if (isLastDay) {
+                localizedCtx.getString(com.example.R.string.planner_day_end_label)
+            } else {
+                localizedCtx.getString(com.example.R.string.planner_day_camp_fmt, stage.dayNumber)
+            }
+        }
 
         val detourKm = toWp?.detourCostKm ?: (stage.detourMeters / 1000.0)
         val detourAscent = toWp?.detourAscentM?.roundToInt() ?: 0
@@ -667,18 +678,23 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
         val matchedShelter = corridorShelters.find { it.id == toWp?.linkedPoiId || it.id == stage.spotId }
         val matchedFt = corridorFriTeltning.find { it.id == toWp?.linkedPoiId || it.id == stage.spotId }
 
-        val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
         val overnightTypeLabel = when {
             isLastDay -> localizedCtx.getString(com.example.R.string.day_type_goal)
-            matchedShelter != null || stage.stopType == "SHELTER" || toWp?.spotType == "SHELTER" -> "Shelter"
+            matchedShelter != null || stage.stopType == "SHELTER" || toWp?.spotType == "SHELTER" -> localizedCtx.getString(com.example.R.string.poi_type_shelter)
             matchedFt != null || stage.stopType == "FRI_TELTNING" || toWp?.spotType == "FRI_TELTNING" -> localizedCtx.getString(com.example.R.string.poi_type_free_tent)
             toWp?.role == WaypointRole.OVERNIGHT -> localizedCtx.getString(com.example.R.string.poi_type_overnight)
             else -> localizedCtx.getString(com.example.R.string.day_type_open_end)
         }
         val bookingLabel = when {
             isLastDay -> null
-            matchedShelter != null -> localizedCtx.getString(if (!matchedShelter.bookingUrl.isNullOrBlank() || matchedShelter.bookingRequired) com.example.R.string.poi_booking_required else com.example.R.string.day_booking_free_first_come)
-            matchedFt != null -> "Gratis (1-2-3 reglen)"
+            matchedShelter != null -> when {
+                !matchedShelter.bookingUrl.isNullOrBlank() || matchedShelter.bookingRequired ->
+                    localizedCtx.getString(com.example.R.string.poi_booking_required)
+                matchedShelter.fee == false ->
+                    localizedCtx.getString(com.example.R.string.poi_fac_free)
+                else -> null
+            }
+            matchedFt != null -> localizedCtx.getString(com.example.R.string.planner_free_123_rule)
             stage.bookingRequired || toWp?.bookingRequired == true -> localizedCtx.getString(com.example.R.string.poi_booking_required)
             else -> null
         }
@@ -695,8 +711,14 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
         } else "kl. --:--"
 
         if (stage.isAfterSunset) {
-            val sunsetMsg = "Ankomst ($arrivalTimeStr) er efter solnedgang ($daySunsetTime)"
-            if (dayWarnings.none { it.contains("solnedgang", ignoreCase = true) }) dayWarnings.add(sunsetMsg)
+            val sunsetMsg = localizedCtx.getString(
+                com.example.R.string.planner_arrival_after_sunset_fmt,
+                arrivalTimeStr,
+                daySunsetTime
+            )
+            if (dayWarnings.none { it.contains("solnedgang", ignoreCase = true) || it.contains("sunset", ignoreCase = true) || it.contains("sonnenuntergang", ignoreCase = true) }) {
+                dayWarnings.add(sunsetMsg)
+            }
         }
         state.supplyGapWarnings.forEach { gap ->
             if (gap.endKm > stage.startKm && gap.startKm < stage.endKm && dayWarnings.none { it.contains(gap.displayTitle) }) {

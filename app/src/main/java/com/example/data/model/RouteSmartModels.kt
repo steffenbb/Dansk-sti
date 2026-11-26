@@ -27,13 +27,32 @@ data class SupplyGapWarning(
     val detourLng: Double? = null
 ) {
     val displayTitle: String get() {
-        val label = if (type == SupplyGapType.WATER) "vand" else "mad/butik"
-        return "Intet $label i ${String.format(Locale.US, "%.0f", gapKm)} km (km ${String.format(Locale.US, "%.0f", startKm)}-${String.format(Locale.US, "%.0f", endKm)})"
+        val label = if (type == SupplyGapType.WATER) {
+            com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_supply_word_water) ?: "vand"
+        } else {
+            com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_supply_word_shop) ?: "mad/butik"
+        }
+        val gapStr = String.format(Locale.US, "%.0f", gapKm)
+        val startStr = String.format(Locale.US, "%.0f", startKm)
+        val endStr = String.format(Locale.US, "%.0f", endKm)
+        return com.example.util.AppLocaleHelper.strOrNull(
+            null,
+            com.example.R.string.smart_supply_gap_title_fmt,
+            label,
+            gapStr,
+            startStr,
+            endStr
+        ) ?: "Intet $label i $gapStr km (km $startStr-$endStr)"
     }
 
     val detourOptionText: String? get() {
         if (!nearestDetourName.isNullOrBlank() && detourExtraMeters != null) {
-            return "Nærmeste omvej: $nearestDetourName (+${detourExtraMeters.toInt()} m)"
+            return com.example.util.AppLocaleHelper.strOrNull(
+                null,
+                com.example.R.string.smart_supply_detour_option_fmt,
+                nearestDetourName,
+                detourExtraMeters.toInt()
+            ) ?: "Nærmeste omvej: $nearestDetourName (+${detourExtraMeters.toInt()} m)"
         }
         return null
     }
@@ -84,11 +103,19 @@ data class WaypointWeatherEta(
 /**
  * Phase 12 Feature 4: Rute til nærmeste categories.
  */
-enum class NearestPoiCategory(val label: String, val icon: String) {
-    SHELTER("Shelter", "⛺"),
-    WATER("Vandpost", "💧"),
-    TOILET("Toilet", "🚻"),
-    SHOP("Butik", "🛒")
+enum class NearestPoiCategory(val icon: String) {
+    SHELTER("⛺"),
+    WATER("💧"),
+    TOILET("🚻"),
+    SHOP("🛒");
+
+    val label: String
+        get() = when (this) {
+            SHELTER -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_poi_cat_shelter) ?: "Shelter"
+            WATER -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_poi_cat_water) ?: "Vandpost"
+            TOILET -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_poi_cat_toilet) ?: "Toilet"
+            SHOP -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.smart_poi_cat_shop) ?: "Butik"
+        }
 }
 
 /**
@@ -119,8 +146,19 @@ data class RoadSectionWarning(
     val startLat: Double,
     val startLng: Double
 ) {
-    val displayText: String get() =
-        "Vej uden fortov: ${String.format(Locale.US, "%.1f", lengthKm)} km (km ${String.format(Locale.US, "%.1f", startKm)}-${String.format(Locale.US, "%.1f", endKm)}) · $roadName"
+    val displayText: String get() {
+        val lenStr = String.format(Locale.US, "%.1f", lengthKm)
+        val startStr = String.format(Locale.US, "%.1f", startKm)
+        val endStr = String.format(Locale.US, "%.1f", endKm)
+        return com.example.util.AppLocaleHelper.strOrNull(
+            null,
+            com.example.R.string.smart_road_no_sidewalk_warning_fmt,
+            lenStr,
+            startStr,
+            endStr,
+            roadName
+        ) ?: "Vej uden fortov: $lenStr km (km $startStr-$endStr) · $roadName"
+    }
 }
 
 /**

@@ -128,16 +128,17 @@ class RouteBuilderViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun enablePickAnotherStart() {
+        val msg = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_pick_start_tap_map)
         _uiState.update {
             it.copy(
                 interactionMode = PlannerInteractionMode.TEGN,
                 waitingForStartPointTap = true,
                 staleStartLocationMessage = null,
-                errorMessage = "Vælg startpunkt - tryk på kortet"
+                errorMessage = msg
             )
         }
         viewModelScope.launch {
-            _userMessage.emit("Vælg startpunkt - tryk på kortet")
+            _userMessage.emit(msg)
         }
     }
 
@@ -326,18 +327,24 @@ class RouteBuilderViewModel(application: Application) : AndroidViewModel(applica
         }
 
         if (effDestLat != null && effDestLng != null) {
+            val myLocName = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_my_location)
+            val pickStartMsg = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_pick_start_tap_map)
+            val defaultRouteName = effDestName?.let { n ->
+                com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_route_to_fmt, n)
+            } ?: com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_new_route_default_name)
+
             if (effDestName == "LOOP_FROM_HERE") {
                 val startWp = RouteWaypoint(
                     lat = effDestLat,
                     lng = effDestLng,
                     role = WaypointRole.START,
                     legModeToNext = LegMode.SNAP,
-                    name = "Min position"
+                    name = myLocName
                 )
                 _uiState.update {
                     it.copy(
                         mode = PlannerMode.FREE,
-                        routeName = "Rundtur",
+                        routeName = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_btn_rundtur),
                         waypoints = listOf(startWp),
                         currentGpsPosition = LatLng(effDestLat, effDestLng),
                         staleStartLocationMessage = computedStaleMessage,
@@ -359,12 +366,12 @@ class RouteBuilderViewModel(application: Application) : AndroidViewModel(applica
                     lng = effGpsLng,
                     role = WaypointRole.START,
                     legModeToNext = LegMode.SNAP,
-                    name = "Min position"
+                    name = myLocName
                 )
                 _uiState.update {
                     it.copy(
                         mode = PlannerMode.FREE,
-                        routeName = effDestName?.let { n -> "Rute til $n" } ?: "Ny rute",
+                        routeName = defaultRouteName,
                         waypoints = listOf(startWp, destWp),
                         legs = emptyMap(),
                         failedLegs = emptyMap(),
@@ -384,12 +391,12 @@ class RouteBuilderViewModel(application: Application) : AndroidViewModel(applica
                             lng = loc.longitude,
                             role = WaypointRole.START,
                             legModeToNext = LegMode.SNAP,
-                            name = "Min position"
+                            name = myLocName
                         )
                         _uiState.update {
                             it.copy(
                                 mode = PlannerMode.FREE,
-                                routeName = effDestName?.let { n -> "Rute til $n" } ?: "Ny rute",
+                                routeName = defaultRouteName,
                                 waypoints = listOf(startWp, destWp),
                                 legs = emptyMap(),
                                 failedLegs = emptyMap(),
@@ -404,33 +411,33 @@ class RouteBuilderViewModel(application: Application) : AndroidViewModel(applica
                         _uiState.update {
                             it.copy(
                                 mode = PlannerMode.FREE,
-                                routeName = effDestName?.let { n -> "Rute til $n" } ?: "Ny rute",
+                                routeName = defaultRouteName,
                                 waypoints = listOf(destWp),
                                 legs = emptyMap(),
                                 failedLegs = emptyMap(),
                                 waitingForStartPointTap = true,
                                 staleStartLocationMessage = null,
-                                errorMessage = "Vælg startpunkt - tryk på kortet"
+                                errorMessage = pickStartMsg
                             )
                         }
-                        _userMessage.emit("Vælg startpunkt - tryk på kortet")
+                        _userMessage.emit(pickStartMsg)
                     }
                 }
             } else {
                 _uiState.update {
                     it.copy(
                         mode = PlannerMode.FREE,
-                        routeName = effDestName?.let { n -> "Rute til $n" } ?: "Ny rute",
+                        routeName = defaultRouteName,
                         waypoints = listOf(destWp),
                         legs = emptyMap(),
                         failedLegs = emptyMap(),
                         waitingForStartPointTap = true,
                         staleStartLocationMessage = null,
-                        errorMessage = "Vælg startpunkt - tryk på kortet"
+                        errorMessage = pickStartMsg
                     )
                 }
                 viewModelScope.launch {
-                    _userMessage.emit("Vælg startpunkt - tryk på kortet")
+                    _userMessage.emit(pickStartMsg)
                 }
             }
         } else if (effGpsLat == null && effGpsLng == null && customLocationResolver != null) {
@@ -499,7 +506,7 @@ class RouteBuilderViewModel(application: Application) : AndroidViewModel(applica
                     it.copy(
                         isDownloadingTrailGeometry = false,
                         trailGeometryDownloadFailed = true,
-                        errorMessage = "Ruten kunne ikke hentes"
+                        errorMessage = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_route_fetch_failed)
                     )
                 }
                 return@launch
@@ -554,7 +561,7 @@ class RouteBuilderViewModel(application: Application) : AndroidViewModel(applica
                         legs = emptyMap(),
                         isDownloadingTrailGeometry = false,
                         trailGeometryDownloadFailed = true,
-                        errorMessage = "Ruten kunne ikke hentes"
+                        errorMessage = com.example.util.AppLocaleHelper.str(getApplication(), com.example.R.string.planner_route_fetch_failed)
                     )
                 }
                 return@launch

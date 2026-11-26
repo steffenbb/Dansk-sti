@@ -132,7 +132,7 @@ fun RouteBuilderScreen(
                     viewModel.importGpx(stream)
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Fejl ved åbning af fil: ${com.example.util.userMessageFor(e)}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, context.getString(R.string.toast_could_not_read_file, com.example.util.userMessageFor(e)), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -154,7 +154,7 @@ fun RouteBuilderScreen(
                     customWpPhotoPath = photoFile.absolutePath
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Kunne ikke gemme foto: ${com.example.util.userMessageFor(e)}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.toast_could_not_save_photo, com.example.util.userMessageFor(e)), Toast.LENGTH_SHORT).show()
             }
         } else if (!path.isNullOrBlank()) {
             runCatching { File(path).delete() }
@@ -175,7 +175,7 @@ fun RouteBuilderScreen(
                     customWpPhotoPath = photoFile.absolutePath
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Kunne ikke indlæse foto: ${com.example.util.userMessageFor(e)}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.toast_could_not_load_photo, com.example.util.userMessageFor(e)), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -309,10 +309,10 @@ fun RouteBuilderScreen(
     val openSaveDialogLambda = {
         renameRouteName = uiState.routeName.ifBlank {
             if (uiState.mode == PlannerMode.TRAIL) {
-                uiState.baseTrail?.name ?: "Turplan"
+                uiState.baseTrail?.name ?: context.getString(R.string.planner_my_route_default)
             } else {
-                val s = visibleWaypoints.firstOrNull()?.name ?: "Start"
-                val e = visibleWaypoints.lastOrNull()?.name ?: "Slut"
+                val s = visibleWaypoints.firstOrNull()?.name ?: context.getString(R.string.planner_day_start_label)
+                val e = visibleWaypoints.lastOrNull()?.name ?: context.getString(R.string.planner_day_end_label)
                 "$s - $e"
             }
         }
@@ -357,7 +357,7 @@ fun RouteBuilderScreen(
                 onSetShowPlannerMenu = { showPlannerMenu = it },
                 onOpenRenameDialog = {
                     renameRouteName = uiState.routeName.ifBlank {
-                        if (uiState.mode == PlannerMode.TRAIL) uiState.baseTrail?.name ?: "Vandrerute" else "Min rute"
+                        if (uiState.mode == PlannerMode.TRAIL) uiState.baseTrail?.name ?: context.getString(R.string.planner_my_route_default) else context.getString(R.string.planner_my_route_default)
                     }
                     showRenameDialog = true
                 },
@@ -473,7 +473,7 @@ fun RouteBuilderScreen(
                                     viewModel.setCurrentPosition(lastLoc.latitude, lastLoc.longitude)
                                     mapViewInstance?.controller?.animateTo(GeoPoint(lastLoc.latitude, lastLoc.longitude), 14.5, 500L)
                                 } else {
-                                    Toast.makeText(context, "GPS-position ikke tilgængelig", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.toast_gps_unavailable), Toast.LENGTH_SHORT).show()
                                 }
                             }
                         },
@@ -666,7 +666,7 @@ fun RouteBuilderScreen(
                                 if (center != null && (center.latitude != 0.0 || center.longitude != 0.0)) {
                                     viewModel.openAddCustomWaypointDialog(center.latitude, center.longitude)
                                 } else {
-                                    Toast.makeText(context, "Kortposition ikke klar endnu", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.toast_map_position_not_ready), Toast.LENGTH_SHORT).show()
                                 }
                             },
                             containerColor = MaterialTheme.colorScheme.surface,
@@ -774,7 +774,7 @@ fun RouteBuilderScreen(
                         pendingCameraPhotoPath = photoFile.absolutePath
                         cameraPhotoLauncher.launch(photoUri)
                     } catch (e: Exception) {
-                        Toast.makeText(context, "Kunne ikke åbne kamera: ${com.example.util.userMessageFor(e)}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.toast_could_not_open_camera, com.example.util.userMessageFor(e)), Toast.LENGTH_SHORT).show()
                     }
                 }, onLaunchGallery = { galleryPhotoLauncher.launch("image/*") },
                 availableHeightDp = availableHeightDp
