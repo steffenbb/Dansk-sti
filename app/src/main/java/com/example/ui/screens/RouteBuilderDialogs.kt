@@ -464,6 +464,20 @@ internal fun RouteBuilderBasicDialogs(
             modifier = Modifier.testTag("planner_draft_restore_dialog")
         )
     }
+
+    if (uiState.showPackingListSheet && uiState.existingPlanId != null) {
+        com.example.ui.components.PackingListModalSheet(
+            planName = uiState.routeName.ifBlank { uiState.baseTrail?.name.orEmpty() },
+            items = uiState.planGearItems,
+            otherPlans = uiState.otherTripPlans,
+            onToggleItem = { updated -> viewModel.togglePlanGearItem(updated) },
+            onAddItem = { cat, title, weight -> viewModel.addPlanGearItem(cat, title, weight) },
+            onEditItem = { updated -> viewModel.togglePlanGearItem(updated) },
+            onDeleteItem = { target -> viewModel.deletePlanGearItem(target) },
+            onCopyFromPlan = { sourcePlanId -> viewModel.copyPlanGearFromPlan(sourcePlanId) },
+            onDismiss = { viewModel.dismissPackingListSheet() }
+        )
+    }
 }
 
 @Composable

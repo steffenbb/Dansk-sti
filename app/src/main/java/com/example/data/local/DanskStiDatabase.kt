@@ -807,7 +807,6 @@ abstract class DanskStiDatabase : RoomDatabase() {
         private var lastAppContextRef: java.lang.ref.WeakReference<Context>? = null
 
         fun resetInstance() {
-            com.example.DanskStiApp.cancelAllViewModelScopes()
             com.example.DanskStiApp.cancelActiveInitJob()
             synchronized(this) {
                 runCatching { INSTANCE?.close() }

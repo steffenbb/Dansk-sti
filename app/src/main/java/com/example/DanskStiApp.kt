@@ -52,10 +52,6 @@ class DanskStiApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        cancelAllViewModelScopes()
-        com.example.ui.viewmodel.RouteBuilderViewModel.cancelActiveJobs()
-        com.example.ui.viewmodel.NavigationViewModel.clearActiveInstance()
-        com.example.util.AppLocaleHelper.ensureDefaultLocaleIfUnconfigured(this)
         com.example.data.remote.OverpassClient.init(this)
 
         migrateLegacyWaypointPhotosFiles()
@@ -197,47 +193,48 @@ class DanskStiApp : Application() {
 
     fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(this)
             val channel = NotificationChannel(
                 CHANNEL_NAVIGATION_ID,
-                "Dansk Sti Navigation",
+                localizedCtx.getString(R.string.notif_channel_navigation_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Live hiking navigation stats and route tracking"
+                description = localizedCtx.getString(R.string.notif_channel_navigation_desc)
             }
             val alertChannel = NotificationChannel(
                 CHANNEL_ALERTS_ID,
-                "Dansk Sti Trail Alerts",
+                localizedCtx.getString(R.string.notif_channel_alerts_name),
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Alerts when deviating from the hiking trail"
+                description = localizedCtx.getString(R.string.notif_channel_alerts_desc)
                 enableVibration(true)
             }
             val turnLeftChannel = NotificationChannel(
                 CHANNEL_TURN_CUE_LEFT_ID,
-                "Dansk Sti Sving til venstre",
+                localizedCtx.getString(R.string.notif_channel_turn_left_name),
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Turn-cue alerts for left turns"
+                description = localizedCtx.getString(R.string.notif_channel_turn_left_desc)
                 setSound(null, null)
                 enableVibration(true)
                 vibrationPattern = com.example.service.NavigationTrackingService.VIBRATION_PATTERN_LEFT
             }
             val turnRightChannel = NotificationChannel(
                 CHANNEL_TURN_CUE_RIGHT_ID,
-                "Dansk Sti Sving til højre",
+                localizedCtx.getString(R.string.notif_channel_turn_right_name),
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Turn-cue alerts for right turns"
+                description = localizedCtx.getString(R.string.notif_channel_turn_right_desc)
                 setSound(null, null)
                 enableVibration(true)
                 vibrationPattern = com.example.service.NavigationTrackingService.VIBRATION_PATTERN_RIGHT
             }
             val turnOtherChannel = NotificationChannel(
                 CHANNEL_TURN_CUE_OTHER_ID,
-                "Dansk Sti Sving og retning",
+                localizedCtx.getString(R.string.notif_channel_turn_other_name),
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Turn-cue alerts for straight or U-turn cues"
+                description = localizedCtx.getString(R.string.notif_channel_turn_other_desc)
                 setSound(null, null)
                 enableVibration(true)
                 vibrationPattern = com.example.service.NavigationTrackingService.VIBRATION_PATTERN_OTHER
@@ -265,23 +262,6 @@ class DanskStiApp : Application() {
 
         @Volatile
         private var activeInitJob: kotlinx.coroutines.Job? = null
-
-        private val activeViewModelScopes =
-            java.util.concurrent.CopyOnWriteArrayList<CoroutineScope>()
-
-        fun registerViewModelScope(scope: CoroutineScope) {
-            activeViewModelScopes.add(scope)
-        }
-
-        fun cancelAllViewModelScopes() {
-            val scopes = activeViewModelScopes.toList()
-            activeViewModelScopes.clear()
-            for (scope in scopes) {
-                runCatching {
-                    scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
-                }
-            }
-        }
 
         fun cancelActiveInitJob() {
             activeInitJob?.cancel()

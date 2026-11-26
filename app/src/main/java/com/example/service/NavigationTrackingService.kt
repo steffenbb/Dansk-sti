@@ -1186,7 +1186,12 @@ class NavigationTrackingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val distInt = distanceMeters.toInt().coerceAtLeast(1)
-        val title = "${cue.instructionText} om $distInt m"
+        val instruction = com.example.util.routing.TurnCueGenerator.localizedInstructionForDirection(
+            cue.direction,
+            localizedCtx,
+            cue.instructionText
+        )
+        val title = localizedCtx.getString(com.example.R.string.turn_cue_in_meters_fmt, instruction, distInt)
         val trailTitle = currentPlannedRoute?.trailName?.takeIf { it.isNotBlank() }
             ?: localizedCtx.getString(com.example.R.string.app_name)
         return NotificationCompat.Builder(this, channelId)
@@ -1365,7 +1370,8 @@ class NavigationTrackingService : Service() {
         } else {
             localizedCtx.getString(com.example.R.string.notif_nav_next_camp_only, stageName)
         }
-        val content = if (isPaused) "Sat på pause • $baseContent" else baseContent
+        val pausedPrefix = localizedCtx.getString(com.example.R.string.notif_nav_paused_prefix)
+        val content = if (isPaused) "$pausedPrefix • $baseContent" else baseContent
         return title to content
     }
 
@@ -1388,7 +1394,7 @@ class NavigationTrackingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val title = localizedCtx.getString(com.example.R.string.notif_nav_off_route_title, offRouteMeters.toInt())
-        val text = "Du er uden for ruten. Tjek kortet eller vælg 'Jeg tager en omvej'."
+        val text = localizedCtx.getString(com.example.R.string.notif_nav_off_route_body)
         return NotificationCompat.Builder(this, DanskStiApp.CHANNEL_ALERTS_ID)
             .setContentTitle(title)
             .setContentText(text)
@@ -1401,7 +1407,7 @@ class NavigationTrackingService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(
                 com.example.R.drawable.ic_notif_detour,
-                "Jeg tager en omvej",
+                localizedCtx.getString(com.example.R.string.nav_taking_detour),
                 detourPending
             )
             .build()
@@ -1707,9 +1713,9 @@ class NavigationTrackingService : Service() {
         const val TURN_CUE_NOTIFICATION_ID = 4043
 
         // Part B4 distinct vibration patterns
-        val VIBRATION_PATTERN_LEFT: LongArray = longArrayOf(0, 120, 90, 120)
-        val VIBRATION_PATTERN_RIGHT: LongArray = longArrayOf(0, 320)
-        val VIBRATION_PATTERN_OTHER: LongArray = longArrayOf(0, 180, 120, 180)
+        val VIBRATION_PATTERN_LEFT: LongArray = longArrayOf(0, 150, 120, 150)
+        val VIBRATION_PATTERN_RIGHT: LongArray = longArrayOf(0, 150, 120, 150, 120, 150)
+        val VIBRATION_PATTERN_OTHER: LongArray = longArrayOf(0, 400)
         val VIBRATION_PATTERN_OFF_ROUTE: LongArray = longArrayOf(0, 400, 150, 400, 150, 400)
 
         fun vibrationPatternForTurnDirection(direction: String): LongArray {

@@ -40,7 +40,7 @@ import java.util.Calendar
 import java.util.TimeZone
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = DanskStiApp::class)
+@Config(sdk = [34], application = DanskStiApp::class, qualifiers = "da")
 class FixRound11Test {
 
     @get:Rule

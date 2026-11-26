@@ -70,7 +70,7 @@ import org.robolectric.annotation.Config
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = DanskStiApp::class)
+@Config(sdk = [34], application = DanskStiApp::class, qualifiers = "da")
 class FixRound10CTest {
 
     @get:Rule

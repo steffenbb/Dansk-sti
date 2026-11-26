@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = DanskStiApp::class)
+@Config(sdk = [34], application = DanskStiApp::class, qualifiers = "da")
 class FixRound18Test {
 
     @Before

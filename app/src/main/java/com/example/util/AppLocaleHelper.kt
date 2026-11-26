@@ -29,37 +29,8 @@ enum class AppLanguageOption(val languageTag: String) {
 object AppLocaleHelper {
     val DEFAULT_DANISH_LOCALE: Locale = Locale("da", "DK")
 
-    fun ensureDefaultLocaleIfUnconfigured(context: Context) {
-        val currentDefault = Locale.getDefault()
-        // If JVM/system default is generic English (e.g. en_US in JVM test runners) and no per-app locale was chosen,
-        // ensure the app's base Danish locale is active so resources resolve to default values/strings.xml (Danish).
-        var hasExplicitAppLocale = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            runCatching {
-                val lm = context.getSystemService(LocaleManager::class.java)
-                val appLocales = lm?.applicationLocales
-                if (appLocales != null && !appLocales.isEmpty) {
-                    hasExplicitAppLocale = true
-                }
-            }
-        }
-        val isDefaultEnUs = currentDefault.language == "en" && currentDefault.country == "US"
-        val isCountrylessDa = currentDefault.language == "da" && currentDefault.country.isEmpty()
-        if (!hasExplicitAppLocale && (isDefaultEnUs || isCountrylessDa)) {
-            Locale.setDefault(DEFAULT_DANISH_LOCALE)
-            runCatching {
-                val res = context.resources
-                val config = Configuration(res.configuration)
-                config.setLocale(DEFAULT_DANISH_LOCALE)
-                config.setLocales(LocaleList(DEFAULT_DANISH_LOCALE))
-                @Suppress("DEPRECATION")
-                res.updateConfiguration(config, res.displayMetrics)
-            }
-        }
-    }
-
     fun getAppLocale(context: Context?): Locale {
-        if (context == null) return DEFAULT_DANISH_LOCALE
+        if (context == null) return Locale.getDefault() ?: DEFAULT_DANISH_LOCALE
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             runCatching {
                 val lm = context.getSystemService(LocaleManager::class.java)
@@ -71,18 +42,9 @@ object AppLocaleHelper {
         }
         val configLocales = context.resources?.configuration?.locales
         if (configLocales != null && !configLocales.isEmpty) {
-            configLocales[0]?.let { loc ->
-                if (loc.language == "en" && loc.country == "US") {
-                    return DEFAULT_DANISH_LOCALE
-                }
-                return loc
-            }
+            configLocales[0]?.let { return it }
         }
-        val def = Locale.getDefault()
-        if (def != null && !(def.language == "en" && def.country == "US")) {
-            return def
-        }
-        return DEFAULT_DANISH_LOCALE
+        return Locale.getDefault() ?: DEFAULT_DANISH_LOCALE
     }
 
     fun getCurrentLocale(context: Context?): Locale = getAppLocale(context)

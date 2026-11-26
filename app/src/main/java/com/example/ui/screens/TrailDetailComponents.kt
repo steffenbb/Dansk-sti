@@ -438,7 +438,11 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                     } else {
                         "https://udinaturen.dk/soeg?q=${Uri.encode(spot.name)}"
                     }
-                    val buttonLabel = if (!spot.bookingUrl.isNullOrBlank()) "Åbn booking" else "Book via udinaturen.dk"
+                    val buttonLabel = if (!spot.bookingUrl.isNullOrBlank()) {
+                        stringResource(R.string.trail_detail_open_booking)
+                    } else {
+                        stringResource(R.string.trail_detail_book_via_udinaturen)
+                    }
 
                     OutlinedButton(
                         onClick = {
@@ -446,9 +450,9 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
                                 context.startActivity(intent)
                             } catch (_: ActivityNotFoundException) {
-                                Toast.makeText(context, "Ingen app fundet til at åbne linket", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.error_no_app_to_open_link), Toast.LENGTH_SHORT).show()
                             } catch (e: Exception) {
-                                Toast.makeText(context, "Ingen app fundet til at åbne linket", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.error_no_app_to_open_link), Toast.LENGTH_SHORT).show()
                             }
                         },
                         shape = RoundedCornerShape(12.dp),
@@ -517,7 +521,7 @@ fun PoiItemCard(
                 }
                 if (poi.isPotentiallyClosed) {
                     Text(
-                        text = "Kan være lukket (vinterlukket)",
+                        text = stringResource(R.string.poi_seasonal_may_be_closed),
                         style = MaterialTheme.typography.labelSmall,
                         color = DanskStiTheme.colors.warning,
                         fontWeight = FontWeight.SemiBold,
@@ -578,9 +582,9 @@ fun WeatherForecastCard(
                 if (weather != null) {
                     val stale = weather.isStale()
                     val statusText = if (stale) {
-                        "Opdateret kl. ${weather.formatUpdatedClock()} (kan være forældet)"
+                        stringResource(R.string.weather_updated_at_stale_fmt, weather.formatUpdatedClock())
                     } else {
-                        "Opdateret kl. ${weather.formatUpdatedClock()}"
+                        stringResource(R.string.weather_updated_at_fmt, weather.formatUpdatedClock())
                     }
                     Text(
                         text = statusText,
@@ -635,7 +639,7 @@ fun WeatherForecastCard(
                     }
 
                     Text(
-                        text = weather.conditionDescription ?: "Skyet",
+                        text = weather.conditionDescription ?: stringResource(R.string.weather_cond_overcast),
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
@@ -645,7 +649,7 @@ fun WeatherForecastCard(
                 if (weather.blocks24h.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "Næste 24 timer (3-timers blokke)",
+                        text = stringResource(R.string.weather_next_24h_blocks_title),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

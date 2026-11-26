@@ -58,7 +58,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "da")
 class FixRound3Part4UiRevampTest {
 
     @get:Rule

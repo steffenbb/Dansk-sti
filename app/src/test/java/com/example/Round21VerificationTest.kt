@@ -6,14 +6,23 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Vibrator
 import android.widget.TextView
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.unit.Density
 import androidx.room.Room
+import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import com.example.data.local.DanskStiDao
 import com.example.data.local.DanskStiDatabase
 import com.example.data.model.FriTeltningEntity
@@ -78,11 +87,19 @@ import java.net.URL
 import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "da")
 class Round21VerificationTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    @get:Rule
+    val migrationHelper: MigrationTestHelper = MigrationTestHelper(
+        InstrumentationRegistry.getInstrumentation(),
+        DanskStiDatabase::class.java,
+        emptyList(),
+        FrameworkSQLiteOpenHelperFactory()
+    )
 
     private lateinit var context: Context
     private lateinit var db: DanskStiDatabase
@@ -411,7 +428,7 @@ class Round21VerificationTest {
             infoUrl = "https://naturstyrelsen.dk/shelter-info"
         )
 
-        val sheetData = PoiInfoSheetData.fromShelter(unknownShelter)
+        val sheetData = PoiInfoSheetData.fromShelter(unknownShelter, context)
         assertEquals(listOf("Faciliteter ikke oplyst"), sheetData.facilities)
         assertFalse(sheetData.facilities.any { it.contains("Gratis", ignoreCase = true) })
 
@@ -507,6 +524,7 @@ class Round21VerificationTest {
     @Test
     fun partB3_trailPhotoRepository_usesAppUserAgentOnCommonsRequests() = runBlocking {
         val capturedUserAgents = mutableListOf<String>()
+        val capturedUrls = mutableListOf<String>()
         val repo = TrailPhotoRepository(context)
         val sampleJson = """
             {
@@ -531,9 +549,10 @@ class Round21VerificationTest {
             }
         """.trimIndent()
 
-        val photos = repo.fetchCommonsPhotosForQuery(
-            queryTitle = "Hærvejen",
+        val photos = repo.fetchCommonsPhotosForTitles(
+            fileTitles = listOf("File:Haervejen.jpg"),
             connectionFactory = { url: URL ->
+                capturedUrls.add(url.toString())
                 object : HttpURLConnection(url) {
                     override fun connect() {}
                     override fun disconnect() {}
@@ -553,9 +572,10 @@ class Round21VerificationTest {
         assertEquals("Hans Jensen", photos[0].author)
         assertEquals("CC BY-SA 4.0", photos[0].license)
         assertTrue(
-            "Commons request must use TrailPhotoRepository.APP_USER_AGENT",
-            capturedUserAgents.isNotEmpty() && capturedUserAgents.all { it == TrailPhotoRepository.APP_USER_AGENT }
+            "Commons request must use NetworkConstants.USER_AGENT",
+            capturedUserAgents.isNotEmpty() && capturedUserAgents.all { it == com.example.util.network.NetworkConstants.USER_AGENT }
         )
+        assertTrue("Commons URL must use titles= and never generator=search", capturedUrls.single().contains("titles=") && !capturedUrls.single().contains("generator=search"))
     }
 
     @Test
@@ -565,6 +585,9 @@ class Round21VerificationTest {
         val other = NavigationTrackingService.VIBRATION_PATTERN_OTHER
         val offRoute = NavigationTrackingService.VIBRATION_PATTERN_OFF_ROUTE
 
+        assertArrayEquals(longArrayOf(0L, 150L, 120L, 150L), left)
+        assertArrayEquals(longArrayOf(0L, 150L, 120L, 150L, 120L, 150L), right)
+        assertArrayEquals(longArrayOf(0L, 400L), other)
         assertFalse("Left and right patterns must differ", left.contentEquals(right))
         assertFalse("Left and other patterns must differ", left.contentEquals(other))
         assertFalse("Right and other patterns must differ", right.contentEquals(other))
@@ -834,6 +857,8 @@ class Round21VerificationTest {
 
     @Test
     fun partE1_weatherRainAlertAndNavigationRefreshThrottle_respects60MinAnd5KmAnd1MmThreshold() {
+        val cphZone = java.time.ZoneId.of("Europe/Copenhagen")
+        val now1219Ms = java.time.LocalDateTime.parse("2026-07-10T12:19:00").atZone(cphZone).toInstant().toEpochMilli()
         val hourlyPoints = listOf(
             HourlyForecastPoint(
                 isoTime = "2026-07-10T12:00",
@@ -864,17 +889,17 @@ class Round21VerificationTest {
         val rainPoint = WeatherInterpreter.shouldPostRainAlert(
             rainAlertEnabled = true,
             lastAlertAtMs = 0L,
-            nowMs = 1_000_000L,
+            nowMs = now1219Ms,
             hourlyPoints = hourlyPoints
         )
-        assertNotNull("1.4 mm/h in next 2 hours must trigger rain alert", rainPoint)
+        assertNotNull("1.4 mm/h starting within 60 min must trigger rain alert", rainPoint)
         assertEquals("13:00", rainPoint!!.hourLabel)
 
         // Throttled within 3 hours
         val throttled = WeatherInterpreter.shouldPostRainAlert(
             rainAlertEnabled = true,
-            lastAlertAtMs = 1_000_000L,
-            nowMs = 1_000_000L + 60 * 60_000L,
+            lastAlertAtMs = now1219Ms,
+            nowMs = now1219Ms + 30 * 60_000L,
             hourlyPoints = hourlyPoints
         )
         assertNull("Rain alert must not re-fire within 3 hours", throttled)
@@ -1198,4 +1223,835 @@ class Round21VerificationTest {
         assertEquals("No turn-cue notification must be posted when watch setting is OFF", notifBeforeOff, service.turnCueNotificationPostCount)
         assertEquals("Service Vibrator must be triggered once when watch setting is OFF", vibBeforeOff + 1, service.serviceTurnCueVibrationCount)
     }
+
+    // =========================================================================
+    // ROUND 21 REVIEW — Specific Verification Tests (Items 1–11)
+    // =========================================================================
+
+    @Test
+    fun reviewItem1_fetchTileBytes_rejects200WithXmlContentType_andAerialStoresOnlyUnderLuftfotoName() = runBlocking {
+        // 1. Fake server returning 200 with Content-Type application/vnd.ogc.se_xml stores nothing
+        val xmlBytes = "<ServiceExceptionReport>Error</ServiceExceptionReport>".toByteArray(Charsets.UTF_8)
+        val xmlResult = com.example.service.OfflineDownloadWorker.fetchTileBytesFromUrl(
+            tileUrlStr = "https://api.dataforsyningen.dk/orto_foraar_DAF?SERVICE=WMS",
+            connectionFactory = { url ->
+                object : HttpURLConnection(url) {
+                    override fun connect() {}
+                    override fun disconnect() {}
+                    override fun usingProxy(): Boolean = false
+                    override fun getResponseCode(): Int = 200
+                    override fun getContentType(): String = "application/vnd.ogc.se_xml; charset=UTF-8"
+                    override fun getInputStream() = ByteArrayInputStream(xmlBytes)
+                }
+            }
+        )
+        assertNull("HTTP 200 with application/vnd.ogc.se_xml must return null and not store tile bytes", xmlResult)
+
+        // 2. Aerial download stores tiles only under luftfotoInstance.name() (and base topo under skaermkortInstance.name())
+        val areaId = "area:test_aerial_only_${System.nanoTime()}"
+        val archiveFile = OfflineDownloadManager.getOfflineArchiveFile(context, areaId)
+        val fakePng = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        OfflineDownloadManager.networkStatusProviderOverride = { true to true }
+        OfflineDownloadManager.freeBytesProviderOverride = { 500L * 1024L * 1024L }
+        try {
+            val result = com.example.service.OfflineDownloadWorker.executeDownload(
+                context = context,
+                trailId = areaId,
+                trailName = "Test Luftfoto",
+                wifiOnly = false,
+                includeAerial = true,
+                includeTerrain = false,
+                areaMinLat = 56.100,
+                areaMaxLat = 56.102,
+                areaMinLng = 9.500,
+                areaMaxLng = 9.502,
+                connectionFactory = { url ->
+                    object : HttpURLConnection(url) {
+                        override fun connect() {}
+                        override fun disconnect() {}
+                        override fun usingProxy(): Boolean = false
+                        override fun getResponseCode(): Int = 200
+                        override fun getContentType(): String = "image/png"
+                        override fun getInputStream() = ByteArrayInputStream(fakePng)
+                    }
+                }
+            )
+            assertTrue("executeDownload must return Result.Success (actual=$result)", result is androidx.work.ListenableWorker.Result.Success)
+            assertTrue("Archive file must exist after aerial area download", archiveFile.exists())
+
+            val providers = mutableSetOf<String>()
+            android.database.sqlite.SQLiteDatabase.openDatabase(
+                archiveFile.absolutePath,
+                null,
+                android.database.sqlite.SQLiteDatabase.OPEN_READONLY
+            ).use { sqlDb ->
+                sqlDb.rawQuery("SELECT DISTINCT provider FROM tiles", null).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        providers.add(cursor.getString(0))
+                    }
+                }
+            }
+            assertTrue(
+                "Aerial tiles must be stored under luftfotoInstance.name()",
+                providers.contains(DanskStiTileSourceHelper.luftfotoInstance.name())
+            )
+            assertEquals(
+                "Only base topo and luftfotoInstance.name() must be present",
+                setOf(DanskStiTileSourceHelper.skaermkortInstance.name(), DanskStiTileSourceHelper.luftfotoInstance.name()),
+                providers
+            )
+        } finally {
+            OfflineDownloadManager.networkStatusProviderOverride = null
+            OfflineDownloadManager.freeBytesProviderOverride = null
+            archiveFile.delete()
+        }
+    }
+
+    @Test
+    fun reviewItem2_weatherRefresh_forcesNetworkInSameCellAfter61Min_dropsPastHours_andChecks60MinRainWindow() = runBlocking {
+        // 1. Same 0.05° cell + 61 min -> forceNetworkRefresh = true calls network even when cached entry is < 3h old
+        val sampleResponseJson = """
+            {
+              "current": {
+                "temperature_2m": 16.0,
+                "precipitation": 0.0,
+                "wind_speed_10m": 4.0,
+                "wind_gusts_10m": 7.0,
+                "weather_code": 1
+              },
+              "hourly": {
+                "time": [
+                  "2026-07-10T12:00",
+                  "2026-07-10T13:00",
+                  "2026-07-10T14:00",
+                  "2026-07-10T15:00",
+                  "2026-07-10T16:00",
+                  "2026-07-10T17:00",
+                  "2026-07-10T18:00",
+                  "2026-07-10T19:00"
+                ],
+                "temperature_2m": [14.0, 15.0, 16.0, 17.0, 17.5, 18.0, 17.0, 16.0],
+                "precipitation_probability": [10, 10, 10, 20, 20, 80, 85, 90],
+                "precipitation": [0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 3.0],
+                "wind_speed_10m": [3.0, 3.5, 4.0, 4.0, 4.5, 5.0, 5.0, 4.5],
+                "wind_gusts_10m": [5.0, 6.0, 7.0, 7.0, 8.0, 9.0, 9.0, 8.0],
+                "weather_code": [1, 1, 1, 2, 2, 61, 3, 63]
+              },
+              "daily": {
+                "sunrise": ["2026-07-10T04:45"],
+                "sunset": ["2026-07-10T21:55"]
+              }
+            }
+        """.trimIndent()
+        val sampleResponse = WeatherInterpreter.deserializeResponseFromJson(sampleResponseJson)!!
+
+        val cphZone = java.time.ZoneId.of("Europe/Copenhagen")
+        val t1200Ms = java.time.LocalDateTime.parse("2026-07-10T12:00:00").atZone(cphZone).toInstant().toEpochMilli()
+        val t1301Ms = t1200Ms + 61 * 60_000L
+
+        var networkCalls = 0
+        val customWeatherApi = object : com.example.data.remote.WeatherApiService {
+            override suspend fun getTrailWeather(
+                lat: Double,
+                lon: Double,
+                current: String,
+                hourly: String,
+                daily: String,
+                forecastHours: Int,
+                models: String?,
+                windSpeedUnit: String,
+                timezone: String
+            ): com.example.data.remote.OpenMeteoResponse {
+                networkCalls++
+                return sampleResponse
+            }
+
+            override suspend fun getElevations(
+                latitudes: String,
+                longitudes: String
+            ): com.example.data.remote.OpenMeteoElevationResponse {
+                return com.example.data.remote.OpenMeteoElevationResponse()
+            }
+        }
+        val testRepo = DanskStiRepository(dao, context, weatherService = customWeatherApi).apply {
+            isOnlineOverrideForTests = true
+        }
+
+        // Initial fetch at 12:00
+        testRepo.getTrailWeather(56.01, 9.01, forceNetworkRefresh = false, nowMs = t1200Ms)
+        assertEquals(1, networkCalls)
+
+        // Same 0.05° cell after 61 min: shouldRefreshNavigationWeather is true, and passing forceNetworkRefresh = true calls network
+        assertTrue(
+            WeatherInterpreter.shouldRefreshNavigationWeather(
+                lastFetchTimeMs = t1200Ms,
+                lastFetchLat = 56.01,
+                lastFetchLng = 9.01,
+                nowMs = t1301Ms,
+                currentLat = 56.011,
+                currentLng = 9.011
+            )
+        )
+        testRepo.getTrailWeather(56.011, 9.011, forceNetworkRefresh = true, nowMs = t1301Ms)
+        assertEquals("Same cell after 61 min with forceNetworkRefresh=true must call the network", 2, networkCalls)
+
+        // 2. Cached forecast fetched 5 h ago (at 12:00, now 17:19) -> first shown hour is current hour (17:00)
+        val t1719Ms = java.time.LocalDateTime.parse("2026-07-10T17:19:00").atZone(cphZone).toInstant().toEpochMilli()
+        val parsedAt1719 = WeatherInterpreter.parseWeather(
+            response = sampleResponse,
+            fetchedAtMillis = t1200Ms,
+            nowMillis = t1719Ms,
+            context = context
+        )
+        assertEquals("First shown hour in next6Hours must be the current hour 17:00", "17:00", parsedAt1719.next6Hours.first().hourLabel)
+        assertEquals("First shown hour in hourly48h must be the current hour 17:00", "17:00", parsedAt1719.hourly48h.first().hourLabel)
+
+        // 3. Rain alert window at 17:19:
+        // Case A: 2 mm in the 17:00 hour -> alert
+        val alertInCurrentHour = WeatherInterpreter.shouldPostRainAlert(
+            rainAlertEnabled = true,
+            lastAlertAtMs = 0L,
+            nowMs = t1719Ms,
+            hourlyPoints = parsedAt1719.hourly48h
+        )
+        assertNotNull("At 17:19, 2.0 mm in the 17:00 hour must trigger rain alert", alertInCurrentHour)
+        assertEquals("17:00", alertInCurrentHour!!.hourLabel)
+
+        // Case B: Rain only at 18:00 (starts in 41 min, within 60 min) -> alert
+        val rainOnlyAt1800 = parsedAt1719.hourly48h.map { pt ->
+            when (pt.hourLabel) {
+                "17:00" -> pt.copy(precipitationMm = 0.0)
+                "18:00" -> pt.copy(precipitationMm = 1.8)
+                else -> pt.copy(precipitationMm = 0.0)
+            }
+        }
+        val alertAt1800 = WeatherInterpreter.shouldPostRainAlert(
+            rainAlertEnabled = true,
+            lastAlertAtMs = 0L,
+            nowMs = t1719Ms,
+            hourlyPoints = rainOnlyAt1800
+        )
+        assertNotNull("At 17:19, rain at 18:00 (starts in 41 min) must trigger rain alert", alertAt1800)
+        assertEquals("18:00", alertAt1800!!.hourLabel)
+
+        // Case C: Rain only at 19:00 (+101 min from 17:19, or +90 min from 17:30) -> no alert
+        val t1730Ms = java.time.LocalDateTime.parse("2026-07-10T17:30:00").atZone(cphZone).toInstant().toEpochMilli()
+        val rainOnlyAt1900 = parsedAt1719.hourly48h.map { pt ->
+            when (pt.hourLabel) {
+                "19:00" -> pt.copy(precipitationMm = 2.5)
+                else -> pt.copy(precipitationMm = 0.0)
+            }
+        }
+        assertNull(
+            "At 17:19, rain only at 19:00 must NOT trigger rain alert",
+            WeatherInterpreter.shouldPostRainAlert(true, 0L, t1719Ms, rainOnlyAt1900)
+        )
+        assertNull(
+            "At 17:30, rain at 19:00 (+90 min) must NOT trigger rain alert",
+            WeatherInterpreter.shouldPostRainAlert(true, 0L, t1730Ms, rainOnlyAt1900)
+        )
+    }
+
+    @Test
+    fun reviewItem3_vibrationPatterns_matchExactPlannedArraysAndChannels() {
+        assertArrayEquals(
+            longArrayOf(0L, 150L, 120L, 150L),
+            NavigationTrackingService.VIBRATION_PATTERN_LEFT
+        )
+        assertArrayEquals(
+            longArrayOf(0L, 150L, 120L, 150L, 120L, 150L),
+            NavigationTrackingService.VIBRATION_PATTERN_RIGHT
+        )
+        assertArrayEquals(
+            longArrayOf(0L, 400L),
+            NavigationTrackingService.VIBRATION_PATTERN_OTHER
+        )
+
+        val app = context as DanskStiApp
+        app.createNotificationChannels()
+        val nm = context.getSystemService(NotificationManager::class.java)
+        assertArrayEquals(
+            longArrayOf(0L, 150L, 120L, 150L),
+            nm.getNotificationChannel(DanskStiApp.CHANNEL_TURN_CUE_LEFT_ID).vibrationPattern
+        )
+        assertArrayEquals(
+            longArrayOf(0L, 150L, 120L, 150L, 120L, 150L),
+            nm.getNotificationChannel(DanskStiApp.CHANNEL_TURN_CUE_RIGHT_ID).vibrationPattern
+        )
+        assertArrayEquals(
+            longArrayOf(0L, 400L),
+            nm.getNotificationChannel(DanskStiApp.CHANNEL_TURN_CUE_OTHER_ID).vibrationPattern
+        )
+    }
+
+    @Test
+    fun reviewItem4_noInventedWaterDistance_noFreeBookingLine_andPlannerDaySummaryDefault() {
+        // 1. Unknown water distance passes null -> "vand i nærheden" without a number
+        val explanation = StagePlanner.buildCampExplanation(
+            stageKm = 18.0,
+            dailyTargetKm = 18.0,
+            detourMeters = 0.0,
+            hasWaterNearby = true,
+            waterDistanceMeters = null,
+            hasToiletNearby = false,
+            context = context
+        )
+        assertTrue("Explanation must contain 'vand i nærheden' (actual=$explanation)", explanation.contains("vand i nærheden"))
+        assertFalse("Explanation must NOT contain invented '200 m' (actual=$explanation)", explanation.contains("200"))
+
+        // 2. PlannerDaySummary default campExplanation does not invent 200 m water or toilet
+        val defaultSummary = com.example.ui.viewmodel.PlannerDaySummary(
+            dayNumber = 1,
+            startKm = 0.0,
+            endKm = 16.0,
+            distanceKm = 16.0,
+            ascentM = 100,
+            descentM = 80,
+            fromName = "Start",
+            toName = "Skovlejr",
+            overnightWaypointId = "wp_1",
+            overnightName = "Skovlejr",
+            overnightTypeLabel = "Shelter",
+            detourLabel = null,
+            detourKm = 0.0,
+            detourAscentM = 0,
+            bookingLabel = null,
+            sunsetTime = "21:30",
+            arrivalTime = "14:00",
+            isAfterSunset = false,
+            warnings = emptyList(),
+            nightWeatherSummary = "",
+            campLat = 56.0,
+            campLng = 9.5
+        )
+        assertFalse("Default PlannerDaySummary campExplanation must not invent 200 m water", defaultSummary.campExplanation.contains("200"))
+        assertTrue(
+            "Default PlannerDaySummary campExplanation must default to no water nearby (actual=${defaultSummary.campExplanation})",
+            defaultSummary.campExplanation.contains(context.getString(R.string.stage_warning_no_water))
+        )
+        assertTrue(
+            "Default PlannerDaySummary campExplanation must default to no toilet nearby (actual=${defaultSummary.campExplanation})",
+            defaultSummary.campExplanation.contains(context.getString(R.string.stage_warning_no_toilet))
+        )
+
+        // 3. PoiInfoSheetData.fromShelter: when bookingRequired is false, bookingText is null; when true, "Kræver booking"
+        val noBookingShelter = ShelterEntity(
+            id = "s_no_book",
+            name = "Åben Shelter",
+            lat = 56.0,
+            lng = 9.5,
+            description = "",
+            bookingRequired = false,
+            ownership = "Naturstyrelsen",
+            capacity = 6,
+            hasWaterNearby = false,
+            hasToiletNearby = false,
+            source = "geofa",
+            trailCorridorId = null
+        )
+        val noBookingSheet = PoiInfoSheetData.fromShelter(noBookingShelter, context)
+        assertNull("When bookingRequired is false, bookingText must be null", noBookingSheet.bookingText)
+
+        val reqBookingSheet = PoiInfoSheetData.fromShelter(noBookingShelter.copy(bookingRequired = true), context)
+        assertEquals(context.getString(R.string.poi_booking_required), reqBookingSheet.bookingText)
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "en-rUS")
+    fun reviewItem5_enUsPhoneWithFollowSystem_showsEnglishTrailCard() {
+        val enContext = ApplicationProvider.getApplicationContext<Application>()
+        val sampleTrail = TrailEntity(
+            id = "trail_en_test",
+            name = "Gendarmstien",
+            description = "Coastal trail",
+            region = "Jylland",
+            computedWalkingKm = 74.0,
+            isGeometryDownloaded = true
+        )
+        composeTestRule.setContent {
+            DanskStiTheme {
+                com.example.ui.screens.TrailCard(
+                    trail = sampleTrail,
+                    points = null,
+                    sheltersCount = 5,
+                    friTeltningCount = 2,
+                    onClick = {}
+                )
+            }
+        }
+        val expectedDayPlural = enContext.getString(R.string.day_plural)
+        assertEquals("days", expectedDayPlural)
+        composeTestRule.onNodeWithText("days", substring = true, useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun reviewItem6_localizedTurnInstructions_englishBannerNotificationTts_andDanishVoiceFallback() {
+        val enConfig = Configuration(context.resources.configuration).apply {
+            setLocale(Locale.US)
+        }
+        val enCtx = context.createConfigurationContext(enConfig)
+
+        val rightCue = TurnCue(
+            lat = 56.0,
+            lng = 9.0,
+            walkKm = 1.2,
+            direction = "RIGHT",
+            angleDegrees = 90.0,
+            instructionText = "Drej til højre"
+        )
+
+        // 1. English banner text: "Turn right in 30 m"
+        val bannerText = com.example.util.routing.TurnCueGenerator.formatCueBannerText(rightCue, 30.0, enCtx)
+        assertEquals("Turn right in 30 m", bannerText)
+
+        // 2. Notification title in English
+        val app = context as DanskStiApp
+        Shadows.shadowOf(app).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+        val service = Robolectric.setupService(NavigationTrackingService::class.java)
+        AppLocaleHelper.setApplicationLanguageTag(context, "en")
+        try {
+            val notification = service.buildTurnCueNotification(
+                channelId = DanskStiApp.CHANNEL_TURN_CUE_RIGHT_ID,
+                cue = rightCue,
+                distanceMeters = 30.0
+            )
+            val title = notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()
+            assertEquals("Turn right in 30 m", title)
+
+            // 3. TTS text in English when English voice is installed
+            val enSpeech = com.example.util.DanishTtsChecker.formatSpeechCueText(
+                context = context,
+                cue = rightCue,
+                distanceMeters = 30.0,
+                effectiveVoiceLocale = Locale.ENGLISH
+            )
+            assertEquals("Turn right in 30 m", enSpeech)
+
+            // 4. English voice missing, Danish voice available -> fallback to Danish voice and Danish text
+            val effectiveVoiceLocale = com.example.util.DanishTtsChecker.resolveEffectiveTtsLocale(
+                context = enCtx,
+                tts = null,
+                isLocaleAvailable = { loc -> loc.language == "da" }
+            )
+            assertNotNull("Should be able to speak via Danish fallback", effectiveVoiceLocale)
+            assertEquals("da", effectiveVoiceLocale!!.language)
+            assertTrue("Should mark fallback to Danish", com.example.util.DanishTtsChecker.isUsingDanishFallbackVoice.value)
+            assertEquals(false, com.example.util.DanishTtsChecker.isDanishVoiceInstalled.value)
+
+            val daFallbackSpeech = com.example.util.DanishTtsChecker.formatSpeechCueText(
+                context = context,
+                cue = rightCue,
+                distanceMeters = 30.0,
+                effectiveVoiceLocale = effectiveVoiceLocale
+            )
+            assertEquals("Drej til højre om 30 m", daFallbackSpeech)
+        } finally {
+            AppLocaleHelper.setApplicationLanguageTag(context, "")
+        }
+    }
+
+    @Test
+    fun reviewItem8_unifiedCatalogueMetadata_appliedToNonDownloadedTrail_andPreservesDownloadedTrailKmAndBbox() = runBlocking {
+        val nonDownloaded = TrailEntity(
+            id = "trail_non_dl",
+            name = "Ikke Hentet Sti",
+            region = "Fyn",
+            osmRelationId = 12345L,
+            computedWalkingKm = 0.0,
+            isGeometryDownloaded = false
+        )
+        val downloaded = TrailEntity(
+            id = "trail_dl",
+            name = "Hentet Sti",
+            region = "Jylland",
+            osmRelationId = 67890L,
+            computedWalkingKm = 88.5,
+            bboxNorth = 56.5,
+            bboxSouth = 56.1,
+            bboxEast = 9.8,
+            bboxWest = 9.2,
+            startLat = 56.1,
+            startLng = 9.2,
+            endLat = 56.5,
+            endLng = 9.8,
+            isGeometryDownloaded = true
+        )
+        dao.insertTrails(listOf(nonDownloaded, downloaded))
+
+        val fixtureJson = """
+            {
+              "generatedAt": 1700000000000,
+              "trails": [
+                {
+                  "id": "trail_non_dl",
+                  "osmRelationId": 12345,
+                  "computedWalkingKm": 42.3,
+                  "bboxNorth": 55.3,
+                  "bboxSouth": 55.0,
+                  "bboxEast": 10.6,
+                  "bboxWest": 10.1,
+                  "startLat": 55.01,
+                  "startLng": 10.12,
+                  "endLat": 55.29,
+                  "endLng": 10.58,
+                  "nearestTown": "Faaborg",
+                  "osmTimestamp": "2026-03-01T10:00:00Z",
+                  "osmTags": { "operator": "Naturstyrelsen", "symbol": "Hvid pil" }
+                },
+                {
+                  "id": "trail_dl",
+                  "osmRelationId": 67890,
+                  "computedWalkingKm": 999.9,
+                  "bboxNorth": 57.9,
+                  "bboxSouth": 54.0,
+                  "bboxEast": 12.9,
+                  "bboxWest": 8.0,
+                  "startLat": 54.0,
+                  "startLng": 8.0,
+                  "endLat": 57.9,
+                  "endLng": 12.9,
+                  "nearestTown": "Viborg",
+                  "osmTimestamp": "2026-03-02T10:00:00Z",
+                  "osmTags": { "operator": "Viborg Kommune" }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        repository.applyBundledCatalogueMetadataAssetIfNeeded(assetJsonOverride = fixtureJson, force = true)
+
+        val updatedNonDl = dao.getTrailById("trail_non_dl")!!
+        assertEquals(42.3, updatedNonDl.computedWalkingKm, 0.01)
+        assertEquals(55.3, updatedNonDl.bboxNorth!!, 0.001)
+        assertEquals(55.01, updatedNonDl.startLat!!, 0.001)
+        assertEquals("Faaborg", updatedNonDl.nearestTown)
+        assertEquals("2026-03-01T10:00:00Z", updatedNonDl.osmTimestamp)
+        assertEquals("Naturstyrelsen", updatedNonDl.osmOperator)
+
+        val updatedDl = dao.getTrailById("trail_dl")!!
+        assertEquals("Downloaded trail must keep geometry-derived computedWalkingKm", 88.5, updatedDl.computedWalkingKm, 0.01)
+        assertEquals("Downloaded trail must keep geometry-derived bboxNorth", 56.5, updatedDl.bboxNorth!!, 0.001)
+        assertEquals("Downloaded trail must keep geometry-derived startLat", 56.1, updatedDl.startLat!!, 0.001)
+        assertEquals("Viborg", updatedDl.nearestTown)
+    }
+
+    @Test
+    fun reviewItem9_shortMarkedRoutesNearYou_filtersByLengthCatalogueAnd25KmNearestPointAndSortsByNearest() {
+        val userLat = 56.1500
+        val userLng = 10.2000
+
+        // Route 1: 8 km, nearest geometry point ~1.1 km away (closer than route 2), not in catalogue -> INCLUDED first
+        val nearShortRoute = com.example.data.model.MarkedRouteDto(
+            osmRelationId = 9001L,
+            name = "Brabrandstien Rundt",
+            operator = "Aarhus Kommune",
+            routeType = "hiking",
+            network = "lwn",
+            symbol = "Blå",
+            colorHex = "#1E88E5",
+            lengthKm = 8.0,
+            polylines = listOf(listOf(GeoPointDto(56.1600, 10.2000), GeoPointDto(56.1800, 10.2100))),
+            minLat = 56.1600,
+            maxLat = 56.1800,
+            minLng = 10.2000,
+            maxLng = 10.2100
+        )
+        // Route 2: 14 km, nearest geometry point ~5.5 km away -> INCLUDED second
+        val midShortRoute = nearShortRoute.copy(
+            osmRelationId = 9002L,
+            name = "Marselisborg Skovrute",
+            lengthKm = 14.0,
+            polylines = listOf(listOf(GeoPointDto(56.2000, 10.2000), GeoPointDto(56.2200, 10.2100))),
+            minLat = 56.2000,
+            maxLat = 56.2200
+        )
+        // Route 3: 32 km (> 20 km) -> EXCLUDED
+        val tooLongRoute = nearShortRoute.copy(osmRelationId = 9003L, name = "Lang Rute", lengthKm = 32.0)
+        // Route 4: in catalogue -> EXCLUDED
+        val catalogueRoute = nearShortRoute.copy(osmRelationId = 9004L, name = "Katalog Rute")
+        // Route 5: 70 km away (> 25 km) -> EXCLUDED
+        val tooFarRoute = nearShortRoute.copy(
+            osmRelationId = 9005L,
+            name = "Langt Væk Rute",
+            polylines = listOf(listOf(GeoPointDto(55.5000, 10.2000), GeoPointDto(55.5100, 10.2100))),
+            minLat = 55.5000,
+            maxLat = 55.5100
+        )
+
+        val filtered = com.example.data.repository.MarkedRouteRepository.filterShortMarkedRoutesNearYou(
+            routes = listOf(midShortRoute, tooLongRoute, catalogueRoute, nearShortRoute, tooFarRoute),
+            userLat = userLat,
+            userLng = userLng,
+            catalogueRelationIds = setOf(9004L)
+        )
+        assertEquals(listOf(9001L, 9002L), filtered.map { it.osmRelationId })
+    }
+
+    @Test
+    fun reviewItem10_trailPhotoRepository_usesNetworkConstantsUserAgentAndTitlesOnlyNoSearch() = runBlocking {
+        val repo = TrailPhotoRepository(context)
+        val urls = mutableListOf<String>()
+        val agents = mutableListOf<String>()
+        val emptyPagesJson = """{"query":{"pages":{}}}"""
+
+        repo.fetchCommonsPhotosForTitles(
+            fileTitles = listOf("File:Example.jpg"),
+            connectionFactory = { url ->
+                urls.add(url.toString())
+                object : HttpURLConnection(url) {
+                    override fun connect() {}
+                    override fun disconnect() {}
+                    override fun usingProxy(): Boolean = false
+                    override fun setRequestProperty(key: String?, value: String?) {
+                        super.setRequestProperty(key, value)
+                        if (key.equals("User-Agent", ignoreCase = true) && value != null) {
+                            agents.add(value)
+                        }
+                    }
+                    override fun getResponseCode(): Int = 200
+                    override fun getInputStream() = ByteArrayInputStream(emptyPagesJson.toByteArray(Charsets.UTF_8))
+                }
+            }
+        )
+        assertEquals(listOf(com.example.util.network.NetworkConstants.USER_AGENT), agents)
+        assertEquals(1, urls.size)
+        assertTrue(urls[0].contains("action=query&titles="))
+        assertFalse(urls[0].contains("generator=search"))
+    }
+
+    @Test
+    fun reviewItem11_curatedTrailDescriptionFormat_plainLanguageStrings_andRecordingsEmptyAction() {
+        // 1. trail_descriptions.json uses { "trails": { "<trailId>": { "description": "", "bestSeason": "", "dogsNote": "", "officialUrl": "" } } }
+        val rawDescJson = context.assets.open("catalogue/trail_descriptions.json").bufferedReader().use { it.readText() }
+        val rootObj = org.json.JSONObject(rawDescJson)
+        assertTrue("trail_descriptions.json must have top-level 'trails' object", rootObj.has("trails"))
+        val trailsObj = rootObj.getJSONObject("trails")
+        assertTrue("trail_descriptions.json must contain catalogue trail IDs", trailsObj.length() >= 30)
+        val firstKey = trailsObj.keys().next()
+        val firstEntry = trailsObj.getJSONObject(firstKey)
+        assertTrue(firstEntry.has("description"))
+        assertTrue(firstEntry.has("bestSeason"))
+        assertTrue(firstEntry.has("dogsNote"))
+        assertTrue(firstEntry.has("officialUrl"))
+
+        // 2. Plain language strings & Optagelser empty-state action
+        assertEquals("Planlæg en tur", context.getString(R.string.library_empty_recordings_action))
+        assertEquals(
+            "Afmærkede vandreruter fra OpenStreetMap, som ikke er i kataloget",
+            context.getString(R.string.explore_more_marked_routes_subtitle)
+        )
+        assertEquals(
+            "OpenStreetMap • 74,0 km (okt. 2025)",
+            context.getString(R.string.ui_traildetailscreen_live_osm_196, "74,0 km", "(okt. 2025)")
+        )
+        assertFalse(context.getString(R.string.map_layer_base_topo_subtitle).contains("SDFI"))
+        assertFalse(context.getString(R.string.map_layer_base_aerial_subtitle).contains("SDFI"))
+        assertFalse(context.getString(R.string.map_layer_base_outdoor_subtitle).contains("EPSG"))
+        assertFalse(context.getString(R.string.map_layer_terrain_subtitle).contains("DHM"))
+    }
+
+    @Test
+    fun reviewItem12_noTestOnlyHooksInMainSources() {
+        val mainDir = File("src/main/java").takeIf { it.exists() }
+            ?: File("app/src/main/java")
+        assertTrue("Expected app/src/main/java to exist", mainDir.exists())
+        val forbidden = listOf(
+            "cancelActiveJobs",
+            "latestInstance",
+            "registerViewModelScope",
+            "cancelAllViewModelScopes",
+            "activeViewModelScopes"
+        )
+        val violations = mutableListOf<String>()
+        mainDir.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { file ->
+            val text = file.readText()
+            forbidden.forEach { symbol ->
+                if (text.contains(symbol)) {
+                    violations.add("${file.path} contains $symbol")
+                }
+            }
+        }
+        assertTrue("Found forbidden test-only hooks in main sources: $violations", violations.isEmpty())
+    }
+
+    @Test
+    fun reviewItem13_fontScale130_trailCard_textDisplayedInsideParentBounds() {
+        val sampleTrail = TrailEntity(
+            id = "trail_font130",
+            name = "Gendarmstien",
+            description = "Kystvandrerute ved Flensborg Fjord",
+            region = "Sønderjylland",
+            parentRegion = "Jylland",
+            osmRelationId = 1001L,
+            computedWalkingKm = 84.0,
+            isGeometryDownloaded = true
+        )
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 1.3f)) {
+                DanskStiTheme {
+                    com.example.ui.screens.TrailCard(
+                        trail = sampleTrail,
+                        points = listOf(GeoPointDto(54.85, 9.45), GeoPointDto(54.90, 9.80)),
+                        sheltersCount = 5,
+                        friTeltningCount = 2,
+                        ascentMeters = 420,
+                        dailyTargetKm = 20.0,
+                        onClick = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        val cardNode = composeTestRule.onNodeWithTag("trail_card_trail_font130")
+        cardNode.assertIsDisplayed()
+        val cardBounds = cardNode.getUnclippedBoundsInRoot()
+        val titleNode = composeTestRule.onNodeWithText("Gendarmstien", useUnmergedTree = true)
+        titleNode.assertIsDisplayed()
+        val titleBounds = titleNode.getUnclippedBoundsInRoot()
+        assertTrue("Title left must be inside TrailCard bounds", titleBounds.left >= cardBounds.left)
+        assertTrue("Title right must be inside TrailCard bounds", titleBounds.right <= cardBounds.right)
+        assertTrue("Title top must be inside TrailCard bounds", titleBounds.top >= cardBounds.top)
+        assertTrue("Title bottom must be inside TrailCard bounds", titleBounds.bottom <= cardBounds.bottom)
+    }
+
+    @Test
+    fun reviewItem13_fontScale130_poiInfoSheet_textDisplayedInsideParentBounds() {
+        val shelter = ShelterEntity(
+            id = "shelter_font130",
+            name = "Skovbryn Shelterplads",
+            lat = 55.5,
+            lng = 10.5,
+            hasWaterNearby = true,
+            hasToiletNearby = true,
+            bookingRequired = true,
+            source = "GeoFA"
+        )
+        val sheetData = PoiInfoSheetData.fromShelter(shelter, context)
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 1.3f)) {
+                DanskStiTheme {
+                    PoiInfoSheet(
+                        poiData = sheetData,
+                        liveUserLocation = null,
+                        onDismiss = {},
+                        onRouteHere = { _, _, _ -> },
+                        onAddToRoute = { _, _, _ -> }
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        val sheetNode = composeTestRule.onNodeWithTag("poi_info_sheet")
+        sheetNode.assertIsDisplayed()
+        val sheetBounds = sheetNode.getUnclippedBoundsInRoot()
+        val titleNode = composeTestRule.onNodeWithText("Skovbryn Shelterplads", useUnmergedTree = true)
+        titleNode.assertIsDisplayed()
+        val titleBounds = titleNode.getUnclippedBoundsInRoot()
+        assertTrue("Title left must be inside PoiInfoSheet bounds", titleBounds.left >= sheetBounds.left)
+        assertTrue("Title right must be inside PoiInfoSheet bounds", titleBounds.right <= sheetBounds.right)
+        assertTrue("Title top must be inside PoiInfoSheet bounds", titleBounds.top >= sheetBounds.top)
+        assertTrue("Title bottom must be inside PoiInfoSheet bounds", titleBounds.bottom <= sheetBounds.bottom)
+    }
+
+    @Test
+    fun reviewItem13_fontScale130_turnCueCardAndLiveRegions_textInsideBoundsAndPoliteAssertive() {
+        val cue = TurnCue(
+            walkKm = 1.2,
+            lat = 55.6,
+            lng = 10.2,
+            direction = "RIGHT",
+            instructionText = "Drej til højre",
+            angleDegrees = 90.0
+        )
+        val liveState = NavigationLiveState(
+            isTracking = true,
+            isOffTrailWarning = true,
+            offTrailDistanceMeters = 48.0,
+            isDetourMuted = false,
+            bearingToPointAhead = 45.0f,
+            deviceHeadingDegrees = 0.0f
+        )
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 1.3f)) {
+                DanskStiTheme {
+                    com.example.ui.screens.NavigationTopCueAndAlertsStack(
+                        activeCueWithin500m = cue to 30.0,
+                        cueBannerPrimaryText = "Drej til højre om 30 m",
+                        topCardHeadline = "3,4 km til Aftenlejr",
+                        liveState = liveState,
+                        deviceHeadingDegrees = 0.0f,
+                        mapMode = com.example.ui.viewmodel.NavigationMapMode.FOLLOW_HEADING_UP,
+                        routeBackErrorMessage = null,
+                        isGpsWeakOrStale = false,
+                        gpsStaleMinutes = 0,
+                        isDaylightWarningVisible = false,
+                        distanceRemainingToday = 3.4,
+                        sunsetTime = "20:45",
+                        isLocationPermissionMissing = false,
+                        onBack = {},
+                        onRerouteBack = {},
+                        onTakeDetour = {},
+                        onRequestLocationPermission = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        val cardNode = composeTestRule.onNodeWithTag("nav_top_card")
+        cardNode.assertIsDisplayed()
+        val cardBounds = cardNode.getUnclippedBoundsInRoot()
+
+        val cueTextNode = composeTestRule.onNodeWithTag("nav_cue_primary_text", useUnmergedTree = true)
+        cueTextNode.assertIsDisplayed()
+        val cueBounds = cueTextNode.getUnclippedBoundsInRoot()
+        assertTrue("Cue text left must be inside nav_top_card", cueBounds.left >= cardBounds.left)
+        assertTrue("Cue text right must be inside nav_top_card", cueBounds.right <= cardBounds.right)
+        assertTrue("Cue text top must be inside nav_top_card", cueBounds.top >= cardBounds.top)
+        assertTrue("Cue text bottom must be inside nav_top_card", cueBounds.bottom <= cardBounds.bottom)
+
+        // Verify accessibility LiveRegion semantics on turn cue (Polite) and off-route banner (Assertive)
+        val cueBannerSemantics = composeTestRule.onNodeWithTag("nav_cue_banner").fetchSemanticsNode()
+        assertEquals(LiveRegionMode.Polite, cueBannerSemantics.config[SemanticsProperties.LiveRegion])
+
+        val offRouteSemantics = composeTestRule.onNodeWithTag("nav_off_route_banner").fetchSemanticsNode()
+        assertEquals(LiveRegionMode.Assertive, offRouteSemantics.config[SemanticsProperties.LiveRegion])
+    }
+
+    @Test
+    fun reviewItem13_migration27To28_migrationTestHelper_readsDownloadedTrailWithDefaultTrailType() {
+        val schema28 = File("schemas/com.example.data.local.DanskStiDatabase/28.json")
+            .takeIf { it.exists() }
+            ?: File("app/schemas/com.example.data.local.DanskStiDatabase/28.json")
+        assertTrue("Committed schemas/28.json must exist", schema28.exists())
+        assertTrue(schema28.readText().contains("\"version\": 28"))
+
+        val dbName = "r21_mig_27_28_${System.nanoTime()}.db"
+        migrationHelper.createDatabase(dbName, 27).apply {
+            execSQL(
+                """
+                INSERT INTO `downloaded_trails` (
+                    `trailId`, `trailName`, `downloadedAt`, `sizeBytes`, `tileCount`, `corridorKm`, `minZoom`, `maxZoom`
+                ) VALUES (
+                    'trail_ohavsstien', 'Øhavsstien', 1700000000000, 1234567, 420, 2.0, 10, 15
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            dbName,
+            28,
+            true,
+            DanskStiDatabase.MIGRATION_27_28
+        )
+        migratedDb.query("SELECT trailId, downloadType FROM downloaded_trails WHERE trailId = 'trail_ohavsstien'").use { c ->
+            assertTrue("Existing downloaded_trails row must survive 27 -> 28 migration", c.moveToFirst())
+            assertEquals("trail_ohavsstien", c.getString(0))
+            assertEquals("TRAIL", c.getString(1))
+        }
+        migratedDb.close()
+    }
 }
+

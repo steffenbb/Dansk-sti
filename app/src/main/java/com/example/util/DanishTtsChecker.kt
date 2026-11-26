@@ -81,8 +81,61 @@ object DanishTtsChecker {
         }
     }
 
+    private val _isUsingDanishFallbackVoice = MutableStateFlow(false)
+    val isUsingDanishFallbackVoice: StateFlow<Boolean> = _isUsingDanishFallbackVoice.asStateFlow()
+
+    fun createContextForLocale(context: Context, locale: Locale): Context {
+        val config = android.content.res.Configuration(context.resources.configuration)
+        config.setLocale(locale)
+        return context.createConfigurationContext(config)
+    }
+
     /**
-     * Asynchronously probes the device's TextToSpeech engine to check if a Danish voice is installed.
+     * Resolves the TTS voice locale to use:
+     * 1. Prefer the active app locale voice if installed/supported.
+     * 2. If the active app locale voice is unavailable and a Danish voice is available,
+     *    fall back to Danish ([DANISH_LOCALE]) and mark [_isDanishVoiceInstalled] = false
+     *    so the Profile screen displays the voice fallback warning note.
+     * 3. Return null if neither voice is available.
+     */
+    fun resolveEffectiveTtsLocale(
+        context: Context,
+        tts: TextToSpeech? = null,
+        isLocaleAvailable: (Locale) -> Boolean = { loc -> isTtsLocaleSupported(tts, loc) }
+    ): Locale? {
+        val targetLocale = resolveTtsLocale(context)
+        if (isLocaleAvailable(targetLocale)) {
+            _isUsingDanishFallbackVoice.value = false
+            _isDanishVoiceInstalled.value = true
+            return targetLocale
+        }
+        if (targetLocale.language.lowercase(Locale.ROOT) != "da" && isLocaleAvailable(DANISH_LOCALE)) {
+            _isUsingDanishFallbackVoice.value = true
+            _isDanishVoiceInstalled.value = false
+            return DANISH_LOCALE
+        }
+        _isUsingDanishFallbackVoice.value = false
+        _isDanishVoiceInstalled.value = false
+        return null
+    }
+
+    fun formatSpeechCueText(
+        context: Context,
+        cue: com.example.data.model.TurnCue,
+        distanceMeters: Double,
+        effectiveVoiceLocale: Locale
+    ): String {
+        val speechCtx = createContextForLocale(context, effectiveVoiceLocale)
+        return com.example.util.routing.TurnCueGenerator.formatCueBannerText(
+            cue = cue,
+            distanceMeters = distanceMeters,
+            context = speechCtx,
+            useProvidedContextDirectly = true
+        )
+    }
+
+    /**
+     * Asynchronously probes the device's TextToSpeech engine to check if a voice for the active locale is installed.
      */
     fun checkDanishVoiceAvailability(context: Context, onResult: (Boolean) -> Unit = {}) {
         isDanishVoiceInstalledOverrideForTests?.let { overrideVal ->
@@ -95,7 +148,8 @@ object DanishTtsChecker {
         try {
             engine = TextToSpeech(context.applicationContext) { status ->
                 val installed = if (status == TextToSpeech.SUCCESS) {
-                    isTtsLocaleSupported(engine, targetLocale)
+                    val effective = resolveEffectiveTtsLocale(context, engine)
+                    effective != null && !_isUsingDanishFallbackVoice.value && isTtsLocaleSupported(engine, targetLocale)
                 } else {
                     _isDanishVoiceInstalled.value = false
                     false

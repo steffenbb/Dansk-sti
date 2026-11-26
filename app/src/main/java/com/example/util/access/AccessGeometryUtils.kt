@@ -115,7 +115,7 @@ object AccessGeometryUtils {
         val normalized = (totalMins % 1440 + 1440) % 1440
         val h = normalized / 60
         val m = normalized % 60
-        return String.format("%02d:%02d", h, m)
+        return String.format(java.util.Locale.US, "%02d:%02d", h, m)
     }
 
     /**

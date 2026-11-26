@@ -90,6 +90,44 @@ class OfflineDownloadWorker(
         @Volatile
         var shouldInterruptAfterTileCount: Int? = null
 
+        internal fun fetchTileBytesFromUrl(
+            tileUrlStr: String,
+            buffer: ByteArray = ByteArray(8192),
+            connectionFactory: (URL) -> HttpURLConnection = { u -> u.openConnection() as HttpURLConnection }
+        ): ByteArray? {
+            var conn: HttpURLConnection? = null
+            return try {
+                val url = URL(tileUrlStr)
+                conn = connectionFactory(url).apply {
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    setRequestProperty("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
+                }
+
+                val code = conn.responseCode
+                val contentType = conn.contentType?.trim()?.lowercase(java.util.Locale.ROOT)
+                if (code == HttpURLConnection.HTTP_OK) {
+                    if (contentType != null && contentType.startsWith("image/")) {
+                        val stream: InputStream = conn.inputStream
+                        val out = ByteArrayOutputStream()
+                        var bytesRead: Int
+                        while (stream.read(buffer).also { bytesRead = it } != -1) {
+                            out.write(buffer, 0, bytesRead)
+                        }
+                        out.toByteArray()
+                    } else {
+                        null
+                    }
+                } else if (code >= 500 || code == HttpURLConnection.HTTP_CLIENT_TIMEOUT || code == 429) {
+                    throw java.io.IOException("Tile server error HTTP $code")
+                } else {
+                    null
+                }
+            } finally {
+                conn?.disconnect()
+            }
+        }
+
         internal suspend fun executeDownload(
             context: Context,
             trailId: String?,
@@ -103,7 +141,8 @@ class OfflineDownloadWorker(
             areaMinLng: Double? = null,
             areaMaxLng: Double? = null,
             isStoppedProvider: () -> Boolean = { false },
-            onSetProgress: suspend (androidx.work.Data) -> Unit = {}
+            onSetProgress: suspend (androidx.work.Data) -> Unit = {},
+            connectionFactory: ((URL) -> HttpURLConnection)? = null
         ): Result = withContext(Dispatchers.IO) {
             if (trailId.isNullOrBlank()) return@withContext Result.failure()
 
@@ -112,19 +151,16 @@ class OfflineDownloadWorker(
                 return@withContext Result.retry()
             }
 
+            val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(context)
             val notificationManager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            createNotificationChannel(context, notificationManager)
+            createNotificationChannel(localizedCtx, notificationManager)
 
             val app = context.applicationContext as DanskStiApp
             val repo = app.repository
             val db = app.database
             val settingsRepo = DanskStiApp.getSettingsRepository(context)
             val downloadType = OfflineDownloadManager.inferDownloadType(trailId)
-
-            val bboxJson = if (areaMinLat != null && areaMaxLat != null && areaMinLng != null && areaMaxLng != null) {
-                String.format(java.util.Locale.US, "{\"minLat\":%.6f,\"maxLat\":%.6f,\"minLng\":%.6f,\"maxLng\":%.6f}", areaMinLat, areaMaxLat, areaMinLng, areaMaxLng)
-            } else null
 
             runCatching {
                 val existingInProgress = db.dao().getOfflineDownloadInProgress(trailId)
@@ -168,7 +204,9 @@ class OfflineDownloadWorker(
                         }
                         if (resolvedAreaBounds == null) {
                             runCatching { db.dao().deleteOfflineDownloadInProgress(trailId) }
-                            return@withContext Result.failure(workDataOf("error" to "Områdekoordinater mangler for $trailName"))
+                            return@withContext Result.failure(
+                                workDataOf("error" to localizedCtx.getString(R.string.offline_error_area_coords_missing_fmt, trailName))
+                            )
                         }
                     }
 
@@ -177,7 +215,9 @@ class OfflineDownloadWorker(
                         val customRoute = if (customRouteId != null) repo.getCustomRoute(customRouteId) else null
                         if (customRoute == null) {
                             runCatching { db.dao().deleteOfflineDownloadInProgress(trailId) }
-                            return@withContext Result.failure(workDataOf("error" to "Rute ikke fundet for $trailName"))
+                            return@withContext Result.failure(
+                                workDataOf("error" to localizedCtx.getString(R.string.offline_error_route_not_found_fmt, trailName))
+                            )
                         }
                         val legs = com.example.util.routing.RouteGeometryStorageManager.loadLegs(context, customRoute.geometryFile)
                         val waypoints = com.example.util.routing.RouteWaypoint.listFromJson(customRoute.waypointsJson)
@@ -200,7 +240,9 @@ class OfflineDownloadWorker(
                         }
                         if (orderedPoints.isEmpty()) {
                             runCatching { db.dao().deleteOfflineDownloadInProgress(trailId) }
-                            return@withContext Result.failure(workDataOf("error" to "Ingen rutepunkter fundet for $trailName"))
+                            return@withContext Result.failure(
+                                workDataOf("error" to localizedCtx.getString(R.string.offline_error_no_route_points_fmt, trailName))
+                            )
                         }
                         points = orderedPoints
                         geometryHash = OfflineDownloadManager.computeGeometryHash(points)
@@ -214,7 +256,9 @@ class OfflineDownloadWorker(
                         val plan = if (planId != null) repo.getTripPlanById(planId) else null
                         if (plan == null) {
                             runCatching { db.dao().deleteOfflineDownloadInProgress(trailId) }
-                            return@withContext Result.failure(workDataOf("error" to "Turplan ikke fundet for $trailName"))
+                            return@withContext Result.failure(
+                                workDataOf("error" to localizedCtx.getString(R.string.offline_error_plan_not_found_fmt, trailName))
+                            )
                         }
                         val plannedRoute = runCatching {
                             com.example.data.repository.PlannedRouteRepository(context).loadPlannedRoute(plan.id)
@@ -240,7 +284,9 @@ class OfflineDownloadWorker(
                         }
                         if (orderedPoints.isEmpty()) {
                             runCatching { db.dao().deleteOfflineDownloadInProgress(trailId) }
-                            return@withContext Result.failure(workDataOf("error" to "Ingen rutepunkter fundet for $trailName"))
+                            return@withContext Result.failure(
+                                workDataOf("error" to localizedCtx.getString(R.string.offline_error_no_route_points_fmt, trailName))
+                            )
                         }
                         points = orderedPoints
                         geometryHash = OfflineDownloadManager.computeGeometryHash(points)
@@ -254,7 +300,9 @@ class OfflineDownloadWorker(
                         val trail = repo.getTrailById(trailId)
                         if (trail == null) {
                             runCatching { db.dao().deleteOfflineDownloadInProgress(trailId) }
-                            return@withContext Result.failure(workDataOf("error" to "Rute ikke fundet for $trailName"))
+                            return@withContext Result.failure(
+                                workDataOf("error" to localizedCtx.getString(R.string.offline_error_route_not_found_fmt, trailName))
+                            )
                         }
                         val wasGeometryCached = repo.geometryRepository.isGeometryCached(trailId)
                         points = repo.getTrailPoints(trail).flatMap { it.points }
@@ -263,7 +311,9 @@ class OfflineDownloadWorker(
                                 return@withContext Result.retry()
                             }
                             runCatching { db.dao().deleteOfflineDownloadInProgress(trailId) }
-                            return@withContext Result.failure(workDataOf("error" to "Ingen rutepunkter fundet for $trailName"))
+                            return@withContext Result.failure(
+                                workDataOf("error" to localizedCtx.getString(R.string.offline_error_no_route_points_fmt, trailName))
+                            )
                         }
                         geometryHash = OfflineDownloadManager.computeGeometryHash(points)
                         try {
@@ -308,7 +358,9 @@ class OfflineDownloadWorker(
                 val totalTiles = tileIndices.size
 
                 if (totalTiles == 0) {
-                    return@withContext Result.failure(workDataOf("error" to "Ingen kortfliser at hente"))
+                    return@withContext Result.failure(
+                        workDataOf("error" to localizedCtx.getString(R.string.offline_error_no_tiles_to_fetch))
+                    )
                 }
 
                 val layersState = try {
@@ -322,26 +374,12 @@ class OfflineDownloadWorker(
 
                 // Base Skærmkort source (shared name "DanskSti_Skaermkort" for light & dark mode)
                 val tileSource = DanskStiTileSource.instance
-                // Ortofoto / Luftfoto source via DanskStiTileSource (wmsLayerName = "orto_foraar_DAF") + DanskStiLuftfotoTileSource
-                val aerialTileSource = if (effectiveIncludeAerial) {
-                    DanskStiTileSource(
-                        apiKey = DanskStiTileSource.sharedKey,
-                        wmsLayerName = "orto_foraar_DAF",
-                        isDarkMode = false
-                    )
-                } else null
+                // Ortofoto / Luftfoto source: ONLY DanskStiTileSourceHelper.luftfotoInstance
                 val luftfotoTileSource = if (effectiveIncludeAerial) {
                     com.example.util.DanskStiTileSourceHelper.luftfotoInstance
                 } else null
-                // Terrain / DHM sources (wmsLayerName = "dhm_DAF", plus hillshade and contour overlays)
-                val dhmDafTileSource = if (effectiveIncludeTerrain) {
-                    DanskStiTileSource(
-                        apiKey = DanskStiTileSource.sharedKey,
-                        wmsLayerName = "dhm_DAF",
-                        isDarkMode = false
-                    )
-                } else null
-                val hasDataforsyningenKey = DanskStiTileSource.hasValidKey || customTileFetcher != null
+                // Terrain / DHM sources: ONLY dhmHillshadeInstance and dhmContourInstance (contour from zoom 14)
+                val hasDataforsyningenKey = DanskStiTileSource.hasValidKey || customTileFetcher != null || connectionFactory != null
                 val hillshadeSource = if (hasDataforsyningenKey && effectiveIncludeTerrain) {
                     com.example.util.DanskStiTileSourceHelper.dhmHillshadeInstance
                 } else null
@@ -357,14 +395,8 @@ class OfflineDownloadWorker(
                 }
 
                 val existingBaseTiles = OfflineDownloadManager.getExistingTileKeysInArchive(archiveFile, tileSource.name())
-                val existingAerialTiles = if (aerialTileSource != null) {
-                    OfflineDownloadManager.getExistingTileKeysInArchive(archiveFile, aerialTileSource.name())
-                } else emptySet()
                 val existingLuftfotoTiles = if (luftfotoTileSource != null) {
                     OfflineDownloadManager.getExistingTileKeysInArchive(archiveFile, luftfotoTileSource.name())
-                } else emptySet()
-                val existingDhmDafTiles = if (dhmDafTileSource != null) {
-                    OfflineDownloadManager.getExistingTileKeysInArchive(archiveFile, dhmDafTileSource.name())
                 } else emptySet()
                 val existingHillshadeTiles = if (hillshadeSource != null) {
                     OfflineDownloadManager.getExistingTileKeysInArchive(archiveFile, hillshadeSource.name())
@@ -384,7 +416,7 @@ class OfflineDownloadWorker(
                 if (!storageCheck.hasEnoughSpace) {
                     return@withContext Result.failure(
                         workDataOf(
-                            "error" to (storageCheck.message ?: "Ikke nok fri lagerplads"),
+                            "error" to (storageCheck.message ?: localizedCtx.getString(R.string.offline_error_not_enough_storage)),
                             KEY_REQUIRED_BYTES to requiredRemainingBytes
                         )
                     )
@@ -403,45 +435,21 @@ class OfflineDownloadWorker(
                         return customFetcher(source.name(), tileIdx)
                     }
                     val tileUrlStr = source.getTileURLString(tileIdx)
-                    var conn: HttpURLConnection? = null
-                    return try {
-                        val url = URL(tileUrlStr)
-                        conn = (url.openConnection() as HttpURLConnection).apply {
-                            connectTimeout = 8000
-                            readTimeout = 8000
-                            setRequestProperty("User-Agent", com.example.util.network.NetworkConstants.USER_AGENT)
-                        }
-
-                        if (conn.responseCode == HttpURLConnection.HTTP_OK) {
-                            val stream: InputStream = conn.inputStream
-                            val out = ByteArrayOutputStream()
-                            var bytesRead: Int
-                            while (stream.read(buffer).also { bytesRead = it } != -1) {
-                                out.write(buffer, 0, bytesRead)
-                            }
-                            out.toByteArray()
-                        } else if (conn.responseCode >= 500 || conn.responseCode == HttpURLConnection.HTTP_CLIENT_TIMEOUT || conn.responseCode == 429) {
-                            throw java.io.IOException("Tile server error HTTP ${conn.responseCode}")
-                        } else {
-                            null
-                        }
-                    } finally {
-                        conn?.disconnect()
-                    }
+                    return fetchTileBytesFromUrl(
+                        tileUrlStr = tileUrlStr,
+                        buffer = buffer,
+                        connectionFactory = connectionFactory ?: { u -> u.openConnection() as HttpURLConnection }
+                    )
                 }
 
                 fun downloadAndSaveTile(
                     source: org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase,
-                    tileIdx: Long,
-                    mirrorSource: org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase? = null
+                    tileIdx: Long
                 ) {
                     val tileData = fetchTileBytes(source, tileIdx)
                     if (tileData != null) {
                         totalBytes += tileData.size
                         archiveWriter?.saveFile(source, tileIdx, tileData.inputStream(), null)
-                        if (mirrorSource != null && mirrorSource.name() != source.name()) {
-                            archiveWriter?.saveFile(mirrorSource, tileIdx, tileData.inputStream(), null)
-                        }
                         newlyFetchedTiles++
                         downloadedCount++
                     }
@@ -461,7 +469,7 @@ class OfflineDownloadWorker(
                             runCatching { db.dao().deleteOfflineDownloadInProgress(trailId) }
                             return@withContext Result.failure(
                                 workDataOf(
-                                    "error" to "Download afbrudt (kan genoptages)",
+                                    "error" to localizedCtx.getString(R.string.offline_error_download_paused),
                                     KEY_DOWNLOADED_COUNT to downloadedCount,
                                     KEY_NEWLY_FETCHED_COUNT to newlyFetchedTiles
                                 )
@@ -475,15 +483,12 @@ class OfflineDownloadWorker(
                         downloadAndSaveTile(tileSource, tileIndex)
                     }
 
-                    // 2. Optional Aerial / Ortofoto tiles ("orto_foraar_DAF" + "DanskSti_Luftfoto")
-                    if (aerialTileSource != null && (!isTileSaved(existingAerialTiles, tileIndex) || (luftfotoTileSource != null && !isTileSaved(existingLuftfotoTiles, tileIndex)))) {
-                        downloadAndSaveTile(aerialTileSource, tileIndex, mirrorSource = luftfotoTileSource)
+                    // 2. Optional Aerial / Ortofoto tiles (ONLY luftfotoInstance)
+                    if (luftfotoTileSource != null && !isTileSaved(existingLuftfotoTiles, tileIndex)) {
+                        downloadAndSaveTile(luftfotoTileSource, tileIndex)
                     }
 
-                    // 3. Optional Terrain / DHM tiles ("dhm_DAF" + hillshade + contour zoom 14+)
-                    if (dhmDafTileSource != null && !isTileSaved(existingDhmDafTiles, tileIndex)) {
-                        downloadAndSaveTile(dhmDafTileSource, tileIndex)
-                    }
+                    // 3. Optional Terrain / DHM tiles (ONLY dhmHillshadeInstance + dhmContourInstance from zoom 14+)
                     if (hillshadeSource != null && !isTileSaved(existingHillshadeTiles, tileIndex)) {
                         downloadAndSaveTile(hillshadeSource, tileIndex)
                     }
@@ -504,7 +509,7 @@ class OfflineDownloadWorker(
                         try {
                             notificationManager.notify(
                                 NOTIFICATION_ID,
-                                buildProgressNotification(context, trailName, index + 1, totalTiles, percent)
+                                buildProgressNotification(localizedCtx, trailName, index + 1, totalTiles, percent)
                             )
                         } catch (_: Exception) {}
                     }
@@ -540,13 +545,13 @@ class OfflineDownloadWorker(
 
                 // Show completion notification
                 try {
-                    val mbStr = String.format("%.1f", finalBytes / (1024.0 * 1024.0))
+                    val mbStr = String.format(com.example.util.AppLocaleHelper.getAppLocale(context), "%.1f", finalBytes / (1024.0 * 1024.0))
                     notificationManager.notify(
                         NOTIFICATION_ID,
-                        NotificationCompat.Builder(context, CHANNEL_ID)
+                        NotificationCompat.Builder(localizedCtx, CHANNEL_ID)
                             .setSmallIcon(R.drawable.ic_notif_navigation)
-                            .setContentTitle(context.getString(R.string.notif_offline_ready_title, trailName))
-                            .setContentText(context.getString(R.string.notif_offline_ready_text, actualTileCountInArchive, mbStr))
+                            .setContentTitle(localizedCtx.getString(R.string.notif_offline_ready_title, trailName))
+                            .setContentText(localizedCtx.getString(R.string.notif_offline_ready_text, actualTileCountInArchive, mbStr))
                             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                             .setAutoCancel(true)
                             .build()
@@ -578,9 +583,9 @@ class OfflineDownloadWorker(
                 try {
                     notificationManager.notify(
                         NOTIFICATION_ID,
-                        NotificationCompat.Builder(context, CHANNEL_ID)
+                        NotificationCompat.Builder(localizedCtx, CHANNEL_ID)
                             .setSmallIcon(R.drawable.ic_notif_navigation)
-                            .setContentTitle(context.getString(R.string.notif_offline_error_title))
+                            .setContentTitle(localizedCtx.getString(R.string.notif_offline_error_title))
                             .setContentText(friendlyErr)
                             .setPriority(NotificationCompat.PRIORITY_HIGH)
                             .setAutoCancel(true)
@@ -592,7 +597,8 @@ class OfflineDownloadWorker(
         }
 
         private fun createForegroundInfo(context: Context, trailName: String, progress: Int, total: Int): ForegroundInfo {
-            val notification = buildProgressNotification(context, trailName, progress, total, 0)
+            val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(context)
+            val notification = buildProgressNotification(localizedCtx, trailName, progress, total, 0)
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             } else {

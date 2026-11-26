@@ -3,6 +3,7 @@ package com.example.data.repository
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import com.example.util.network.NetworkConstants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -23,7 +24,6 @@ data class TrailPhotoInfo(
 class TrailPhotoRepository(private val context: Context) {
 
     companion object {
-        const val APP_USER_AGENT = "DanskSti/1.0 (Android; https://dansksti.example.com)"
         const val MAX_CACHE_BYTES = 50L * 1024L * 1024L // 50 MB
         private const val CACHE_DIR_NAME = "trail_photos"
         private const val ASSET_PATH = "catalogue/trail_photos.json"
@@ -33,12 +33,53 @@ class TrailPhotoRepository(private val context: Context) {
         get() = File(context.cacheDir, CACHE_DIR_NAME).apply { mkdirs() }
 
     /**
-     * Reads bundled `trail_photos.json` asset for [trailId].
+     * Reads bundled `trail_photos.json` asset for [trailId] (pre-resolved photo objects if present).
      */
     fun getBundledTrailPhotos(trailId: String): List<TrailPhotoInfo> {
         return try {
             val jsonText = context.assets.open(ASSET_PATH).bufferedReader(Charsets.UTF_8).use { it.readText() }
             parseBundledPhotosJson(jsonText, trailId)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Reads bundled `trail_photos.json` asset for explicit Wikimedia Commons `"File:..."` titles.
+     */
+    fun getBundledPhotoFileTitles(trailId: String): List<String> {
+        return try {
+            val jsonText = context.assets.open(ASSET_PATH).bufferedReader(Charsets.UTF_8).use { it.readText() }
+            parseBundledPhotoTitlesJson(jsonText, trailId)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun parseBundledPhotoTitlesJson(jsonText: String, trailId: String): List<String> {
+        return try {
+            val root = JSONObject(jsonText)
+            val trailsArr = root.optJSONArray("trails") ?: return emptyList()
+            for (i in 0 until trailsArr.length()) {
+                val trailObj = trailsArr.optJSONObject(i) ?: continue
+                if (trailObj.optString("id") != trailId) continue
+                val photosArr = trailObj.optJSONArray("photos") ?: return emptyList()
+                val titles = mutableListOf<String>()
+                for (p in 0 until photosArr.length()) {
+                    val strItem = photosArr.optString(p)
+                    val objItem = photosArr.optJSONObject(p)
+                    val candidate = if (objItem != null) {
+                        objItem.optString("title")
+                    } else {
+                        strItem
+                    }
+                    if (candidate.isNotBlank() && candidate.startsWith("File:", ignoreCase = true)) {
+                        titles.add(candidate.trim())
+                    }
+                }
+                return titles.take(2)
+            }
+            emptyList()
         } catch (_: Exception) {
             emptyList()
         }
@@ -81,37 +122,37 @@ class TrailPhotoRepository(private val context: Context) {
     }
 
     /**
-     * Resolves 1–2 photos for a trail: first checks bundled `trail_photos.json`,
-     * and if empty and [wikipediaTag] or [wikidataTag] is available on the trail,
-     * queries Wikimedia Commons via the app's User-Agent.
+     * Resolves 1–2 photos for a trail from `trail_photos.json`:
+     * first checks pre-resolved bundled entries, and if explicit `"File:..."` titles are configured,
+     * resolves their image URL, author, and license from Wikimedia Commons using [NetworkConstants.USER_AGENT].
      */
     suspend fun getPhotosForTrail(
         trailId: String,
-        wikipediaTag: String? = null,
-        wikidataTag: String? = null
+        connectionFactory: (URL) -> HttpURLConnection = { url -> url.openConnection() as HttpURLConnection }
     ): List<TrailPhotoInfo> = withContext(Dispatchers.IO) {
         val bundled = getBundledTrailPhotos(trailId)
         if (bundled.isNotEmpty()) return@withContext bundled.take(2)
 
-        val searchTitle = wikipediaTag?.substringAfter(":")?.takeIf { it.isNotBlank() }
-            ?: wikidataTag?.takeIf { it.isNotBlank() }
-            ?: return@withContext emptyList()
+        val fileTitles = getBundledPhotoFileTitles(trailId)
+        if (fileTitles.isEmpty()) return@withContext emptyList()
 
-        fetchCommonsPhotosForQuery(searchTitle).take(2)
+        fetchCommonsPhotosForTitles(fileTitles, connectionFactory).take(2)
     }
 
-    suspend fun fetchCommonsPhotosForQuery(
-        queryTitle: String,
+    suspend fun fetchCommonsPhotosForTitles(
+        fileTitles: List<String>,
         connectionFactory: (URL) -> HttpURLConnection = { url -> url.openConnection() as HttpURLConnection }
     ): List<TrailPhotoInfo> = withContext(Dispatchers.IO) {
+        val validTitles = fileTitles.map { it.trim() }.filter { it.isNotEmpty() }.take(2)
+        if (validTitles.isEmpty()) return@withContext emptyList()
         try {
-            val encoded = URLEncoder.encode(queryTitle, "UTF-8")
-            val apiUrl = "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=$encoded&gsrnamespace=6&gsrlimit=2&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=800&format=json"
+            val encodedTitles = URLEncoder.encode(validTitles.joinToString("|"), "UTF-8")
+            val apiUrl = "https://commons.wikimedia.org/w/api.php?action=query&titles=$encodedTitles&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1080&format=json"
             val conn = connectionFactory(URL(apiUrl)).apply {
                 requestMethod = "GET"
                 connectTimeout = 8_000
                 readTimeout = 8_000
-                setRequestProperty("User-Agent", APP_USER_AGENT)
+                setRequestProperty("User-Agent", NetworkConstants.USER_AGENT)
             }
             if (conn.responseCode !in 200..299) return@withContext emptyList()
             val body = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
@@ -158,7 +199,7 @@ class TrailPhotoRepository(private val context: Context) {
     }
 
     /**
-     * Downloads or reads a cached photo file from `cacheDir/trail_photos` using the app's User-Agent,
+     * Downloads or reads a cached photo file from `cacheDir/trail_photos` using [NetworkConstants.USER_AGENT],
      * and enforces the 50 MB LRU cap.
      */
     suspend fun loadOrFetchPhotoBitmap(
@@ -175,7 +216,7 @@ class TrailPhotoRepository(private val context: Context) {
                 requestMethod = "GET"
                 connectTimeout = 8_000
                 readTimeout = 10_000
-                setRequestProperty("User-Agent", APP_USER_AGENT)
+                setRequestProperty("User-Agent", NetworkConstants.USER_AGENT)
             }
             if (conn.responseCode !in 200..299) return@withContext null
             val bytes = conn.inputStream.use { it.readBytes() }

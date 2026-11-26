@@ -57,7 +57,7 @@ import java.time.ZonedDateTime
 import kotlin.math.abs
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "da")
 class FixRound9ATest {
 
     @get:Rule

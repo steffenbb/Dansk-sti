@@ -26,7 +26,7 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = DanskStiApp::class)
+@Config(sdk = [34], application = DanskStiApp::class, qualifiers = "da")
 class FixRound15Test {
 
     @Before

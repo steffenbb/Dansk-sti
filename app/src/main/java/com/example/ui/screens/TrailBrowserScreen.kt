@@ -656,12 +656,14 @@ fun TrailBrowserScreen(
                     )
                 } else {
                     val shortTrailsNearYou by viewModel.shortTrailsNearYou.collectAsState()
+                    val shortMarkedRoutesNearYou by viewModel.shortMarkedRoutesNearYou.collectAsState()
                     TrailBrowserListContent(
                         trails = trails,
                         savedTrails = savedTrails,
                         savedTrailIds = savedTrailIds,
                         nearbyTrails = nearbyTrails,
                         shortTrailsNearYou = shortTrailsNearYou,
+                        shortMarkedRoutesNearYou = shortMarkedRoutesNearYou,
                         userLocation = userLocation,
                         userLocationStaleMessage = userLocationStaleMessage,
                         onPickAnotherStart = {
@@ -674,6 +676,9 @@ fun TrailBrowserScreen(
                             } else {
                                 requestLocationForDiscovery(openNearbySheet = false)
                             }
+                        },
+                        onSelectMarkedRoute = { route ->
+                            viewModel.selectMarkedRoute(route)
                         },
                         shelterCounts = shelterCounts,
                         friTeltningCounts = friTeltningCounts,

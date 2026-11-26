@@ -102,7 +102,9 @@ fun RouteBuilderViewModel.rerouteAroundPolygon(warning: com.example.util.access.
     val legKey = "${fromWp.id}_to_${toWp.id}"
 
     viewModelScope.launch {
-        _userMessage.emit("Beregner rute uden om ${poly.name ?: "området"}...")
+        val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
+        val areaName = poly.name ?: localizedCtx.getString(com.example.R.string.planner_area_fallback)
+        _userMessage.emit(localizedCtx.getString(com.example.R.string.planner_rerouting_around_fmt, areaName))
         val newNoGo = _uiState.value.options.noGoAreas + listOf(poly.coordinates)
         val detourOptions = _uiState.value.options.copy(noGoAreas = newNoGo)
 
@@ -145,14 +147,14 @@ fun RouteBuilderViewModel.rerouteAroundPolygon(warning: com.example.util.access.
                 }
                 updateRouteStats()
                 _userMessage.emit(
-                    "Ruten er omlagt online uden om ${poly.name ?: "området"} (no-go områder beregnes online)"
+                    localizedCtx.getString(com.example.R.string.planner_rerouted_around_online_fmt, areaName)
                 )
             }
             is RouteLegResult.Offline -> {
                 _userMessage.emit(result.message)
             }
             else -> {
-                _userMessage.emit("Kunne ikke finde en rute uden om ${poly.name ?: "området"}")
+                _userMessage.emit(localizedCtx.getString(com.example.R.string.planner_reroute_around_failed_fmt, areaName))
             }
         }
     }
@@ -279,14 +281,16 @@ fun RouteBuilderViewModel.generateRundtur(startLat: Double? = null, startLng: Do
     }
 
     if (startPt == null) {
+        val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
+        val msg = localizedCtx.getString(com.example.R.string.planner_select_start_point_first)
         _uiState.update {
             it.copy(
                 showRundturDialog = false,
-                errorMessage = "Vælg et startpunkt på kortet først"
+                errorMessage = msg
             )
         }
         viewModelScope.launch {
-            _userMessage.emit("Vælg et startpunkt på kortet først")
+            _userMessage.emit(msg)
         }
         return
     }
@@ -310,7 +314,13 @@ fun RouteBuilderViewModel.generateRundtur(startLat: Double? = null, startLng: Do
                 )
             }
             if (candidates.isEmpty()) {
-                _userMessage.emit("Ingen rundture kunne dannes inden for 20% af målet (${_uiState.value.rundturTargetKm.toInt()} km)")
+                val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
+                _userMessage.emit(
+                    localizedCtx.getString(
+                        com.example.R.string.planner_no_loop_within_target_fmt,
+                        _uiState.value.rundturTargetKm.toInt()
+                    )
+                )
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error generating rundtur: ${e.message}", e)
@@ -641,68 +651,30 @@ fun RouteBuilderViewModel.routeToNearest(
                         WaypointRole.VIA
                     }
                     pushHistory()
-                    addStopOrDetourSuspend(
-                        lat = poi.lat,
-                        lng = poi.lng,
-                        role = targetRole,
-                        name = poi.name,
-                        linkedPoiId = poi.id
-                    )
+                    addStopOrDetourSuspend(poi.lat, poi.lng, targetRole, poi.name, linkedPoiId = poi.id)
                     updateRouteStats()
-                    val afterTotalKm = computeCurrentRouteTotalLengthKm(_uiState.value)
-                    val extraKm = (afterTotalKm - beforeTotalKm).coerceAtLeast(0.0)
+                    val extraKm = (computeCurrentRouteTotalLengthKm(_uiState.value) - beforeTotalKm).coerceAtLeast(0.0)
                     val extraMsg = formatExtraRouteLengthDanish(extraKm)
-                    _uiState.update {
-                        it.copy(
-                            isRoutingToNearest = false,
-                            lastNearestExtraRouteMessage = extraMsg
-                        )
-                    }
+                    _uiState.update { it.copy(isRoutingToNearest = false, lastNearestExtraRouteMessage = extraMsg) }
                     _userMessage.emit(extraMsg)
                 } else {
                     pushHistory()
-                    val wpStart = RouteWaypoint(
-                        id = "start_nearest",
-                        lat = startPt.lat,
-                        lng = startPt.lng,
-                        role = WaypointRole.START,
-                        name = "Start"
-                    )
-                    val wpDest = RouteWaypoint(
-                        id = "dest_${poi.id}",
-                        lat = poi.lat,
-                        lng = poi.lng,
-                        role = WaypointRole.END,
-                        name = poi.name,
-                        linkedPoiId = poi.id
-                    )
-
-                    val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(
-                        legResult.points,
-                        legResult.perPointWayInfo
-                    )
-
+                    val wpStart = RouteWaypoint(id = "start_nearest", lat = startPt.lat, lng = startPt.lng, role = WaypointRole.START, name = "Start")
+                    val wpDest = RouteWaypoint(id = "dest_${poi.id}", lat = poi.lat, lng = poi.lng, role = WaypointRole.END, name = poi.name, linkedPoiId = poi.id)
+                    val (pathShare, roadKm) = RouteGeometryStorageManager.computeWaySectionMetrics(legResult.points, legResult.perPointWayInfo)
                     val leg = LegGeometryData(
-                        fromWaypointId = wpStart.id,
-                        toWaypointId = wpDest.id,
-                        legMode = LegMode.SNAP,
-                        points = legResult.points,
-                        lengthKm = legResult.lengthKm,
-                        ascentM = legResult.ascentM,
-                        descentM = legResult.descentM,
-                        pathSharePct = pathShare,
-                        roadKm = roadKm,
-                        wayInfo = legResult.perPointWayInfo,
-                        turnCues = legResult.turnCues
+                        fromWaypointId = wpStart.id, toWaypointId = wpDest.id, legMode = LegMode.SNAP,
+                        points = legResult.points, lengthKm = legResult.lengthKm,
+                        ascentM = legResult.ascentM, descentM = legResult.descentM,
+                        pathSharePct = pathShare, roadKm = roadKm,
+                        wayInfo = legResult.perPointWayInfo, turnCues = legResult.turnCues
                     )
-
-                    val legsMap = mapOf("${wpStart.id}_to_${wpDest.id}" to leg)
                     val extraMsg = formatExtraRouteLengthDanish(legResult.lengthKm)
                     _uiState.update {
                         it.copy(
                             isRoutingToNearest = false,
                             waypoints = listOf(wpStart, wpDest),
-                            legs = legsMap,
+                            legs = mapOf("${wpStart.id}_to_${wpDest.id}" to leg),
                             failedLegs = emptyMap(),
                             routeName = "Rute til ${poi.name}",
                             lastNearestExtraRouteMessage = extraMsg
@@ -712,13 +684,15 @@ fun RouteBuilderViewModel.routeToNearest(
                     _userMessage.emit(extraMsg)
                 }
             } else {
+                val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
                 _uiState.update { it.copy(isRoutingToNearest = false) }
-                _userMessage.emit("Ingen ${category.label.lowercase()} fundet i nærheden.")
+                _userMessage.emit(localizedCtx.getString(com.example.R.string.planner_no_category_found_nearby_fmt, category.label.lowercase()))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error routing to nearest: ${e.message}", e)
+            val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
             _uiState.update { it.copy(isRoutingToNearest = false) }
-            _userMessage.emit("Fejl ved rutesøgning: ${com.example.util.userMessageFor(e)}")
+            _userMessage.emit(localizedCtx.getString(com.example.R.string.planner_route_search_error_fmt, com.example.util.userMessageFor(e)))
         }
     }
 }
@@ -726,50 +700,46 @@ fun RouteBuilderViewModel.routeToNearest(
 internal suspend fun RouteBuilderViewModel.fetchNightWeatherForDay(
     dayIndex: Int, startDateMillis: Long, lat: Double, lng: Double
 ): String {
+    val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
+    val appLocale = com.example.util.AppLocaleHelper.getAppLocale(getApplication())
+    val unavailableMsg = runCatching { localizedCtx.getString(com.example.R.string.day_weather_unavailable) }.getOrDefault("Forecast not available yet")
     val targetMillis = startDateMillis + java.util.concurrent.TimeUnit.DAYS.toMillis(dayIndex.toLong())
     val nowMillis = System.currentTimeMillis()
     val diffHours = (targetMillis - nowMillis) / 3_600_000.0
-    if (diffHours < -18.0 || diffHours > 48.0) return "Vejrudsigt ikke tilgængelig endnu"
+    if (diffHours < -18.0 || diffHours > 48.0) return unavailableMsg
     val targetDateStr = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date(targetMillis))
     val cacheKey = "${String.format(Locale.US, "%.2f_%.2f", lat, lng)}_$targetDateStr"
     nightWeatherCache[cacheKey]?.let { return it }
 
     return kotlinx.coroutines.withContext(Dispatchers.IO) {
         try {
-            val weather = repository.getTrailWeather(lat = lat, lng = lng, forceNetworkRefresh = false)
-                ?: return@withContext "Vejrudsigt ikke tilgængelig endnu"
+            val weather = repository.getTrailWeather(lat = lat, lng = lng, forceNetworkRefresh = false) ?: return@withContext unavailableMsg
+            val updatedAt = weather.formatUpdatedClock()
+            val staleSuffix = if (weather.isStale(nowMillis)) runCatching { " " + localizedCtx.getString(com.example.R.string.day_weather_stale_suffix) }.getOrDefault("") else ""
+            fun formatForecast(tempC: Double, windMs: Double, precipMm: Double): String {
+                val precipStr = String.format(appLocale, "%.1f", precipMm)
+                return runCatching {
+                    localizedCtx.getString(com.example.R.string.day_weather_afternoon_fmt, Math.round(tempC).toInt(), Math.round(windMs).toInt(), precipStr, updatedAt) + staleSuffix
+                }.getOrDefault("${Math.round(tempC)}°C · ${Math.round(windMs)} m/s · $precipStr mm · $updatedAt$staleSuffix")
+            }
             val afternoon = com.example.data.remote.WeatherInterpreter.findAfternoonForecastForDate(weather, targetDateStr)
             if (afternoon != null) {
-                val updatedAt = weather.formatUpdatedClock()
-                val staleSuffix = if (weather.isStale(nowMillis)) " (kan være forældet)" else ""
-                val summary = "Eftermiddag ${Math.round(afternoon.tempC)}°C · Vind ${Math.round(afternoon.windSpeedMs)} m/s · Nedbør ${String.format(Locale.GERMAN, "%.1f", afternoon.precipitationMm)} mm · Opdateret kl. $updatedAt$staleSuffix"
+                val summary = formatForecast(afternoon.tempC, afternoon.windSpeedMs, afternoon.precipitationMm)
                 nightWeatherCache[cacheKey] = summary
                 return@withContext summary
             }
-            val response = weatherService.getTrailWeather(lat = lat, lon = lng)
-            val daily = response.daily
+            val daily = weatherService.getTrailWeather(lat = lat, lon = lng).daily
             val idx = (daily?.time ?: emptyList()).indexOf(targetDateStr)
-            if (idx == -1) "Vejrudsigt ikke tilgængelig endnu" else {
-                val minTemp = daily?.tempMin?.getOrNull(idx)
-                val maxTemp = daily?.tempMax?.getOrNull(idx)
-                val precip = daily?.precipitationSum?.getOrNull(idx) ?: 0.0
-                val wind = daily?.windSpeedMax?.getOrNull(idx)
+            if (idx == -1) unavailableMsg else {
                 val sunsetRaw = daily?.sunset?.getOrNull(idx)
                 if (!sunsetRaw.isNullOrBlank() && sunsetRaw.contains("T")) sunsetTimeStr = sunsetRaw.substringAfter("T")
-                val updatedAt = weather.formatUpdatedClock()
-                val staleSuffix = if (weather.isStale(nowMillis)) " (kan være forældet)" else ""
-                val summary = buildString {
-                    if (minTemp != null && maxTemp != null) append("Nat ${Math.round(minTemp)}°C / Dag ${Math.round(maxTemp)}°C")
-                    else if (minTemp != null) append("Nat ${Math.round(minTemp)}°C")
-                    append(" · Nedbør ${String.format(Locale.GERMAN, "%.1f", precip)} mm")
-                    if (wind != null) append(" · Vind ${Math.round(wind)} m/s")
-                    append(" · Opdateret kl. $updatedAt$staleSuffix")
-                }
+                val tempToShow = daily?.tempMax?.getOrNull(idx) ?: daily?.tempMin?.getOrNull(idx) ?: 0.0
+                val summary = formatForecast(tempToShow, daily?.windSpeedMax?.getOrNull(idx) ?: 0.0, daily?.precipitationSum?.getOrNull(idx) ?: 0.0)
                 nightWeatherCache[cacheKey] = summary
                 summary
             }
         } catch (_: Exception) {
-            "Vejrudsigt ikke tilgængelig endnu"
+            unavailableMsg
         }
     }
 }

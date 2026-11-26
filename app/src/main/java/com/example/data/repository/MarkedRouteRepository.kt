@@ -98,6 +98,47 @@ class MarkedRouteRepository(
             return cells
         }
 
+        fun nearestPointDistanceMeters(
+            route: MarkedRouteDto,
+            userLat: Double,
+            userLng: Double
+        ): Double {
+            var minDistM = Double.MAX_VALUE
+            for (polyline in route.polylines) {
+                for (pt in polyline) {
+                    val d = GeoUtils.haversineMeters(userLat, userLng, pt.lat, pt.lng)
+                    if (d < minDistM) {
+                        minDistM = d
+                    }
+                }
+            }
+            if (minDistM == Double.MAX_VALUE && route.minLat.isFinite() && route.maxLat.isFinite() &&
+                route.minLng.isFinite() && route.maxLng.isFinite()
+            ) {
+                val cLat = (route.minLat + route.maxLat) / 2.0
+                val cLng = (route.minLng + route.maxLng) / 2.0
+                minDistM = GeoUtils.haversineMeters(userLat, userLng, cLat, cLng)
+            }
+            return minDistM
+        }
+
+        fun filterShortMarkedRoutesNearYou(
+            routes: List<MarkedRouteDto>,
+            userLat: Double,
+            userLng: Double,
+            catalogueRelationIds: Set<Long> = emptySet(),
+            minKm: Double = 2.0,
+            maxKm: Double = 20.0,
+            maxRadiusMeters: Double = 25_000.0
+        ): List<MarkedRouteDto> {
+            return routes.mapNotNull { route ->
+                if (route.osmRelationId in catalogueRelationIds) return@mapNotNull null
+                if (route.lengthKm < minKm || route.lengthKm > maxKm) return@mapNotNull null
+                val nearestM = nearestPointDistanceMeters(route, userLat, userLng)
+                if (nearestM <= maxRadiusMeters) route to nearestM else null
+            }.sortedBy { it.second }.map { it.first }
+        }
+
         val MORE_MARKED_ROUTES_OVERPASS_QUERY = """
             [out:json][timeout:30];
             area(3600050046)->.denmark;
@@ -1123,7 +1164,8 @@ class MarkedRouteRepository(
         minLat: Double,
         maxLat: Double,
         minLng: Double,
-        maxLng: Double
+        maxLng: Double,
+        priority: com.example.data.remote.OverpassClient.Priority = com.example.data.remote.OverpassClient.Priority.USER_INITIATED
     ): List<MarkedRouteDto> = withContext(Dispatchers.IO) {
         val query = """
             [out:json][timeout:25][maxsize:67108864];
@@ -1137,9 +1179,125 @@ class MarkedRouteRepository(
 
         val jsonStr = com.example.data.remote.OverpassClient.queryRawJson(
             query = query,
-            label = "MarkedRoutes($minLat,$minLng)"
+            label = "MarkedRoutes($minLat,$minLng)",
+            priority = priority
         )
         parseOverpassRoutesJson(jsonStr)
+    }
+
+    /**
+     * Loads marked routes of [minKm]..[maxKm] (3..20 km) whose nearest polyline point is within
+     * [maxRadiusMeters] (15 km) of ([userLat], [userLng]), using cached grid cells first and
+     * fetching missing cells at [com.example.data.remote.OverpassClient.Priority.BACKGROUND].
+     */
+    suspend fun getShortMarkedRoutesNearLocation(
+        userLat: Double,
+        userLng: Double,
+        minKm: Double = 3.0,
+        maxKm: Double = 20.0,
+        maxRadiusMeters: Double = 15_000.0,
+        allowBackgroundFetch: Boolean = true
+    ): List<MarkedRouteDto> = withContext(Dispatchers.IO) {
+        if (!userLat.isFinite() || !userLng.isFinite() || (userLat == 0.0 && userLng == 0.0)) {
+            return@withContext emptyList()
+        }
+        val latDelta = maxRadiusMeters / 111_000.0
+        val cosLat = kotlin.math.cos(Math.toRadians(userLat)).coerceAtLeast(0.2)
+        val lngDelta = maxRadiusMeters / (111_000.0 * cosLat)
+        val minLat = userLat - latDelta
+        val maxLat = userLat + latDelta
+        val minLng = userLng - lngDelta
+        val maxLng = userLng + lngDelta
+
+        val cells = computeGridCellsForViewport(minLat, maxLat, minLng, maxLng)
+        val cellKeys = cells.map { it.cellKey }
+        val existingBoxesByKey = if (cellKeys.isEmpty()) {
+            emptyMap()
+        } else {
+            cellKeys.chunked(200)
+                .flatMap { batch -> dao.getMarkedRouteCacheBoxesByKeys(batch) }
+                .associateBy { it.boxKey }
+        }
+        val expiredThreshold = System.currentTimeMillis() - CACHE_TTL_MS
+        val missingCells = cells.filter { cell ->
+            val box = existingBoxesByKey[cell.cellKey]
+            box == null || box.fetchedAt < expiredThreshold
+        }
+
+        if (allowBackgroundFetch && missingCells.isNotEmpty()) {
+            val qMinLat = missingCells.minOf { it.minLat }
+            val qMaxLat = missingCells.maxOf { it.maxLat }
+            val qMinLng = missingCells.minOf { it.minLng }
+            val qMaxLng = missingCells.maxOf { it.maxLng }
+            try {
+                val liveRoutes = queryOverpassMarkedRoutes(
+                    minLat = qMinLat,
+                    maxLat = qMaxLat,
+                    minLng = qMinLng,
+                    maxLng = qMaxLng,
+                    priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND
+                )
+                val cachedAt = System.currentTimeMillis()
+                if (liveRoutes.isNotEmpty()) {
+                    dao.insertMarkedRoutes(liveRoutes.map { dtoToEntity(it, cachedAt) })
+                }
+                for (cell in missingCells) {
+                    dao.insertMarkedRouteCacheBox(
+                        MarkedRouteCacheBoxEntity(
+                            boxKey = cell.cellKey,
+                            minLat = cell.minLat,
+                            maxLat = cell.maxLat,
+                            minLng = cell.minLng,
+                            maxLng = cell.maxLng,
+                            fetchedAt = cachedAt
+                        )
+                    )
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Background fetch for short marked routes near location failed: ${e.message}")
+            }
+        }
+
+        val candidateHeaders = dao.getMarkedRouteHeadersInBbox(minLat, maxLat, minLng, maxLng)
+            .filter { it.lengthKm in minKm..maxKm }
+        if (candidateHeaders.isEmpty()) return@withContext emptyList()
+
+        val headerById = candidateHeaders.associateBy { it.osmRelationId }
+        val candidateRoutes = ArrayList<MarkedRouteDto>(candidateHeaders.size)
+        for (batchIds in headerById.keys.chunked(MAX_BATCH_IDS)) {
+            val tuples = fetchSegmentsBatchWithIsolation(batchIds, headerById)
+            for (tuple in tuples) {
+                val header = headerById[tuple.osmRelationId] ?: continue
+                val entity = MarkedRouteEntity(
+                    osmRelationId = header.osmRelationId,
+                    name = header.name,
+                    lengthKm = header.lengthKm,
+                    operator = header.operator,
+                    routeType = header.routeType,
+                    network = header.network,
+                    symbol = header.symbol,
+                    colorHex = header.colorHex,
+                    segmentsJson = tuple.segmentsJson,
+                    minLat = header.minLat,
+                    maxLat = header.maxLat,
+                    minLng = header.minLng,
+                    maxLng = header.maxLng,
+                    cachedAt = tuple.cachedAt
+                )
+                candidateRoutes.add(entityToDto(entity))
+            }
+        }
+
+        filterShortMarkedRoutesNearYou(
+            routes = candidateRoutes,
+            userLat = userLat,
+            userLng = userLng,
+            minKm = minKm,
+            maxKm = maxKm,
+            maxRadiusMeters = maxRadiusMeters
+        )
     }
 
     /**

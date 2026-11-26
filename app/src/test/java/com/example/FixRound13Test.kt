@@ -62,7 +62,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = DanskStiApp::class)
+@Config(sdk = [34], application = DanskStiApp::class, qualifiers = "da")
 class FixRound13Test {
 
     @get:Rule
@@ -883,7 +883,7 @@ class FixRound13Test {
             TrailGeometryRepository.isDownloadInFlight(trailId)
         )
         assertFalse("isFetchingLiveRoute must be false after cancelling", vmCancel.isFetchingLiveRoute.value)
-        assertEquals("Download annulleret", vmCancel.routeError.value)
+        assertEquals(app.getString(R.string.trail_error_download_cancelled), vmCancel.routeError.value)
         hangGate.cancel()
     }
 

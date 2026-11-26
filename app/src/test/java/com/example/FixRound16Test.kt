@@ -46,7 +46,7 @@ import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = DanskStiApp::class)
+@Config(sdk = [34], application = DanskStiApp::class, qualifiers = "da")
 class FixRound16Test {
 
     private lateinit var app: DanskStiApp

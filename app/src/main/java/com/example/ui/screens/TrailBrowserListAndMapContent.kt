@@ -81,10 +81,12 @@ internal fun TrailBrowserListContent(
     savedTrailIds: Set<String>,
     nearbyTrails: List<TrailEntity>,
     shortTrailsNearYou: List<TrailEntity> = emptyList(),
+    shortMarkedRoutesNearYou: List<com.example.data.model.MarkedRouteDto> = emptyList(),
     userLocation: Pair<Double, Double>?,
     userLocationStaleMessage: String? = null,
     onPickAnotherStart: () -> Unit = {},
     onCreateLoopFromHere: () -> Unit = {},
+    onSelectMarkedRoute: (com.example.data.model.MarkedRouteDto) -> Unit = {},
     shelterCounts: Map<String, Int>,
     friTeltningCounts: Map<String, Int>,
     trailMetrics: Map<String, TrailCardMetrics>,
@@ -148,7 +150,7 @@ internal fun TrailBrowserListContent(
                                     onClick = onPickAnotherStart,
                                     modifier = Modifier.testTag("explore_pick_another_start_button")
                                 ) {
-                                    Text("Vælg andet startpunkt")
+                                    Text(stringResource(R.string.explore_pick_another_start))
                                 }
                             }
                         }
@@ -183,23 +185,35 @@ internal fun TrailBrowserListContent(
                     }
                 }
 
-                // Part F4: "Korte ture nær dig" section (3-20 km within 15 km + "Lav en rundtur herfra" card)
-                item(key = "section_short_trails_near_you_header", span = { GridItemSpan(maxLineSpan) }) {
-                    Text(
-                        text = "Korte ture nær dig",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier
-                            .padding(top = Spacing.s2)
-                            .testTag("section_short_trails_near_you")
-                    )
+                // Part F3/F4: "Korte ture nær dig" section (3-20 km within 15 km from OSM marked routes)
+                if (shortMarkedRoutesNearYou.isNotEmpty() || shortTrailsNearYou.isNotEmpty()) {
+                    item(key = "section_short_trails_near_you_header", span = { GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            text = stringResource(R.string.explore_section_short_trails_near_you),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier
+                                .padding(top = Spacing.s2)
+                                .testTag("section_short_trails_near_you")
+                        )
+                    }
                 }
 
                 item(key = "create_loop_from_here_card", span = { GridItemSpan(maxLineSpan) }) {
                     CreateLoopFromHereCard(onClick = onCreateLoopFromHere)
                 }
 
-                if (shortTrailsNearYou.isNotEmpty()) {
+                if (shortMarkedRoutesNearYou.isNotEmpty()) {
+                    gridItems(
+                        items = shortMarkedRoutesNearYou,
+                        key = { "short_marked_near_${it.osmRelationId}" }
+                    ) { route ->
+                        ShortMarkedRouteNearYouCard(
+                            route = route,
+                            onClick = { onSelectMarkedRoute(route) }
+                        )
+                    }
+                } else if (shortTrailsNearYou.isNotEmpty()) {
                     gridItems(
                         items = shortTrailsNearYou,
                         key = { "short_near_${it.id}" }
@@ -372,7 +386,7 @@ internal fun TrailBrowserListContent(
                                     onClick = onPickAnotherStart,
                                     modifier = Modifier.testTag("explore_pick_another_start_button")
                                 ) {
-                                    Text("Vælg andet startpunkt")
+                                    Text(stringResource(R.string.explore_pick_another_start))
                                 }
                             }
                         }
@@ -407,23 +421,35 @@ internal fun TrailBrowserListContent(
                     }
                 }
 
-                // Part F4: "Korte ture nær dig" section (3-20 km within 15 km + "Lav en rundtur herfra" card)
-                item(key = "section_short_trails_near_you_header") {
-                    Text(
-                        text = "Korte ture nær dig",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier
-                            .padding(top = Spacing.s2)
-                            .testTag("section_short_trails_near_you")
-                    )
+                // Part F3/F4: "Korte ture nær dig" section (3-20 km within 15 km from OSM marked routes)
+                if (shortMarkedRoutesNearYou.isNotEmpty() || shortTrailsNearYou.isNotEmpty()) {
+                    item(key = "section_short_trails_near_you_header") {
+                        Text(
+                            text = stringResource(R.string.explore_section_short_trails_near_you),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier
+                                .padding(top = Spacing.s2)
+                                .testTag("section_short_trails_near_you")
+                        )
+                    }
                 }
 
                 item(key = "create_loop_from_here_card") {
                     CreateLoopFromHereCard(onClick = onCreateLoopFromHere)
                 }
 
-                if (shortTrailsNearYou.isNotEmpty()) {
+                if (shortMarkedRoutesNearYou.isNotEmpty()) {
+                    items(
+                        items = shortMarkedRoutesNearYou,
+                        key = { "short_marked_near_${it.osmRelationId}" }
+                    ) { route ->
+                        ShortMarkedRouteNearYouCard(
+                            route = route,
+                            onClick = { onSelectMarkedRoute(route) }
+                        )
+                    }
+                } else if (shortTrailsNearYou.isNotEmpty()) {
                     items(
                         items = shortTrailsNearYou,
                         key = { "short_near_${it.id}" }
@@ -575,13 +601,13 @@ private fun CreateLoopFromHereCard(onClick: () -> Unit) {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Lav en rundtur herfra",
+                    text = stringResource(R.string.explore_create_loop_from_here),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
                 Text(
-                    text = "Planlæg en rundtur på 5–20 km direkte fra din nuværende position",
+                    text = stringResource(R.string.explore_create_loop_from_here_sub),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
                 )
@@ -595,7 +621,7 @@ private fun CreateLoopFromHereCard(onClick: () -> Unit) {
                     .sizeIn(minHeight = 48.dp)
                     .testTag("create_loop_from_here_button")
             ) {
-                Text("Planlæg")
+                Text(stringResource(R.string.explore_create_loop_action))
             }
         }
     }

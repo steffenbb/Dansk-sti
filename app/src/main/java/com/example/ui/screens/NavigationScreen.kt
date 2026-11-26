@@ -179,17 +179,23 @@ fun NavigationScreen(
 
     var ttsRef by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }
+    var ttsVoiceLocale by remember { mutableStateOf(com.example.util.DanishTtsChecker.DANISH_LOCALE) }
     var lastSpokenKey by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(voiceGuidance) {
         var engine: TextToSpeech? = null
         if (voiceGuidance) {
             runCatching {
-                val targetLocale = com.example.util.DanishTtsChecker.resolveTtsLocale(context)
                 engine = TextToSpeech(context.applicationContext) { status ->
-                    if (status == TextToSpeech.SUCCESS && com.example.util.DanishTtsChecker.isTtsLocaleSupported(engine, targetLocale)) {
-                        engine?.language = targetLocale
-                        ttsReady = true
+                    if (status == TextToSpeech.SUCCESS) {
+                        val effectiveLocale = com.example.util.DanishTtsChecker.resolveEffectiveTtsLocale(context, engine)
+                        if (effectiveLocale != null) {
+                            engine?.language = effectiveLocale
+                            ttsVoiceLocale = effectiveLocale
+                            ttsReady = true
+                        } else {
+                            ttsReady = false
+                        }
                     } else {
                         ttsReady = false
                     }
@@ -207,7 +213,7 @@ fun NavigationScreen(
         }
     }
 
-    LaunchedEffect(liveState.nextTurnCue, liveState.distanceToNextCueMeters, voiceGuidance, ttsReady) {
+    LaunchedEffect(liveState.nextTurnCue, liveState.distanceToNextCueMeters, voiceGuidance, ttsReady, ttsVoiceLocale) {
         if (!voiceGuidance || !ttsReady) return@LaunchedEffect
         val cue = liveState.nextTurnCue ?: return@LaunchedEffect
         val distM = liveState.distanceToNextCueMeters ?: return@LaunchedEffect
@@ -220,7 +226,12 @@ fun NavigationScreen(
             val key = "${cue.pointIndex}_${cue.walkKm}_$thresholdBucket"
             if (key != lastSpokenKey) {
                 lastSpokenKey = key
-                val speechText = TurnCueGenerator.formatCueBannerText(cue, distM)
+                val speechText = com.example.util.DanishTtsChecker.formatSpeechCueText(
+                    context = context,
+                    cue = cue,
+                    distanceMeters = distM,
+                    effectiveVoiceLocale = ttsVoiceLocale
+                )
                 runCatching {
                     ttsRef?.speak(speechText, TextToSpeech.QUEUE_FLUSH, null, key)
                 }
@@ -398,24 +409,17 @@ fun NavigationScreen(
         }
     }
 
-    val cueBannerPrimaryText = remember(
-        activeCueWithin500m,
-        nextWater,
-        nextShop,
-        nextOvernight,
-        distanceRemainingToday
-    ) {
-        if (activeCueWithin500m != null) {
-            TurnCueGenerator.formatCueBannerText(activeCueWithin500m.first, activeCueWithin500m.second)
-        } else if (nextWater != null) {
-            "Næste: vand om ${formatDanishKm(nextWater!!.distanceRemainingKm, 1)} km"
-        } else if (nextShop != null) {
-            "Næste: indkøb om ${formatDanishKm(nextShop!!.distanceRemainingKm, 1)} km"
-        } else if (nextOvernight != null) {
-            "Næste: ${nextOvernight!!.name} om ${formatDanishKm(nextOvernight!!.distanceRemainingKm, 1)} km"
-        } else {
-            "Næste: lejr om ${formatDanishKm(distanceRemainingToday, 1)} km"
-        }
+    val cueBannerPrimaryText = when {
+        activeCueWithin500m != null ->
+            TurnCueGenerator.formatCueBannerText(activeCueWithin500m.first, activeCueWithin500m.second, context)
+        nextWater != null ->
+            stringResource(R.string.nav_cue_next_water_fmt, formatDanishKm(nextWater!!.distanceRemainingKm, 1))
+        nextShop != null ->
+            stringResource(R.string.nav_cue_next_shop_fmt, formatDanishKm(nextShop!!.distanceRemainingKm, 1))
+        nextOvernight != null ->
+            stringResource(R.string.nav_cue_next_overnight_fmt, nextOvernight!!.name, formatDanishKm(nextOvernight!!.distanceRemainingKm, 1))
+        else ->
+            stringResource(R.string.nav_cue_next_camp_fmt, formatDanishKm(distanceRemainingToday, 1))
     }
 
     val isGpsWeakOrStale = remember(liveState.accuracyM, liveState.lastFixTimestampMs, nowClockMs) {

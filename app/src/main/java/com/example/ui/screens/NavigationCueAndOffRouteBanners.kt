@@ -558,9 +558,15 @@ internal fun TurnCueDirectionIcon(
         "UTURN" -> Icons.Default.UTurnLeft
         else -> Icons.AutoMirrored.Filled.ArrowForward
     }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val desc = if (cue != null) {
+        TurnCueGenerator.localizedInstructionForDirection(cue.direction, context, cue.instructionText)
+    } else {
+        stringResource(R.string.nav_next_on_route)
+    }
     Icon(
         imageVector = icon,
-        contentDescription = cue?.instructionText ?: "Næste på ruten",
+        contentDescription = desc,
         tint = tint,
         modifier = Modifier
             .size(26.dp)

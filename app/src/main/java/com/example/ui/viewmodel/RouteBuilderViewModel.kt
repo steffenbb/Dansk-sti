@@ -43,7 +43,6 @@ import java.util.UUID
 import kotlin.math.max
 
 class RouteBuilderViewModel(application: Application) : AndroidViewModel(application) {
-    init { DanskStiApp.registerViewModelScope(viewModelScope) }
     internal val TAG = "RouteBuilderVM"
     internal val app: DanskStiApp
         get() = try { DanskStiApp.instance } catch (_: Exception) { getApplication() as DanskStiApp }
@@ -170,23 +169,7 @@ class RouteBuilderViewModel(application: Application) : AndroidViewModel(applica
         return "$wpSig#$legSig#${state.paceKmh}#${state.dailyTargetKm}#${state.maxDetourKm}#${state.overnightPreference}#${state.startTimeStr}#${state.startDateMillis}#${state.isReverse}"
     }
 
-    companion object {
-        @Volatile
-        private var latestInstance: RouteBuilderViewModel? = null
-        fun cancelActiveJobs() {
-            latestInstance?.let { vm ->
-                vm.mapCameraAccessJob?.cancel()
-                vm.corridorAccessJob?.cancel()
-                vm.supplyGapsJob?.cancel()
-                vm.stagesAndPoisJob?.cancel()
-            }
-            latestInstance = null
-        }
-    }
-
     init {
-        cancelActiveJobs()
-        latestInstance = this
         viewModelScope.launch {
             @OptIn(kotlinx.coroutines.FlowPreview::class)
             plannerSearchQueryFlow
@@ -670,6 +653,7 @@ class RouteBuilderViewModel(application: Application) : AndroidViewModel(applica
                 for (leg in initialLegs.values) {
                     RouteGeometryStorageManager.saveLeg(getApplication(), geometryFileName, leg)
                 }
+                existingPlan?.let { refreshPackingListState(it.id) }
             }
 
             if (wps.isNotEmpty()) {
@@ -749,6 +733,9 @@ class RouteBuilderViewModel(application: Application) : AndroidViewModel(applica
                     overnightPreference = parsedPref ?: it.overnightPreference,
                     startDateMillis = existingPlan?.createdAt ?: it.startDateMillis
                 )
+            }
+            withContext(Dispatchers.IO) {
+                existingPlan?.let { refreshPackingListState(it.id) }
             }
 
             updateRouteStats()

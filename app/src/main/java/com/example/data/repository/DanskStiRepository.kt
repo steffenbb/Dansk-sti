@@ -465,12 +465,19 @@ class DanskStiRepository(
             val item = trailsArr.optJSONObject(i) ?: continue
             val trailId = item.optString("id", "").takeIf { it.isNotBlank() } ?: continue
             val relId = item.optLong("osmRelationId", 0L).takeIf { it > 0L }
+            val computedWalkingKm = item.optDouble("computedWalkingKm", Double.NaN).takeIf { !it.isNaN() && it > 0.0 }
             val bboxSouth = item.optDouble("bboxSouth", Double.NaN).takeIf { !it.isNaN() }
             val bboxWest = item.optDouble("bboxWest", Double.NaN).takeIf { !it.isNaN() }
             val bboxNorth = item.optDouble("bboxNorth", Double.NaN).takeIf { !it.isNaN() }
             val bboxEast = item.optDouble("bboxEast", Double.NaN).takeIf { !it.isNaN() }
+            val startLat = item.optDouble("startLat", Double.NaN).takeIf { !it.isNaN() }
+            val startLng = item.optDouble("startLng", Double.NaN).takeIf { !it.isNaN() }
+            val endLat = item.optDouble("endLat", Double.NaN).takeIf { !it.isNaN() }
+            val endLng = item.optDouble("endLng", Double.NaN).takeIf { !it.isNaN() }
+            val nearestTown = item.optString("nearestTown", "").trim().takeIf { it.isNotEmpty() }
+            val osmTimestamp = item.optString("osmTimestamp", "").trim().takeIf { it.isNotEmpty() }
 
-            val tagsObj = item.optJSONObject("tags")
+            val tagsObj = item.optJSONObject("osmTags") ?: item.optJSONObject("tags")
             val tagsMap = LinkedHashMap<String, String>()
             if (tagsObj != null) {
                 val keys = tagsObj.keys()
@@ -499,10 +506,21 @@ class DanskStiRepository(
             }
 
             val existing = dao.getTrailById(trailId) ?: continue
-            val s = if (existing.isGeometryDownloaded) (existing.bboxSouth ?: bboxSouth) else (bboxSouth ?: existing.bboxSouth)
-            val w = if (existing.isGeometryDownloaded) (existing.bboxWest ?: bboxWest) else (bboxWest ?: existing.bboxWest)
-            val n = if (existing.isGeometryDownloaded) (existing.bboxNorth ?: bboxNorth) else (bboxNorth ?: existing.bboxNorth)
-            val e = if (existing.isGeometryDownloaded) (existing.bboxEast ?: bboxEast) else (bboxEast ?: existing.bboxEast)
+            val isDownloaded = existing.isGeometryDownloaded
+            val s = if (isDownloaded) (existing.bboxSouth ?: bboxSouth) else (bboxSouth ?: existing.bboxSouth)
+            val w = if (isDownloaded) (existing.bboxWest ?: bboxWest) else (bboxWest ?: existing.bboxWest)
+            val n = if (isDownloaded) (existing.bboxNorth ?: bboxNorth) else (bboxNorth ?: existing.bboxNorth)
+            val e = if (isDownloaded) (existing.bboxEast ?: bboxEast) else (bboxEast ?: existing.bboxEast)
+            val newWalkingKm = if (isDownloaded && existing.computedWalkingKm > 0.0) {
+                existing.computedWalkingKm
+            } else {
+                computedWalkingKm ?: existing.computedWalkingKm
+            }
+            val newStartLat = if (isDownloaded) (existing.startLat ?: startLat) else (startLat ?: existing.startLat)
+            val newStartLng = if (isDownloaded) (existing.startLng ?: startLng) else (startLng ?: existing.startLng)
+            val newEndLat = if (isDownloaded) (existing.endLat ?: endLat) else (endLat ?: existing.endLat)
+            val newEndLng = if (isDownloaded) (existing.endLng ?: endLng) else (endLng ?: existing.endLng)
+            val newOsmTimestamp = if (isDownloaded) (existing.osmTimestamp ?: osmTimestamp) else (osmTimestamp ?: existing.osmTimestamp)
             val computedReg = if (s != null && w != null && n != null && e != null) {
                 GeoUtils.computeDanishRegionFromBbox(s, w, n, e)
             } else {
@@ -512,10 +530,17 @@ class DanskStiRepository(
             val updatedTrail = existing.copy(
                 region = computedReg,
                 parentRegion = computedReg,
+                computedWalkingKm = newWalkingKm,
                 bboxSouth = s,
                 bboxWest = w,
                 bboxNorth = n,
                 bboxEast = e,
+                startLat = newStartLat,
+                startLng = newStartLng,
+                endLat = newEndLat,
+                endLng = newEndLng,
+                nearestTown = nearestTown ?: existing.nearestTown,
+                osmTimestamp = newOsmTimestamp,
                 description = osmDesc?.takeIf { it.isNotBlank() } ?: existing.description,
                 osmWebsite = osmWebsite?.takeIf { it.isNotBlank() } ?: existing.osmWebsite,
                 osmOperator = osmOperator?.takeIf { it.isNotBlank() } ?: existing.osmOperator,
@@ -543,7 +568,7 @@ class DanskStiRepository(
             val bboxWest = item.optDouble("bboxWest", Double.NaN).takeIf { !it.isNaN() }
             val bboxNorth = item.optDouble("bboxNorth", Double.NaN).takeIf { !it.isNaN() }
             val bboxEast = item.optDouble("bboxEast", Double.NaN).takeIf { !it.isNaN() }
-            val tagsObj = item.optJSONObject("tags")
+            val tagsObj = item.optJSONObject("osmTags") ?: item.optJSONObject("tags")
             val tagsMap = LinkedHashMap<String, String>()
             if (tagsObj != null) {
                 val keys = tagsObj.keys()
@@ -844,7 +869,12 @@ class DanskStiRepository(
         if (!forceNetworkRefresh && cached != null) {
             val cachedResp = WeatherInterpreter.deserializeResponseFromJson(cached.forecastJson)
             if (cachedResp != null) {
-                return@withContext WeatherInterpreter.parseWeather(cachedResp, fetchedAtMillis = cached.fetchedAt)
+                return@withContext WeatherInterpreter.parseWeather(
+                    cachedResp,
+                    fetchedAtMillis = cached.fetchedAt,
+                    nowMillis = nowMs,
+                    context = context
+                )
             }
         }
 
@@ -867,7 +897,12 @@ class DanskStiRepository(
                         )
                     )
                 }
-                return@withContext WeatherInterpreter.parseWeather(response, fetchedAtMillis = nowMs)
+                return@withContext WeatherInterpreter.parseWeather(
+                    response,
+                    fetchedAtMillis = nowMs,
+                    nowMillis = nowMs,
+                    context = context
+                )
             } catch (e: Exception) {
                 Log.w("DanskStiRepo", "Could not fetch live weather, falling back to cache: ${e.message}")
             }
@@ -876,18 +911,32 @@ class DanskStiRepository(
         if (cached != null) {
             val cachedResp = WeatherInterpreter.deserializeResponseFromJson(cached.forecastJson)
             if (cachedResp != null) {
-                return@withContext WeatherInterpreter.parseWeather(cachedResp, fetchedAtMillis = cached.fetchedAt)
+                return@withContext WeatherInterpreter.parseWeather(
+                    cachedResp,
+                    fetchedAtMillis = cached.fetchedAt,
+                    nowMillis = nowMs,
+                    context = context
+                )
             }
         }
         TrailWeatherInfo()
     }
 
-    suspend fun getCachedTrailWeatherOnly(lat: Double, lng: Double): TrailWeatherInfo? = withContext(Dispatchers.IO) {
+    suspend fun getCachedTrailWeatherOnly(
+        lat: Double,
+        lng: Double,
+        nowMs: Long = System.currentTimeMillis()
+    ): TrailWeatherInfo? = withContext(Dispatchers.IO) {
         val latRounded = WeatherInterpreter.roundCoord005(lat)
         val lngRounded = WeatherInterpreter.roundCoord005(lng)
         val cached = runCatching { dao.getWeatherCache(latRounded, lngRounded) }.getOrNull() ?: return@withContext null
         val cachedResp = WeatherInterpreter.deserializeResponseFromJson(cached.forecastJson) ?: return@withContext null
-        WeatherInterpreter.parseWeather(cachedResp, fetchedAtMillis = cached.fetchedAt)
+        WeatherInterpreter.parseWeather(
+            cachedResp,
+            fetchedAtMillis = cached.fetchedAt,
+            nowMillis = nowMs,
+            context = context
+        )
     }
 
     // --- Corridor POI sync & attachment ---
@@ -2815,6 +2864,18 @@ class DanskStiRepository(
         forceRefresh: Boolean = false
     ): List<com.example.data.model.DiscoveredHikingRouteDto> = withContext(Dispatchers.IO) {
         markedRouteRepository.getMoreMarkedHikingRoutes(forceRefresh)
+    }
+
+    suspend fun getShortMarkedRoutesNearLocation(
+        userLat: Double,
+        userLng: Double,
+        allowBackgroundFetch: Boolean = true
+    ): List<com.example.data.model.MarkedRouteDto> = withContext(Dispatchers.IO) {
+        markedRouteRepository.getShortMarkedRoutesNearLocation(
+            userLat = userLat,
+            userLng = userLng,
+            allowBackgroundFetch = allowBackgroundFetch
+        )
     }
 
     suspend fun saveAndDownloadDiscoveredRoute(

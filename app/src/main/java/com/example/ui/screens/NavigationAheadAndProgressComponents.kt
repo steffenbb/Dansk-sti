@@ -256,7 +256,7 @@ internal fun NavigationExpandedAheadDrawer(
             modifier = Modifier.testTag("nav_full_day_elevation_dialog"),
             title = {
                 Text(
-                    text = "Højdeprofil · Dag $currentDay",
+                    text = stringResource(R.string.nav_full_day_elevation_title_fmt, currentDay),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -282,7 +282,7 @@ internal fun NavigationExpandedAheadDrawer(
                         )
                     } else {
                         Text(
-                            text = "Træk fingeren hen over kurven for at aflæse højde og afstand.",
+                            text = stringResource(R.string.nav_elevation_scrub_hint),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -323,7 +323,7 @@ internal fun NavigationExpandedAheadDrawer(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Næste 5 km: +${next5KmSlice.ascentMeters} m / -${next5KmSlice.descentMeters} m",
+                    text = stringResource(R.string.nav_next_5km_ascent_descent_fmt, next5KmSlice.ascentMeters, next5KmSlice.descentMeters),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
@@ -516,7 +516,7 @@ internal fun NavigationExpandedAheadDrawer(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (hasGpsFix) "Del min aktuelle position (kortlink)" else "Venter på GPS-position",
+                            text = if (hasGpsFix) stringResource(R.string.nav_share_current_location_link) else stringResource(R.string.toast_waiting_for_gps),
                             style = MaterialTheme.typography.labelMedium,
                             color = if (hasGpsFix) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -581,9 +581,9 @@ fun Navigation6HourWeatherCard(
     val isStale = weather.isStale()
     val updatedClock = weather.formatUpdatedClock()
     val statusText = if (isStale) {
-        "Opdateret kl. $updatedClock (kan være forældet)"
+        stringResource(R.string.weather_updated_at_stale_fmt, updatedClock)
     } else {
-        "Opdateret kl. $updatedClock"
+        stringResource(R.string.weather_updated_at_fmt, updatedClock)
     }
 
     Card(
@@ -612,7 +612,7 @@ fun Navigation6HourWeatherCard(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Vejr næste 6 timer",
+                        text = stringResource(R.string.nav_weather_next_6h_title),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface

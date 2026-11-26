@@ -15,17 +15,11 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "da")
 class TripPlannerScreenTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
-
-    @org.junit.After
-    fun tearDown() {
-        RouteBuilderViewModel.cancelActiveJobs()
-        DanskStiApp.cancelAllViewModelScopes()
-    }
 
     @Test
     fun testPlannerLoadsTrailInTrailMode() {

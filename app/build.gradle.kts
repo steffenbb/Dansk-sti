@@ -13,8 +13,8 @@ android {
     applicationId = "com.aistudio.dansksti.hktvwp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 23
-    versionName = "23.0"
+    versionCode = 24
+    versionName = "24.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -65,13 +65,17 @@ android {
     unitTests {
       isIncludeAndroidResources = true
       all {
-        it.maxHeapSize = "1024m"
-        it.jvmArgs("-XX:MaxMetaspaceSize=320m", "-XX:+UseG1GC", "-XX:G1PeriodicGCInterval=2000", "-XX:+G1PeriodicGCInvokesConcurrent")
+        it.maxHeapSize = "2048m"
+        it.jvmArgs("-XX:MaxMetaspaceSize=512m", "-XX:+UseG1GC", "-XX:G1PeriodicGCInterval=2000", "-XX:+G1PeriodicGCInvokesConcurrent")
         it.maxParallelForks = 2
-        it.forkEvery = 30
+        it.forkEvery = 8L
         it.testLogging {
           events("passed", "skipped", "failed")
         }
+        it.systemProperty(
+          "generateCatalogue",
+          project.findProperty("generateCatalogue")?.toString() ?: "false"
+        )
         it.systemProperty(
           "robolectric.dependency.repo.url",
           "https://maven-central.storage-download.googleapis.com/maven2/"

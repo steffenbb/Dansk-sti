@@ -52,7 +52,6 @@ data class TrailCardMetrics(
 
 @OptIn(FlowPreview::class)
 class ExploreViewModel(application: Application) : AndroidViewModel(application) {
-    init { DanskStiApp.registerViewModelScope(viewModelScope) }
 
     private val app: DanskStiApp
         get() = try { DanskStiApp.instance } catch (_: Exception) { getApplication() as DanskStiApp }
@@ -472,6 +471,9 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private val _shortMarkedRoutesNearYou = MutableStateFlow<List<com.example.data.model.MarkedRouteDto>>(emptyList())
+    val shortMarkedRoutesNearYou: StateFlow<List<com.example.data.model.MarkedRouteDto>> = _shortMarkedRoutesNearYou.asStateFlow()
+
     val shortTrailsNearYou: StateFlow<List<TrailEntity>> = combine(
         allTrails,
         _userLocation
@@ -483,7 +485,41 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    init {
+        viewModelScope.launch {
+            _userLocation.collectLatest { loc ->
+                if (loc == null) {
+                    _shortMarkedRoutesNearYou.value = emptyList()
+                } else {
+                    val shortRoutes = withContext(Dispatchers.IO) {
+                        runCatching {
+                            repository.getShortMarkedRoutesNearLocation(loc.first, loc.second)
+                        }.getOrDefault(emptyList())
+                    }
+                    _shortMarkedRoutesNearYou.value = shortRoutes
+                }
+            }
+        }
+    }
+
     companion object {
+        fun filterShortMarkedRoutesNearYou(
+            routes: List<com.example.data.model.MarkedRouteDto>,
+            userLat: Double,
+            userLng: Double,
+            minKm: Double = 3.0,
+            maxKm: Double = 20.0,
+            maxRadiusMeters: Double = 15_000.0
+        ): List<com.example.data.model.MarkedRouteDto> =
+            com.example.data.repository.MarkedRouteRepository.filterShortMarkedRoutesNearYou(
+                routes = routes,
+                userLat = userLat,
+                userLng = userLng,
+                minKm = minKm,
+                maxKm = maxKm,
+                maxRadiusMeters = maxRadiusMeters
+            )
+
         /**
          * Part F4: Returns trails of 3–20 km within 15 km of the user's position ([userLat], [userLng]),
          * sorted by distance from the user.

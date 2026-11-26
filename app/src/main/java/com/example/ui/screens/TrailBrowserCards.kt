@@ -139,6 +139,18 @@ fun TrailCard(
     }
     val ascentFormatted = computedAscent?.let { formatDanishElevationMeters(it, appLocale) }
 
+    val photoRepo = remember(context) { com.example.data.repository.TrailPhotoRepository(context) }
+    val firstPhotoState = remember(trail.id) {
+        androidx.compose.runtime.mutableStateOf<com.example.data.repository.TrailPhotoInfo?>(
+            photoRepo.getBundledTrailPhotos(trail.id).firstOrNull()
+        )
+    }
+    androidx.compose.runtime.LaunchedEffect(trail.id) {
+        if (firstPhotoState.value == null) {
+            firstPhotoState.value = photoRepo.getPhotosForTrail(trail.id).firstOrNull()
+        }
+    }
+
     Card(
         shape = CardShape,
         colors = CardDefaults.cardColors(
@@ -159,31 +171,39 @@ fun TrailCard(
             .clickable(onClick = onClick)
             .testTag(testTagOverride ?: "trail_card_${trail.id}")
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(Spacing.s4),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Map thumbnail drawn from trail geometry
-            val thumbnailPoints = remember(points, trail) {
-                if (!points.isNullOrEmpty()) {
-                    points
-                } else if (trail.bboxSouth != null && trail.bboxNorth != null && trail.bboxWest != null && trail.bboxEast != null) {
-                    listOf(
-                        GeoPointDto(trail.bboxSouth, trail.bboxWest),
-                        GeoPointDto((trail.bboxSouth + trail.bboxNorth) / 2.0, (trail.bboxWest + trail.bboxEast) / 2.0),
-                        GeoPointDto(trail.bboxNorth, trail.bboxEast)
-                    )
-                } else {
-                    emptyList()
-                }
+        Column(modifier = Modifier.fillMaxWidth()) {
+            firstPhotoState.value?.let { photo ->
+                TrailCardPhotoHeader(
+                    photo = photo,
+                    photoRepository = photoRepo,
+                    trailId = trail.id
+                )
             }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(Spacing.s4),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Map thumbnail drawn from trail geometry
+                val thumbnailPoints = remember(points, trail) {
+                    if (!points.isNullOrEmpty()) {
+                        points
+                    } else if (trail.bboxSouth != null && trail.bboxNorth != null && trail.bboxWest != null && trail.bboxEast != null) {
+                        listOf(
+                            GeoPointDto(trail.bboxSouth, trail.bboxWest),
+                            GeoPointDto((trail.bboxSouth + trail.bboxNorth) / 2.0, (trail.bboxWest + trail.bboxEast) / 2.0),
+                            GeoPointDto(trail.bboxNorth, trail.bboxEast)
+                        )
+                    } else {
+                        emptyList()
+                    }
+                }
 
-            TrailGeometryThumbnail(
-                points = thumbnailPoints,
-                modifier = Modifier.size(96.dp)
-            )
+                TrailGeometryThumbnail(
+                    points = thumbnailPoints,
+                    modifier = Modifier.size(96.dp)
+                )
 
             Spacer(modifier = Modifier.width(Spacing.s4))
 
@@ -327,6 +347,7 @@ fun TrailCard(
                 }
             }
         }
+        }
     }
 }
 
@@ -458,9 +479,9 @@ fun NearbyOvernightSpotCard(
     val icon = if (isShelter) Icons.Default.Cabin else Icons.Default.Forest
     val iconTint = if (isShelter) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
     val distanceText = if (spot.distanceMeters >= 1000.0) {
-        "${formatDanishKm(spot.distanceMeters / 1000.0, 1)} km væk"
+        stringResource(R.string.nearby_distance_km_away_fmt, formatDanishKm(spot.distanceMeters / 1000.0, 1))
     } else {
-        "${spot.distanceMeters.toInt()} m væk"
+        stringResource(R.string.nearby_distance_m_away_fmt, spot.distanceMeters.toInt())
     }
 
     Card(
@@ -617,7 +638,11 @@ internal fun TrailBrowserNearbySheet(
             ) {
                 Column {
                     Text(
-                        text = if (isNearbyUsingMapCenter) "Omkring kortets midte" else "Overnatning nær dig",
+                        text = if (isNearbyUsingMapCenter) {
+                            stringResource(R.string.nearby_sheet_title_map_center)
+                        } else {
+                            stringResource(R.string.nearby_sheet_title_near_you)
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -641,7 +666,7 @@ internal fun TrailBrowserNearbySheet(
                                 onClick = onPickAnotherStart,
                                 modifier = Modifier.testTag("nearby_sheet_pick_another_start_button")
                             ) {
-                                Text("Vælg andet startpunkt")
+                                Text(stringResource(R.string.trail_detail_pick_another_start))
                             }
                         }
                     }
@@ -666,7 +691,7 @@ internal fun TrailBrowserNearbySheet(
             } else if (nearbySpots.isEmpty()) {
                 EmptyStateView(
                     icon = Icons.Default.Cabin,
-                    sentence = "Ingen overnatningssteder fundet inden for 10 km.",
+                    sentence = stringResource(R.string.nearby_sheet_empty_sentence),
                     actionLabel = stringResource(R.string.state_Close_or_retry),
                     onAction = onDismiss
                 )
@@ -693,13 +718,13 @@ internal fun TrailBrowserNearbySheet(
                                     try {
                                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=${spot.lat},${spot.lng}")))
                                     } catch (_: Exception) {
-                                        Toast.makeText(context, "Ingen app fundet til at åbne linket", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.error_no_app_to_open_link), Toast.LENGTH_SHORT).show()
                                     }
                                 } catch (_: Exception) {
                                     try {
                                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=${spot.lat},${spot.lng}")))
                                     } catch (_: Exception) {
-                                        Toast.makeText(context, "Ingen app fundet til at åbne linket", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.error_no_app_to_open_link), Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             },

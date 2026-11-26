@@ -54,7 +54,6 @@ data class PoiSpotItem(
 )
 
 class TrailViewModel(application: Application) : AndroidViewModel(application) {
-    init { DanskStiApp.registerViewModelScope(viewModelScope) }
 
     private val repository: DanskStiRepository
         get() = try { DanskStiApp.instance.repository } catch (_: Exception) { (getApplication<Application>() as DanskStiApp).repository }
@@ -91,9 +90,8 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     private val _trailPhotos = MutableStateFlow<List<com.example.data.repository.TrailPhotoInfo>>(emptyList())
     val trailPhotos: StateFlow<List<com.example.data.repository.TrailPhotoInfo>> = _trailPhotos.asStateFlow()
 
-    fun setTrailPhotosForTesting(photos: List<com.example.data.repository.TrailPhotoInfo>) {
-        _trailPhotos.value = photos
-    }
+    private val _curatedTrailInfo = MutableStateFlow<com.example.ui.screens.CuratedTrailDescription?>(null)
+    val curatedTrailInfo: StateFlow<com.example.ui.screens.CuratedTrailDescription?> = _curatedTrailInfo.asStateFlow()
 
     companion object {
         fun findNearestTransportWithin3Km(
@@ -346,11 +344,12 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
         // Only cancel this screen's wait.
         // The shared download stops only if no one else is waiting for it (handled in TrailGeometryRepository.fetchAndProcessTrail finally block).
         // Never cancel an offline map download or delete its in-progress record from this button.
-        loadTrailJob?.cancel(kotlinx.coroutines.CancellationException("Download annulleret"))
+        val cancelMsg = getApplication<Application>().getString(com.example.R.string.trail_error_download_cancelled)
+        loadTrailJob?.cancel(kotlinx.coroutines.CancellationException(cancelMsg))
         loadTrailJob = null
         _isFetchingLiveRoute.value = false
         _isLoading.value = false
-        _routeError.value = "Download annulleret"
+        _routeError.value = cancelMsg
     }
 
     fun retryLoadRoute() {
@@ -360,6 +359,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadTrail(trailId: String) {
         currentTrailId = trailId
+        _curatedTrailInfo.value = com.example.ui.screens.CuratedTrailDescription.loadForTrail(getApplication(), trailId)
         observeOfflineMapWork(trailId)
         savedTrailObserverJob?.cancel()
         savedTrailObserverJob = viewModelScope.launch {
@@ -373,7 +373,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
             _routeError.value = null
             withContext(Dispatchers.IO) {
                 val entity = repository.getTrailById(trailId) ?: run {
-                    _routeError.value = "Ruten blev ikke fundet i databasen"
+                    _routeError.value = getApplication<Application>().getString(com.example.R.string.trail_error_not_found)
                     return@withContext
                 }
                 _trail.value = entity
@@ -401,17 +401,13 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 _osmRelationTags.value = relTags
                 repository.getTrailById(trailId)?.let { _trail.value = it }
 
-                // Part B3: Load 1-2 Commons trail photos if bundled or tagged with wikipedia/wikidata
+                // Part B3: Load 1-2 Commons trail photos if configured in trail_photos.json
                 _trailPhotos.value = runCatching {
-                    trailPhotoRepository.getPhotosForTrail(
-                        trailId = trailId,
-                        wikipediaTag = relTags["wikipedia"] ?: relTags["wikipedia:da"],
-                        wikidataTag = relTags["wikidata"]
-                    )
+                    trailPhotoRepository.getPhotosForTrail(trailId = trailId)
                 }.getOrDefault(emptyList())
 
                 if (points.isEmpty()) {
-                    _routeError.value = "Kunne ikke hente rutedata fra OpenStreetMap. Tjek din internetforbindelse eller prøv igen senere."
+                    _routeError.value = getApplication<Application>().getString(com.example.R.string.trail_error_fetch_osm_failed)
                 } else {
                     _routeError.value = null
                 }

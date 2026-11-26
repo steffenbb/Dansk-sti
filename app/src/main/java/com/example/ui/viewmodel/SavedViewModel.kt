@@ -62,7 +62,6 @@ sealed class DeletedLibraryItem {
 }
 
 class SavedViewModel(application: Application) : AndroidViewModel(application) {
-    init { DanskStiApp.registerViewModelScope(viewModelScope) }
 
     private val app: DanskStiApp
         get() = try { DanskStiApp.instance } catch (_: Exception) { getApplication() as DanskStiApp }

@@ -43,7 +43,7 @@ import java.util.Calendar
 import java.util.TimeZone
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "da")
 class UiRound4PolishTest {
 
     @get:Rule

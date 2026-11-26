@@ -1,6 +1,8 @@
 package com.example.ui.viewmodel
 
+import androidx.lifecycle.viewModelScope
 import com.example.data.model.FriTeltningEntity
+import kotlinx.coroutines.launch
 import com.example.data.model.GeoPointDto
 import com.example.data.model.OvernightType
 import com.example.data.model.PoiEntity
@@ -108,9 +110,9 @@ data class PlannerDaySummary(
         stageKm = distanceKm,
         dailyTargetKm = 15.0,
         detourMeters = detourKm * 1000.0,
-        hasWaterNearby = true,
-        waterDistanceMeters = 200,
-        hasToiletNearby = true,
+        hasWaterNearby = false,
+        waterDistanceMeters = null,
+        hasToiletNearby = false,
         bookingRequired = bookingRequired,
         isAfterSunset = isAfterSunset,
         stopType = overnightType,
@@ -273,7 +275,10 @@ data class RouteBuilderState(
     val coachMarkStep: Int = 0,
     val hasUnsavedChanges: Boolean = false,
     val showUnsavedChangesDialog: Boolean = false,
-    val pendingDraftToRestore: com.example.data.model.PlannerDraftEntity? = null
+    val pendingDraftToRestore: com.example.data.model.PlannerDraftEntity? = null,
+    val showPackingListSheet: Boolean = false,
+    val planGearItems: List<com.example.data.model.TripGearItemEntity> = emptyList(),
+    val otherTripPlans: List<com.example.data.model.TripPlanEntity> = emptyList()
 ) {
     val visibleWaypoints: List<RouteWaypoint>
         get() = waypoints.filter { !it.isHelper }
@@ -327,3 +332,54 @@ internal fun TripStageEntity.toModel(): com.example.data.model.TripStage = com.e
     isWarningNoOvernight = isWarningNoOvernight,
     warningMessage = warningMessage
 )
+
+fun RouteBuilderViewModel.openPackingListSheet() {
+    val planId = _uiState.value.existingPlanId ?: return
+    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        repository.ensureDefaultGearItemsForPlan(planId, _uiState.value.overnightPreference.name)
+        refreshPackingListState(planId)
+        _uiState.value = _uiState.value.copy(showPackingListSheet = true)
+    }
+}
+
+fun RouteBuilderViewModel.dismissPackingListSheet() {
+    _uiState.value = _uiState.value.copy(showPackingListSheet = false)
+}
+
+internal suspend fun RouteBuilderViewModel.refreshPackingListState(planId: Long) {
+    val items = app.database.dao().getGearItemsForPlanSync(planId)
+    val others = app.database.dao().getAllTripPlansList().filter { it.id != planId }
+    _uiState.value = _uiState.value.copy(planGearItems = items, otherTripPlans = others)
+}
+
+fun RouteBuilderViewModel.togglePlanGearItem(item: com.example.data.model.TripGearItemEntity) {
+    val planId = _uiState.value.existingPlanId ?: return
+    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        repository.updateGearItem(item)
+        refreshPackingListState(planId)
+    }
+}
+
+fun RouteBuilderViewModel.addPlanGearItem(category: String, title: String, weightGrams: Int?) {
+    val planId = _uiState.value.existingPlanId ?: return
+    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        repository.addGearItem(planId, category, title, weightGrams)
+        refreshPackingListState(planId)
+    }
+}
+
+fun RouteBuilderViewModel.deletePlanGearItem(item: com.example.data.model.TripGearItemEntity) {
+    val planId = _uiState.value.existingPlanId ?: return
+    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        repository.deleteGearItem(item.id)
+        refreshPackingListState(planId)
+    }
+}
+
+fun RouteBuilderViewModel.copyPlanGearFromPlan(sourcePlanId: Long) {
+    val planId = _uiState.value.existingPlanId ?: return
+    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        repository.copyGearItemsFromPlan(sourcePlanId, planId)
+        refreshPackingListState(planId)
+    }
+}

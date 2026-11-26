@@ -334,10 +334,10 @@ internal fun postNavigationRainAlertNotification(
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val channel = android.app.NotificationChannel(
                 channelId,
-                "Regnvarsel",
-                android.app.NotificationManager.IMPORTANCE_LOW
+                localizedCtx.getString(com.example.R.string.notif_rain_alert_channel_name),
+                android.app.NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Varsel ved udsigt til mindst 1 mm/t regn inden for 2 timer"
+                description = localizedCtx.getString(com.example.R.string.notif_rain_alert_channel_desc)
                 setSound(null, null)
                 enableVibration(false)
             }
@@ -345,13 +345,13 @@ internal fun postNavigationRainAlertNotification(
         }
         val locale = com.example.util.AppLocaleHelper.getCurrentLocale(appCtx)
         val mmStr = String.format(locale, "%.1f", precipMm)
-        val title = "Regn på vej ($mmStr mm/t)"
-        val body = "Udsigt til regn omkring kl. $timeLabel ($mmStr mm/t)."
+        val title = localizedCtx.getString(com.example.R.string.notif_rain_alert_title_fmt, timeLabel)
+        val body = localizedCtx.getString(com.example.R.string.notif_rain_alert_body_fmt, mmStr)
         val notif = androidx.core.app.NotificationCompat.Builder(localizedCtx, channelId)
             .setSmallIcon(com.example.R.drawable.ic_notif_alert)
             .setContentTitle(title)
             .setContentText(body)
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()
         nm.notify(notificationId, notif)

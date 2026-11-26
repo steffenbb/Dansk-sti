@@ -218,6 +218,10 @@ class GeoFaRepository(private val context: Context) {
         val features = root["features"] as? List<Map<String, Any>> ?: return emptyList()
         val result = mutableListOf<ShelterEntity>()
 
+        val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(context)
+        val defaultShelterName = runCatching { localizedCtx.getString(com.example.R.string.geofa_default_shelter_name) }.getOrDefault("Shelter")
+        val defaultType = runCatching { localizedCtx.getString(com.example.R.string.poi_type_shelter) }.getOrDefault("Shelter")
+
         for ((idx, f) in features.withIndex()) {
             val props = f["props"] as? Map<String, Any> ?: f["properties"] as? Map<String, Any> ?: emptyMap()
             val geom = f["geometry"] as? Map<String, Any> ?: continue
@@ -252,7 +256,7 @@ class GeoFaRepository(private val context: Context) {
             result.add(
                 ShelterEntity(
                     id = objektId,
-                    name = if (!navn.isNullOrBlank()) navn else "Shelter / Teltplads",
+                    name = if (!navn.isNullOrBlank()) navn else defaultShelterName,
                     lat = lat,
                     lng = lng,
                     description = if (!beskrivels.isNullOrBlank()) beskrivels else null,
@@ -264,7 +268,7 @@ class GeoFaRepository(private val context: Context) {
                     source = "geofa",
                     bookingUrl = bookingLink,
                     infoUrl = plainInfoLink,
-                    shelterType = props["facil_ty"] as? String ?: "Shelter",
+                    shelterType = props["facil_ty"] as? String ?: defaultType,
                     fetchedAt = System.currentTimeMillis()
                 )
             )
@@ -277,6 +281,9 @@ class GeoFaRepository(private val context: Context) {
         val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any> ?: return emptyList()
         val features = root["features"] as? List<Map<String, Any>> ?: emptyList()
         val result = mutableListOf<FriTeltningEntity>()
+        val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(context)
+        val defaultFriTeltningName = runCatching { localizedCtx.getString(com.example.R.string.geofa_default_fri_teltning_name) }.getOrDefault("Fri teltning")
+        val defaultFriTeltningRules = runCatching { localizedCtx.getString(com.example.R.string.geofa_default_fri_teltning_rules) }.getOrDefault("Fri teltning (1-2-3)")
 
         for ((idx, f) in features.withIndex()) {
             val props = f["props"] as? Map<String, Any> ?: f["properties"] as? Map<String, Any> ?: emptyMap()
@@ -325,11 +332,11 @@ class GeoFaRepository(private val context: Context) {
             result.add(
                 FriTeltningEntity(
                     id = objektId,
-                    name = if (!navn.isNullOrBlank()) navn else "Fri Teltningsområde",
+                    name = if (!navn.isNullOrBlank()) navn else defaultFriTeltningName,
                     centerLat = centerLat,
                     centerLng = centerLng,
                     polygonJson = polygonJson,
-                    rulesSummary = if (!beskrivels.isNullOrBlank()) beskrivels else "Fri teltning (1-2-3 reglen)",
+                    rulesSummary = if (!beskrivels.isNullOrBlank()) beskrivels else defaultFriTeltningRules,
                     source = "geofa",
                     cvrNavn = if (!cvrNavn.isNullOrBlank()) cvrNavn else null,
                     fetchedAt = System.currentTimeMillis()
@@ -344,6 +351,10 @@ class GeoFaRepository(private val context: Context) {
         val root = moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any> ?: return emptyList()
         val features = root["features"] as? List<Map<String, Any>> ?: return emptyList()
         val result = mutableListOf<PoiEntity>()
+        val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(context)
+        val defaultToiletName = runCatching { localizedCtx.getString(com.example.R.string.geofa_default_toilet_name) }.getOrDefault("Toilet")
+        val defaultWaterName = runCatching { localizedCtx.getString(com.example.R.string.geofa_default_water_name) }.getOrDefault("Water")
+        val open24hLabel = runCatching { localizedCtx.getString(com.example.R.string.geofa_access_open_24h) }.getOrDefault("24/7")
 
         for ((idx, f) in features.withIndex()) {
             val props = f["props"] as? Map<String, Any> ?: f["properties"] as? Map<String, Any> ?: emptyMap()
@@ -374,10 +385,10 @@ class GeoFaRepository(private val context: Context) {
                 PoiEntity(
                     id = objektId,
                     type = type,
-                    name = if (!navn.isNullOrBlank()) navn else if (type == "toilet") "Offentligt toilet" else "Drikkevandspost",
+                    name = if (!navn.isNullOrBlank()) navn else if (type == "toilet") defaultToiletName else defaultWaterName,
                     lat = lat,
                     lng = lng,
-                    access = if (doegnaab == "Ja") "Døgnåbent" else null,
+                    access = if (doegnaab == "Ja") open24hLabel else null,
                     fee = betaling == "Ja",
                     source = "geofa",
                     fetchedAt = System.currentTimeMillis()

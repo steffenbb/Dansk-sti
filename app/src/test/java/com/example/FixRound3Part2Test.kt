@@ -32,7 +32,7 @@ import org.robolectric.annotation.Config
 import kotlin.math.abs
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "da")
 class FixRound3Part2Test {
 
     private lateinit var app: Application

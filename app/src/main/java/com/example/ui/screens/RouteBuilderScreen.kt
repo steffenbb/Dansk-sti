@@ -77,7 +77,6 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import java.io.File
 import java.io.FileOutputStream
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RouteBuilderScreen(
@@ -431,6 +430,8 @@ fun RouteBuilderScreen(
                     onCustomWaypointClicked = { wp -> viewModel.selectCustomWaypointForDetails(wp) },
                     onDeleteCustomWaypoint = { wpId -> viewModel.deleteCustomWaypoint(wpId) },
                     onDeleteCustomWaypointPhoto = { wpId -> viewModel.deleteCustomWaypointPhoto(wpId) },
+                    packingSummaryText = if (uiState.existingPlanId != null) com.example.ui.components.PackingListFormatter.formatSummary(context, uiState.planGearItems) else null,
+                    onOpenPackingList = if (uiState.existingPlanId != null) ({ viewModel.openPackingListSheet() }) else null,
                     availableHeightDp = availableHeightDp,
                     isSidePanel = isSidePanelMode,
                     modifier = sheetModifier

@@ -115,6 +115,7 @@ internal fun TrailDetailDetailsSection(
     val nearestStartTransport by viewModel.nearestStartTransport.collectAsState()
     val nearestEndTransport by viewModel.nearestEndTransport.collectAsState()
     val trailPhotos by viewModel.trailPhotos.collectAsState()
+    val curatedTrailInfo by viewModel.curatedTrailInfo.collectAsState()
 
     if (showOfflineConfirmDialog && offlineEstimate != null) {
         TrailOfflineDownloadDialog(
@@ -400,8 +401,19 @@ internal fun TrailDetailDetailsSection(
                                 )
                             }
 
+                            curatedTrailInfo?.let { info ->
+                                CuratedTrailDescriptionCard(info = info)
+                            }
+
                             // Show relation's description, note, operator, website, from, to and distance tags when present, labelled "Ifølge OpenStreetMap"
                             OsmRelationTagsCard(osmTags = osmRelationTags, trail = t)
+
+                            if (trailPhotos.isNotEmpty()) {
+                                TrailCommonsPhotosSection(
+                                    photos = trailPhotos,
+                                    photoRepository = viewModel.trailPhotoRepository
+                                )
+                            }
 
                             if (points.any { it.ele != null && it.ele != 0.0 }) {
                                 Text(
@@ -532,6 +544,15 @@ internal fun TrailDetailDetailsSection(
                 }
 
                 4 -> {
+                    item {
+                        TrailStartEndTransportCard(
+                            startPoint = points.firstOrNull(),
+                            trailName = t.name,
+                            nearestStartTransport = nearestStartTransport,
+                            nearestEndTransport = nearestEndTransport,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                    }
                     if (transports.isEmpty()) {
                         item {
                             Text(
@@ -635,7 +656,7 @@ internal fun TrailDetailDetailsSection(
                     modifier = Modifier.testTag("start_now_pick_another_start_button")
                 ) {
                     Text(
-                        text = "Vælg andet startpunkt",
+                        text = stringResource(R.string.trail_detail_pick_another_start),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold
                     )

@@ -49,7 +49,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "da")
 class MarkedRoutesPerformanceTest {
 
     private lateinit var context: Context

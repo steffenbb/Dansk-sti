@@ -51,7 +51,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class NavigationViewModel(application: Application) : AndroidViewModel(application) {
-    init { DanskStiApp.registerViewModelScope(viewModelScope) }
     private val app: DanskStiApp
         get() = try { DanskStiApp.instance } catch (_: Exception) { getApplication() as DanskStiApp }
     private val repository: DanskStiRepository
@@ -226,7 +225,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     init {
-        latestInstance = this
         viewModelScope.launch {
             settingsRepository.settingsFlow.collect { settings ->
                 _mitTempoKmh.value = settings.mitTempoKmh
@@ -237,7 +235,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         }
         viewModelScope.launch {
             NavigationTrackingService.liveState.collect { state ->
-                if (latestInstance !== this@NavigationViewModel) return@collect
                 val currentActivePlanId = _activePlan.value?.id
                 if (currentActivePlanId != null && state.planId > 0L && state.planId != currentActivePlanId) {
                     return@collect
@@ -322,17 +319,29 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch(Dispatchers.IO) { com.example.ui.components.TripDiaryPhotoHelper.deleteDiaryPhotoFile(path) }
     }
 
-    internal fun maybePrefetchTonightCampWeather(state: NavigationLiveState) {
+    internal fun maybePrefetchTonightCampWeather(state: NavigationLiveState, nowMs: Long = System.currentTimeMillis()) {
         val stage = state.currentStage ?: _plannedRoute.value?.stages?.getOrNull(_currentDay.value - 1) ?: return
         if (stage.stopLat == 0.0 && stage.stopLng == 0.0) return
         val dayNum = if (state.currentDay > 0) state.currentDay else _currentDay.value
-        if (dayNum == lastPrefetchedCampDay && _tonightCampWeather.value != null) return
+        val existingCampWeather = _tonightCampWeather.value
+        val existingIsFresh = existingCampWeather != null &&
+            existingCampWeather.fetchedAtMillis > 0L &&
+            (nowMs - existingCampWeather.fetchedAtMillis) <= WeatherInterpreter.CAMP_PREFETCH_MAX_AGE_MS
+        if (dayNum == lastPrefetchedCampDay && existingIsFresh) return
         if (campWeatherPrefetchJob?.isActive == true) return
         lastPrefetchedCampDay = dayNum
         campWeatherPrefetchJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                repository.getTrailWeather(stage.stopLat, stage.stopLng, forceNetworkRefresh = false)
-                    ?.let { _tonightCampWeather.value = it }
+                val cached = repository.getCachedTrailWeatherOnly(stage.stopLat, stage.stopLng, nowMs = nowMs)
+                val cacheIsFresh = cached != null &&
+                    cached.fetchedAtMillis > 0L &&
+                    (nowMs - cached.fetchedAtMillis) <= WeatherInterpreter.CAMP_PREFETCH_MAX_AGE_MS
+                val weather = if (cacheIsFresh) {
+                    cached
+                } else {
+                    repository.getTrailWeather(stage.stopLat, stage.stopLng, forceNetworkRefresh = true, nowMs = nowMs)
+                }
+                weather?.let { _tonightCampWeather.value = it }
             } catch (e: Exception) {
                 Log.w("NavigationViewModel", "Failed to prefetch tonight camp weather: ${e.message}")
             }
@@ -354,12 +363,12 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         weatherFetchJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val weather = if (shouldRefresh) {
-                    repository.getTrailWeather(lat, lng, forceNetworkRefresh = false, nowMs = nowMs)?.also {
+                    repository.getTrailWeather(lat, lng, forceNetworkRefresh = true, nowMs = nowMs).also {
                         lastWeatherFetchMs = nowMs
                         lastWeatherFetchLat = lat
                         lastWeatherFetchLng = lng
                     }
-                } else repository.getCachedTrailWeatherOnly(lat, lng)
+                } else repository.getCachedTrailWeatherOnly(lat, lng, nowMs = nowMs)
 
                 if (weather != null) {
                     _navigationWeather.value = weather
@@ -386,11 +395,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     companion object {
         const val CHANNEL_RAIN_ALERT_ID = "dansk_sti_rain_alert"
         const val RAIN_ALERT_NOTIFICATION_ID = 4049
-        @Volatile
-        private var latestInstance: NavigationViewModel? = null
-        fun clearActiveInstance() {
-            latestInstance = null
-        }
     }
 
     fun refreshNavigationSunset(state: NavigationLiveState = liveState.value) {

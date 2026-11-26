@@ -61,7 +61,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = DanskStiApp::class)
+@Config(sdk = [34], application = DanskStiApp::class, qualifiers = "da")
 class FixRound14Test {
 
     @get:Rule
@@ -495,7 +495,7 @@ class FixRound14Test {
 
         // 1. TrailViewModel's wait is cancelled
         assertFalse("TrailViewModel must stop waiting after Annuller", trailVm.isFetchingLiveRoute.value)
-        assertEquals("Download annulleret", trailVm.routeError.value)
+        assertEquals(app.getString(R.string.trail_error_download_cancelled), trailVm.routeError.value)
 
         // 2. Because offlineWorkerWaiter is still waiting, the shared download MUST still be running!
         assertTrue(

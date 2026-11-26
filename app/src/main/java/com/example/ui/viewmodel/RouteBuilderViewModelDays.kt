@@ -41,7 +41,8 @@ fun RouteBuilderViewModel.suggestOvernightStops() {
     val currentState = _uiState.value
     val wps = currentState.waypoints
     if (wps.size < 2) {
-        viewModelScope.launch { _userMessage.emit("Tilføj mindst to punkter for at foreslå overnatninger") }
+        val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
+        viewModelScope.launch { _userMessage.emit(localizedCtx.getString(com.example.R.string.planner_add_two_points_for_overnights)) }
         return
     }
 
@@ -172,13 +173,26 @@ fun RouteBuilderViewModel.suggestOvernightStops() {
                 }
             }
 
+            val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
             _uiState.update { it.copy(isFindingOvernight = false) }
-            _userMessage.emit("${intermediateStages.size} overnatninger foreslået (${intermediateStages.size + 1} dage)")
+            _userMessage.emit(
+                localizedCtx.getString(
+                    com.example.R.string.planner_overnights_suggested_fmt,
+                    intermediateStages.size,
+                    intermediateStages.size + 1
+                )
+            )
             updateRouteStats()
         } catch (e: Exception) {
             Log.e(TAG, "Failed suggesting overnights: ${e.message}", e)
+            val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
             _uiState.update { it.copy(isFindingOvernight = false) }
-            _userMessage.emit("Kunne ikke foreslå overnatninger: ${com.example.util.userMessageFor(e)}")
+            _userMessage.emit(
+                localizedCtx.getString(
+                    com.example.R.string.planner_overnights_suggest_failed_fmt,
+                    com.example.util.userMessageFor(e)
+                )
+            )
         }
     }
 }
@@ -653,89 +667,62 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
         val matchedShelter = corridorShelters.find { it.id == toWp?.linkedPoiId || it.id == stage.spotId }
         val matchedFt = corridorFriTeltning.find { it.id == toWp?.linkedPoiId || it.id == stage.spotId }
 
+        val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
         val overnightTypeLabel = when {
-            isLastDay -> "Mål"
+            isLastDay -> localizedCtx.getString(com.example.R.string.day_type_goal)
             matchedShelter != null || stage.stopType == "SHELTER" || toWp?.spotType == "SHELTER" -> "Shelter"
-            matchedFt != null || stage.stopType == "FRI_TELTNING" || toWp?.spotType == "FRI_TELTNING" -> "Fri teltning"
-            toWp?.role == WaypointRole.OVERNIGHT -> "Overnatningspunkt"
-            else -> "Åben etapeslut"
+            matchedFt != null || stage.stopType == "FRI_TELTNING" || toWp?.spotType == "FRI_TELTNING" -> localizedCtx.getString(com.example.R.string.poi_type_free_tent)
+            toWp?.role == WaypointRole.OVERNIGHT -> localizedCtx.getString(com.example.R.string.poi_type_overnight)
+            else -> localizedCtx.getString(com.example.R.string.day_type_open_end)
         }
-
         val bookingLabel = when {
             isLastDay -> null
-            matchedShelter != null -> if (!matchedShelter.bookingUrl.isNullOrBlank() || matchedShelter.bookingRequired) "Kræver booking" else "Gratis / først-til-mølle"
+            matchedShelter != null -> localizedCtx.getString(if (!matchedShelter.bookingUrl.isNullOrBlank() || matchedShelter.bookingRequired) com.example.R.string.poi_booking_required else com.example.R.string.day_booking_free_first_come)
             matchedFt != null -> "Gratis (1-2-3 reglen)"
-            stage.bookingRequired || toWp?.bookingRequired == true -> "Kræver booking"
+            stage.bookingRequired || toWp?.bookingRequired == true -> localizedCtx.getString(com.example.R.string.poi_booking_required)
             else -> null
         }
 
         val campLat = toWp?.lat ?: stage.stopLat.takeIf { it != 0.0 } ?: visibleWps.last().lat
         val campLng = toWp?.lng ?: stage.stopLng.takeIf { it != 0.0 } ?: visibleWps.last().lng
-        val daySunsetTime = StagePlanner.computeSunsetForStageDay(
-            dayNumber = stage.dayNumber,
-            stopLat = campLat,
-            stopLng = campLng,
-            startDateEpochMs = state.startDateMillis
-        )
+        val daySunsetTime = StagePlanner.computeSunsetForStageDay(stage.dayNumber, campLat, campLng, state.startDateMillis)
 
         val dayWarnings = mutableListOf<String>()
         stage.warningMessage?.takeIf { it.isNotBlank() }?.let { dayWarnings.add(it) }
         val arrivalTimeStr = if (stage.estimatedWalkMinutes > 0) {
-            val startH = state.startHour
-            val totalMinutes = startH * 60 + stage.estimatedWalkMinutes
-            val h = (totalMinutes / 60) % 24
-            val m = totalMinutes % 60
-            String.format(Locale.GERMAN, "kl. %02d:%02d", h, m)
+            val totalMinutes = state.startHour * 60 + stage.estimatedWalkMinutes
+            String.format(Locale.GERMAN, "kl. %02d:%02d", (totalMinutes / 60) % 24, totalMinutes % 60)
         } else "kl. --:--"
 
         if (stage.isAfterSunset) {
             val sunsetMsg = "Ankomst ($arrivalTimeStr) er efter solnedgang ($daySunsetTime)"
-            if (dayWarnings.none { it.contains("solnedgang", ignoreCase = true) }) {
-                dayWarnings.add(sunsetMsg)
-            }
+            if (dayWarnings.none { it.contains("solnedgang", ignoreCase = true) }) dayWarnings.add(sunsetMsg)
         }
         state.supplyGapWarnings.forEach { gap ->
-            if (gap.endKm > stage.startKm && gap.startKm < stage.endKm) {
-                if (dayWarnings.none { it.contains(gap.displayTitle) }) {
-                    dayWarnings.add(gap.displayTitle)
-                }
+            if (gap.endKm > stage.startKm && gap.startKm < stage.endKm && dayWarnings.none { it.contains(gap.displayTitle) }) {
+                dayWarnings.add(gap.displayTitle)
             }
         }
         state.accessWarnings.forEach { acc ->
-            if (dayWarnings.none { it.contains(acc.message) }) {
-                dayWarnings.add(acc.message)
-            }
+            if (dayWarnings.none { it.contains(acc.message) }) dayWarnings.add(acc.message)
         }
 
         val dayEpochMs = state.startDateMillis + idx.toLong() * 86_400_000L
         val allWaterPois = state.nearbyPois.filter { it.type.lowercase().contains("water") }
-        val waterPois = allWaterPois.filter {
-            !com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(it, dayEpochMs)
-        }
+        val waterPois = allWaterPois.filter { !com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(it, dayEpochMs) }
         val closedWaterPoisNearby = allWaterPois.filter {
-            com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(it, dayEpochMs) &&
-                haversineM(campLat, campLng, it.lat, it.lng) <= 500.0
+            com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(it, dayEpochMs) && haversineM(campLat, campLng, it.lat, it.lng) <= 500.0
         }
         val toiletPois = state.nearbyPois.filter { it.type.lowercase().contains("toilet") }
         val nearestWaterPoiM = waterPois.minOfOrNull { haversineM(campLat, campLng, it.lat, it.lng) }?.roundToInt()
         val hasOpenWaterPoiWithin500m = nearestWaterPoiM != null && nearestWaterPoiM <= 500
         if (!hasOpenWaterPoiWithin500m && closedWaterPoisNearby.isNotEmpty()) {
-            dayWarnings.add("Vandpost i nærheden kan være lukket (vinterlukket)")
+            dayWarnings.add(localizedCtx.getString(com.example.R.string.day_warning_seasonal_water_closed))
         }
-        val waterDistM = when {
-            nearestWaterPoiM != null && nearestWaterPoiM <= 1000 -> nearestWaterPoiM
-            (matchedShelter?.hasWaterNearby == true || stage.hasWaterNearby) && closedWaterPoisNearby.isEmpty() -> 200
-            else -> null
-        }
-        val hasWater = hasOpenWaterPoiWithin500m ||
-            ((matchedShelter?.hasWaterNearby == true || stage.hasWaterNearby) && closedWaterPoisNearby.isEmpty())
-        val hasToilet = matchedShelter?.hasToiletNearby == true ||
-            stage.hasToiletNearby ||
-            toiletPois.any { haversineM(campLat, campLng, it.lat, it.lng) <= 500.0 }
-        val isBookingReq = matchedShelter?.bookingRequired == true ||
-            !matchedShelter?.bookingUrl.isNullOrBlank() ||
-            stage.bookingRequired ||
-            toWp?.bookingRequired == true
+        val waterDistM = nearestWaterPoiM?.takeIf { it <= 1000 }
+        val hasWater = hasOpenWaterPoiWithin500m || ((matchedShelter?.hasWaterNearby == true || stage.hasWaterNearby) && closedWaterPoisNearby.isEmpty())
+        val hasToilet = matchedShelter?.hasToiletNearby == true || stage.hasToiletNearby || toiletPois.any { haversineM(campLat, campLng, it.lat, it.lng) <= 500.0 }
+        val isBookingReq = matchedShelter?.bookingRequired == true || !matchedShelter?.bookingUrl.isNullOrBlank() || stage.bookingRequired || toWp?.bookingRequired == true
 
         val campExplanation = StagePlanner.buildCampExplanation(
             stageKm = stage.stageKm,
@@ -746,47 +733,24 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
             hasToiletNearby = hasToilet,
             bookingRequired = isBookingReq,
             isAfterSunset = stage.isAfterSunset,
-            stopType = when {
-                isLastDay -> "END"
-                matchedFt != null -> "FRI_TELTNING"
-                matchedShelter != null -> "SHELTER"
-                else -> stage.stopType
-            },
+            stopType = when { isLastDay -> "END"; matchedFt != null -> "FRI_TELTNING"; matchedShelter != null -> "SHELTER"; else -> stage.stopType },
             isLastDay = isLastDay
         )
 
         daySummaries.add(
             PlannerDaySummary(
-                dayNumber = stage.dayNumber,
-                startKm = stage.startKm,
-                endKm = stage.endKm,
-                distanceKm = stage.stageKm,
-                ascentM = stage.ascentMeters.toInt(),
-                descentM = stage.descentMeters.toInt(),
-                fromName = fromName,
-                toName = toName,
+                dayNumber = stage.dayNumber, startKm = stage.startKm, endKm = stage.endKm,
+                distanceKm = stage.stageKm, ascentM = stage.ascentMeters.toInt(), descentM = stage.descentMeters.toInt(),
+                fromName = fromName, toName = toName,
                 overnightWaypointId = if (!isLastDay && toWp?.role == WaypointRole.OVERNIGHT) toWp.id else null,
-                overnightName = toName,
-                overnightTypeLabel = overnightTypeLabel,
-                detourLabel = detourLabel,
-                detourKm = detourKm,
-                detourAscentM = detourAscent,
-                bookingLabel = bookingLabel,
-                sunsetTime = daySunsetTime,
-                arrivalTime = arrivalTimeStr,
-                isAfterSunset = stage.isAfterSunset,
-                warnings = dayWarnings,
-                nightWeatherSummary = "Vejrudsigt indlæses...",
-                campLat = campLat,
-                campLng = campLng,
-                estimatedHours = stage.estimatedWalkMinutes / 60.0,
-                overnightType = when {
-                    matchedFt != null -> "FRI_TELTNING"
-                    matchedShelter != null -> "SHELTER"
-                    else -> stage.stopType.ifBlank { "SHELTER" }
-                },
-                bookingRequired = isBookingReq,
-                campExplanation = campExplanation
+                overnightName = toName, overnightTypeLabel = overnightTypeLabel,
+                detourLabel = detourLabel, detourKm = detourKm, detourAscentM = detourAscent,
+                bookingLabel = bookingLabel, sunsetTime = daySunsetTime, arrivalTime = arrivalTimeStr,
+                isAfterSunset = stage.isAfterSunset, warnings = dayWarnings,
+                nightWeatherSummary = localizedCtx.getString(com.example.R.string.day_weather_loading),
+                campLat = campLat, campLng = campLng, estimatedHours = stage.estimatedWalkMinutes / 60.0,
+                overnightType = when { matchedFt != null -> "FRI_TELTNING"; matchedShelter != null -> "SHELTER"; else -> stage.stopType.ifBlank { "SHELTER" } },
+                bookingRequired = isBookingReq, campExplanation = campExplanation
             )
         )
     }

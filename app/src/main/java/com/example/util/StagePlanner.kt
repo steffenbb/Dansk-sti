@@ -527,7 +527,11 @@ object StagePlanner {
             val endWp = waypoints.lastOrNull { !it.isHelper }
             val endLat = endWp?.lat ?: plannedRoute.points.lastOrNull()?.lat
             val endLng = endWp?.lng ?: plannedRoute.points.lastOrNull()?.lng
-            val destName = endWp?.name?.takeIf { it.isNotBlank() } ?: "Mål: $effectiveRouteName"
+            val appCtx = runCatching { com.example.DanskStiApp.instance }.getOrNull()
+            val locCtx = appCtx?.let { com.example.util.AppLocaleHelper.createLocalizedContext(it) }
+            val destName = endWp?.name?.takeIf { it.isNotBlank() }
+                ?: locCtx?.getString(com.example.R.string.stage_stop_goal_fmt, effectiveRouteName)
+                ?: "Mål: $effectiveRouteName"
 
             if (endLat != null && endLng != null) {
                 val finalDaySunset = resolveDaySunset(finalDay, endLat, endLng, startDateEpochMs, sunsetTime)
@@ -690,7 +694,11 @@ object StagePlanner {
                         if (nearGoalShelter != null) {
                             StopInfo(nearGoalShelter.name, "SHELTER", nearGoalShelter.lat, nearGoalShelter.lng, nearGoalShelter.bookingRequired, 0.0, nearGoalShelter.id)
                         } else {
-                            StopInfo("Mål: $effectiveRouteName slutpunkt", "DESTINATION", goalPt.lat, goalPt.lng, false, 0.0, null)
+                            val appCtx = runCatching { com.example.DanskStiApp.instance }.getOrNull()
+                            val locCtx = appCtx?.let { com.example.util.AppLocaleHelper.createLocalizedContext(it) }
+                            val stopGoalEnd = locCtx?.getString(com.example.R.string.stage_stop_goal_end_fmt, effectiveRouteName)
+                                ?: "Mål: $effectiveRouteName slutpunkt"
+                            StopInfo(stopGoalEnd, "DESTINATION", goalPt.lat, goalPt.lng, false, 0.0, null)
                         }
                     }
 
@@ -790,7 +798,10 @@ object StagePlanner {
                     val stageStartKm = prevEndWalkKm
                     val stageEndKm = min(totalWalkKm, targetKm)
                     val kmLabel = String.format(Locale.US, "%.1f", targetKm)
-                    val warnMsg = "Ingen overnatning fundet nær km $kmLabel"
+                    val appCtx = runCatching { com.example.DanskStiApp.instance }.getOrNull()
+                    val locCtx = appCtx?.let { com.example.util.AppLocaleHelper.createLocalizedContext(it) }
+                    val warnMsg = locCtx?.getString(com.example.R.string.stage_warn_no_overnight_near_km_fmt, kmLabel)
+                        ?: "Ingen overnatning fundet nær km $kmLabel"
 
                     val ptAtKm = plannedRoute.points.find { it.walkKm >= stageEndKm } ?: plannedRoute.points.lastOrNull()
                     val endWp = waypoints.lastOrNull { !it.isHelper }
@@ -1060,7 +1071,7 @@ object StagePlanner {
             dailyTargetKm = 15.0,
             detourMeters = detourMeters,
             hasWaterNearby = hasWaterNearby,
-            waterDistanceMeters = nearestWaterM ?: if (hasWaterNearby) 200 else null,
+            waterDistanceMeters = nearestWaterM,
             hasToiletNearby = hasToiletNearby,
             bookingRequired = bookingRequired,
             isAfterSunset = isAfterSunset,
@@ -1107,59 +1118,101 @@ object StagePlanner {
         stageKm: Double,
         dailyTargetKm: Double = 15.0,
         detourMeters: Double = 0.0,
-        hasWaterNearby: Boolean = true,
+        hasWaterNearby: Boolean = false,
         waterDistanceMeters: Int? = null,
-        hasToiletNearby: Boolean = true,
+        hasToiletNearby: Boolean = false,
         bookingRequired: Boolean = false,
         isAfterSunset: Boolean = false,
         stopType: String = "SHELTER",
-        isLastDay: Boolean = false
+        isLastDay: Boolean = false,
+        context: android.content.Context? = runCatching { com.example.DanskStiApp.instance }.getOrNull()
     ): String {
+        val localized = context?.let { com.example.util.AppLocaleHelper.createLocalizedContext(it) }
+        val locale = context?.let { com.example.util.AppLocaleHelper.getAppLocale(it) } ?: Locale("da", "DK")
         val parts = mutableListOf<String>()
 
         val safeTargetKm = dailyTargetKm.coerceAtLeast(1.0)
         val targetDiffKm = abs(stageKm - safeTargetKm)
         when {
-            isLastDay && stopType == "END" -> parts.add("Nær dagsmålet (ruteslut)")
-            targetDiffKm <= max(3.5, safeTargetKm * 0.25) -> parts.add("Nær dagsmålet")
+            isLastDay && stopType == "END" -> parts.add(
+                localized?.getString(com.example.R.string.stage_camp_near_target_end)
+                    ?: "Nær dagsmålet (ruteslut)"
+            )
+            targetDiffKm <= max(3.5, safeTargetKm * 0.25) -> parts.add(
+                localized?.getString(com.example.R.string.stage_camp_near_target)
+                    ?: "Nær dagsmålet"
+            )
             stageKm < safeTargetKm -> parts.add(
-                String.format(Locale("da", "DK"), "%.1f km før dagsmålet", safeTargetKm - stageKm)
+                localized?.getString(
+                    com.example.R.string.stage_camp_before_target_fmt,
+                    String.format(locale, "%.1f", safeTargetKm - stageKm)
+                ) ?: String.format(locale, "%.1f km før dagsmålet", safeTargetKm - stageKm)
             )
             else -> parts.add(
-                String.format(Locale("da", "DK"), "%.1f km over dagsmålet", stageKm - safeTargetKm)
+                localized?.getString(
+                    com.example.R.string.stage_camp_over_target_fmt,
+                    String.format(locale, "%.1f", stageKm - safeTargetKm)
+                ) ?: String.format(locale, "%.1f km over dagsmålet", stageKm - safeTargetKm)
             )
         }
 
         if (detourMeters >= 100.0) {
-            parts.add("afstikker ${detourMeters.roundToInt()} m")
+            parts.add(
+                localized?.getString(com.example.R.string.stage_camp_detour_fmt, detourMeters.roundToInt())
+                    ?: "afstikker ${detourMeters.roundToInt()} m"
+            )
         }
 
         if (hasWaterNearby) {
             if (waterDistanceMeters != null && waterDistanceMeters > 0) {
-                parts.add("vand ${waterDistanceMeters} m")
+                parts.add(
+                    localized?.getString(com.example.R.string.stage_camp_water_dist_fmt, waterDistanceMeters)
+                        ?: "vand ${waterDistanceMeters} m"
+                )
             } else {
-                parts.add("vand i nærheden")
+                parts.add(
+                    localized?.getString(com.example.R.string.stage_camp_water_nearby)
+                        ?: "vand i nærheden"
+                )
             }
         } else {
-            parts.add("Ingen vand i nærheden")
+            parts.add(
+                localized?.getString(com.example.R.string.stage_warning_no_water)
+                    ?: "Ingen vand i nærheden"
+            )
         }
 
         if (hasToiletNearby) {
-            parts.add("toilet")
+            parts.add(
+                localized?.getString(com.example.R.string.stage_camp_toilet)
+                    ?: "toilet"
+            )
         } else {
-            parts.add("Ingen toilet i nærheden")
+            parts.add(
+                localized?.getString(com.example.R.string.stage_warning_no_toilet)
+                    ?: "Ingen toilet i nærheden"
+            )
         }
 
         if (!isLastDay) {
             if (bookingRequired) {
-                parts.add("kræver booking")
+                parts.add(
+                    localized?.getString(com.example.R.string.stage_camp_booking_required)
+                        ?: "kræver booking"
+                )
             }
         }
 
         if (!isAfterSunset) {
-            parts.add("ankomst før solnedgang")
+            parts.add(
+                localized?.getString(com.example.R.string.stage_camp_before_sunset)
+                    ?: "ankomst før solnedgang"
+            )
         } else {
-            parts.add("ankomst efter solnedgang")
+            parts.add(
+                localized?.getString(com.example.R.string.stage_camp_after_sunset)
+                    ?: "ankomst efter solnedgang"
+            )
         }
 
         return parts.joinToString(" · ")

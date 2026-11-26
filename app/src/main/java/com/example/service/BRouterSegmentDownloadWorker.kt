@@ -146,6 +146,7 @@ class BRouterSegmentDownloadWorker(
         .build()
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(context)
         val storageManager = BRouterStorageManager.getInstance(context)
         val segmentsDir = storageManager.segmentsDir
         segmentsDir.mkdirs()
@@ -155,7 +156,7 @@ class BRouterSegmentDownloadWorker(
 
         val (netOk, netMsg) = OfflineDownloadManager.checkNetworkRequirement(context, wifiOnly)
         if (!netOk) {
-            return@withContext Result.failure(workDataOf("error" to (netMsg ?: "Ingen netværksforbindelse")))
+            return@withContext Result.failure(workDataOf("error" to (netMsg ?: localizedCtx.getString(R.string.brouter_error_no_network))))
         }
 
         // Read real file sizes and Last-Modified with HEAD requests before download
@@ -165,17 +166,17 @@ class BRouterSegmentDownloadWorker(
         if (!storageCheck.hasEnoughSpace) {
             return@withContext Result.failure(
                 workDataOf(
-                    "error" to (storageCheck.message ?: "Ikke nok fri lagerplads"),
+                    "error" to (storageCheck.message ?: localizedCtx.getString(R.string.brouter_error_low_storage)),
                     KEY_REQUIRED_BYTES to storageCheck.requiredBytes
                 )
             )
         }
 
-        createNotificationChannel()
+        createNotificationChannel(localizedCtx)
         try {
             setForeground(
                 createForegroundInfo(
-                    context.getString(R.string.notif_routing_preparing),
+                    localizedCtx.getString(R.string.notif_routing_preparing),
                     0,
                     100
                 )
@@ -240,7 +241,7 @@ class BRouterSegmentDownloadWorker(
                         response.close()
                         Log.e(TAG, "Failed downloading ${segment.filename}: HTTP $statusCode")
                         return@withContext Result.failure(
-                            workDataOf("error" to "Rutedata kunne ikke hentes lige nu. Prøv igen om lidt.")
+                            workDataOf("error" to localizedCtx.getString(R.string.brouter_error_download_failed))
                         )
                     }
                     val body = response.body ?: run {
@@ -265,7 +266,7 @@ class BRouterSegmentDownloadWorker(
                                 out.flush()
                                 return@withContext Result.failure(
                                     workDataOf(
-                                        "error" to "Download sat på pause",
+                                        "error" to localizedCtx.getString(R.string.brouter_error_download_paused),
                                         KEY_BYTES_DOWNLOADED to (accumulatedDownloadedBytes + segBytesRead)
                                     )
                                 )
@@ -349,14 +350,14 @@ class BRouterSegmentDownloadWorker(
         )
     }
 
-    private fun createNotificationChannel() {
+    private fun createNotificationChannel(ctx: Context = com.example.util.AppLocaleHelper.getLocalizedContext(context)) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                context.getString(R.string.notif_routing_channel_name),
+                ctx.getString(R.string.notif_routing_channel_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = context.getString(R.string.notif_routing_channel_desc)
+                description = ctx.getString(R.string.notif_routing_channel_desc)
             }
             notificationManager.createNotificationChannel(channel)
         }

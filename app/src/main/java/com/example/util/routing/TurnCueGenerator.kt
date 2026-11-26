@@ -520,16 +520,61 @@ object TurnCueGenerator {
         }
     }
 
+    fun localizedInstructionForDirection(
+        direction: String,
+        context: android.content.Context? = runCatching { com.example.DanskStiApp.instance }.getOrNull(),
+        fallbackText: String? = null,
+        useProvidedContextDirectly: Boolean = false
+    ): String {
+        val localizedCtx = if (useProvidedContextDirectly) {
+            context
+        } else {
+            context?.let { com.example.util.AppLocaleHelper.createLocalizedContext(it) }
+        }
+        val (resId, daDefault) = when (direction.uppercase(java.util.Locale.ROOT)) {
+            "LEFT" -> com.example.R.string.turn_cue_instruction_left to "Drej til venstre"
+            "SLIGHT_LEFT" -> com.example.R.string.turn_cue_instruction_slight_left to "Hold til venstre"
+            "SHARP_LEFT" -> com.example.R.string.turn_cue_instruction_sharp_left to "Drej skarpt til venstre"
+            "RIGHT" -> com.example.R.string.turn_cue_instruction_right to "Drej til højre"
+            "SLIGHT_RIGHT" -> com.example.R.string.turn_cue_instruction_slight_right to "Hold til højre"
+            "SHARP_RIGHT" -> com.example.R.string.turn_cue_instruction_sharp_right to "Drej skarpt til højre"
+            "UTURN", "U_TURN" -> com.example.R.string.turn_cue_instruction_uturn to "Vend om"
+            "STRAIGHT" -> com.example.R.string.turn_cue_instruction_straight to "Fortsæt ligeud"
+            "ARRIVE" -> com.example.R.string.turn_cue_instruction_arrive to "Ankommet til destinationen"
+            else -> null to (fallbackText?.takeIf { it.isNotBlank() } ?: "Fortsæt ligeud")
+        }
+        if (resId == null) return daDefault
+        return runCatching { localizedCtx?.getString(resId) }.getOrNull() ?: daDefault
+    }
+
     /**
-     * Formats the top cue banner text, e.g. "Hold til venstre om 120 m"
+     * Formats the top cue banner text, e.g. "Hold til venstre om 120 m" (or localized equivalent).
      */
-    fun formatCueBannerText(cue: TurnCue, distanceMeters: Double): String {
+    fun formatCueBannerText(
+        cue: TurnCue,
+        distanceMeters: Double,
+        context: android.content.Context? = runCatching { com.example.DanskStiApp.instance }.getOrNull(),
+        useProvidedContextDirectly: Boolean = false
+    ): String {
         val roundedMeters = when {
             distanceMeters >= 100.0 -> ((distanceMeters / 10.0).roundToInt() * 10).coerceAtLeast(10)
             distanceMeters >= 10.0 -> ((distanceMeters / 5.0).roundToInt() * 5).coerceAtLeast(5)
             else -> distanceMeters.roundToInt().coerceAtLeast(1)
         }
-        return "${cue.instructionText} om $roundedMeters m"
+        val localizedCtx = if (useProvidedContextDirectly) {
+            context
+        } else {
+            context?.let { com.example.util.AppLocaleHelper.createLocalizedContext(it) }
+        }
+        val instruction = localizedInstructionForDirection(
+            direction = cue.direction,
+            context = localizedCtx,
+            fallbackText = cue.instructionText,
+            useProvidedContextDirectly = true
+        )
+        return runCatching {
+            localizedCtx?.getString(com.example.R.string.turn_cue_in_meters_fmt, instruction, roundedMeters)
+        }.getOrNull() ?: "$instruction om $roundedMeters m"
     }
 
     fun toJsonArray(cues: List<TurnCue>): JSONArray {

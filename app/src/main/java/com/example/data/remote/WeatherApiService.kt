@@ -162,6 +162,19 @@ object WeatherInterpreter {
     const val NAV_REFRESH_DISTANCE_METERS: Double = 5_000.0
     const val RAIN_ALERT_THROTTLE_MS: Long = 3L * 3600_000L
     const val RAIN_ALERT_THRESHOLD_MM_PER_H: Double = 1.0
+    const val CAMP_PREFETCH_MAX_AGE_MS: Long = 3L * 3600_000L
+
+    private val COPENHAGEN_TZ: TimeZone = TimeZone.getTimeZone("Europe/Copenhagen")
+
+    private fun truncateToCopenhagenHourStart(epochMs: Long): Long {
+        val cal = java.util.Calendar.getInstance(COPENHAGEN_TZ).apply {
+            timeInMillis = epochMs
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        return cal.timeInMillis
+    }
 
     private val moshi: Moshi by lazy {
         Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
@@ -181,7 +194,7 @@ object WeatherInterpreter {
     ): Boolean {
         if (lastFetchTimeMs <= 0L) return true
         if (nowMs - lastFetchTimeMs >= NAV_REFRESH_INTERVAL_MS) return true
-        if (lastFetchLat == null || lastFetchLng == null) return true
+        if (lastFetchLat == null || lastFetchLng == null || lastFetchLat.isNaN() || lastFetchLng.isNaN()) return true
         val movedMeters = GeoUtils.distanceMeters(lastFetchLat, lastFetchLng, currentLat, currentLng)
         return movedMeters >= NAV_REFRESH_DISTANCE_METERS
     }
@@ -197,30 +210,114 @@ object WeatherInterpreter {
         }.getOrNull()
     }
 
-    fun describeWeatherCode(code: Int): Pair<String, String> {
-        return when (code) {
-            0 -> "Klart vejr" to "☀️"
-            1, 2 -> "Let skyet" to "🌤️"
-            3 -> "Overskyet" to "☁️"
-            45, 48 -> "Tåge" to "🌫️"
-            51, 53, 55 -> "Støvregn" to "🌦️"
-            61, 63, 65 -> "Regn" to "🌧️"
-            71, 73, 75 -> "Sne" to "❄️"
-            80, 81, 82 -> "Regnbyger" to "🌧️"
-            95, 96, 99 -> "Tordenvejr" to "⛈️"
-            else -> "Skiftende skydække" to "⛅"
+    fun describeWeatherCode(code: Int, context: android.content.Context? = null): Pair<String, String> {
+        val ctx = context ?: runCatching { com.example.DanskStiApp.instance }.getOrNull()
+        val localizedCtx = ctx?.let { com.example.util.AppLocaleHelper.createLocalizedContext(it) }
+        val icon = when (code) {
+            0 -> "☀️"
+            1, 2 -> "🌤️"
+            3 -> "☁️"
+            45, 48 -> "🌫️"
+            51, 53, 55 -> "🌦️"
+            61, 63, 65 -> "🌧️"
+            71, 73, 75 -> "❄️"
+            80, 81, 82 -> "🌧️"
+            95, 96, 99 -> "⛈️"
+            else -> "⛅"
         }
+        if (localizedCtx != null) {
+            val resId = when (code) {
+                0 -> com.example.R.string.weather_code_clear
+                1, 2 -> com.example.R.string.weather_code_partly_cloudy
+                3 -> com.example.R.string.weather_code_overcast
+                45, 48 -> com.example.R.string.weather_code_fog
+                51, 53, 55 -> com.example.R.string.weather_code_drizzle
+                61, 63, 65 -> com.example.R.string.weather_code_rain
+                71, 73, 75 -> com.example.R.string.weather_code_snow
+                80, 81, 82 -> com.example.R.string.weather_code_rain_showers
+                95, 96, 99 -> com.example.R.string.weather_code_thunderstorm
+                else -> com.example.R.string.weather_code_changeable
+            }
+            return localizedCtx.getString(resId) to icon
+        }
+        val fallbackDesc = when (code) {
+            0 -> "Klart vejr"
+            1, 2 -> "Let skyet"
+            3 -> "Overskyet"
+            45, 48 -> "Tåge"
+            51, 53, 55 -> "Støvregn"
+            61, 63, 65 -> "Regn"
+            71, 73, 75 -> "Sne"
+            80, 81, 82 -> "Regnbyger"
+            95, 96, 99 -> "Tordenvejr"
+            else -> "Skiftende skydække"
+        }
+        return fallbackDesc to icon
+    }
+
+    internal fun parseIsoToEpochMillis(isoTime: String): Long? {
+        val trimmed = isoTime.trim()
+        if (trimmed.isEmpty()) return null
+        val hasExplicitOffset = trimmed.endsWith("Z", ignoreCase = true) ||
+            Regex("[+-]\\d{2}:?\\d{2}$").containsMatchIn(trimmed)
+        if (hasExplicitOffset) {
+            val normalized = if (trimmed.endsWith("Z", ignoreCase = true)) {
+                trimmed.dropLast(1) + "+00:00"
+            } else {
+                trimmed
+            }
+            for (pattern in listOf("yyyy-MM-dd'T'HH:mm:ssXXX", "yyyy-MM-dd'T'HH:mmXXX")) {
+                val parsed = runCatching {
+                    SimpleDateFormat(pattern, Locale.US).apply {
+                        isLenient = false
+                    }.parse(normalized)?.time
+                }.getOrNull()
+                if (parsed != null) return parsed
+            }
+        }
+        if (trimmed.length >= 19) {
+            val parsedSec = runCatching {
+                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
+                    timeZone = COPENHAGEN_TZ
+                    isLenient = false
+                }.parse(trimmed.take(19))?.time
+            }.getOrNull()
+            if (parsedSec != null) return parsedSec
+        }
+        if (trimmed.length >= 16) {
+            val parsedMin = runCatching {
+                SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US).apply {
+                    timeZone = COPENHAGEN_TZ
+                    isLenient = false
+                }.parse(trimmed.take(16))?.time
+            }.getOrNull()
+            if (parsedMin != null) return parsedMin
+        }
+        return null
     }
 
     fun parseWeather(
         response: OpenMeteoResponse,
-        fetchedAtMillis: Long = System.currentTimeMillis()
+        fetchedAtMillis: Long = System.currentTimeMillis(),
+        nowMillis: Long = System.currentTimeMillis(),
+        context: android.content.Context? = null
     ): TrailWeatherInfo {
         val current = response.current
         val daily = response.daily
         val hourlyDto = response.hourly
 
-        val hourlyPoints = parseHourlyPoints(hourlyDto)
+        val currentHourStartMs = truncateToCopenhagenHourStart(nowMillis)
+
+        val rawHourlyPoints = parseHourlyPoints(hourlyDto, context)
+        val hasParseableTimestamps = rawHourlyPoints.any { parseIsoToEpochMillis(it.isoTime) != null }
+        val hourlyPoints = if (hasParseableTimestamps) {
+            rawHourlyPoints.filter { pt ->
+                val ptMs = parseIsoToEpochMillis(pt.isoTime)
+                ptMs == null || ptMs >= currentHourStartMs
+            }
+        } else {
+            rawHourlyPoints
+        }
         val firstHourly = hourlyPoints.firstOrNull()
 
         val temp = current?.temperature ?: firstHourly?.tempC
@@ -233,7 +330,7 @@ object WeatherInterpreter {
         val isMuddy = recentRain > 5.0
         val isWindAlert = (wind ?: 0.0) >= 12.0 || (gusts ?: 0.0) >= 18.0
 
-        val (desc, icon) = describeWeatherCode(code)
+        val (desc, icon) = describeWeatherCode(code, context)
 
         // Extract real astronomical sunrise and sunset from Open-Meteo
         val rawSunrise = daily?.sunrise?.firstOrNull()
@@ -252,9 +349,13 @@ object WeatherInterpreter {
             null
         }
 
+        val ctx = context ?: runCatching { com.example.DanskStiApp.instance }.getOrNull()
+        val localizedCtx = ctx?.let { com.example.util.AppLocaleHelper.createLocalizedContext(it) }
         val severeAlert = when {
-            code in listOf(95, 96, 99) -> "Varsel om tordenvejr — undgå åbne højdedrag og enkeltstående træer."
-            isWindAlert -> "Kraftig vind/vindstød varslet — pas på nedfaldende grene i skovområder."
+            code in listOf(95, 96, 99) -> localizedCtx?.getString(com.example.R.string.weather_alert_thunderstorm)
+                ?: "Varsel om tordenvejr — undgå åbne højdedrag og enkeltstående træer."
+            isWindAlert -> localizedCtx?.getString(com.example.R.string.weather_alert_high_wind)
+                ?: "Kraftig vind/vindstød varslet — pas på nedfaldende grene i skovområder."
             else -> null
         }
 
@@ -283,7 +384,10 @@ object WeatherInterpreter {
         )
     }
 
-    private fun parseHourlyPoints(hourly: HourlyWeatherDto?): List<HourlyForecastPoint> {
+    private fun parseHourlyPoints(
+        hourly: HourlyWeatherDto?,
+        context: android.content.Context? = null
+    ): List<HourlyForecastPoint> {
         val times = hourly?.time ?: return emptyList()
         val result = mutableListOf<HourlyForecastPoint>()
         val limit = minOf(times.size, 48)
@@ -296,7 +400,7 @@ object WeatherInterpreter {
             val wind = hourly.windSpeed10m?.getOrNull(i) ?: 0.0
             val gusts = hourly.windGusts10m?.getOrNull(i)
             val code = hourly.weatherCode?.getOrNull(i) ?: 0
-            val (desc, icon) = describeWeatherCode(code)
+            val (desc, icon) = describeWeatherCode(code, context)
             result.add(
                 HourlyForecastPoint(
                     isoTime = iso,
@@ -316,14 +420,39 @@ object WeatherInterpreter {
     }
 
     /**
-     * Finds the first hourly forecast point within the next 2 hours with >= 1.0 mm/h precipitation.
+     * Finds the first hourly forecast point in the next 60 minutes (the hourly point covering [nowMs],
+     * `start <= nowMs < start + 1h`, plus the next point ONLY if it starts within 60 minutes of [nowMs],
+     * `nowMs < start <= nowMs + 60m`) with >= 1.0 mm/h precipitation.
      */
-    fun findRainAlertInNext2Hours(hourlyPoints: List<HourlyForecastPoint>): HourlyForecastPoint? {
-        return hourlyPoints.take(2).firstOrNull { it.precipitationMm >= RAIN_ALERT_THRESHOLD_MM_PER_H }
+    fun findRainAlertInNext60Minutes(
+        hourlyPoints: List<HourlyForecastPoint>,
+        nowMs: Long = System.currentTimeMillis()
+    ): HourlyForecastPoint? {
+        if (hourlyPoints.isEmpty()) return null
+        val currentHourStartMs = truncateToCopenhagenHourStart(nowMs)
+        val windowEndMs = nowMs + 3_600_000L
+
+        for ((idx, pt) in hourlyPoints.withIndex()) {
+            val startMs = parseIsoToEpochMillis(pt.isoTime) ?: (currentHourStartMs + idx * 3_600_000L)
+            val endMs = startMs + 3_600_000L
+            val coversNow = startMs <= nowMs && nowMs < endMs
+            val startsWithin60Min = startMs > nowMs && startMs <= windowEndMs
+            if ((coversNow || startsWithin60Min) && pt.precipitationMm >= RAIN_ALERT_THRESHOLD_MM_PER_H) {
+                return pt
+            }
+        }
+        return null
+    }
+
+    fun findRainAlertInNext2Hours(
+        hourlyPoints: List<HourlyForecastPoint>,
+        nowMs: Long = System.currentTimeMillis()
+    ): HourlyForecastPoint? {
+        return findRainAlertInNext60Minutes(hourlyPoints, nowMs)
     }
 
     /**
-     * Checks if a rain alert notification should be posted (enabled, >= 1 mm/h in next 2h, and at most once per 3 hours).
+     * Checks if a rain alert notification should be posted (enabled, >= 1 mm/h in next 60 min, and at most once per 3 hours).
      */
     fun shouldPostRainAlert(
         rainAlertEnabled: Boolean,
@@ -333,7 +462,7 @@ object WeatherInterpreter {
     ): HourlyForecastPoint? {
         if (!rainAlertEnabled) return null
         if (lastAlertAtMs > 0L && (nowMs - lastAlertAtMs) < RAIN_ALERT_THROTTLE_MS) return null
-        return findRainAlertInNext2Hours(hourlyPoints)
+        return findRainAlertInNext60Minutes(hourlyPoints, nowMs)
     }
 
     fun shouldPostRainAlert(
@@ -345,7 +474,7 @@ object WeatherInterpreter {
             rainAlertEnabled = true,
             lastAlertAtMs = lastRainAlertMs,
             nowMs = nowMs,
-            hourlyPoints = weather.hourly48h
+            hourlyPoints = weather.hourly48h.ifEmpty { weather.next6Hours }
         )
     }
 
