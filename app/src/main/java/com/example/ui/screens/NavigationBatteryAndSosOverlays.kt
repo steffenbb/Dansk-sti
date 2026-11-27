@@ -585,12 +585,15 @@ fun NavigationCampAndContinuePrompts(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = stringResource(R.string.nav_camp_arrival_prompt_format, campNameForArrival),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    com.example.ui.components.CelebrationCheck(reason = "camp_arrival", size = 30.dp)
+                    Text(
+                        text = stringResource(R.string.nav_camp_arrival_prompt_format, campNameForArrival),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
                 val walkedToday = formatDanishKm(liveState.distanceWalkedTodayKm, 1)
                 val movSecs = currentDayStat?.movingTimeSeconds ?: 0L
                 val ascent = currentDayStat?.ascentMeters ?: 0
@@ -714,7 +717,12 @@ fun NavigationTripCompletedSummaryDialog(
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag("nav_trip_completed_summary_dialog"),
-        title = { Text(text = stringResource(R.string.nav_trip_completed_title), fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                com.example.ui.components.CelebrationCheck(reason = "trip_completed")
+                Text(text = stringResource(R.string.nav_trip_completed_title), fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
+            }
+        },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (trailName.isNotBlank()) {
@@ -724,7 +732,7 @@ fun NavigationTripCompletedSummaryDialog(
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(stringResource(R.string.nav_trip_completed_distance_label), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                            Text(text = "${formatDanishKm(totalDistanceKm, 1)} km", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("nav_completed_distance_text"))
+                            Text(text = "${formatDanishKm(com.example.ui.theme.countUp(totalDistanceKm), 1)} km", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("nav_completed_distance_text"))
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(stringResource(R.string.nav_trip_completed_time_label), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
@@ -732,7 +740,7 @@ fun NavigationTripCompletedSummaryDialog(
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(stringResource(R.string.nav_trip_completed_ascent_label), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                            Text(text = "+$totalAscentMeters m", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("nav_completed_ascent_text"))
+                            Text(text = "+${com.example.ui.theme.countUp(totalAscentMeters)} m", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("nav_completed_ascent_text"))
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(stringResource(R.string.nav_trip_completed_days_label), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)

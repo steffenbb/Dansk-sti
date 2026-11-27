@@ -1,5 +1,8 @@
 package com.example.ui.navigation
 
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -293,7 +296,9 @@ fun ActiveTripSlimBanner(
                     contentDescription = null,
                     modifier = Modifier.size(20.dp)
                 )
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                LiveDot()
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = bannerText,
                     style = TabularBodyStyle,
@@ -310,4 +315,33 @@ fun ActiveTripSlimBanner(
             )
         }
     }
+}
+
+/**
+ * UI audit batch 4: a softly pulsing "live" dot while a trip is active (1.6 s). Stays still when the
+ * system's animations are off. Decorative: the banner text already says a trip is running.
+ */
+@Composable
+private fun LiveDot() {
+    val color = com.example.ui.theme.DanskStiTheme.colors.success
+    val animate = com.example.ui.theme.rememberAnimationsEnabled()
+    val alpha = if (animate) {
+        val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "live_dot")
+        transition.animateFloat(
+            initialValue = 1f,
+            targetValue = 0.35f,
+            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                androidx.compose.animation.core.tween(800, easing = com.example.ui.theme.Motion.Standard),
+                androidx.compose.animation.core.RepeatMode.Reverse
+            ),
+            label = "live_dot_alpha"
+        ).value
+    } else 1f
+    androidx.compose.foundation.layout.Box(
+        modifier = Modifier
+            .size(8.dp)
+            .graphicsLayer { this.alpha = alpha }
+            .background(color, androidx.compose.foundation.shape.CircleShape)
+            .testTag("active_trip_live_dot")
+    )
 }

@@ -267,12 +267,47 @@ class UserLocationHeadingOverlay : Overlay() {
     private val screenPt = Point()
     private val conePath = Path()
 
+    // UI audit batch 4: glide between GPS fixes and a short halo pulse after each fresh fix.
+    // Both are finite (no endless loop) and off when the system's animations are off.
+    private var glideFrom: GeoPoint? = null
+    private var glideStartMs = 0L
+    private var fixAtMs = 0L
+    private val drawnPoint = GeoPoint(0.0, 0.0)
+    private val pulsePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
+    private fun animationsOn(): Boolean =
+        android.os.Build.VERSION.SDK_INT < 26 || android.animation.ValueAnimator.areAnimatorsEnabled()
+
+    /** Where the dot is drawn at [nowMs]: on the way from the previous fix to the new one, eased out. */
+    internal fun displayedPosition(nowMs: Long = android.os.SystemClock.uptimeMillis()): GeoPoint? {
+        val to = location ?: return null
+        val from = glideFrom
+        val elapsed = nowMs - glideStartMs
+        if (from == null || !animationsOn() || elapsed >= GLIDE_MS) return to
+        val t = (elapsed.toFloat() / GLIDE_MS).coerceIn(0f, 1f)
+        val eased = 1f - (1f - t) * (1f - t) * (1f - t)
+        drawnPoint.setCoords(
+            from.latitude + (to.latitude - from.latitude) * eased,
+            from.longitude + (to.longitude - from.longitude) * eased
+        )
+        return drawnPoint
+    }
+
     fun updateLocation(
         location: GeoPoint?,
         headingDegrees: Float?,
         accuracyMeters: Float,
         isStale: Boolean = false
     ) {
+        val previous = this.location
+        if (location != null && (previous == null || previous.latitude != location.latitude || previous.longitude != location.longitude)) {
+            val now = android.os.SystemClock.uptimeMillis()
+            // Glide only for normal walking steps; a big jump (first fix, teleport after a gap) moves at once
+            val startFrom = if (previous != null) GeoPoint(displayedPosition(now) ?: previous) else null
+            glideFrom = startFrom?.takeIf { it.distanceToAsDouble(location) < GLIDE_MAX_METERS }
+            glideStartMs = now
+            if (!isStale) fixAtMs = now
+        }
         this.location = location
         this.headingDegrees = headingDegrees
         this.accuracyMeters = accuracyMeters.coerceAtLeast(3f)
@@ -292,8 +327,10 @@ class UserLocationHeadingOverlay : Overlay() {
 
     override fun draw(canvas: Canvas?, mapView: MapView?, shadow: Boolean) {
         if (shadow || canvas == null || mapView == null || !isEnabled) return
-        val loc = location ?: return
+        val now = android.os.SystemClock.uptimeMillis()
+        val loc = displayedPosition(now) ?: return
         val proj = mapView.projection ?: return
+        if (loc !== location) mapView.postInvalidateOnAnimation()
 
         proj.toPixels(loc, screenPt)
         val cx = screenPt.x.toFloat()
@@ -321,7 +358,23 @@ class UserLocationHeadingOverlay : Overlay() {
             canvas.restore()
         }
 
+        val sinceFix = now - fixAtMs
+        if (!isStale && fixAtMs != 0L && animationsOn() && sinceFix < PULSE_MS * PULSE_COUNT) {
+            val phase = (sinceFix % PULSE_MS).toFloat() / PULSE_MS
+            pulsePaint.color = dotPaint.color
+            pulsePaint.alpha = ((1f - phase) * 90).toInt()
+            canvas.drawCircle(cx, cy, (8.5f + 16f * phase) * density, pulsePaint)
+            mapView.postInvalidateOnAnimation()
+        }
+
         canvas.drawCircle(cx, cy, 8.5f * density, haloPaint)
         canvas.drawCircle(cx, cy, 6.2f * density, dotPaint)
+    }
+
+    companion object {
+        const val GLIDE_MS = 800L
+        const val GLIDE_MAX_METERS = 250.0
+        const val PULSE_MS = 1600L
+        const val PULSE_COUNT = 2
     }
 }

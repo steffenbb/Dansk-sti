@@ -1,5 +1,7 @@
 package com.example.ui.screens.planner
 
+import androidx.compose.runtime.getValue
+import com.example.ui.theme.appearOnce
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -598,6 +600,7 @@ fun PlannerCoachMarksOverlay(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = 16.dp, end = 16.dp, top = 2.dp)
+            .appearOnce()
             .testTag("planner_coach_marks"),
         contentAlignment = Alignment.TopCenter
     ) {
@@ -649,13 +652,18 @@ fun PlannerCoachMarksOverlay(
 
                 tips.forEachIndexed { idx, (title, subtitle) ->
                     val isCurrent = idx == stepIndex
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = if (isCurrent) {
+                    val stepColor by androidx.compose.animation.animateColorAsState(
+                        targetValue = if (isCurrent) {
                             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
                         } else {
                             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                         },
+                        animationSpec = com.example.ui.theme.Motion.micro(),
+                        label = "coach_step_color"
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = stepColor,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("coach_mark_tip_$idx")

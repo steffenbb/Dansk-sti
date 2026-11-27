@@ -27,12 +27,12 @@ typealias PoiItem = MapPoiItem
  * - Shelters, fri teltning, water, toilets, shops, transit, and my points in one clustered layer.
  * - Below zoom 13 (CLUSTER_BELOW_ZOOM = 13.0): groups markers into a 60 dp grid and draws circle with count; tap zooms in.
  * - At zoom 13+: shows individual icons (32 dp, white circle background, type-specific color).
- * - Selected marker grows to 40 dp.
+ * - Selected marker grows to 40 dp (animated, UI audit batch 4).
  */
 class PoiClusterOverlay(
     private val context: Context,
     private var poiItems: List<MapPoiItem> = emptyList(),
-    var selectedPoiId: String? = null,
+    selectedPoiId: String? = null,
     var onPoiClicked: ((MapPoiItem) -> Unit)? = null,
     onSinglePoiTap: ((MapPoiItem) -> Unit)? = null
 ) : Overlay() {
@@ -45,6 +45,37 @@ class PoiClusterOverlay(
 
     companion object {
         const val CLUSTER_BELOW_ZOOM = 13.0
+        /** UI audit batch 4: the selected marker grows from 32 to 40 dp over this time, with a slight overshoot. */
+        const val SELECT_ANIM_MS = 150L
+    }
+
+    /** The selected marker; changing it starts the grow animation. */
+    var selectedPoiId: String? = selectedPoiId
+        set(value) {
+            if (value != null && value != field) selectAnimStartMs = android.os.SystemClock.uptimeMillis()
+            field = value
+        }
+    private var selectAnimStartMs = 0L
+    private val selectInterpolator = android.view.animation.OvershootInterpolator(2.5f)
+
+    /** Scale for the selected icon: 0.8 (its unselected size) to 1.0 with overshoot; 1.0 when animations are off. */
+    internal fun selectedScale(nowMs: Long = android.os.SystemClock.uptimeMillis()): Float {
+        val elapsed = nowMs - selectAnimStartMs
+        val animationsOn = android.os.Build.VERSION.SDK_INT < 26 || android.animation.ValueAnimator.areAnimatorsEnabled()
+        if (!animationsOn || selectAnimStartMs == 0L || elapsed >= SELECT_ANIM_MS) return 1f
+        val t = (elapsed.toFloat() / SELECT_ANIM_MS).coerceIn(0f, 1f)
+        return 0.8f + 0.2f * selectInterpolator.getInterpolation(t)
+    }
+
+    private fun drawPoiIcon(canvas: Canvas, mapView: MapView, icon: android.graphics.drawable.Drawable, cx: Float, cy: Float, isSelected: Boolean) {
+        val scale = if (isSelected) selectedScale() else 1f
+        val w = icon.intrinsicWidth * scale
+        val h = icon.intrinsicHeight * scale
+        val left = (cx - w / 2f).toInt()
+        val top = (cy - h / 2f).toInt()
+        icon.setBounds(left, top, left + w.toInt(), top + h.toInt())
+        icon.draw(canvas)
+        if (scale != 1f) mapView.postInvalidateOnAnimation()
     }
 
     private data class ClusterBucket(
@@ -144,12 +175,7 @@ class PoiClusterOverlay(
                         val singleItem = bucket.items.first()
                         val isSelected = singleItem.id == selectedPoiId
                         val icon = MapIconUtils.getClusterPoiIcon(context, singleItem.type, isSelected)
-                        val halfW = icon.intrinsicWidth / 2
-                        val halfH = icon.intrinsicHeight / 2
-                        val left = (bucket.screenX - halfW).toInt()
-                        val top = (bucket.screenY - halfH).toInt()
-                        icon.setBounds(left, top, left + icon.intrinsicWidth, top + icon.intrinsicHeight)
-                        icon.draw(canvas)
+                        drawPoiIcon(canvas, mapView, icon, bucket.screenX, bucket.screenY, isSelected)
 
                         activeSingleItems.add(singleItem to Point(bucket.screenX.toInt(), bucket.screenY.toInt()))
                     } else {
@@ -184,10 +210,7 @@ class PoiClusterOverlay(
                         continue
                     }
 
-                    val left = (px - halfW).toInt()
-                    val top = (py - halfH).toInt()
-                    icon.setBounds(left, top, left + icon.intrinsicWidth, top + icon.intrinsicHeight)
-                    icon.draw(canvas)
+                    drawPoiIcon(canvas, mapView, icon, px, py, isSelected)
 
                     activeSingleItems.add(poi to Point(tempPoint.x, tempPoint.y))
                 }

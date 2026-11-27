@@ -210,3 +210,14 @@ fun countUp(target: Double, durationMs: Int = Motion.DATA_MS): Double {
 fun countUp(target: Int, durationMs: Int = Motion.DATA_MS): Int =
     countUp(target.toDouble(), durationMs).let { if (it == target.toDouble()) target else kotlin.math.round(it).toInt() }
 
+/** Fades in and scales up gently (0.96 → 1) the first time the element appears (coach marks; UI audit batch 4). */
+fun Modifier.appearOnce(): Modifier = this.composed {
+    val progress = remember { androidx.compose.animation.core.Animatable(0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { progress.animateTo(1f, Motion.enter()) }
+    Modifier.graphicsLayer {
+        alpha = progress.value
+        val s = 0.96f + 0.04f * progress.value
+        scaleX = s
+        scaleY = s
+    }
+}
