@@ -297,6 +297,15 @@ internal fun PlannerDetaljerTabContent(
                 }
             }
         }
+
+        com.example.ui.screens.PathFeaturesAlongTrailCard(
+            summary = uiState.pathFeatureSummary,
+            warnings = uiState.pathFeatureWarnings,
+            pathTagsVersion = uiState.pathTagsVersion,
+            onWarningClick = { warning ->
+                onZoomToCoordinate(warning.lat, warning.lng)
+            }
+        )
     }
 
     if (uiState.waypointWeatherEtas.isNotEmpty()) {

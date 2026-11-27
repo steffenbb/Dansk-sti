@@ -247,7 +247,10 @@ class OfflineDownloadWorker(
                         points = orderedPoints
                         geometryHash = OfflineDownloadManager.computeGeometryHash(points)
                         try {
-                            repo.syncCorridorPoisForPolyline(trailId, points)
+                            val syncRes = repo.syncCorridorPoisForPolyline(trailId, points)
+                            if (syncRes.isSuccess) {
+                                repo.setCorridorPoiVersion(trailId, com.example.data.repository.DanskStiRepository.CORRIDOR_POI_VERSION, isRoute = true)
+                            }
                         } catch (_: Exception) {}
                     }
 
@@ -291,7 +294,10 @@ class OfflineDownloadWorker(
                         points = orderedPoints
                         geometryHash = OfflineDownloadManager.computeGeometryHash(points)
                         try {
-                            repo.syncCorridorPoisForPolyline(trailId, points)
+                            val syncRes = repo.syncCorridorPoisForPolyline(trailId, points)
+                            if (syncRes.isSuccess) {
+                                repo.setCorridorPoiVersion(trailId, com.example.data.repository.DanskStiRepository.CORRIDOR_POI_VERSION, isRoute = true)
+                            }
                         } catch (_: Exception) {}
                     }
 
@@ -317,7 +323,10 @@ class OfflineDownloadWorker(
                         }
                         geometryHash = OfflineDownloadManager.computeGeometryHash(points)
                         try {
-                            repo.syncCorridorPois(trail)
+                            val syncRes = repo.syncCorridorPois(trail)
+                            if (syncRes.isSuccess) {
+                                repo.setCorridorPoiVersion(trail.id, com.example.data.repository.DanskStiRepository.CORRIDOR_POI_VERSION, isRoute = false)
+                            }
                         } catch (_: Exception) {}
                     }
                 }

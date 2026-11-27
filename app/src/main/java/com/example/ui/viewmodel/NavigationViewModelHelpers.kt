@@ -64,7 +64,8 @@ internal fun computeRouteStopsAndAhead(
     waters: List<PoiEntity>,
     shops: List<PoiEntity>,
     shelters: List<ShelterEntity>,
-    previousNextOvernight: NextStopInfo?
+    previousNextOvernight: NextStopInfo?,
+    pathWarnings: List<com.example.util.PathFeatureWarning> = emptyList()
 ): RouteStopsCalculationResult {
     val stage = currentStage ?: route.stages.getOrNull(currentDay - 1) ?: route.stages.lastOrNull()
     val stageStartKm = stage?.startWalkKm ?: 0.0
@@ -138,6 +139,23 @@ internal fun computeRouteStopsAndAhead(
                     detourMeters = stage.detourMeters
                 )
             )
+        }
+    }
+
+    for (pw in pathWarnings) {
+        val (projKm, detourM) = route.projectPoint(pw.lat, pw.lng)
+        if (detourM <= 50.0) {
+            val remKm = projKm - currentWalkKm
+            if (remKm in 0.0..5.0) {
+                upcomingItems.add(
+                    AheadOnRouteItem(
+                        title = pw.title,
+                        type = "WARNING",
+                        kmRemaining = remKm,
+                        detourMeters = detourM
+                    )
+                )
+            }
         }
     }
 

@@ -112,10 +112,63 @@ data class PoiInfoSheetData(
             )
         }
 
+        private val DANISH_MONTH_ABBR = arrayOf("jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec")
+
+        private fun formatSeasonalMonthsPair(seasonal: String): Pair<String, String>? {
+            val openMonths = com.example.util.SeasonalWaterEvaluator.parseOpenMonths(seasonal) ?: return null
+            if (openMonths.isEmpty() || openMonths.size >= 12) return null
+
+            val rangeRegex = Regex("""(?i)\b(jan(?:uar|uary)?|feb(?:ruar|ruary)?|mar(?:ts|ch)?|apr(?:il)?|maj|may|jun(?:i|e)?|jul(?:i|y)?|aug(?:ust)?|sep(?:tember)?|okt(?:ober)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s*[-–/]\s*(jan(?:uar|uary)?|feb(?:ruar|ruary)?|mar(?:ts|ch)?|apr(?:il)?|maj|may|jun(?:i|e)?|jul(?:i|y)?|aug(?:ust)?|sep(?:tember)?|okt(?:ober)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b""")
+            val m = rangeRegex.find(seasonal)
+            if (m != null) {
+                val startSet = com.example.util.SeasonalWaterEvaluator.parseOpenMonths("${m.groupValues[1]}-${m.groupValues[1]}")
+                val endSet = com.example.util.SeasonalWaterEvaluator.parseOpenMonths("${m.groupValues[2]}-${m.groupValues[2]}")
+                val startMonth = startSet?.firstOrNull()
+                val endMonth = endSet?.firstOrNull()
+                if (startMonth != null && endMonth != null && startMonth in 1..12 && endMonth in 1..12) {
+                    return DANISH_MONTH_ABBR[startMonth - 1] to DANISH_MONTH_ABBR[endMonth - 1]
+                }
+            }
+            val minM = openMonths.minOrNull() ?: return null
+            val maxM = openMonths.maxOrNull() ?: return null
+            if (minM !in 1..12 || maxM !in 1..12) return null
+            return DANISH_MONTH_ABBR[minM - 1] to DANISH_MONTH_ABBR[maxM - 1]
+        }
+
+        private fun combineDescriptionAndAccessNote(
+            description: String?,
+            accessNote: String?,
+            context: android.content.Context?
+        ): String? {
+            val cleanDesc = description?.trim()?.takeIf { it.isNotEmpty() }
+            val cleanAccess = accessNote?.trim()?.takeIf { it.isNotEmpty() }
+            return when {
+                cleanDesc != null && cleanAccess != null -> {
+                    val label = resString(com.example.R.string.poi_access_note_label, context)
+                    "$cleanDesc\n\n$label $cleanAccess"
+                }
+                cleanDesc != null -> cleanDesc
+                cleanAccess != null -> {
+                    val label = resString(com.example.R.string.poi_access_note_label, context)
+                    "$label $cleanAccess"
+                }
+                else -> null
+            }
+        }
+
         fun fromShelter(s: ShelterEntity, context: android.content.Context? = null): PoiInfoSheetData {
             val rawFacilities = buildList {
-                if (s.hasWaterNearby) add(resString(com.example.R.string.poi_fac_water_nearby, context))
-                if (s.hasToiletNearby) add(resString(com.example.R.string.poi_fac_toilet_nearby, context))
+                when {
+                    s.hasOwnTap == true -> add(resString(com.example.R.string.poi_fac_own_tap, context))
+                    s.hasOwnTap == false && s.hasWaterNearby -> add(resString(com.example.R.string.poi_fac_water_nearby_not_at_shelter, context))
+                    s.hasWaterNearby -> add(resString(com.example.R.string.poi_fac_water_nearby, context))
+                }
+                if (s.hasOwnToilet == true) {
+                    add(resString(com.example.R.string.poi_fac_own_toilet, context))
+                } else if (s.hasToiletNearby) {
+                    add(resString(com.example.R.string.poi_fac_toilet_nearby, context))
+                }
+                if (s.hasShower == true) add(resString(com.example.R.string.poi_fac_shower, context))
                 if (s.hasFireRing == true) add(resString(com.example.R.string.poi_fac_fire_ring, context))
                 if (s.hasFirewood == true) add(resString(com.example.R.string.poi_fac_firewood, context))
                 if (s.dogAllowed == true) add(resString(com.example.R.string.poi_fac_dog_on_leash, context))
@@ -130,6 +183,8 @@ data class PoiInfoSheetData(
                 s.maxNights?.takeIf { it > 0 }?.let {
                     add(resString(com.example.R.string.poi_fac_max_nights_fmt, context, it))
                 }
+                s.seasonInfo?.takeIf { it.isNotBlank() }?.let { add(it) }
+                if (s.open24h == true) add(resString(com.example.R.string.poi_fac_open_24h, context))
                 s.accessibility?.takeIf { it.isNotBlank() }?.let { add(it) }
             }
             val facilities = if (rawFacilities.isEmpty()) {
@@ -155,7 +210,7 @@ data class PoiInfoSheetData(
                 bookingUrl = s.bookingUrl,
                 infoUrl = s.infoUrl,
                 facilities = facilities,
-                description = s.description,
+                description = combineDescriptionAndAccessNote(s.description, s.accessNote, context),
                 dataSource = sourceLabel,
                 fetchedAtMillis = s.fetchedAt
             )
@@ -207,20 +262,34 @@ data class PoiInfoSheetData(
 
         fun fromPoiEntity(p: PoiEntity, context: android.content.Context? = null): PoiInfoSheetData {
             val norm = p.type.lowercase()
-            val typeLabel = when (norm) {
-                "water", "drinking_water", "vand" -> resString(com.example.R.string.poi_type_water, context)
-                "toilet", "toilets" -> resString(com.example.R.string.poi_type_toilet, context)
-                "shop", "supermarket", "convenience", "bakery", "indkoeb" -> resString(com.example.R.string.poi_type_shop, context)
-                else -> resString(com.example.R.string.poi_type_transit, context)
+            val isTapPoi = p.subtype == "geofa_toilet_tap" || p.subtype == "geofa_shelter_tap"
+            val typeLabel = if (isTapPoi) {
+                resString(com.example.R.string.poi_type_tap, context)
+            } else {
+                when (norm) {
+                    "water", "drinking_water", "vand" -> resString(com.example.R.string.poi_type_water, context)
+                    "toilet", "toilets" -> resString(com.example.R.string.poi_type_toilet, context)
+                    "shop", "supermarket", "convenience", "bakery", "indkoeb" -> resString(com.example.R.string.poi_type_shop, context)
+                    else -> resString(com.example.R.string.poi_type_transit, context)
+                }
             }
+            val details = com.example.data.repository.GeoFaFieldParser.parseDetailsJson(p.detailsJson)
+            val detailAccessibility = details["accessibility"]?.takeIf { it.isNotBlank() }
+            val detailAccessNote = details["accessNote"]?.takeIf { it.isNotBlank() }
+
             val facilities = buildList {
                 if (norm.contains("water") || norm == "vand") add(resString(com.example.R.string.poi_fac_drinking_water, context))
                 if (norm.contains("toilet")) add(resString(com.example.R.string.poi_fac_toilet, context))
                 if (norm.contains("shop") || norm == "supermarket" || norm == "convenience" || norm == "bakery") {
                     add(resString(com.example.R.string.poi_fac_groceries, context))
                 }
-                p.seasonal?.takeIf { it.isNotBlank() && !it.equals("no", ignoreCase = true) }?.let {
-                    add(resString(com.example.R.string.poi_fac_seasonal, context))
+                p.seasonal?.takeIf { it.isNotBlank() && !it.equals("no", ignoreCase = true) }?.let { seasonalStr ->
+                    val monthPair = formatSeasonalMonthsPair(seasonalStr)
+                    if (monthPair != null) {
+                        add(resString(com.example.R.string.poi_fac_seasonal_months_fmt, context, monthPair.first, monthPair.second))
+                    } else {
+                        add(resString(com.example.R.string.poi_fac_seasonal, context))
+                    }
                 }
                 p.openingHours?.takeIf { it.isNotBlank() }?.let {
                     add(resString(com.example.R.string.poi_fac_opening_hours_fmt, context, it))
@@ -229,6 +298,7 @@ data class PoiInfoSheetData(
                     add(resString(com.example.R.string.poi_fac_operator_fmt, context, it))
                 }
                 if (p.fee) add(resString(com.example.R.string.poi_fac_fee_required, context))
+                if (detailAccessibility != null) add(detailAccessibility)
             }
             val sourceLabel = when (p.source.lowercase()) {
                 "geofa" -> "GeoFA / OpenStreetMap"
@@ -248,6 +318,7 @@ data class PoiInfoSheetData(
                 bookingUrl = null,
                 infoUrl = p.website,
                 facilities = facilities,
+                description = combineDescriptionAndAccessNote(null, detailAccessNote, context),
                 dataSource = sourceLabel,
                 fetchedAtMillis = p.fetchedAt
             )

@@ -129,6 +129,9 @@ interface DanskStiDao {
     @Query("SELECT * FROM trip_progress WHERE planId = :planId")
     suspend fun getTripProgressSync(planId: Long): TripProgressEntity?
 
+    @Query("SELECT * FROM trip_progress WHERE planId = :planId")
+    suspend fun getTripProgressListForPlanSync(planId: Long): List<TripProgressEntity>
+
     @Query("SELECT * FROM trip_progress WHERE isCompleted = 1")
     fun getCompletedTripProgressFlow(): Flow<List<TripProgressEntity>>
 
@@ -560,6 +563,65 @@ interface DanskStiDao {
         bookingUrl: String?,
         infoUrl: String?
     ): Int
+
+    // Phase A: GeoFA fields v29 backfill on existing installs
+    @Query("""
+        UPDATE shelters SET
+            description = :description,
+            fee = :fee,
+            accessibility = :accessibility,
+            hasOwnTap = :hasOwnTap,
+            seasonal = :seasonal,
+            seasonInfo = :seasonInfo,
+            open24h = :open24h,
+            accessNote = :accessNote
+        WHERE id = :id AND source = 'geofa'
+    """)
+    suspend fun updateGeoFaShelterFieldsV29(
+        id: String,
+        description: String?,
+        fee: Boolean?,
+        accessibility: String?,
+        hasOwnTap: Boolean?,
+        seasonal: String?,
+        seasonInfo: String?,
+        open24h: Boolean?,
+        accessNote: String?
+    ): Int
+
+    @Query("UPDATE fri_teltning SET rulesSummary = :rulesSummary WHERE id = :id AND source = 'geofa'")
+    suspend fun updateGeoFaFriTeltningFieldsV29(
+        id: String,
+        rulesSummary: String?
+    ): Int
+
+    @Query("""
+        UPDATE pois SET
+            seasonal = :seasonal,
+            subtype = :subtype,
+            detailsJson = :detailsJson,
+            fee = :fee
+        WHERE id = :id AND source = 'geofa'
+    """)
+    suspend fun updateGeoFaPoiFieldsV29(
+        id: String,
+        seasonal: String?,
+        subtype: String?,
+        detailsJson: String?,
+        fee: Boolean
+    ): Int
+
+    @Query("DELETE FROM shelters WHERE source = 'geofa' AND id IN (:ids)")
+    suspend fun deleteGeoFaSheltersByIds(ids: List<String>): Int
+
+    @Query("DELETE FROM fri_teltning WHERE source = 'geofa' AND id IN (:ids)")
+    suspend fun deleteGeoFaFriTeltningByIds(ids: List<String>): Int
+
+    @Query("DELETE FROM pois WHERE source = 'geofa' AND id IN (:ids)")
+    suspend fun deleteGeoFaPoisByIds(ids: List<String>): Int
+
+    @Query("UPDATE shelters SET hasWaterNearby = 1 WHERE hasOwnTap = 1")
+    suspend fun markSheltersWithOwnTapAsWaterNearby(): Int
 
     // Round 21: Packing list helpers
     @Query("SELECT * FROM trip_gear_items ORDER BY category ASC, title ASC")

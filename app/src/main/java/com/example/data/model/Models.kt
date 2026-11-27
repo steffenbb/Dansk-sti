@@ -227,7 +227,14 @@ data class ShelterEntity(
     val hasElectricity: Boolean? = null,
     val dogAllowed: Boolean? = null,
     val fetchedAt: Long = System.currentTimeMillis(),
-    val infoUrl: String? = null
+    val infoUrl: String? = null,
+    val hasOwnTap: Boolean? = null,
+    val hasOwnToilet: Boolean? = null,
+    val hasShower: Boolean? = null,
+    val seasonal: String? = null,
+    val seasonInfo: String? = null,
+    val open24h: Boolean? = null,
+    val accessNote: String? = null
 )
 
 @Entity(tableName = "fri_teltning")
@@ -257,7 +264,7 @@ data class FriTeltningEntity(
 @Entity(tableName = "pois")
 data class PoiEntity(
     @PrimaryKey val id: String,
-    val type: String, // "toilet", "water", "shop", "station", "ferry"
+    val type: String, // "toilet", "water", "shop", "station", "ferry", "bus_stop"
     val name: String,
     val lat: Double,
     val lng: Double,
@@ -269,7 +276,9 @@ data class PoiEntity(
     val website: String? = null,
     val source: String = "geofa",
     val fetchedAt: Long = System.currentTimeMillis(),
-    val seasonal: String? = null
+    val seasonal: String? = null,
+    val subtype: String? = null,
+    val detailsJson: String? = null
 )
 
 @Entity(

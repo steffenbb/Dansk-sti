@@ -116,6 +116,12 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     private val _surfaceMix = MutableStateFlow<Map<String, Int>>(emptyMap())
     val surfaceMix: StateFlow<Map<String, Int>> = _surfaceMix.asStateFlow()
 
+    private val _pathFeatureSummary = MutableStateFlow(com.example.util.PathFeatureSummary())
+    val pathFeatureSummary: StateFlow<com.example.util.PathFeatureSummary> = _pathFeatureSummary.asStateFlow()
+
+    private val _pathFeatureWarnings = MutableStateFlow<List<com.example.util.PathFeatureWarning>>(emptyList())
+    val pathFeatureWarnings: StateFlow<List<com.example.util.PathFeatureWarning>> = _pathFeatureWarnings.asStateFlow()
+
     private val _weatherStart = MutableStateFlow<TrailWeatherInfo?>(null)
     val weatherStart: StateFlow<TrailWeatherInfo?> = _weatherStart.asStateFlow()
 
@@ -421,6 +427,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                     var stiKm = 0.0
                     var grusKm = 0.0
                     var asfaltKm = 0.0
+                    var sandKm = 0.0
                     var ukendtKm = 0.0
                     for (r in allRanges) {
                         val rKm = (r.toKm - r.fromKm).coerceAtLeast(0.0)
@@ -428,17 +435,19 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                         val surf = r.surface?.trim()?.lowercase() ?: ""
                         when {
                             hw.isEmpty() && surf.isEmpty() -> ukendtKm += rKm
+                            surf == "sand" -> sandKm += rKm
                             surf in listOf("asphalt", "paved", "concrete", "paving_stones") ||
                                 hw in listOf("residential", "living_street", "service", "unclassified", "tertiary", "secondary", "primary", "trunk") -> asfaltKm += rKm
                             surf in listOf("gravel", "fine_gravel", "compacted") || hw == "track" -> grusKm += rKm
                             else -> stiKm += rKm
                         }
                     }
-                    val sumKm = (stiKm + grusKm + asfaltKm + ukendtKm).takeIf { it > 0.0 } ?: 1.0
+                    val sumKm = (stiKm + grusKm + asfaltKm + sandKm + ukendtKm).takeIf { it > 0.0 } ?: 1.0
                     val rawKm = linkedMapOf(
                         "Sti" to stiKm,
                         "Grus" to grusKm,
                         "Asfalt" to asfaltKm,
+                        "Sand" to sandKm,
                         "Ukendt" to ukendtKm
                     )
                     val pctMap = linkedMapOf<String, Int>()
@@ -457,6 +466,10 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                         "Grus" to (pctMap["Grus"] ?: 0),
                         "Asfalt" to (pctMap["Asfalt"] ?: 0)
                     )
+                    val sandPct = pctMap["Sand"] ?: 0
+                    if (sandPct > 0) {
+                        mix["Sand"] = sandPct
+                    }
                     val ukendtPct = pctMap["Ukendt"] ?: 0
                     if (ukendtPct > 0) {
                         mix["Ukendt"] = ukendtPct
@@ -465,6 +478,16 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     _surfaceMix.value = emptyMap()
                 }
+
+                // Phase B4: Compute PathFeatureAnalyzer from WALK segments
+                val pathRanges = com.example.util.PathRangeBuilder.fromTrailSegments(segments)
+                val pathAnalysis = com.example.util.PathFeatureAnalyzer.analyze(
+                    ranges = pathRanges,
+                    pointAtKm = { km -> com.example.util.routing.TrailSlicer.pointAtKm(segments, km) },
+                    context = getApplication()
+                )
+                _pathFeatureSummary.value = pathAnalysis.summary
+                _pathFeatureWarnings.value = pathAnalysis.warnings
 
                 // Corridor Overnights & POIs (only route's own corridor POIs, never whole DB)
                 var shelters = if (points.isNotEmpty()) repository.getSheltersForTrail(trailId) else emptyList()
@@ -479,142 +502,44 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                     } finally {
                         _isSyncingPois.value = false
                     }
-                }
-
-                val hasPoints = points.isNotEmpty()
-                val minLat = if (hasPoints) points.minOf { it.lat } - 0.05 else -90.0
-                val maxLat = if (hasPoints) points.maxOf { it.lat } + 0.05 else 90.0
-                val minLng = if (hasPoints) points.minOf { it.lng } - 0.08 else -180.0
-                val maxLng = if (hasPoints) points.maxOf { it.lng } + 0.08 else 180.0
-
-                val nearbyShelters = shelters
-                val nearbyFriTeltning = if (hasPoints) {
-                    friTeltning.filter { it.centerLat in minLat..maxLat && it.centerLng in minLng..maxLng }
-                } else emptyList()
-                val nearbyPois = pois
-
-                // Sort overnights by projected km along trail
-                val overnightList = mutableListOf<OvernightSpotItem>()
-                for (s in nearbyShelters) {
-                    val (wKm, dM) = projectOnSegments(segments, s.lat, s.lng)
-                    if (!hasPoints || dM <= 5000.0) {
-                        overnightList.add(
-                            OvernightSpotItem(
-                                id = "shelter_${s.id}",
-                                name = s.name,
-                                type = "SHELTER",
-                                kmOnRoute = wKm,
-                                detourMeters = dM,
-                                bookingRequired = s.bookingRequired,
-                                bookingUrl = s.bookingUrl,
-                                hasWaterNearby = s.hasWaterNearby,
-                                hasToiletNearby = s.hasToiletNearby,
-                                lat = s.lat,
-                                lng = s.lng,
-                                description = s.description
+                } else if (points.isNotEmpty() &&
+                    repository.getCorridorPoiVersion(trailId, isRoute = trailId.startsWith("route_")) < DanskStiRepository.CORRIDOR_POI_VERSION &&
+                    repository.isDeviceOnline()
+                ) {
+                    // Phase A7: Background re-sync that doesn't block the screen, then reload the lists
+                    backgroundCorridorResyncJob?.cancel()
+                    backgroundCorridorResyncJob = viewModelScope.launch(Dispatchers.IO) {
+                        val res = repository.syncCorridorPois(entity)
+                        if (res.isSuccess && currentTrailId == trailId) {
+                            val refreshedShelters = repository.getSheltersForTrail(trailId)
+                            val refreshedFri = repository.getFriTeltningForTrail(trailId)
+                            val refreshedPois = repository.getPoisForTrail(trailId)
+                            populateTrailCorridorLists(
+                                entity = entity,
+                                segments = segments,
+                                points = points,
+                                geom = geom,
+                                shelters = refreshedShelters,
+                                friTeltning = refreshedFri,
+                                pois = refreshedPois
                             )
-                        )
-                    }
-                }
-                val realWaterPois = nearbyPois.filter { it.type == "water" }
-                val realToiletPois = nearbyPois.filter { it.type == "toilet" }
-                for (ft in nearbyFriTeltning) {
-                    val (wKm, dM) = projectOnSegments(segments, ft.centerLat, ft.centerLng)
-                    if (!hasPoints || dM <= 5000.0) {
-                        val hasRealWater = realWaterPois.any {
-                            GeoUtils.distanceMeters(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0
-                        }
-                        val hasRealToilet = realToiletPois.any {
-                            GeoUtils.distanceMeters(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0
-                        }
-                        overnightList.add(
-                            OvernightSpotItem(
-                                id = "friteltning_${ft.id}",
-                                name = ft.name,
-                                type = "FRI_TELTNING",
-                                kmOnRoute = wKm,
-                                detourMeters = dM,
-                                bookingRequired = false,
-                                bookingUrl = ft.rulesUrl,
-                                hasWaterNearby = hasRealWater,
-                                hasToiletNearby = hasRealToilet,
-                                lat = ft.centerLat,
-                                lng = ft.centerLng,
-                                description = ft.rulesSummary ?: "Fri teltning efter 1-2-3 reglen"
-                            )
-                        )
-                    }
-                }
-                overnightList.sortBy { it.kmOnRoute }
-                _overnightSpots.value = overnightList.distinctBy { it.id }
-
-                // Sort POIs
-                val waterToilets = mutableListOf<PoiSpotItem>()
-                val shopList = mutableListOf<PoiSpotItem>()
-                val transList = mutableListOf<PoiSpotItem>()
-
-                for (p in nearbyPois) {
-                    val (wKm, dM) = projectOnSegments(segments, p.lat, p.lng)
-                    if (!hasPoints || dM <= 5000.0) {
-                        val closed = p.type == "water" &&
-                            com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(p)
-                        val item = PoiSpotItem(
-                            id = "poi_${p.type}_${p.id}",
-                            name = p.name,
-                            type = p.type,
-                            kmOnRoute = wKm,
-                            detourMeters = dM,
-                            lat = p.lat,
-                            lng = p.lng,
-                            openingHours = p.openingHours,
-                            seasonal = p.seasonal,
-                            isPotentiallyClosed = closed
-                        )
-                        when (p.type) {
-                            "water", "toilet" -> waterToilets.add(item)
-                            "shop", "supermarket", "convenience", "bakery", "farm" -> shopList.add(item)
-                            "station", "ferry", "bus_stop" -> transList.add(item)
                         }
                     }
                 }
-                waterToilets.sortBy { it.kmOnRoute }
-                shopList.sortBy { it.kmOnRoute }
-                transList.sortBy { it.kmOnRoute }
 
-                _waterAndToilets.value = waterToilets.distinctBy { it.id }
-                _shops.value = shopList.distinctBy { it.id }
-                _transports.value = transList.distinctBy { it.id }
-
-                // Part F3: Nearest station or bus_stop within 3 km of trail start and end
-                val firstPt = points.firstOrNull()
-                val lastPt = points.lastOrNull()
-                val allTransportPois = (nearbyPois + repository.getAllPoisList()).distinctBy { it.id }
-                _nearestStartTransport.value = findNearestTransportWithin3Km(firstPt, allTransportPois)
-                _nearestEndTransport.value = findNearestTransportWithin3Km(lastPt, allTransportPois)
-
-                // Compute longest gaps along the trail using only the route's own corridor POIs
-                // Part E2: Exclude seasonal water posts that are potentially closed
-                val totalKm = geom?.totalWalkingKm?.takeIf { it > 0.0 } ?: entity.computedWalkingKm
-                val waterKms = (listOf(0.0) +
-                    waterToilets.filter { it.type == "water" && !it.isPotentiallyClosed }.map { it.kmOnRoute } +
-                    overnightList.filter { it.hasWaterNearby }.map { it.kmOnRoute } +
-                    listOf(totalKm)).distinct().sorted()
-                var maxWaterGap = 0.0
-                for (i in 0 until waterKms.size - 1) {
-                    val gap = waterKms[i + 1] - waterKms[i]
-                    if (gap > maxWaterGap) maxWaterGap = gap
-                }
-                _longestGapWithoutWaterKm.value = maxWaterGap
-
-                val overnightKms = (listOf(0.0) + overnightList.map { it.kmOnRoute } + listOf(totalKm)).distinct().sorted()
-                var maxOvernightGap = 0.0
-                for (i in 0 until overnightKms.size - 1) {
-                    val gap = overnightKms[i + 1] - overnightKms[i]
-                    if (gap > maxOvernightGap) maxOvernightGap = gap
-                }
-                _longestGapWithoutOvernightKm.value = maxOvernightGap
+                populateTrailCorridorLists(
+                    entity = entity,
+                    segments = segments,
+                    points = points,
+                    geom = geom,
+                    shelters = shelters,
+                    friTeltning = friTeltning,
+                    pois = pois
+                )
 
                 // Weather at start and end
+                val firstPt = points.firstOrNull()
+                val lastPt = points.lastOrNull()
                 if (firstPt != null) {
                     _weatherStart.value = repository.getTrailWeather(firstPt.lat, firstPt.lng)
                 }
@@ -624,6 +549,163 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
             }
             _isLoading.value = false
         }
+    }
+
+    private var backgroundCorridorResyncJob: kotlinx.coroutines.Job? = null
+
+    private suspend fun populateTrailCorridorLists(
+        entity: TrailEntity,
+        segments: List<TrailSegmentDto>,
+        points: List<GeoPointDto>,
+        geom: TrailGeometryDto?,
+        shelters: List<ShelterEntity>,
+        friTeltning: List<FriTeltningEntity>,
+        pois: List<PoiEntity>
+    ) {
+        val hasPoints = points.isNotEmpty()
+        val minLat = if (hasPoints) points.minOf { it.lat } - 0.05 else -90.0
+        val maxLat = if (hasPoints) points.maxOf { it.lat } + 0.05 else 90.0
+        val minLng = if (hasPoints) points.minOf { it.lng } - 0.08 else -180.0
+        val maxLng = if (hasPoints) points.maxOf { it.lng } + 0.08 else 180.0
+
+        val nearbyShelters = shelters
+        val nearbyFriTeltning = if (hasPoints) {
+            friTeltning.filter { it.centerLat in minLat..maxLat && it.centerLng in minLng..maxLng }
+        } else emptyList()
+        val nearbyPois = pois
+
+        // Sort overnights by projected km along trail
+        val overnightList = mutableListOf<OvernightSpotItem>()
+        for (s in nearbyShelters) {
+            val (wKm, dM) = projectOnSegments(segments, s.lat, s.lng)
+            if (!hasPoints || dM <= 5000.0) {
+                overnightList.add(
+                    OvernightSpotItem(
+                        id = "shelter_${s.id}",
+                        name = s.name,
+                        type = "SHELTER",
+                        kmOnRoute = wKm,
+                        detourMeters = dM,
+                        bookingRequired = s.bookingRequired,
+                        bookingUrl = s.bookingUrl,
+                        hasWaterNearby = s.hasWaterNearby,
+                        hasToiletNearby = s.hasToiletNearby,
+                        lat = s.lat,
+                        lng = s.lng,
+                        description = s.description
+                    )
+                )
+            }
+        }
+        val realWaterPois = nearbyPois.filter { it.type == "water" }
+        val realToiletPois = nearbyPois.filter { it.type == "toilet" }
+        for (ft in nearbyFriTeltning) {
+            val (wKm, dM) = projectOnSegments(segments, ft.centerLat, ft.centerLng)
+            if (!hasPoints || dM <= 5000.0) {
+                val hasRealWater = realWaterPois.any {
+                    GeoUtils.distanceMeters(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0
+                }
+                val hasRealToilet = realToiletPois.any {
+                    GeoUtils.distanceMeters(ft.centerLat, ft.centerLng, it.lat, it.lng) <= 500.0
+                }
+                overnightList.add(
+                    OvernightSpotItem(
+                        id = "friteltning_${ft.id}",
+                        name = ft.name,
+                        type = "FRI_TELTNING",
+                        kmOnRoute = wKm,
+                        detourMeters = dM,
+                        bookingRequired = false,
+                        bookingUrl = ft.rulesUrl,
+                        hasWaterNearby = hasRealWater,
+                        hasToiletNearby = hasRealToilet,
+                        lat = ft.centerLat,
+                        lng = ft.centerLng,
+                        description = ft.rulesSummary ?: "Fri teltning efter 1-2-3 reglen"
+                    )
+                )
+            }
+        }
+        overnightList.sortBy { it.kmOnRoute }
+        _overnightSpots.value = overnightList.distinctBy { it.id }
+
+        // Sort POIs
+        val waterToilets = mutableListOf<PoiSpotItem>()
+        val shopList = mutableListOf<PoiSpotItem>()
+        val stationFerryList = mutableListOf<PoiSpotItem>()
+        val busStopCandidates = mutableListOf<PoiSpotItem>()
+
+        for (p in nearbyPois) {
+            val (wKm, dM) = projectOnSegments(segments, p.lat, p.lng)
+            if (!hasPoints || dM <= 5000.0) {
+                val closed = p.type == "water" &&
+                    com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(p)
+                val item = PoiSpotItem(
+                    id = "poi_${p.type}_${p.id}",
+                    name = p.name,
+                    type = p.type,
+                    kmOnRoute = wKm,
+                    detourMeters = dM,
+                    lat = p.lat,
+                    lng = p.lng,
+                    openingHours = p.openingHours,
+                    seasonal = p.seasonal,
+                    isPotentiallyClosed = closed
+                )
+                when (p.type) {
+                    "water", "toilet" -> waterToilets.add(item)
+                    "shop", "supermarket", "convenience", "bakery", "farm" -> shopList.add(item)
+                    "station", "ferry" -> stationFerryList.add(item)
+                    "bus_stop" -> {
+                        if (!hasPoints || dM <= 600.0) {
+                            busStopCandidates.add(item)
+                        }
+                    }
+                }
+            }
+        }
+        waterToilets.sortBy { it.kmOnRoute }
+        shopList.sortBy { it.kmOnRoute }
+
+        // De-duplicate bus stops by name (keep closest / earliest km) and combine with stations & ferries sorted by km
+        val dedupedBusStops = busStopCandidates
+            .sortedWith(compareBy<PoiSpotItem> { it.kmOnRoute }.thenBy { it.detourMeters })
+            .distinctBy { it.name.trim().lowercase() }
+        val transList = (stationFerryList.distinctBy { it.id } + dedupedBusStops)
+            .sortedBy { it.kmOnRoute }
+
+        _waterAndToilets.value = waterToilets.distinctBy { it.id }
+        _shops.value = shopList.distinctBy { it.id }
+        _transports.value = transList
+
+        // Part F3: Nearest station or bus_stop within 3 km of trail start and end
+        val firstPt = points.firstOrNull()
+        val lastPt = points.lastOrNull()
+        val allTransportPois = (nearbyPois + repository.getAllPoisList()).distinctBy { it.id }
+        _nearestStartTransport.value = findNearestTransportWithin3Km(firstPt, allTransportPois)
+        _nearestEndTransport.value = findNearestTransportWithin3Km(lastPt, allTransportPois)
+
+        // Compute longest gaps along the trail using only the route's own corridor POIs
+        // Part E2: Exclude seasonal water posts that are potentially closed
+        val totalKm = geom?.totalWalkingKm?.takeIf { it > 0.0 } ?: entity.computedWalkingKm
+        val waterKms = (listOf(0.0) +
+            waterToilets.filter { it.type == "water" && !it.isPotentiallyClosed }.map { it.kmOnRoute } +
+            overnightList.filter { it.hasWaterNearby }.map { it.kmOnRoute } +
+            listOf(totalKm)).distinct().sorted()
+        var maxWaterGap = 0.0
+        for (i in 0 until waterKms.size - 1) {
+            val gap = waterKms[i + 1] - waterKms[i]
+            if (gap > maxWaterGap) maxWaterGap = gap
+        }
+        _longestGapWithoutWaterKm.value = maxWaterGap
+
+        val overnightKms = (listOf(0.0) + overnightList.map { it.kmOnRoute } + listOf(totalKm)).distinct().sorted()
+        var maxOvernightGap = 0.0
+        for (i in 0 until overnightKms.size - 1) {
+            val gap = overnightKms[i + 1] - overnightKms[i]
+            if (gap > maxOvernightGap) maxOvernightGap = gap
+        }
+        _longestGapWithoutOvernightKm.value = maxOvernightGap
     }
 
     private fun projectOnSegments(segments: List<TrailSegmentDto>, lat: Double, lng: Double): Pair<Double, Double> {

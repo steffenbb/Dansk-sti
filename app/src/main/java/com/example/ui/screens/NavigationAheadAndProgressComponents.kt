@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Wc
 import androidx.compose.material3.AlertDialog
@@ -716,6 +717,8 @@ fun AheadItemRow(item: AheadOnRouteItem) {
         modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp).padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween
     ) {
+        val isWarning = item.type == "WARNING"
+        val iconTint = if (isWarning) DanskStiTheme.colors.warning else MaterialTheme.colorScheme.primary
         Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 imageVector = when (item.type) {
@@ -723,9 +726,10 @@ fun AheadItemRow(item: AheadOnRouteItem) {
                     "WATER" -> Icons.Default.LocalDrink
                     "TOILET" -> Icons.Default.Wc
                     "SHOP" -> Icons.Default.ShoppingBag
+                    "WARNING" -> Icons.Default.Warning
                     else -> Icons.Default.Navigation
                 },
-                contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)
+                contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Column {

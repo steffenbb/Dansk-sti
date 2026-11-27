@@ -2368,5 +2368,887 @@ class Round21VerificationTest {
         }
         migratedDb.close()
     }
+
+    // =========================================================================
+    // PHASE A — GeoFA fields, tap water, bus stops, re-sync (Room 28 -> 29)
+    // =========================================================================
+
+    @Test
+    fun phaseA1_migration28To29_preservesShelterAndPoiValuesAndNullsNewColumns() {
+        val dbName = "phaseA_mig_28_29_${System.nanoTime()}.db"
+        migrationHelper.createDatabase(dbName, 28).apply {
+            execSQL(
+                """
+                INSERT INTO `shelters` (
+                    `id`, `name`, `lat`, `lng`, `description`, `bookingRequired`, `ownership`, `capacity`,
+                    `hasWaterNearby`, `hasToiletNearby`, `source`, `trailCorridorId`, `bookingUrl`, `infoUrl`,
+                    `hasFireRing`, `hasFirewood`, `fee`, `priceDkk`, `maxNights`, `accessibility`,
+                    `shelterType`, `hasElectricity`, `dogAllowed`, `fetchedAt`
+                ) VALUES (
+                    'geofa_v28_1', 'Bøgeskov Shelter', 55.6789, 10.1234, 'Gammel beskrivelse', 1, 'Naturstyrelsen', 5,
+                    1, 0, 'geofa', 'trail_ohavsstien', 'https://book.example.dk', 'https://info.example.dk',
+                    1, NULL, 0, 0, NULL, NULL,
+                    'Shelter', NULL, 1, 1700000000000
+                )
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO `pois` (
+                    `id`, `type`, `name`, `lat`, `lng`, `access`, `fee`, `trailCorridorId`,
+                    `openingHours`, `seasonal`, `operator`, `website`, `source`, `fetchedAt`
+                ) VALUES (
+                    'poi_v28_1', 'toilet', 'Skovtoilet', 55.6790, 10.1235, '24/7', 0, 'trail_ohavsstien',
+                    NULL, 'Apr-Oct', 'Kommune', NULL, 'geofa', 1700000000000
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            dbName,
+            29,
+            true,
+            DanskStiDatabase.MIGRATION_28_29
+        )
+
+        migratedDb.query(
+            """
+            SELECT id, name, lat, lng, description, bookingRequired, capacity, hasWaterNearby,
+                   hasOwnTap, hasOwnToilet, hasShower, seasonal, seasonInfo, open24h, accessNote
+            FROM shelters WHERE id = 'geofa_v28_1'
+            """.trimIndent()
+        ).use { c ->
+            assertTrue("v28 shelter row must survive migration 28 -> 29", c.moveToFirst())
+            assertEquals("geofa_v28_1", c.getString(0))
+            assertEquals("Bøgeskov Shelter", c.getString(1))
+            assertEquals(55.6789, c.getDouble(2), 1e-5)
+            assertEquals(10.1234, c.getDouble(3), 1e-5)
+            assertEquals("Gammel beskrivelse", c.getString(4))
+            assertEquals(1, c.getInt(5))
+            assertEquals(5, c.getInt(6))
+            assertEquals(1, c.getInt(7))
+            for (colIdx in 8..14) {
+                assertTrue("New shelter column at index $colIdx must be NULL", c.isNull(colIdx))
+            }
+        }
+
+        migratedDb.query(
+            """
+            SELECT id, type, name, seasonal, subtype, detailsJson
+            FROM pois WHERE id = 'poi_v28_1'
+            """.trimIndent()
+        ).use { c ->
+            assertTrue("v28 POI row must survive migration 28 -> 29", c.moveToFirst())
+            assertEquals("poi_v28_1", c.getString(0))
+            assertEquals("toilet", c.getString(1))
+            assertEquals("Skovtoilet", c.getString(2))
+            assertEquals("Apr-Oct", c.getString(3))
+            assertTrue("subtype must be NULL after 28 -> 29 migration", c.isNull(4))
+            assertTrue("detailsJson must be NULL after 28 -> 29 migration", c.isNull(5))
+        }
+        migratedDb.close()
+    }
+
+    @Test
+    fun phaseA2_geoFaFieldParser_everyFunctionAndSamples() {
+        val parser = com.example.data.repository.GeoFaFieldParser
+
+        // isActiveStatus
+        assertTrue(parser.isActiveStatus(null))
+        assertTrue(parser.isActiveStatus("Ukendt"))
+        assertTrue(parser.isActiveStatus("Gældende / Vedtaget"))
+        assertFalse(parser.isActiveStatus("Kladde"))
+        assertFalse(parser.isActiveStatus("kladde / under oprettelse"))
+        assertFalse(parser.isActiveStatus("Forslag"))
+        assertFalse(parser.isActiveStatus("Aflyst"))
+        assertFalse(parser.isActiveStatus("Ikke gældende"))
+
+        // yesNo
+        assertEquals(true, parser.yesNo("Ja"))
+        assertEquals(false, parser.yesNo("Nej"))
+        assertNull(parser.yesNo("Ukendt"))
+        assertNull(parser.yesNo("Blandet"))
+        assertNull(parser.yesNo(null))
+
+        // toPlainText
+        assertEquals(
+            "Shelter kan bruges…",
+            parser.toPlainText("<p>Shelter kan bruges…</p>")
+        )
+        assertEquals(
+            "• A\n• B",
+            parser.toPlainText("<ul><li>A</li><li>B</li></ul>")
+        )
+        assertEquals(
+            "Bål & øl ved søen",
+            parser.toPlainText("<p>B&aring;l &amp; &oslash;l ved s&oslash;en<img src=\"x.jpg\"/></p>")
+        )
+        assertEquals(
+            "Læs mere på udinaturen.dk",
+            parser.toPlainText("<div>L&aelig;s mere p&aring; <a href=\"https://udinaturen.dk\">udinaturen.dk</a></div>")
+        )
+        assertNull(parser.toPlainText("<p></p>"))
+        assertNull(parser.toPlainText("   <br/>  <p> &nbsp; </p> "))
+
+        // seasonalFromGeoFa: 01-01/12-31 vs 04-01/10-31
+        assertEquals("no", parser.seasonalFromGeoFa("Helårsåbent", null, null))
+        assertEquals("Apr-Oct", parser.seasonalFromGeoFa("Sæsonåbent", "0001-04-01", "0001-10-31"))
+        assertEquals("yes", parser.seasonalFromGeoFa("Sæsonåbent", "0001-01-01", "0001-12-31"))
+        assertEquals("yes", parser.seasonalFromGeoFa("Sæsonåbent", null, null))
+        assertNull(parser.seasonalFromGeoFa("Ukendt", null, null))
+
+        // seasonDisplayText
+        assertEquals("Åbent hele året", parser.seasonDisplayText("Helårsåbent", null, null, null))
+        assertEquals(
+            "Sæsonåbent 1. apr – 31. okt",
+            parser.seasonDisplayText("Sæsonåbent", "0001-04-01", "0001-10-31", null)
+        )
+        assertEquals(
+            "Sæsonåbent 1. apr – 31. okt · Lukket ved frost",
+            parser.seasonDisplayText("Sæsonåbent", "0001-04-01", "0001-10-31", "<p>Lukket ved frost</p>")
+        )
+        assertEquals(
+            "Sæsonåbent",
+            parser.seasonDisplayText("Sæsonåbent", "0001-01-01", "0001-12-31", null)
+        )
+        assertEquals(
+            "Sæsonåbent",
+            parser.seasonDisplayText("Sæsonåbent", null, null, null)
+        )
+        assertNull(parser.seasonDisplayText("Ukendt", null, null, null))
+
+        // accessibilityText
+        assertEquals("Handicapegnet", parser.accessibilityText("Handicapegnet"))
+        assertEquals("Handicapegnet", parser.accessibilityText("Handicapvenligt"))
+        assertEquals("Delvist handicapegnet", parser.accessibilityText("Delvist handicapegnet"))
+        assertEquals("Ikke handicapegnet", parser.accessibilityText("Ikke handicapegnet"))
+        assertNull(parser.accessibilityText("Ukendt"))
+
+        // accessNote
+        assertEquals(
+            "Fast grussti helt frem til shelteret",
+            parser.accessNote("""{"shelter_tilgaengelighed_beskrivelse":"<p>Fast grussti helt frem til shelteret</p>"}""")
+        )
+        assertEquals(
+            "Rampe til kørestol",
+            parser.accessNote("""{"toiletforhold_beskrivelse":"Rampe til k&oslash;restol"}""")
+        )
+        assertNull(parser.accessNote("""{"shelter_tilgaengelighed_beskrivelse":"<p></p>"}"""))
+        assertNull(parser.accessNote("not json"))
+    }
+
+    @Test
+    fun phaseA2_parsePoisGeoJson_toiletWithTapYieldsTapPoiAndInactiveSkipped() {
+        val json = """
+            {
+              "type": "FeatureCollection",
+              "features": [
+                {
+                  "type": "Feature",
+                  "properties": {
+                    "objekt_id": "toilet_1",
+                    "facil_ty_k": 1012,
+                    "navn": "Havnetoilet",
+                    "status": "Gældende / Vedtaget",
+                    "vandhane": "Ja",
+                    "doegnaab": "Ja",
+                    "betaling": "Nej",
+                    "saeson": "Sæsonåbent",
+                    "saeson_st": "0001-04-01",
+                    "saeson_sl": "0001-10-31",
+                    "handicap": "Handicapegnet",
+                    "tilgaeng_opl": "{\"toiletforhold_beskrivelse\":\"<p>Nemt at komme til</p>\"}"
+                  },
+                  "geometry": { "type": "Point", "coordinates": [10.5, 55.2] }
+                },
+                {
+                  "type": "Feature",
+                  "properties": {
+                    "objekt_id": "toilet_draft",
+                    "facil_ty_k": 1012,
+                    "navn": "Kladde Toilet",
+                    "status": "Kladde",
+                    "vandhane": "Ja"
+                  },
+                  "geometry": { "type": "Point", "coordinates": [10.6, 55.3] }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val parsed = repository.geoFaRepository.parsePoisGeoJson(json)
+        assertEquals("Active toilet with vandhane=Ja must emit 2 POIs (toilet + tap) and skip Kladde", 2, parsed.size)
+
+        val toilet = parsed.first { it.id == "toilet_1" }
+        assertEquals("toilet", toilet.type)
+        assertEquals("geofa_toilet", toilet.subtype)
+        assertEquals("Apr-Oct", toilet.seasonal)
+        assertFalse(toilet.fee)
+        val details = com.example.data.repository.GeoFaFieldParser.parseDetailsJson(toilet.detailsJson)
+        assertEquals("Handicapegnet", details["accessibility"])
+        assertEquals("Nemt at komme til", details["accessNote"])
+
+        val tap = parsed.first { it.id == "toilet_1_vandhane" }
+        assertEquals("water", tap.type)
+        assertEquals("geofa_toilet_tap", tap.subtype)
+        assertEquals("Vandhane ved toilet", tap.name)
+        assertEquals("Apr-Oct", tap.seasonal)
+        assertEquals("geofa", tap.source)
+        assertEquals(55.2, tap.lat, 1e-5)
+        assertEquals(10.5, tap.lng, 1e-5)
+    }
+
+    @Test
+    fun phaseA2_tapPoisFor_carriesIdNameAndSeason() {
+        val shelters = listOf(
+            ShelterEntity(
+                id = "sh_with_tap",
+                name = "Skovbrynet",
+                lat = 55.4,
+                lng = 10.2,
+                bookingRequired = false,
+                hasWaterNearby = false,
+                hasToiletNearby = false,
+                source = "geofa",
+                hasOwnTap = true,
+                seasonal = "Apr-Oct"
+            ),
+            ShelterEntity(
+                id = "sh_no_tap",
+                name = "Bakken",
+                lat = 55.5,
+                lng = 10.3,
+                bookingRequired = false,
+                hasWaterNearby = false,
+                hasToiletNearby = false,
+                source = "geofa",
+                hasOwnTap = false,
+                seasonal = "no"
+            )
+        )
+
+        val taps = repository.geoFaRepository.tapPoisFor(shelters)
+        assertEquals(1, taps.size)
+        val tap = taps.single()
+        assertEquals("sh_with_tap_vandhane", tap.id)
+        assertEquals("water", tap.type)
+        assertEquals("geofa_shelter_tap", tap.subtype)
+        assertEquals("Vandhane ved Skovbrynet", tap.name)
+        assertEquals("Apr-Oct", tap.seasonal)
+        assertEquals("geofa", tap.source)
+    }
+
+    @Test
+    fun phaseA3_recompute_shelterWithOwnTapGetsHasWaterNearbyEvenWithoutWaterPois() = runBlocking {
+        val trail = TrailEntity(
+            id = "trail_tap_test",
+            name = "Tap Test Rute",
+            description = "",
+            region = "Fyn",
+            parentRegion = "Fyn",
+            computedWalkingKm = 5.0,
+            isGeometryDownloaded = true
+        )
+        dao.insertTrail(trail)
+        repository.geometryRepository.saveGeometry(
+            com.example.data.model.TrailGeometryDto(
+                trailId = trail.id,
+                osmRelationId = 1L,
+                totalWalkingKm = 5.0,
+                gapsOver200mCount = 0,
+                bboxNorth = 55.1,
+                bboxSouth = 55.0,
+                bboxEast = 10.1,
+                bboxWest = 10.0,
+                segments = listOf(
+                    com.example.data.model.TrailSegmentDto(
+                        type = com.example.data.model.TrailSegmentType.WALK,
+                        points = listOf(GeoPointDto(55.0, 10.0), GeoPointDto(55.05, 10.05))
+                    )
+                )
+            )
+        )
+        dao.insertShelters(
+            listOf(
+                ShelterEntity(
+                    id = "sh_tap_alone",
+                    name = "Shelter med egen hane",
+                    lat = 55.01,
+                    lng = 10.01,
+                    bookingRequired = false,
+                    hasWaterNearby = false,
+                    hasToiletNearby = false,
+                    source = "geofa",
+                    hasOwnTap = true
+                )
+            )
+        )
+        repository.isOnlineOverrideForTests = false
+        try {
+            repository.syncCorridorPois(trail)
+        } finally {
+            repository.isOnlineOverrideForTests = null
+        }
+
+        val updated = dao.getAllSheltersList().first { it.id == "sh_tap_alone" }
+        assertTrue("Shelter with hasOwnTap=true must have hasWaterNearby=true after recompute", updated.hasWaterNearby)
+        assertEquals(
+            "syncCorridorPois must record CORRIDOR_POI_VERSION (2)",
+            com.example.data.repository.DanskStiRepository.CORRIDOR_POI_VERSION,
+            repository.getCorridorPoiVersion(trail.id)
+        )
+    }
+
+    @Test
+    fun phaseA4_A5_sheetModelsAndMapLayersSkipShelterTapWhenSheltersShown() {
+        val shelterWithTap = ShelterEntity(
+            id = "sh_sheet_1",
+            name = "Kilde Shelter",
+            lat = 55.1,
+            lng = 10.1,
+            description = "Flot plads",
+            bookingRequired = false,
+            hasWaterNearby = true,
+            hasToiletNearby = true,
+            source = "geofa",
+            hasOwnTap = true,
+            hasOwnToilet = true,
+            hasShower = true,
+            seasonInfo = "Sæsonåbent 1. apr – 31. okt",
+            open24h = true,
+            accessNote = "Sti fra P-plads"
+        )
+        val sheet1 = PoiInfoSheetData.fromShelter(shelterWithTap, context)
+        assertTrue(sheet1.facilities.contains("Vandhane ved shelteret"))
+        assertFalse(sheet1.facilities.contains("Vand i nærheden"))
+        assertTrue(sheet1.facilities.contains("Toilet ved shelteret"))
+        assertTrue(sheet1.facilities.contains("Bad"))
+        assertTrue(sheet1.facilities.contains("Sæsonåbent 1. apr – 31. okt"))
+        assertTrue(sheet1.facilities.contains("Døgnåbent"))
+        assertTrue(sheet1.description?.contains("Adgang: Sti fra P-plads") == true)
+
+        val shelterWaterNearbyOnly = shelterWithTap.copy(
+            id = "sh_sheet_2",
+            hasOwnTap = false,
+            hasWaterNearby = true
+        )
+        val sheet2 = PoiInfoSheetData.fromShelter(shelterWaterNearbyOnly, context)
+        assertTrue(sheet2.facilities.contains("Vand i nærheden (ikke ved shelteret)"))
+
+        val tapPoi = PoiEntity(
+            id = "sh_sheet_1_vandhane",
+            type = "water",
+            name = "Vandhane ved Kilde Shelter",
+            lat = 55.1,
+            lng = 10.1,
+            seasonal = "Apr-Oct",
+            subtype = "geofa_shelter_tap",
+            detailsJson = com.example.data.repository.GeoFaFieldParser.buildDetailsJson("Handicapegnet", "Ved gavlen"),
+            source = "geofa"
+        )
+        val tapSheet = PoiInfoSheetData.fromPoiEntity(tapPoi, context)
+        assertEquals("Vandhane", tapSheet.typeLabel)
+        assertTrue(tapSheet.facilities.contains("Sæsonåbent (apr–okt)"))
+        assertTrue(tapSheet.facilities.contains("Handicapegnet"))
+        assertEquals("Adgang: Ved gavlen", tapSheet.description)
+
+        // A5: MapLayersPoiBuilder skips geofa_shelter_tap when showShelters is true, includes when showShelters is false
+        val stateBothOn = com.example.data.local.MapLayersState(showShelters = true, showWater = true)
+        val itemsBothOn = com.example.ui.navigation.MapLayersPoiBuilder.buildClusterItems(
+            state = stateBothOn,
+            shelters = listOf(shelterWithTap),
+            friTeltning = emptyList(),
+            pois = listOf(tapPoi),
+            customWaypoints = emptyList()
+        )
+        assertTrue(itemsBothOn.any { it.id == "sh_sheet_1" })
+        assertFalse(
+            "geofa_shelter_tap must be skipped on map when showShelters is true",
+            itemsBothOn.any { it.id == "sh_sheet_1_vandhane" }
+        )
+
+        val stateOnlyWater = com.example.data.local.MapLayersState(showShelters = false, showWater = true)
+        val itemsOnlyWater = com.example.ui.navigation.MapLayersPoiBuilder.buildClusterItems(
+            state = stateOnlyWater,
+            shelters = listOf(shelterWithTap),
+            friTeltning = emptyList(),
+            pois = listOf(tapPoi),
+            customWaypoints = emptyList()
+        )
+        assertTrue(
+            "geofa_shelter_tap must appear on map when showShelters is false and showWaterPois is true",
+            itemsOnlyWater.any { it.id == "sh_sheet_1_vandhane" }
+        )
+    }
+
+    @Test
+    fun phaseA6_busStopParsingAnd60mSameNameMerge() {
+        val overpassJson = """
+            {
+              "elements": [
+                {
+                  "type": "node",
+                  "id": 1001,
+                  "lat": 55.10000,
+                  "lon": 10.10000,
+                  "tags": { "highway": "bus_stop", "name": "Torvet" }
+                },
+                {
+                  "type": "node",
+                  "id": 1002,
+                  "lat": 55.10020,
+                  "lon": 10.10020,
+                  "tags": { "public_transport": "platform", "bus": "yes", "name": "Torvet" }
+                },
+                {
+                  "type": "node",
+                  "id": 1003,
+                  "lat": 55.10500,
+                  "lon": 10.10500,
+                  "tags": { "highway": "bus_stop" }
+                },
+                {
+                  "type": "node",
+                  "id": 1004,
+                  "lat": 55.11000,
+                  "lon": 10.11000,
+                  "tags": { "railway": "halt", "name": "Skov Trinbræt" }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val result = repository.osmPoiRepository.parseOverpassJson(overpassJson)
+        val busStops = result.pois.filter { it.type == "bus_stop" }
+        val stations = result.pois.filter { it.type == "station" }
+
+        assertEquals("Two 'Torvet' bus stops ~25m apart must merge into 1, plus 1 unnamed bus stop", 2, busStops.size)
+        assertEquals("Torvet", busStops[0].name)
+        assertEquals("Busstoppested", busStops[1].name)
+        assertEquals(1, stations.size)
+        assertEquals("Skov Trinbræt", stations[0].name)
+    }
+
+    // =========================================================================
+    // PHASE B — Path details from OSM way tags & waymark badges
+    // =========================================================================
+
+    @Test
+    fun phaseB1_B2_pathFeatureAnalyzer_summariesWarningsMergeAndMinLength() {
+        val pointAtKm: (Double) -> GeoPointDto? = { km -> GeoPointDto(55.0 + km * 0.01, 10.0 + km * 0.01) }
+
+        val ranges = listOf(
+            // 1. highway=steps (5 m -> kept even though < 10 m) + step_count=40
+            com.example.util.PathRange(
+                fromKm = 0.200,
+                toKm = 0.205,
+                highway = "steps",
+                surface = "wood",
+                tags = mapOf("step_count" to "40")
+            ),
+            // 2. ford=yes (4 m -> kept even though < 10 m)
+            com.example.util.PathRange(
+                fromKm = 0.500,
+                toKm = 0.504,
+                highway = "path",
+                surface = "gravel",
+                tags = mapOf("ford" to "yes")
+            ),
+            // 3. access=private WITHOUT foot=yes (120 m -> warning + privateKm)
+            com.example.util.PathRange(
+                fromKm = 1.000,
+                toKm = 1.120,
+                highway = "track",
+                surface = "gravel",
+                tags = mapOf("access" to "private")
+            ),
+            // 4. access=private WITH foot=yes (200 m -> NOT private warning/privateKm because foot=yes)
+            com.example.util.PathRange(
+                fromKm = 1.300,
+                toKm = 1.500,
+                highway = "track",
+                surface = "gravel",
+                tags = mapOf("access" to "private", "foot" to "yes")
+            ),
+            // 5. trail_visibility=bad (100 m) + another trail_visibility=no 30 m later (< 50 m gap -> merged!)
+            com.example.util.PathRange(
+                fromKm = 2.000,
+                toKm = 2.100,
+                highway = "path",
+                surface = "ground",
+                tags = mapOf("trail_visibility" to "bad")
+            ),
+            com.example.util.PathRange(
+                fromKm = 2.130,
+                toKm = 2.250,
+                highway = "path",
+                surface = "ground",
+                tags = mapOf("trail_visibility" to "no")
+            ),
+            // 6. smoothness=horrible (150 m) + 5 m noise range (< 10 m -> dropped!)
+            com.example.util.PathRange(
+                fromKm = 3.000,
+                toKm = 3.150,
+                highway = "track",
+                surface = "dirt",
+                tags = mapOf("smoothness" to "horrible")
+            ),
+            com.example.util.PathRange(
+                fromKm = 3.500,
+                toKm = 3.505,
+                highway = "track",
+                surface = "dirt",
+                tags = mapOf("smoothness" to "very_bad")
+            ),
+            // 7. bridge=boardwalk (80 m), horse=designated (600 m), bicycle=yes (400 m), lit=yes (500 m), surface=sand (700 m)
+            com.example.util.PathRange(
+                fromKm = 4.000,
+                toKm = 4.080,
+                highway = "footway",
+                surface = "wood",
+                tags = mapOf("bridge" to "boardwalk")
+            ),
+            com.example.util.PathRange(
+                fromKm = 4.100,
+                toKm = 4.700,
+                highway = "bridleway",
+                surface = "sand",
+                tags = mapOf("horse" to "designated", "lit" to "yes")
+            ),
+            com.example.util.PathRange(
+                fromKm = 4.700,
+                toKm = 4.800,
+                highway = "path",
+                surface = "sand",
+                tags = emptyMap()
+            ),
+            com.example.util.PathRange(
+                fromKm = 5.000,
+                toKm = 5.400,
+                highway = "path",
+                surface = "compacted",
+                tags = mapOf("bicycle" to "designated")
+            )
+        )
+
+        val result = com.example.util.PathFeatureAnalyzer.analyze(
+            ranges = ranges,
+            pointAtKm = pointAtKm,
+            context = context
+        )
+        val summary = result.summary
+        val warnings = result.warnings
+
+        assertEquals(0.600, summary.horseKm, 0.001)
+        assertEquals(0.400, summary.bikeKm, 0.001)
+        assertEquals(0.600, summary.litKm, 0.001)
+        assertEquals(0.700, summary.sandKm, 0.001)
+        assertEquals(0.120, summary.privateKm, 0.001)
+        assertTrue(summary.roughOrUnclearKm >= 0.370)
+
+        val stepsWarn = warnings.firstOrNull { it.type == com.example.util.PathFeatureType.STEPS }
+        assertNotNull("5 m highway=steps must not be filtered out", stepsWarn)
+        assertEquals("Trapper (40 trin)", stepsWarn!!.title)
+
+        val fordWarn = warnings.firstOrNull { it.type == com.example.util.PathFeatureType.FORD }
+        assertNotNull("4 m ford=yes must not be filtered out", fordWarn)
+        assertEquals("Vadested – du kan få våde fødder", fordWarn!!.title)
+
+        val privateWarns = warnings.filter { it.type == com.example.util.PathFeatureType.PRIVATE }
+        assertEquals("Only access=private without foot=yes/permissive/designated should warn", 1, privateWarns.size)
+        assertEquals(1.000, privateWarns[0].startKm, 0.001)
+        assertEquals(1.120, privateWarns[0].endKm, 0.001)
+
+        val unclearWarns = warnings.filter { it.type == com.example.util.PathFeatureType.UNCLEAR }
+        assertEquals("Two unclear-trail ranges 30 m apart (< 50 m) must merge into 1 warning", 1, unclearWarns.size)
+        assertEquals(2.000, unclearWarns[0].startKm, 0.001)
+        assertEquals(2.250, unclearWarns[0].endKm, 0.001)
+
+        val roughWarns = warnings.filter { it.type == com.example.util.PathFeatureType.ROUGH }
+        assertEquals("5 m rough-surface range (< 10 m) must be dropped, leaving only the 150 m range", 1, roughWarns.size)
+        assertEquals(3.000, roughWarns[0].startKm, 0.001)
+        assertEquals(3.150, roughWarns[0].endKm, 0.001)
+
+        val boardwalkWarn = warnings.firstOrNull { it.type == com.example.util.PathFeatureType.BOARDWALK }
+        assertNotNull("bridge=boardwalk must produce boardwalk info warning", boardwalkWarn)
+        assertEquals("Spang – kan være glat", boardwalkWarn!!.title)
+    }
+
+    @Test
+    fun phaseB3_conditionalAccessParser_dateRangesYearWrapNightYesAndUnparseable() {
+        val cphZone = java.time.ZoneId.of("Europe/Copenhagen")
+
+        // 1. no @ (Mar 01-Jul 15): closed in May, open in October
+        val rules1 = com.example.util.ConditionalAccessParser.parse("no @ (Mar 01-Jul 15)")
+        assertEquals(1, rules1.size)
+        val rule1 = rules1[0]
+        val mayEpoch = java.time.LocalDate.of(2026, 5, 10).atStartOfDay(cphZone).toInstant().toEpochMilli()
+        val octEpoch = java.time.LocalDate.of(2026, 10, 10).atStartOfDay(cphZone).toInstant().toEpochMilli()
+        assertTrue("Mar 01-Jul 15 must be closed in May", rule1.isClosedOn(mayEpoch))
+        assertFalse("Mar 01-Jul 15 must be open in October", rule1.isClosedOn(octEpoch))
+        assertEquals("1. mar – 15. jul", rule1.displayPeriod())
+
+        // 2. no @ (Nov 1-Feb 28): year-wrapping range closed in January, open in June
+        val rules2 = com.example.util.ConditionalAccessParser.parse("no @ (Nov 1-Feb 28)")
+        assertEquals(1, rules2.size)
+        val rule2 = rules2[0]
+        val janEpoch = java.time.LocalDate.of(2026, 1, 15).atStartOfDay(cphZone).toInstant().toEpochMilli()
+        val junEpoch = java.time.LocalDate.of(2026, 6, 15).atStartOfDay(cphZone).toInstant().toEpochMilli()
+        assertTrue("Nov 1-Feb 28 must be closed in January", rule2.isClosedOn(janEpoch))
+        assertFalse("Nov 1-Feb 28 must be open in June", rule2.isClosedOn(junEpoch))
+
+        // 3. no @ (sunset-sunrise) -> night warning
+        val rules3 = com.example.util.ConditionalAccessParser.parse("no @ (sunset-sunrise)")
+        assertEquals(1, rules3.size)
+        assertEquals("sunset–sunrise", rules3[0].timeText)
+        assertNull(rules3[0].dateRange)
+
+        // 4. yes @ (...) ignored
+        val rules4 = com.example.util.ConditionalAccessParser.parse("yes @ (May-Sep); permissive @ (Oct-Apr)")
+        assertTrue("yes/permissive conditional rules must be ignored", rules4.isEmpty())
+
+        // 5. Unparseable no @ ... kept with raw text (never silently dropped)
+        val rules5 = com.example.util.ConditionalAccessParser.parse("no @ (when_hunting_flag_is_up)")
+        assertEquals(1, rules5.size)
+        assertTrue(rules5[0].isUnparseable)
+        assertTrue(rules5[0].raw.contains("when_hunting_flag_is_up"))
+    }
+
+    @Test
+    fun phaseB1_pathRangeBuilder_trailSlicer_and_routeGeometryStorageRoundTrip() {
+        val tags1 = mapOf("sac_scale" to "hiking", "bridge" to "boardwalk")
+        val tags2 = mapOf("ford" to "yes")
+
+        // PathRangeBuilder.fromTrailSegments with local-km segments and global-km segments
+        val seg1Pts = listOf(GeoPointDto(55.000, 10.000), GeoPointDto(55.010, 10.000)) // ~1.11 km
+        val seg2Pts = listOf(GeoPointDto(55.010, 10.000), GeoPointDto(55.020, 10.000)) // ~1.11 km
+        val seg1Km = com.example.util.routing.WayRangeUtils.segmentWalkKm(
+            com.example.data.model.TrailSegmentDto(com.example.data.model.TrailSegmentType.WALK, seg1Pts)
+        )
+        val seg2Km = com.example.util.routing.WayRangeUtils.segmentWalkKm(
+            com.example.data.model.TrailSegmentDto(com.example.data.model.TrailSegmentType.WALK, seg2Pts)
+        )
+
+        val localSegments = listOf(
+            com.example.data.model.TrailSegmentDto(
+                type = com.example.data.model.TrailSegmentType.WALK,
+                points = seg1Pts,
+                wayTagRanges = listOf(com.example.data.model.WayTagRangeDto(0.0, seg1Km, "footway", "wood", tags1))
+            ),
+            com.example.data.model.TrailSegmentDto(
+                type = com.example.data.model.TrailSegmentType.WALK,
+                points = seg2Pts,
+                wayTagRanges = listOf(com.example.data.model.WayTagRangeDto(0.0, seg2Km, "path", "gravel", tags2))
+            )
+        )
+        val builtLocal = com.example.util.PathRangeBuilder.fromTrailSegments(localSegments)
+        assertEquals(2, builtLocal.size)
+        assertEquals(0.0, builtLocal[0].fromKm, 0.001)
+        assertEquals(seg1Km, builtLocal[0].toKm, 0.001)
+        assertEquals(tags1, builtLocal[0].tags)
+        assertEquals(seg1Km, builtLocal[1].fromKm, 0.001)
+        assertEquals(seg1Km + seg2Km, builtLocal[1].toKm, 0.001)
+        assertEquals(tags2, builtLocal[1].tags)
+
+        val globalSegments = listOf(
+            com.example.data.model.TrailSegmentDto(
+                type = com.example.data.model.TrailSegmentType.WALK,
+                points = seg1Pts,
+                wayTagRanges = listOf(com.example.data.model.WayTagRangeDto(0.0, seg1Km, "footway", "wood", tags1))
+            ),
+            com.example.data.model.TrailSegmentDto(
+                type = com.example.data.model.TrailSegmentType.WALK,
+                points = seg2Pts,
+                wayTagRanges = listOf(com.example.data.model.WayTagRangeDto(seg1Km, seg1Km + seg2Km, "path", "gravel", tags2))
+            )
+        )
+        val builtGlobal = com.example.util.PathRangeBuilder.fromTrailSegments(globalSegments)
+        assertEquals(2, builtGlobal.size)
+        assertEquals(seg1Km, builtGlobal[1].fromKm, 0.001)
+        assertEquals(seg1Km + seg2Km, builtGlobal[1].toKm, 0.001)
+
+        // TrailSlicer preserving pathTags when slicing and reversing
+        val totalKm = seg1Km + seg2Km
+        val forwardSlice = com.example.util.routing.TrailSlicer.sliceTrail(
+            segments = localSegments,
+            fromKm = 0.0,
+            toKm = totalKm
+        )
+        val forwardRanges = forwardSlice.trailSegments.flatMap { it.wayTagRanges }
+        assertTrue(forwardRanges.any { it.pathTags?.get("bridge") == "boardwalk" })
+        assertTrue(forwardRanges.any { it.pathTags?.get("ford") == "yes" })
+
+        val reverseSlice = com.example.util.routing.TrailSlicer.sliceTrail(
+            segments = localSegments,
+            fromKm = totalKm,
+            toKm = 0.0
+        )
+        val reverseRanges = com.example.util.PathRangeBuilder.fromTrailSegments(reverseSlice.trailSegments)
+        assertTrue(reverseRanges.any { it.tags["bridge"] == "boardwalk" })
+        assertTrue(reverseRanges.any { it.tags["ford"] == "yes" })
+        val fordRangeRev = reverseRanges.first { it.tags["ford"] == "yes" }
+        val boardwalkRangeRev = reverseRanges.first { it.tags["bridge"] == "boardwalk" }
+        assertTrue(fordRangeRev.fromKm < boardwalkRangeRev.fromKm)
+
+        // RouteGeometryStorageManager JSON round trip with pathTags
+        val routeId = "test_phase_b_route_roundtrip"
+        val filename = "$routeId.json"
+        val legData = com.example.util.routing.LegGeometryData(
+            fromWaypointId = "p1",
+            toWaypointId = "p2",
+            legMode = com.example.util.routing.LegMode.TRAIL,
+            points = forwardSlice.points,
+            lengthKm = forwardSlice.lengthKm,
+            ascentM = 2.0,
+            descentM = 0.0,
+            pathSharePct = 100.0,
+            roadKm = 0.0,
+            sourceName = "Test Sti",
+            trailSegments = forwardSlice.trailSegments
+        )
+        com.example.util.routing.RouteGeometryStorageManager.saveAllLegs(
+            context,
+            filename,
+            mapOf(legData.legKey to legData)
+        )
+        val loadedLegs = com.example.util.routing.RouteGeometryStorageManager.loadLegs(context, filename)
+        assertEquals(1, loadedLegs.size)
+        val loadedLeg = loadedLegs.getValue(legData.legKey)
+        assertEquals(
+            forwardSlice.trailSegments.flatMap { it.wayTagRanges },
+            loadedLeg.trailSegments.flatMap { it.wayTagRanges }
+        )
+
+        val convertedGeom = com.example.util.routing.RouteGeometryStorageManager.convertCustomRouteToTrailGeometry(
+            routeId = routeId,
+            orderedLegs = listOf(loadedLeg),
+            customRouteName = "Custom Test"
+        )
+        assertNotNull(convertedGeom)
+        assertEquals(1, convertedGeom!!.pathTagsVersion)
+        assertTrue(
+            convertedGeom.segments.flatMap { it.wayTagRanges }.any { it.pathTags?.get("bridge") == "boardwalk" }
+        )
+        com.example.util.routing.RouteGeometryStorageManager.deleteGeometryFile(context, filename)
+    }
+
+    @Test
+    fun phaseB8_osmcSymbolParser_formatsAndNoGuessing() {
+        // 1. red:white:red_bar -> "Følg det røde mærke på hvid baggrund"
+        val sym1 = com.example.util.OsmcSymbolParser.parse("red:white:red_bar", null)
+        assertNotNull(sym1)
+        assertEquals(com.example.util.OsmcColor.RED, sym1!!.wayColor)
+        assertEquals(com.example.util.OsmcColor.WHITE, sym1.backgroundColor)
+        assertEquals(com.example.util.OsmcForegroundShape.BAR, sym1.foreground?.shape)
+        assertEquals("Følg det røde mærke på hvid baggrund", sym1.descriptionDa)
+
+        // 2. blue:white:blue_dot:E1:black -> "Følg det blå mærke «E1» på hvid baggrund"
+        val sym2 = com.example.util.OsmcSymbolParser.parse("blue:white:blue_dot:E1:black", null)
+        assertNotNull(sym2)
+        assertEquals("Følg det blå mærke «E1» på hvid baggrund", sym2!!.descriptionDa)
+        assertEquals("E1", sym2.text)
+        assertEquals(com.example.util.OsmcColor.BLACK, sym2.textColor)
+
+        // 3. yellow:yellow_circle -> background is yellow CIRCLE
+        val sym3 = com.example.util.OsmcSymbolParser.parse("yellow:yellow_circle", null)
+        assertNotNull(sym3)
+        assertEquals(com.example.util.OsmcColor.YELLOW, sym3!!.backgroundColor)
+        assertEquals(com.example.util.OsmcBackgroundShape.CIRCLE, sym3.backgroundShape)
+        assertEquals("Følg det gule mærke på gul baggrund", sym3.descriptionDa)
+
+        // 4. colour fallback when osmc:symbol is absent
+        val sym4 = com.example.util.OsmcSymbolParser.parse(null, "yellow")
+        assertNotNull(sym4)
+        assertEquals("Rutens farve: gul", sym4!!.descriptionDa)
+
+        // 5. Unknown foreground token not guessed
+        val sym5 = com.example.util.OsmcSymbolParser.parse("red:white:red_unicorn", null)
+        assertNotNull(sym5)
+        assertNull("Unknown foreground shape must not be guessed", sym5!!.foreground)
+        assertEquals("Følg det røde mærke på hvid baggrund", sym5.descriptionDa)
+    }
+
+    @Test
+    fun phaseB6_plannerAccessWarningAssignedOnlyToMatchingDay() {
+        // 3-day route (0..10 km day 1, 10..20 km day 2, 20..30 km day 3)
+        // Access warning at ~15 km (55.15, 10.0) must ONLY appear on day 2, not day 1 or day 3
+        val leg1Pts = (0..10).map { i -> com.example.util.routing.RoutePoint3D(55.00 + i * 0.01, 10.0, 10.0) }
+        val leg2Pts = (10..20).map { i -> com.example.util.routing.RoutePoint3D(55.00 + i * 0.01, 10.0, 10.0) }
+        val leg3Pts = (20..30).map { i -> com.example.util.routing.RoutePoint3D(55.00 + i * 0.01, 10.0, 10.0) }
+
+        val p1 = com.example.util.routing.RouteWaypoint(id = "p1", lat = 55.00, lng = 10.0, name = "Start", role = com.example.util.routing.WaypointRole.START)
+        val p2 = com.example.util.routing.RouteWaypoint(id = "p2", lat = 55.10, lng = 10.0, name = "Dag 1 Stop", role = com.example.util.routing.WaypointRole.OVERNIGHT)
+        val p3 = com.example.util.routing.RouteWaypoint(id = "p3", lat = 55.20, lng = 10.0, name = "Dag 2 Stop", role = com.example.util.routing.WaypointRole.OVERNIGHT)
+        val p4 = com.example.util.routing.RouteWaypoint(id = "p4", lat = 55.30, lng = 10.0, name = "Slut", role = com.example.util.routing.WaypointRole.END)
+
+        val l1Km = com.example.util.routing.WayRangeUtils.segmentWalkKm(
+            com.example.data.model.TrailSegmentDto(com.example.data.model.TrailSegmentType.WALK, leg1Pts.map { GeoPointDto(it.lat, it.lng, it.ele) })
+        )
+        val l2Km = com.example.util.routing.WayRangeUtils.segmentWalkKm(
+            com.example.data.model.TrailSegmentDto(com.example.data.model.TrailSegmentType.WALK, leg2Pts.map { GeoPointDto(it.lat, it.lng, it.ele) })
+        )
+        val l3Km = com.example.util.routing.WayRangeUtils.segmentWalkKm(
+            com.example.data.model.TrailSegmentDto(com.example.data.model.TrailSegmentType.WALK, leg3Pts.map { GeoPointDto(it.lat, it.lng, it.ele) })
+        )
+
+        val leg1 = com.example.util.routing.LegGeometryData("p1", "p2", com.example.util.routing.LegMode.SNAP, leg1Pts, l1Km, 10.0, 5.0, 100.0, 0.0)
+        val leg2 = com.example.util.routing.LegGeometryData("p2", "p3", com.example.util.routing.LegMode.SNAP, leg2Pts, l2Km, 10.0, 5.0, 100.0, 0.0)
+        val leg3 = com.example.util.routing.LegGeometryData("p3", "p4", com.example.util.routing.LegMode.SNAP, leg3Pts, l3Km, 10.0, 5.0, 100.0, 0.0)
+        val orderedLegs = listOf(leg1, leg2, leg3)
+        val legs = orderedLegs.associateBy { it.legKey }
+
+        val warningOnDay2 = com.example.util.access.RouteAccessWarning(
+            type = com.example.util.access.AccessWarningType.BEFORE_06_OR_AFTER_SUNSET,
+            title = "Privat skov (Midt)",
+            message = "Privat skov (Midt): Kun på stier kl. 6–solnedgang",
+            polygon = null,
+            location = com.example.util.routing.LatLng(55.15, 10.0)
+        )
+
+        val wps = listOf(p1, p2, p3, p4)
+        val state = com.example.ui.viewmodel.RouteBuilderState(
+            waypoints = wps,
+            legs = legs,
+            accessWarnings = listOf(warningOnDay2)
+        )
+
+        val (stages, _) = com.example.data.repository.PlannedRouteRepository.buildStagesAndPlannedRoute(
+            planId = 0L,
+            trailId = "test_day_warning_route",
+            trailName = "Test Tur",
+            isReverse = false,
+            waypoints = wps,
+            orderedLegs = orderedLegs,
+            paceKmh = 4.0,
+            dailyTargetKm = l1Km,
+            numDays = 3,
+            overnightType = OvernightType.BOTH,
+            maxDetourKm = 3.0,
+            startTime = "09:00",
+            shelters = emptyList(),
+            friTeltnings = emptyList(),
+            pois = emptyList(),
+            sunsetTime = null,
+            startDateEpochMs = state.startDateMillis
+        )
+
+        val vm = com.example.ui.viewmodel.RouteBuilderViewModel(context as Application)
+        val days = vm.buildDaySummariesSync(
+            state = state,
+            wps = wps,
+            stages = stages,
+            corridorShelters = emptyList(),
+            corridorFriTeltning = emptyList()
+        )
+
+        assertEquals(3, days.size)
+        assertTrue("Day 1 must NOT get Day 2's access warning", days[0].warnings.none { it.contains("Privat skov (Midt)") })
+        assertTrue("Day 2 MUST get Day 2's access warning", days[1].warnings.any { it.contains("Privat skov (Midt)") })
+        assertTrue("Day 3 must NOT get Day 2's access warning", days[2].warnings.none { it.contains("Privat skov (Midt)") })
+    }
 }
+
+
 

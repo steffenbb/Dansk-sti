@@ -197,6 +197,7 @@ fun RouteBuilderViewModel.analyzeSupplyGaps() {
         }
         try {
             val rId = _uiState.value.routeId?.toString()
+            var triggerBackgroundRouteResync = false
             val corridorPois: List<PoiEntity> = withContext(Dispatchers.IO) {
                 if (rId != null) {
                     var existing = repository.getPoisForRoute(rId)
@@ -204,6 +205,10 @@ fun RouteBuilderViewModel.analyzeSupplyGaps() {
                         val geoPts = points.map { GeoPointDto(it.lat, it.lng, it.ele) }
                         repository.syncCorridorPoisForRoute(rId, geoPts)
                         existing = repository.getPoisForRoute(rId)
+                    } else if (online &&
+                        repository.getCorridorPoiVersion(rId, isRoute = true) < com.example.data.repository.DanskStiRepository.CORRIDOR_POI_VERSION
+                    ) {
+                        triggerBackgroundRouteResync = true
                     }
                     existing
                 } else {
@@ -233,6 +238,26 @@ fun RouteBuilderViewModel.analyzeSupplyGaps() {
                     isLoadingCorridorPois = false,
                     corridorPoisOfflineNotice = offlineNotice
                 )
+            }
+
+            if (triggerBackgroundRouteResync && rId != null) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    val geoPts = points.map { GeoPointDto(it.lat, it.lng, it.ele) }
+                    val res = repository.syncCorridorPoisForRoute(rId, geoPts)
+                    if (res.isSuccess && _uiState.value.routeId?.toString() == rId) {
+                        val refreshedPois = repository.getPoisForRoute(rId)
+                        val refreshedWarnings = RouteSmartTools.analyzeSupplyGaps(
+                            routePoints = points,
+                            corridorPois = refreshedPois,
+                            maxWaterGapKm = _uiState.value.maxWaterGapKm,
+                            maxShopGapKm = _uiState.value.maxShopGapKm,
+                            tripDateMillis = _uiState.value.startDateMillis
+                        )
+                        _uiState.update {
+                            it.copy(supplyGapWarnings = refreshedWarnings)
+                        }
+                    }
+                }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e

@@ -45,7 +45,7 @@ import com.example.data.model.UserHazardNoteEntity
         com.example.data.model.TripDiaryEntryEntity::class,
         com.example.data.model.WeatherCacheEntity::class
     ],
-    version = 28,
+    version = 29,
     exportSchema = true
 )
 abstract class DanskStiDatabase : RoomDatabase() {
@@ -803,6 +803,21 @@ abstract class DanskStiDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `shelters` ADD COLUMN `hasOwnTap` INTEGER")
+                db.execSQL("ALTER TABLE `shelters` ADD COLUMN `hasOwnToilet` INTEGER")
+                db.execSQL("ALTER TABLE `shelters` ADD COLUMN `hasShower` INTEGER")
+                db.execSQL("ALTER TABLE `shelters` ADD COLUMN `seasonal` TEXT")
+                db.execSQL("ALTER TABLE `shelters` ADD COLUMN `seasonInfo` TEXT")
+                db.execSQL("ALTER TABLE `shelters` ADD COLUMN `open24h` INTEGER")
+                db.execSQL("ALTER TABLE `shelters` ADD COLUMN `accessNote` TEXT")
+
+                db.execSQL("ALTER TABLE `pois` ADD COLUMN `subtype` TEXT")
+                db.execSQL("ALTER TABLE `pois` ADD COLUMN `detailsJson` TEXT")
+            }
+        }
+
         @Volatile
         private var lastAppContextRef: java.lang.ref.WeakReference<Context>? = null
 
@@ -845,7 +860,7 @@ abstract class DanskStiDatabase : RoomDatabase() {
                         MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
                         MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21,
                         MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
-                        MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28
+                        MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29
                     )
                         .build()
                     INSTANCE = instance

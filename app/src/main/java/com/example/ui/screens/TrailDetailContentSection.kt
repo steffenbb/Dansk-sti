@@ -116,6 +116,12 @@ internal fun TrailDetailDetailsSection(
     val nearestEndTransport by viewModel.nearestEndTransport.collectAsState()
     val trailPhotos by viewModel.trailPhotos.collectAsState()
     val curatedTrailInfo by viewModel.curatedTrailInfo.collectAsState()
+    val pathFeatureSummary by viewModel.pathFeatureSummary.collectAsState()
+    val pathFeatureWarnings by viewModel.pathFeatureWarnings.collectAsState()
+    val trailGeometry by viewModel.trailGeometry.collectAsState()
+    var showAllTransportStops by androidx.compose.runtime.remember(trailId) {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
 
     if (showOfflineConfirmDialog && offlineEstimate != null) {
         TrailOfflineDownloadDialog(
@@ -440,6 +446,12 @@ internal fun TrailDetailDetailsSection(
                             )
                             SurfaceMixBar(surfaceMix = surfaceMix)
 
+                            PathFeaturesAlongTrailCard(
+                                summary = pathFeatureSummary,
+                                warnings = pathFeatureWarnings,
+                                pathTagsVersion = trailGeometry?.pathTagsVersion ?: 0
+                            )
+
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_forsyning_p_ruten_201),
                                 style = MaterialTheme.typography.titleMedium,
@@ -562,8 +574,46 @@ internal fun TrailDetailDetailsSection(
                             )
                         }
                     } else {
-                        items(transports, key = { it.id }) { trans ->
+                        val visibleTransports = if (showAllTransportStops || transports.size <= 8) {
+                            transports
+                        } else {
+                            transports.take(8)
+                        }
+                        items(visibleTransports, key = { it.id }) { trans ->
                             PoiItemCard(poi = trans)
+                        }
+                        if (!showAllTransportStops && transports.size > 8) {
+                            item(key = "transport_show_all_stops_row") {
+                                Card(
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                    ),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                                        .clickable { showAllTransportStops = true }
+                                        .testTag("transport_show_all_stops_row")
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 12.dp, horizontal = 16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = stringResource(
+                                                R.string.trail_transport_show_all_stops_fmt,
+                                                transports.size
+                                            ),
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

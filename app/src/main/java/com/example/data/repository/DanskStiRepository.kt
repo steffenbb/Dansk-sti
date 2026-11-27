@@ -60,6 +60,11 @@ class DanskStiRepository(
     private val routePoiSyncScope = kotlinx.coroutines.CoroutineScope(
         kotlinx.coroutines.SupervisorJob() + Dispatchers.IO
     )
+    private val pathTagsUpgradeScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + Dispatchers.IO
+    )
+    private val upgradedPathTagsTrailsThisSession: MutableSet<String> =
+        java.util.Collections.synchronizedSet(mutableSetOf())
     private val routePoiSyncJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
     private val routePoiSyncMutexes = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
 
@@ -112,6 +117,27 @@ class DanskStiRepository(
     companion object {
         const val CATALOGUE_META_TTL_MS = 30L * 24L * 3600L * 1000L
         const val CATALOGUE_META_FILE_NAME = "catalogue_relations_meta_cache.json"
+        const val CORRIDOR_POI_VERSION = 2
+    }
+
+    private fun getMigrationPrefs(): android.content.SharedPreferences =
+        context.getSharedPreferences("dansk_sti_migration_prefs", Context.MODE_PRIVATE)
+
+    private fun corridorPoiVersionPrefKey(id: String, isRoute: Boolean): String {
+        val cleanId = id.removePrefix("route_").removePrefix("route:").removePrefix("plan_").removePrefix("plan:")
+        return if (isRoute || id.startsWith("route_")) {
+            "corridor_poi_version_route_$cleanId"
+        } else {
+            "corridor_poi_version_$id"
+        }
+    }
+
+    fun getCorridorPoiVersion(id: String, isRoute: Boolean = false): Int {
+        return getMigrationPrefs().getInt(corridorPoiVersionPrefKey(id, isRoute), 0)
+    }
+
+    fun setCorridorPoiVersion(id: String, version: Int = CORRIDOR_POI_VERSION, isRoute: Boolean = false) {
+        getMigrationPrefs().edit().putInt(corridorPoiVersionPrefKey(id, isRoute), version).apply()
     }
 
     private fun getCatalogueMetaCacheFile(): java.io.File {
@@ -353,12 +379,20 @@ class DanskStiRepository(
                 if (shelterCount == 0) {
                     try {
                         // Load from pre-bundled real GeoFA & Øhavsstien OSM assets sequentially to minimize peak memory
+                        var shelters = geoFaRepository.loadBundledShelters()
+                        if (shelters.isEmpty() && isDeviceOnline()) {
+                            shelters = geoFaRepository.fetchGeoFaShelters()
+                        }
+                        val shelterTapPois = geoFaRepository.tapPoisFor(shelters)
+
                         val pois = geoFaRepository.loadBundledPois().toMutableList()
                         val bundledOsm = osmPoiRepository.loadBundledPois("trail_ohavsstien")
                         pois.addAll(bundledOsm.pois)
                         if (pois.isEmpty() && isDeviceOnline()) {
                             pois.addAll(geoFaRepository.fetchGeoFaPois())
                         }
+                        pois.addAll(shelterTapPois)
+
                         val waterPois = pois.filter { it.type == "water" }
                         val toiletPois = pois.filter { it.type == "toilet" }
                         if (pois.isNotEmpty()) {
@@ -367,17 +401,13 @@ class DanskStiRepository(
                         val poiCountLoaded = pois.size
                         pois.clear()
 
-                        var shelters = geoFaRepository.loadBundledShelters()
-                        if (shelters.isEmpty() && isDeviceOnline()) {
-                            shelters = geoFaRepository.fetchGeoFaShelters()
-                        }
                         val computedShelters = shelters.map { sh ->
-                            val hasWater = waterPois.any { w ->
+                            val hasWater = sh.hasOwnTap == true || waterPois.any { w ->
                                 kotlin.math.abs(w.lat - sh.lat) < 0.005 &&
                                 kotlin.math.abs(w.lng - sh.lng) < 0.008 &&
                                 GeoUtils.distanceMeters(sh.lat, sh.lng, w.lat, w.lng) <= 500.0
                             }
-                            val hasToilet = toiletPois.any { t ->
+                            val hasToilet = sh.hasOwnToilet == true || toiletPois.any { t ->
                                 kotlin.math.abs(t.lat - sh.lat) < 0.005 &&
                                 kotlin.math.abs(t.lng - sh.lng) < 0.008 &&
                                 GeoUtils.distanceMeters(sh.lat, sh.lng, t.lat, t.lng) <= 500.0
@@ -396,12 +426,17 @@ class DanskStiRepository(
                         if (friTeltnings.isNotEmpty()) {
                             friTeltnings.chunked(100).forEach { dao.insertFriTeltning(it) }
                         }
+                        getMigrationPrefs().edit()
+                            .putBoolean("geofa_booking_backfill_v28_done", true)
+                            .putBoolean("geofa_fields_backfill_v29_done", true)
+                            .apply()
                         com.example.util.DLog.run { d("DanskStiRepo", "GeoFA + OSM initial data loaded: $shelterCountLoaded shelters, ${friTeltnings.size} fri teltning, $poiCountLoaded pois") }
                     } catch (t: Throwable) {
                         Log.e("DanskStiRepo", "Failed to load initial GeoFA data: ${t.message}", t)
                     }
                 } else {
                     runGeoFaBookingBackfillIfNeeded()
+                    runGeoFaFieldsBackfillIfNeeded()
                     val existingShops = dao.getPoisByType("shop")
                     if (existingShops.isEmpty()) {
                         val bundledOsm = osmPoiRepository.loadBundledPois("trail_ohavsstien")
@@ -624,6 +659,144 @@ class DanskStiRepository(
         updatedRows
     }
 
+    /**
+     * Phase A3: One-time backfill for existing installs (Room 28 -> 29).
+     * Re-parses GeoFA shelters, fri teltning, and toilets_water (from live cache in filesDir/geofa
+     * when it exists and parses; otherwise bundled asset), updates v29 fields on existing GeoFA rows
+     * without touching hasWaterNearby, trailCorridorId, booking fields or trail_pois, deletes
+     * inactive GeoFA rows, inserts both kinds of tap POI, and marks shelters with hasOwnTap = 1 as hasWaterNearby = 1.
+     */
+    suspend fun runGeoFaFieldsBackfillIfNeeded(force: Boolean = false): Int = withContext(Dispatchers.IO) {
+        val prefs = getMigrationPrefs()
+        if (!force && prefs.getBoolean("geofa_fields_backfill_v29_done", false)) {
+            return@withContext 0
+        }
+        try {
+            fun loadDatasetPair(cacheName: String, assetName: String): Pair<String, String?> {
+                val primary = geoFaRepository.loadGeoFaDatasetJsonForBackfill(cacheName, assetName) ?: ""
+                val fallback = geoFaRepository.readAssetGeoJsonGz(assetName)
+                return primary to fallback
+            }
+
+            // 1. Shelters
+            val (sheltersPrimaryJson, sheltersFallbackJson) = loadDatasetPair("shelters.json", "shelters.geojson.gz")
+            var parsedShelters = if (sheltersPrimaryJson.isNotBlank()) {
+                runCatching { geoFaRepository.parseSheltersGeoJson(sheltersPrimaryJson) }.getOrDefault(emptyList())
+            } else emptyList()
+            var effectiveSheltersJson = sheltersPrimaryJson
+            if (parsedShelters.isEmpty() && !sheltersFallbackJson.isNullOrBlank()) {
+                parsedShelters = runCatching { geoFaRepository.parseSheltersGeoJson(sheltersFallbackJson) }.getOrDefault(emptyList())
+                effectiveSheltersJson = sheltersFallbackJson
+            }
+
+            // 2. Fri teltning
+            val (friPrimaryJson, friFallbackJson) = loadDatasetPair("fri_teltning.json", "fri_teltning.geojson.gz")
+            var parsedFri = if (friPrimaryJson.isNotBlank()) {
+                runCatching { geoFaRepository.parseFriTeltningGeoJson(friPrimaryJson) }.getOrDefault(emptyList())
+            } else emptyList()
+            var effectiveFriJson = friPrimaryJson
+            if (parsedFri.isEmpty() && !friFallbackJson.isNullOrBlank()) {
+                parsedFri = runCatching { geoFaRepository.parseFriTeltningGeoJson(friFallbackJson) }.getOrDefault(emptyList())
+                effectiveFriJson = friFallbackJson
+            }
+
+            // 3. POIs (toilets & water)
+            val (poisPrimaryJson, poisFallbackJson) = loadDatasetPair("toilets_water.json", "toilets_water.geojson.gz")
+            var parsedPois = if (poisPrimaryJson.isNotBlank()) {
+                runCatching { geoFaRepository.parsePoisGeoJson(poisPrimaryJson) }.getOrDefault(emptyList())
+            } else emptyList()
+            var effectivePoisJson = poisPrimaryJson
+            if (parsedPois.isEmpty() && !poisFallbackJson.isNullOrBlank()) {
+                parsedPois = runCatching { geoFaRepository.parsePoisGeoJson(poisFallbackJson) }.getOrDefault(emptyList())
+                effectivePoisJson = poisFallbackJson
+            }
+
+            var updatedSheltersCount = 0
+            for (sh in parsedShelters) {
+                if (sh.source == "geofa") {
+                    updatedSheltersCount += dao.updateGeoFaShelterFieldsV29(
+                        id = sh.id,
+                        description = sh.description,
+                        fee = sh.fee,
+                        accessibility = sh.accessibility,
+                        hasOwnTap = sh.hasOwnTap,
+                        seasonal = sh.seasonal,
+                        seasonInfo = sh.seasonInfo,
+                        open24h = sh.open24h,
+                        accessNote = sh.accessNote
+                    )
+                }
+            }
+
+            var updatedFriCount = 0
+            for (ft in parsedFri) {
+                if (ft.source == "geofa") {
+                    updatedFriCount += dao.updateGeoFaFriTeltningFieldsV29(
+                        id = ft.id,
+                        rulesSummary = ft.rulesSummary
+                    )
+                }
+            }
+
+            var updatedPoisCount = 0
+            for (poi in parsedPois) {
+                if (poi.source == "geofa" && poi.subtype != "geofa_toilet_tap") {
+                    updatedPoisCount += dao.updateGeoFaPoiFieldsV29(
+                        id = poi.id,
+                        seasonal = poi.seasonal,
+                        subtype = poi.subtype,
+                        detailsJson = poi.detailsJson,
+                        fee = poi.fee
+                    )
+                }
+            }
+
+            // Delete inactive GeoFA rows
+            val inactiveShelterIds = GeoFaFieldParser.extractInactiveObjektIds(effectiveSheltersJson)
+            var deletedSheltersCount = 0
+            inactiveShelterIds.chunked(250).forEach { chunk ->
+                deletedSheltersCount += dao.deleteGeoFaSheltersByIds(chunk)
+            }
+
+            val inactiveFriIds = GeoFaFieldParser.extractInactiveObjektIds(effectiveFriJson)
+            var deletedFriCount = 0
+            inactiveFriIds.chunked(250).forEach { chunk ->
+                deletedFriCount += dao.deleteGeoFaFriTeltningByIds(chunk)
+            }
+
+            val inactivePoiIds = GeoFaFieldParser.extractInactiveObjektIds(effectivePoisJson)
+            val inactivePoiAndTapIds = inactivePoiIds + inactivePoiIds.map { "${it}_vandhane" }
+            var deletedPoisCount = 0
+            inactivePoiAndTapIds.chunked(250).forEach { chunk ->
+                deletedPoisCount += dao.deleteGeoFaPoisByIds(chunk)
+            }
+
+            // Insert both kinds of tap POI (from toilets with vandhane=Ja and shelters with hasOwnTap=true)
+            val toiletTapPois = parsedPois.filter { it.subtype == "geofa_toilet_tap" }
+            val shelterTapPois = geoFaRepository.tapPoisFor(parsedShelters)
+            val allTapPois = (toiletTapPois + shelterTapPois).distinctBy { it.id }
+            if (allTapPois.isNotEmpty()) {
+                allTapPois.chunked(250).forEach { dao.insertPois(it) }
+            }
+
+            // Run UPDATE shelters SET hasWaterNearby = 1 WHERE hasOwnTap = 1
+            val markedWaterCount = dao.markSheltersWithOwnTapAsWaterNearby()
+
+            prefs.edit().putBoolean("geofa_fields_backfill_v29_done", true).apply()
+            Log.i(
+                "DanskStiRepo",
+                "GeoFA v29 backfill done: updated shelters=$updatedSheltersCount, fri=$updatedFriCount, pois=$updatedPoisCount; " +
+                    "deleted inactive shelters=$deletedSheltersCount, fri=$deletedFriCount, pois=$deletedPoisCount; " +
+                    "inserted taps=${allTapPois.size} (toilet=${toiletTapPois.size}, shelter=${shelterTapPois.size}); " +
+                    "markedWater=$markedWaterCount"
+            )
+            updatedSheltersCount + updatedFriCount + updatedPoisCount + allTapPois.size
+        } catch (e: Exception) {
+            Log.e("DanskStiRepo", "GeoFA v29 backfill failed: ${e.message}", e)
+            0
+        }
+    }
+
     fun mergeGeoFaAndOsmShelter(gf: ShelterEntity, osmSh: ShelterEntity): ShelterEntity {
         return gf.copy(
             description = if (gf.description.isNullOrBlank() || gf.description == "Ukendt") osmSh.description ?: gf.description else gf.description,
@@ -638,7 +811,14 @@ class DanskStiRepository(
             hasFirewood = gf.hasFirewood ?: osmSh.hasFirewood,
             hasElectricity = gf.hasElectricity ?: osmSh.hasElectricity,
             maxNights = gf.maxNights ?: osmSh.maxNights,
-            accessibility = gf.accessibility ?: osmSh.accessibility
+            accessibility = gf.accessibility ?: osmSh.accessibility,
+            hasOwnTap = gf.hasOwnTap ?: osmSh.hasOwnTap,
+            hasOwnToilet = gf.hasOwnToilet ?: osmSh.hasOwnToilet,
+            hasShower = gf.hasShower ?: osmSh.hasShower,
+            seasonal = gf.seasonal ?: osmSh.seasonal,
+            seasonInfo = gf.seasonInfo ?: osmSh.seasonInfo,
+            open24h = gf.open24h ?: osmSh.open24h,
+            accessNote = gf.accessNote ?: osmSh.accessNote
         )
     }
 
@@ -673,6 +853,73 @@ class DanskStiRepository(
             }
         }
         null
+    }
+
+    suspend fun hasUnfinishedTripForTrail(
+        trailId: String,
+        nowMs: Long = System.currentTimeMillis()
+    ): Boolean = withContext(Dispatchers.IO) {
+        val latestPlan = dao.getLatestTripPlanForTrail(trailId) ?: return@withContext false
+        val cutoffMs = nowMs - 60L * 24L * 3600L * 1000L
+        val progressRows = dao.getTripProgressListForPlanSync(latestPlan.id)
+        if (progressRows.isEmpty()) {
+            latestPlan.createdAt >= cutoffMs
+        } else {
+            val allCompleted = progressRows.all { it.isCompleted }
+            val latestActive = progressRows.maxOf { it.lastActiveTimestamp }
+            !allCompleted && latestActive >= cutoffMs
+        }
+    }
+
+    private suspend fun maybeTriggerBackgroundPathTagsUpgrade(
+        trailId: String,
+        cached: com.example.data.model.TrailGeometryDto
+    ) {
+        if (trailId.startsWith("route_")) return
+        if (cached.pathTagsVersion >= 1) return
+        if (!geometryRepository.hasWayTagRanges(cached)) return
+        if (!isDeviceOnline()) return
+        if (hasUnfinishedTripForTrail(trailId)) return
+        if (!upgradedPathTagsTrailsThisSession.add(trailId)) return
+
+        val trail = dao.getTrailById(trailId) ?: return
+        pathTagsUpgradeScope.launch {
+            try {
+                val fresh = geometryRepository.fetchAndProcessTrail(
+                    trailId = trail.id,
+                    trailName = trail.name,
+                    osmRelationId = trail.osmRelationId
+                )?.takeIf {
+                    it.segments.any { seg -> seg.points.isNotEmpty() }
+                }
+                if (fresh != null) {
+                    geometryRepository.saveGeometry(fresh)
+                    val computedReg = GeoUtils.computeDanishRegionFromBbox(
+                        south = fresh.bboxSouth,
+                        west = fresh.bboxWest,
+                        north = fresh.bboxNorth,
+                        east = fresh.bboxEast
+                    )
+                    val currentTrail = dao.getTrailById(trail.id) ?: trail
+                    dao.insertTrail(
+                        currentTrail.copy(
+                            region = computedReg,
+                            parentRegion = computedReg,
+                            computedWalkingKm = fresh.totalWalkingKm,
+                            gapsOver200m = fresh.gapsOver200mCount,
+                            osmTimestamp = fresh.osmTimestamp,
+                            bboxNorth = fresh.bboxNorth,
+                            bboxSouth = fresh.bboxSouth,
+                            bboxEast = fresh.bboxEast,
+                            bboxWest = fresh.bboxWest,
+                            isGeometryDownloaded = true
+                        )
+                    )
+                }
+            } catch (t: Throwable) {
+                Log.w("DanskStiRepo", "Background pathTags upgrade failed for $trailId: ${t.message}")
+            }
+        }
     }
 
     suspend fun getTrailGeometry(trailId: String): com.example.data.model.TrailGeometryDto? = withContext(Dispatchers.IO) {
@@ -712,6 +959,8 @@ class DanskStiRepository(
                 }
                 if (fresh != null) return@withContext fresh
             }
+        } else if (cached != null) {
+            maybeTriggerBackgroundPathTagsUpgrade(trailId, cached)
         }
         cached
     }
@@ -782,6 +1031,7 @@ class DanskStiRepository(
                 }
                 return@withContext (fresh ?: cached).segments
             }
+            maybeTriggerBackgroundPathTagsUpgrade(trail.id, cached)
             return@withContext cached.segments
         }
 
@@ -957,9 +1207,11 @@ class DanskStiRepository(
                 val gfShelters = geoFaRepository.fetchGeoFaShelters()
                 val gfFri = geoFaRepository.fetchGeoFaFriTeltning()
                 val gfPois = geoFaRepository.fetchGeoFaPois()
+                val gfShelterTaps = geoFaRepository.tapPoisFor(gfShelters)
                 if (gfShelters.isNotEmpty()) dao.insertShelters(gfShelters)
                 if (gfFri.isNotEmpty()) dao.insertFriTeltning(gfFri)
-                if (gfPois.isNotEmpty()) dao.insertPois(gfPois)
+                val combinedPois = (gfPois + gfShelterTaps).distinctBy { it.id }
+                if (combinedPois.isNotEmpty()) dao.insertPois(combinedPois)
             }
 
             // 2. Fetch OSM POIs for this trail using its downloaded geometry (keep cache & bundled offline POIs)
@@ -1028,16 +1280,19 @@ class DanskStiRepository(
             if (updatedPois.isNotEmpty()) dao.insertPois(updatedPois)
             if (newPois.isNotEmpty()) dao.insertPois(newPois)
 
-            // 4. Compute hasWaterNearby / hasToiletNearby on shelters within 500m
+            // 4. Compute hasWaterNearby / hasToiletNearby on shelters within 500m (or own tap/toilet)
             val allWaterPois = existingPois.filter { it.type == "water" }
             val allToiletPois = existingPois.filter { it.type == "toilet" }
 
             val reevaluatedShelters = mutableListOf<ShelterEntity>()
-            for (sh in existingShelters) {
-                val hasWater = allWaterPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
-                val hasToilet = allToiletPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
+            for (i in existingShelters.indices) {
+                val sh = existingShelters[i]
+                val hasWater = sh.hasOwnTap == true || allWaterPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
+                val hasToilet = sh.hasOwnToilet == true || allToiletPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
                 if (sh.hasWaterNearby != hasWater || sh.hasToiletNearby != hasToilet) {
-                    reevaluatedShelters.add(sh.copy(hasWaterNearby = hasWater, hasToiletNearby = hasToilet))
+                    val updated = sh.copy(hasWaterNearby = hasWater, hasToiletNearby = hasToilet)
+                    existingShelters[i] = updated
+                    reevaluatedShelters.add(updated)
                 }
             }
             if (reevaluatedShelters.isNotEmpty()) {
@@ -1079,6 +1334,7 @@ class DanskStiRepository(
                 dao.insertTrailPois(trailPoiEntities)
             }
 
+            setCorridorPoiVersion(trail.id, CORRIDOR_POI_VERSION, isRoute = false)
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("DanskStiRepo", "Error syncing corridor POIs: ${e.message}", e)
@@ -1153,9 +1409,11 @@ class DanskStiRepository(
                     val gfShelters = geoFaRepository.fetchGeoFaShelters()
                     val gfFri = geoFaRepository.fetchGeoFaFriTeltning()
                     val gfPois = geoFaRepository.fetchGeoFaPois()
+                    val gfShelterTaps = geoFaRepository.tapPoisFor(gfShelters)
                     if (gfShelters.isNotEmpty()) dao.insertShelters(gfShelters)
                     if (gfFri.isNotEmpty()) dao.insertFriTeltning(gfFri)
-                    if (gfPois.isNotEmpty()) dao.insertPois(gfPois)
+                    val combinedPois = (gfPois + gfShelterTaps).distinctBy { it.id }
+                    if (combinedPois.isNotEmpty()) dao.insertPois(combinedPois)
                 }
             }
 
@@ -1222,19 +1480,22 @@ class DanskStiRepository(
             kotlinx.coroutines.yield()
 
             // Re-read latest shelters & POIs from Room so any POIs inserted concurrently are preserved
-            val latestShelters = dao.getAllSheltersList()
+            val latestShelters = dao.getAllSheltersList().toMutableList()
             val latestPois = dao.getAllPoisList()
 
-            // 3. Compute hasWaterNearby / hasToiletNearby on shelters within 500m
+            // 3. Compute hasWaterNearby / hasToiletNearby on shelters within 500m (or own tap/toilet)
             val allWaterPois = latestPois.filter { it.type == "water" }
             val allToiletPois = latestPois.filter { it.type == "toilet" }
 
             val reevaluatedShelters = mutableListOf<ShelterEntity>()
-            for (sh in latestShelters) {
-                val hasWater = allWaterPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
-                val hasToilet = allToiletPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
+            for (i in latestShelters.indices) {
+                val sh = latestShelters[i]
+                val hasWater = sh.hasOwnTap == true || allWaterPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
+                val hasToilet = sh.hasOwnToilet == true || allToiletPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
                 if (sh.hasWaterNearby != hasWater || sh.hasToiletNearby != hasToilet) {
-                    reevaluatedShelters.add(sh.copy(hasWaterNearby = hasWater, hasToiletNearby = hasToilet))
+                    val updated = sh.copy(hasWaterNearby = hasWater, hasToiletNearby = hasToilet)
+                    latestShelters[i] = updated
+                    reevaluatedShelters.add(updated)
                 }
             }
             if (reevaluatedShelters.isNotEmpty()) {
@@ -1247,6 +1508,7 @@ class DanskStiRepository(
             if (!online) {
                 Result.failure(IllegalStateException("Offline: henter ikke interessepunkter fra OpenStreetMap"))
             } else {
+                setCorridorPoiVersion(routeId, CORRIDOR_POI_VERSION, isRoute = true)
                 Result.success(Unit)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {

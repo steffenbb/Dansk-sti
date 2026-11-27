@@ -12,7 +12,8 @@ data class WayTagRangeDto(
     val fromKm: Double,
     val toKm: Double,
     val highway: String? = null,
-    val surface: String? = null
+    val surface: String? = null,
+    val pathTags: Map<String, String>? = null
 )
 
 typealias WayTagRange = WayTagRangeDto
@@ -53,7 +54,8 @@ data class TrailGeometryDto(
     val osmTimestamp: String? = null,
     val fetchedAt: Long = System.currentTimeMillis(),
     val osmRelationName: String? = null,
-    val osmTags: Map<String, String> = emptyMap()
+    val osmTags: Map<String, String> = emptyMap(),
+    val pathTagsVersion: Int = 0
 )
 
 @JsonClass(generateAdapter = true)

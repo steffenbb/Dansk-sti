@@ -108,6 +108,7 @@ internal object MapLayersPoiBuilder {
         }
 
         for (p in pois) {
+            if (p.subtype == "geofa_shelter_tap" && state.showShelters) continue
             val normalized = p.type.lowercase()
             val shouldInclude = when (normalized) {
                 "water", "drinking_water", "vand" -> state.showWaterPois

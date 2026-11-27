@@ -171,8 +171,14 @@ fun OsmRelationTagsCard(
     val distance = (osmTags["distance"] ?: trail?.osmDistanceTag)?.trim()?.takeIf { it.isNotEmpty() }
     val from = (osmTags["from"] ?: trail?.osmFrom)?.trim()?.takeIf { it.isNotEmpty() }
     val to = (osmTags["to"] ?: trail?.osmTo)?.trim()?.takeIf { it.isNotEmpty() }
+    val osmcSymbol = (osmTags["osmc:symbol"] ?: osmTags["symbol"])?.trim()?.takeIf { it.isNotEmpty() }
+    val colour = (osmTags["colour"] ?: osmTags["color"])?.trim()?.takeIf { it.isNotEmpty() }
+    val networkLabel = com.example.util.OsmcSymbolParser.networkLabel(osmTags["network"], context)
+    val parsedWaymark = com.example.util.OsmcSymbolParser.parse(osmcSymbol, colour)
 
-    if (description == null && note == null && operator == null && website == null && distance == null && from == null && to == null) {
+    if (description == null && note == null && operator == null && website == null &&
+        distance == null && from == null && to == null && parsedWaymark == null && networkLabel == null
+    ) {
         return
     }
 
@@ -195,6 +201,24 @@ fun OsmRelationTagsCard(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.testTag("trail_osm_tags_header")
             )
+
+            if (parsedWaymark != null) {
+                com.example.ui.components.WaymarkBadge(
+                    symbol = osmcSymbol,
+                    colour = colour,
+                    modifier = Modifier.testTag("trail_osm_waymark_badge")
+                )
+            }
+
+            if (networkLabel != null) {
+                Text(
+                    text = networkLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("trail_osm_tag_network")
+                )
+            }
 
             if (description != null && description != trail?.description) {
                 Text(

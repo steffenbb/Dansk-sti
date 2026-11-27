@@ -59,37 +59,13 @@ object TrailSlicer {
 
     fun totalTrailKm(segments: List<TrailSegmentDto>): Double = totalTrailWalkKm(segments)
 
-    private fun segmentWalkKm(seg: TrailSegmentDto): Double {
-        val pts = seg.points
-        if (pts.size < 2) return 0.0
-        var meters = 0.0
-        for (i in 0 until pts.size - 1) {
-            meters += haversineMeters(pts[i].lat, pts[i].lng, pts[i + 1].lat, pts[i + 1].lng)
-        }
-        return meters / 1000.0
-    }
+    private fun segmentWalkKm(seg: TrailSegmentDto): Double = WayRangeUtils.segmentWalkKm(seg)
 
     private fun normalizeSegmentWayRanges(
         seg: TrailSegmentDto,
         segStartWalkKm: Double,
         segTotalLocalKm: Double
-    ): List<WayTagRangeDto> {
-        if (seg.wayTagRanges.isNotEmpty()) {
-            val firstFrom = seg.wayTagRanges.first().fromKm
-            val usesGlobalKm = segStartWalkKm > 1e-3 && firstFrom >= segStartWalkKm - 1e-3
-            return seg.wayTagRanges.map { r ->
-                if (usesGlobalKm) {
-                    r.copy(
-                        fromKm = (r.fromKm - segStartWalkKm).coerceAtLeast(0.0),
-                        toKm = (r.toKm - segStartWalkKm).coerceAtLeast(0.0)
-                    )
-                } else {
-                    r
-                }
-            }
-        }
-        return emptyList()
-    }
+    ): List<WayTagRangeDto> = WayRangeUtils.normalizeSegmentWayRanges(seg, segStartWalkKm, segTotalLocalKm)
 
     private fun lookupRangeTagsAtLocalKm(
         ranges: List<WayTagRangeDto>,
@@ -350,11 +326,9 @@ object TrailSlicer {
                         val cFrom = max(r.fromKm, localSliceMinKm)
                         val cTo = min(r.toKm, localSliceMaxKm)
                         if (cTo > cFrom + 1e-9) {
-                            WayTagRangeDto(
+                            r.copy(
                                 fromKm = (cFrom - localSliceMinKm).coerceAtLeast(0.0),
-                                toKm = (cTo - localSliceMinKm).coerceAtMost(max(slicedLenKm, localSliceMaxKm - localSliceMinKm)),
-                                highway = r.highway,
-                                surface = r.surface
+                                toKm = (cTo - localSliceMinKm).coerceAtMost(max(slicedLenKm, localSliceMaxKm - localSliceMinKm))
                             )
                         } else null
                     }
@@ -376,11 +350,9 @@ object TrailSlicer {
             slicedForward.reversed().map { seg ->
                 val maxRangeKm = max(seg.lengthKm, seg.wayTagRanges.maxOfOrNull { it.toKm } ?: 0.0)
                 val revRanges = seg.wayTagRanges.reversed().map { r ->
-                    WayTagRangeDto(
+                    r.copy(
                         fromKm = (maxRangeKm - r.toKm).coerceAtLeast(0.0),
-                        toKm = (maxRangeKm - r.fromKm).coerceAtLeast(0.0),
-                        highway = r.highway,
-                        surface = r.surface
+                        toKm = (maxRangeKm - r.fromKm).coerceAtLeast(0.0)
                     )
                 }
                 seg.copy(

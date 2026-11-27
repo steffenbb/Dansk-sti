@@ -45,6 +45,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -268,6 +270,7 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
     val stiPct = (surfaceMix["Sti"] ?: 0).coerceAtLeast(0)
     val grusPct = (surfaceMix["Grus"] ?: 0).coerceAtLeast(0)
     val asfaltPct = (surfaceMix["Asfalt"] ?: 0).coerceAtLeast(0)
+    val sandPct = (surfaceMix["Sand"] ?: 0).coerceAtLeast(0)
     val ukendtPct = (surfaceMix["Ukendt"] ?: 0).coerceAtLeast(0)
 
     val validSti = if (stiPct > 0) stiPct.toFloat() else 0.001f
@@ -276,6 +279,7 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
     val stiColor = MaterialTheme.colorScheme.primary
     val grusColor = DanskStiTheme.colors.warning
     val asfaltColor = MaterialTheme.colorScheme.outline
+    val sandColor = Color(0xFFD7B377)
     val ukendtColor = MaterialTheme.colorScheme.surfaceVariant
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -303,6 +307,14 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
                     .fillMaxHeight()
                     .background(asfaltColor)
             )
+            if (sandPct > 0) {
+                Box(
+                    modifier = Modifier
+                        .weight(sandPct.toFloat())
+                        .fillMaxHeight()
+                        .background(sandColor)
+                )
+            }
             if (ukendtPct > 0) {
                 Box(
                     modifier = Modifier
@@ -332,6 +344,18 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(stringResource(R.string.ui_traildetailscreen_asfalt_212, asfaltPct), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (sandPct > 0) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(8.dp).background(sandColor, CircleShape))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        stringResource(R.string.trail_surface_sand_pct, sandPct),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("trail_surface_sand_pct")
+                    )
+                }
+            }
             if (ukendtPct > 0) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(8.dp).background(ukendtColor, CircleShape))
@@ -344,6 +368,168 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun PathFeaturesAlongTrailCard(
+    summary: com.example.util.PathFeatureSummary,
+    warnings: List<com.example.util.PathFeatureWarning>,
+    pathTagsVersion: Int,
+    onWarningClick: ((com.example.util.PathFeatureWarning) -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val appLocale = com.example.ui.components.rememberAppLocale()
+    var showAllWarnings by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+
+    fun fmtKm(km: Double): String = com.example.ui.components.formatDanishKm(km, decimals = 1, locale = appLocale)
+
+    val summaryLines = buildList {
+        if (summary.stepsCount > 0) {
+            add("steps" to stringResource(R.string.path_summary_steps_fmt, summary.stepsCount))
+        }
+        if (summary.fordCount > 0) {
+            add("fords" to stringResource(R.string.path_summary_fords_fmt, summary.fordCount))
+        }
+        if (summary.privateKm >= 0.05) {
+            add("private" to stringResource(R.string.path_summary_private_km_fmt, fmtKm(summary.privateKm)))
+        }
+        if (summary.horseKm >= 0.05) {
+            add("horse" to stringResource(R.string.path_summary_horse_km_fmt, fmtKm(summary.horseKm)))
+        }
+        if (summary.bikeKm >= 0.05) {
+            add("bike" to stringResource(R.string.path_summary_bike_km_fmt, fmtKm(summary.bikeKm)))
+        }
+        if (summary.litKm >= 0.05) {
+            add("lit" to stringResource(R.string.path_summary_lit_km_fmt, fmtKm(summary.litKm)))
+        }
+        if (summary.roughOrUnclearKm >= 0.05) {
+            add("rough" to stringResource(R.string.path_summary_rough_km_fmt, fmtKm(summary.roughOrUnclearKm)))
+        }
+        if (summary.sandKm >= 0.05) {
+            add("sand" to stringResource(R.string.path_summary_sand_km_fmt, fmtKm(summary.sandKm)))
+        }
+    }
+
+    val sortedWarnings = androidx.compose.runtime.remember(warnings) {
+        warnings.sortedBy { it.startKm }
+    }
+    val visibleWarnings = if (showAllWarnings || sortedWarnings.size <= 8) {
+        sortedWarnings
+    } else {
+        sortedWarnings.take(8)
+    }
+
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("path_features_along_trail_card")
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.path_details_card_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.testTag("path_features_along_trail_title")
+            )
+
+            if (summaryLines.isEmpty() && sortedWarnings.isEmpty()) {
+                if (pathTagsVersion < 1) {
+                    Text(
+                        text = stringResource(R.string.path_details_empty_upgrade_next),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("path_features_empty_pending_upgrade")
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.path_details_empty_none),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("path_features_empty_no_warnings")
+                    )
+                }
+            } else {
+                if (summaryLines.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for ((key, text) in summaryLines) {
+                            Text(
+                                text = text,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.testTag("path_feature_summary_row_$key")
+                            )
+                        }
+                    }
+                }
+
+                if (visibleWarnings.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        visibleWarnings.forEachIndexed { idx, warning ->
+                            val kmStr = fmtKm(warning.startKm)
+                            val rowText = stringResource(R.string.path_warning_row_km_fmt, kmStr, warning.title)
+                            val rowMod = if (onWarningClick != null) {
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { onWarningClick(warning) }
+                                    .padding(vertical = 4.dp, horizontal = 4.dp)
+                            } else {
+                                Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                            }
+                            Row(
+                                modifier = rowMod.testTag("path_feature_warning_row_$idx"),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(DanskStiTheme.colors.warning, CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = rowText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        if (!showAllWarnings && sortedWarnings.size > 8) {
+                            androidx.compose.material3.TextButton(
+                                onClick = { showAllWarnings = true },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                                modifier = Modifier.testTag("path_features_show_all_button")
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.path_warnings_show_all_fmt, sortedWarnings.size),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text(
+                text = stringResource(R.string.path_details_source_osm),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                modifier = Modifier.testTag("path_features_source_osm")
+            )
         }
     }
 }
@@ -481,8 +667,7 @@ fun PoiItemCard(
         "water" -> Icons.Default.LocalDrink
         "toilet" -> Icons.Default.Wc
         "shop" -> Icons.Default.Storefront
-        "station" -> Icons.Default.DirectionsTransit
-        "ferry" -> Icons.Default.DirectionsTransit
+        "station", "ferry", "bus_stop" -> Icons.Default.DirectionsTransit
         else -> Icons.Default.Place
     }
 

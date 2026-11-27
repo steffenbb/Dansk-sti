@@ -114,6 +114,9 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private val _routeHazards = MutableStateFlow<List<UserHazardNoteEntity>>(emptyList())
     val routeHazards: StateFlow<List<UserHazardNoteEntity>> = _routeHazards.asStateFlow()
 
+    private val _routePathWarnings = MutableStateFlow<List<com.example.util.PathFeatureWarning>>(emptyList())
+    val routePathWarnings: StateFlow<List<com.example.util.PathFeatureWarning>> = _routePathWarnings.asStateFlow()
+
     // Error state and retry support for corridor POIs
     private val _corridorPoisErrorMessage = MutableStateFlow<String?>(null)
     val corridorPoisErrorMessage: StateFlow<String?> = _corridorPoisErrorMessage.asStateFlow()
@@ -394,7 +397,8 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         val result = computeRouteStopsAndAhead(
             route = route, currentWalkKm = currentWalkKm, currentDay = currentDay, currentStage = currentStage,
             remainingTodayKm = remainingTodayKm, waters = _routeWaters.value, shops = _routeShops.value,
-            shelters = _routeShelters.value, previousNextOvernight = _nextOvernight.value
+            shelters = _routeShelters.value, previousNextOvernight = _nextOvernight.value,
+            pathWarnings = _routePathWarnings.value
         )
         _nextWater.value = result.nextWater
         _nextShop.value = result.nextShop
@@ -442,6 +446,29 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
                 val trailId = route.trailId
                 withContext(Dispatchers.IO) {
+                    val geom = repository.getTrailGeometry(trailId)
+                        ?: repository.geometryRepository.loadGeometry(trailId)
+                    if (geom != null) {
+                        val analysis = com.example.util.PathFeatureAnalyzer.analyze(
+                            ranges = com.example.util.PathRangeBuilder.fromTrailSegments(geom.segments),
+                            pointAtKm = { km ->
+                                val pt = route.points.minByOrNull { kotlin.math.abs(it.walkKm - km) }
+                                if (pt != null) {
+                                    GeoPointDto(pt.lat, pt.lng, pt.ele)
+                                } else {
+                                    geom.segments.firstOrNull()?.points?.firstOrNull()
+                                }
+                            },
+                            context = getApplication()
+                        )
+                        _routePathWarnings.value = analysis.warnings.filter { w ->
+                            val (_, detourM) = route.projectPoint(w.lat, w.lng)
+                            detourM <= 50.0
+                        }
+                    } else {
+                        _routePathWarnings.value = emptyList()
+                    }
+
                     val data = loadInitialCorridorDataForRoute(repository, route)
                     applyRouteCorridorSheltersAndPois(route, data.initialShelters, data.initialPois)
                     if (data.needsTrailCorridorSync) {

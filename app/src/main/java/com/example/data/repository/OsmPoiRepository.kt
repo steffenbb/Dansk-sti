@@ -260,7 +260,9 @@ class OsmPoiRepository(private val context: Context) {
               nwr["amenity"="toilets"]["access"!~"private|customers"](around:3000,$coordStr);
               nwr["amenity"="shelter"]["shelter_type"~"^(basic_hut|lean_to|weather_shelter)$"](around:3000,$coordStr);
               nwr["tourism"~"^(camp_site|wilderness_hut)$"](around:3000,$coordStr);
-              nwr["railway"="station"](around:3000,$coordStr);
+              nwr["highway"="bus_stop"](around:1500,$coordStr);
+              nwr["public_transport"="platform"]["bus"="yes"](around:1500,$coordStr);
+              nwr["railway"~"^(station|halt)$"](around:3000,$coordStr);
               nwr["amenity"="ferry_terminal"](around:3000,$coordStr);
             );
             out center tags;
@@ -278,6 +280,10 @@ class OsmPoiRepository(private val context: Context) {
         val elements = root["elements"] as? List<Map<String, Any>> ?: return OsmPoiResult()
         val shelters = mutableListOf<ShelterEntity>()
         val pois = mutableListOf<PoiEntity>()
+        val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(context)
+        val defaultBusStopName = runCatching {
+            localizedCtx.getString(com.example.R.string.osm_default_bus_stop_name)
+        }.getOrDefault("Busstoppested")
 
         for (el in elements) {
             val type = el["type"] as? String ?: continue
@@ -326,6 +332,9 @@ class OsmPoiRepository(private val context: Context) {
             val tourism = tags["tourism"]
             val railway = tags["railway"]
             val manMade = tags["man_made"]
+            val highway = tags["highway"]
+            val publicTransport = tags["public_transport"]
+            val bus = tags["bus"]
 
             // 1. Shelter or Camp site
             if (amenity == "shelter" || tourism == "camp_site" || tourism == "wilderness_hut") {
@@ -419,7 +428,26 @@ class OsmPoiRepository(private val context: Context) {
                     )
                 )
             }
-            // 5. Station
+            // 5. Bus stop (before station branch)
+            else if (highway == "bus_stop" || (publicTransport == "platform" && bus == "yes")) {
+                pois.add(
+                    PoiEntity(
+                        id = "osm_${type}_$id",
+                        type = "bus_stop",
+                        name = if (!name.isNullOrBlank()) name else defaultBusStopName,
+                        lat = lat,
+                        lng = lng,
+                        access = access,
+                        fee = false,
+                        openingHours = openingHours,
+                        operator = operator,
+                        website = website,
+                        source = "osm",
+                        fetchedAt = now
+                    )
+                )
+            }
+            // 6. Station or Halt
             else if (railway == "station" || railway == "halt") {
                 pois.add(
                     PoiEntity(
@@ -438,7 +466,7 @@ class OsmPoiRepository(private val context: Context) {
                     )
                 )
             }
-            // 6. Ferry Terminal
+            // 7. Ferry Terminal
             else if (amenity == "ferry_terminal") {
                 pois.add(
                     PoiEntity(
@@ -459,6 +487,24 @@ class OsmPoiRepository(private val context: Context) {
             }
         }
 
-        return OsmPoiResult(shelters = shelters, pois = pois)
+        // Merge bus stops with the same name within 60 m (the two sides of a road) into one
+        val mergedPois = mutableListOf<PoiEntity>()
+        for (poi in pois) {
+            if (poi.type == "bus_stop") {
+                val normName = poi.name.trim().lowercase()
+                val existingDuplicate = mergedPois.any { existing ->
+                    existing.type == "bus_stop" &&
+                        existing.name.trim().lowercase() == normName &&
+                        com.example.util.GeoUtils.distanceMeters(existing.lat, existing.lng, poi.lat, poi.lng) <= 60.0
+                }
+                if (!existingDuplicate) {
+                    mergedPois.add(poi)
+                }
+            } else {
+                mergedPois.add(poi)
+            }
+        }
+
+        return OsmPoiResult(shelters = shelters, pois = mergedPois)
     }
 }

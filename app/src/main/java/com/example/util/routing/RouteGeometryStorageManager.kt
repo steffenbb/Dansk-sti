@@ -94,6 +94,13 @@ data class LegGeometryData(
                         rObj.put("toKm", r.toKm)
                         if (r.highway != null) rObj.put("highway", r.highway)
                         if (r.surface != null) rObj.put("surface", r.surface)
+                        if (!r.pathTags.isNullOrEmpty()) {
+                            val ptObj = JSONObject()
+                            for ((k, v) in r.pathTags) {
+                                ptObj.put(k, v)
+                            }
+                            rObj.put("pt", ptObj)
+                        }
                         rangesArr.put(rObj)
                     }
                     tsObj.put("wayTagRanges", rangesArr)
@@ -172,12 +179,22 @@ data class LegGeometryData(
                     if (rangesArr != null) {
                         for (k in 0 until rangesArr.length()) {
                             val rObj = rangesArr.getJSONObject(k)
+                            val ptObj = rObj.optJSONObject("pt")
+                            val ptMap = if (ptObj != null && ptObj.length() > 0) {
+                                val m = LinkedHashMap<String, String>()
+                                for (pk in ptObj.keys()) {
+                                    val pv = ptObj.optString(pk, "")
+                                    if (pv.isNotBlank()) m[pk] = pv
+                                }
+                                if (m.isEmpty()) null else m
+                            } else null
                             rangesList.add(
                                 com.example.data.model.WayTagRangeDto(
                                     fromKm = rObj.optDouble("fromKm", 0.0),
                                     toKm = rObj.optDouble("toKm", 0.0),
                                     highway = if (rObj.has("highway") && !rObj.isNull("highway")) rObj.optString("highway") else null,
-                                    surface = if (rObj.has("surface") && !rObj.isNull("surface")) rObj.optString("surface") else null
+                                    surface = if (rObj.has("surface") && !rObj.isNull("surface")) rObj.optString("surface") else null,
+                                    pathTags = ptMap
                                 )
                             )
                         }
@@ -489,11 +506,44 @@ object RouteGeometryStorageManager {
                 if (segType == com.example.data.model.TrailSegmentType.WALK) {
                     totalWalkingKm += leg.lengthKm
                 }
+                val derivedRanges = if (segType == com.example.data.model.TrailSegmentType.WALK &&
+                    leg.points.size >= 2 && leg.wayInfo.isNotEmpty()
+                ) {
+                    val ranges = mutableListOf<com.example.data.model.WayTagRangeDto>()
+                    var accKm = 0.0
+                    for (i in 0 until leg.points.size - 1) {
+                        val p0 = leg.points[i]
+                        val p1 = leg.points[i + 1]
+                        val edgeKm = BRouterGeoJsonParser.distanceMeters(p0.lat, p0.lng, p1.lat, p1.lng) / 1000.0
+                        val wi = leg.wayInfo.getOrNull(i)
+                        val hw = wi?.highway
+                        val surf = wi?.surface
+                        val pt = if (wi != null) com.example.util.PathTags.filterPathTags(wi.rawTags) else null
+                        val nextKm = accKm + edgeKm
+                        val last = ranges.lastOrNull()
+                        if (last != null && last.highway == hw && last.surface == surf && last.pathTags == pt) {
+                            ranges[ranges.lastIndex] = last.copy(toKm = nextKm)
+                        } else {
+                            ranges.add(
+                                com.example.data.model.WayTagRangeDto(
+                                    fromKm = accKm,
+                                    toKm = nextKm,
+                                    highway = hw,
+                                    surface = surf,
+                                    pathTags = pt
+                                )
+                            )
+                        }
+                        accKm = nextKm
+                    }
+                    ranges
+                } else emptyList()
                 segments.add(
                     com.example.data.model.TrailSegmentDto(
                         type = segType,
                         points = pts,
-                        lengthKm = leg.lengthKm
+                        lengthKm = leg.lengthKm,
+                        wayTagRanges = derivedRanges
                     )
                 )
             }
@@ -509,6 +559,7 @@ object RouteGeometryStorageManager {
         val bboxWest = allPoints.minOf { it.lng }
 
         val stats = calculateStats(orderedLegs)
+        val hasAnyWayRanges = segments.any { it.wayTagRanges.isNotEmpty() }
 
         return com.example.data.model.TrailGeometryDto(
             trailId = routeId,
@@ -525,7 +576,8 @@ object RouteGeometryStorageManager {
             bboxEast = bboxEast,
             bboxWest = bboxWest,
             osmTimestamp = null,
-            fetchedAt = System.currentTimeMillis()
+            fetchedAt = System.currentTimeMillis(),
+            pathTagsVersion = if (hasAnyWayRanges) 1 else 0
         )
     }
 }

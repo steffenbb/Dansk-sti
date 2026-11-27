@@ -312,6 +312,32 @@ internal fun RouteBuilderViewModel.updateRouteStats(transform: ((RouteBuilderSta
     }
 
     val quality = RouteSmartTools.analyzeRouteQuality(orderedLegs)
+    val pathRanges = com.example.util.PathRangeBuilder.fromLegs(orderedLegs)
+    val combinedGeoPts = RouteGeometryStorageManager.getCombinedPoints(orderedLegs)
+        .map { com.example.data.model.GeoPointDto(it.lat, it.lng, it.ele) }
+    val combinedWalkSegment = if (combinedGeoPts.size >= 2) {
+        listOf(
+            com.example.data.model.TrailSegmentDto(
+                type = com.example.data.model.TrailSegmentType.WALK,
+                points = combinedGeoPts,
+                lengthKm = stats.totalKm
+            )
+        )
+    } else emptyList()
+    val pathAnalysis = com.example.util.PathFeatureAnalyzer.analyze(
+        ranges = pathRanges,
+        pointAtKm = { km ->
+            com.example.util.routing.TrailSlicer.pointAtKm(combinedWalkSegment, km)
+                ?: combinedGeoPts.firstOrNull()
+        },
+        context = getApplication()
+    )
+    val stateWithPathFeatures = currentState.copy(
+        pathFeatureSummary = pathAnalysis.summary,
+        pathFeatureWarnings = pathAnalysis.warnings,
+        pathTagsVersion = if (pathRanges.isNotEmpty() || orderedLegs.isEmpty()) 1 else 0
+    )
+
     val (syncStages, syncDaySummaries) = if (wps.size >= 2 && orderedLegs.isNotEmpty()) {
         val overnightWps = wps.filter { it.role == WaypointRole.OVERNIGHT && !it.isHelper }
         val numDays = max(1, overnightWps.size + 1)
@@ -335,7 +361,7 @@ internal fun RouteBuilderViewModel.updateRouteStats(transform: ((RouteBuilderSta
             startDateEpochMs = currentState.startDateMillis
         )
         val summaries = buildDaySummariesSync(
-            state = currentState,
+            state = stateWithPathFeatures,
             wps = wps,
             stages = builtStages,
             corridorShelters = currentState.nearbyShelters,
@@ -353,6 +379,9 @@ internal fun RouteBuilderViewModel.updateRouteStats(transform: ((RouteBuilderSta
             stats = stats,
             timeEstimateFormatted = timeStr,
             routeQuality = quality,
+            pathFeatureSummary = pathAnalysis.summary,
+            pathFeatureWarnings = pathAnalysis.warnings,
+            pathTagsVersion = stateWithPathFeatures.pathTagsVersion,
             dayBoundaryWalkKms = dayBoundaries,
             plannedStages = syncStages,
             daySummaries = syncDaySummaries,

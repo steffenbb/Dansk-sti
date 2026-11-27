@@ -307,7 +307,14 @@ fun MarkedRouteDetailSheet(
                             modifier = Modifier.testTag("marked_route_source_osm")
                         )
                     }
-                    if (!route.symbol.isNullOrBlank()) {
+                    val parsedWaymark = com.example.util.OsmcSymbolParser.parse(route.symbol, null)
+                    if (parsedWaymark != null) {
+                        WaymarkBadge(
+                            symbol = route.symbol,
+                            colour = null,
+                            modifier = Modifier.testTag("marked_route_waymark_badge")
+                        )
+                    } else if (!route.symbol.isNullOrBlank()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = stringResource(R.string.ui_markedroutedetailsheet_afm_rkning_24),

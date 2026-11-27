@@ -1155,7 +1155,8 @@ class TrailGeometryRepository(private val context: Context) {
                 points = pts,
                 role = role,
                 highway = tags["highway"],
-                surface = tags["surface"]
+                surface = tags["surface"],
+                pathTags = com.example.util.PathTags.filterPathTags(tags)
             )
             if (role == "alternative" || role == "excursion") {
                 rawSideBranchWays.add(wayData)
@@ -1270,7 +1271,8 @@ class TrailGeometryRepository(private val context: Context) {
             bboxWest = if (minLng < 180.0) minLng else 0.0,
             osmTimestamp = osmTimestamp,
             osmRelationName = osmRelationName,
-            osmTags = rootTags
+            osmTags = rootTags,
+            pathTagsVersion = 1
         )
     }
 
@@ -1279,7 +1281,8 @@ class TrailGeometryRepository(private val context: Context) {
         val points: List<GeoPointDto>,
         val role: String,
         val highway: String? = null,
-        val surface: String? = null
+        val surface: String? = null,
+        val pathTags: Map<String, String>? = null
     )
 
     private data class InternalSegment(
@@ -1312,7 +1315,8 @@ class TrailGeometryRepository(private val context: Context) {
                         fromKm = 0.0,
                         toKm = wKm,
                         highway = w.highway,
-                        surface = w.surface
+                        surface = w.surface,
+                        pathTags = w.pathTags
                     )
                 )
                 curKm = wKm
@@ -1331,7 +1335,8 @@ class TrailGeometryRepository(private val context: Context) {
                         fromKm = 0.0,
                         toKm = wKm,
                         highway = w.highway,
-                        surface = w.surface
+                        surface = w.surface,
+                        pathTags = w.pathTags
                     )
                 )
                 curKm = wKm
@@ -1360,7 +1365,8 @@ class TrailGeometryRepository(private val context: Context) {
                         fromKm = 0.0,
                         toKm = wKm,
                         highway = w.highway,
-                        surface = w.surface
+                        surface = w.surface,
+                        pathTags = w.pathTags
                     )
                 )
                 curKm = wKm
@@ -1382,7 +1388,8 @@ class TrailGeometryRepository(private val context: Context) {
                         fromKm = startKm,
                         toKm = endKm,
                         highway = w.highway,
-                        surface = w.surface
+                        surface = w.surface,
+                        pathTags = w.pathTags
                     )
                 )
                 curKm = endKm

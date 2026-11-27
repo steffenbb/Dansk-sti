@@ -49,6 +49,8 @@ object AppLocaleHelper {
 
     fun getCurrentLocale(context: Context?): Locale = getAppLocale(context)
 
+    fun getCurrentLocaleCode(context: Context?): String = getAppLocale(context).language.ifBlank { "da" }
+
     fun configurationLocale(context: Context?): Locale = getAppLocale(context)
 
     /**
