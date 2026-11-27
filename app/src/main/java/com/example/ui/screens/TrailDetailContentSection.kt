@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.ui.graphics.graphicsLayer
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
@@ -105,6 +106,14 @@ internal fun TrailDetailDetailsSection(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val tabFade = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(1f) }
+    val firstTab = androidx.compose.runtime.remember { intArrayOf(selectedTabIndex) }
+    androidx.compose.runtime.LaunchedEffect(selectedTabIndex) {
+        if (selectedTabIndex != firstTab[0]) {
+            tabFade.snapTo(0f)
+            tabFade.animateTo(1f, androidx.compose.animation.core.tween(com.example.ui.theme.Motion.TAB_MS * 2, easing = com.example.ui.theme.Motion.EmphasizedDecelerate))
+        }
+    }
     val showOfflineConfirmDialog by viewModel.showOfflineConfirmDialog.collectAsState()
     val offlineEstimate by viewModel.offlineEstimate.collectAsState()
     val offlineDownloadError by viewModel.offlineDownloadError.collectAsState()
@@ -215,11 +224,11 @@ internal fun TrailDetailDetailsSection(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Box(modifier = Modifier.weight(1f)) {
-                            StatCardItem(label = stringResource(R.string.trail_detail_stat_length), value = "${String.format(appLocale, "%.1f", totalKm)} km")
+                            StatCardItem(label = stringResource(R.string.trail_detail_stat_length), value = "${String.format(appLocale, "%.1f", com.example.ui.theme.countUp(totalKm))} km")
                         }
                         if (hasRealElevation) {
                             Box(modifier = Modifier.weight(1f)) {
-                                StatCardItem(label = stringResource(R.string.trail_detail_stat_ascent), value = "+${elevationGain} m")
+                                StatCardItem(label = stringResource(R.string.trail_detail_stat_ascent), value = "+${com.example.ui.theme.countUp(elevationGain)} m")
                             }
                         }
                         Box(modifier = Modifier.weight(1f)) {
@@ -396,9 +405,11 @@ internal fun TrailDetailDetailsSection(
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
+            // UI audit batch 3: tab contents fade through instead of swapping instantly
             when (selectedTabIndex) {
                 0 -> {
                     item {
+                        androidx.compose.foundation.layout.Box(Modifier.graphicsLayer { alpha = tabFade.value }) {
                         val appLocale = com.example.ui.components.rememberAppLocale()
                         Column(
                             modifier = Modifier
@@ -439,9 +450,7 @@ internal fun TrailDetailDetailsSection(
                                     points = points,
                                     gainM = elevationGain,
                                     lossM = elevationLoss,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(130.dp)
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
 
@@ -485,29 +494,36 @@ internal fun TrailDetailDetailsSection(
                                 )
                             }
                         }
+                        }
                     }
                 }
 
                 1 -> {
                     if (isSyncingPois && overnightSpots.isEmpty()) {
                         item {
+                            androidx.compose.foundation.layout.Box(Modifier.graphicsLayer { alpha = tabFade.value }) {
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_henter_data_202),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(16.dp)
                             )
+                            }
                         }
                     } else if (overnightSpots.isEmpty()) {
                         item {
+                            androidx.compose.foundation.layout.Box(Modifier.graphicsLayer { alpha = tabFade.value }) {
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_ingen_overnatningssteder_reg_204),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(16.dp)
                             )
+                            }
                         }
                     } else {
                         items(overnightSpots, key = { it.id }) { spot ->
+                            androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                             OvernightSpotCard(spot = spot)
+                            }
                         }
                     }
                     trailAccommodationItems(accommodations)
@@ -517,23 +533,29 @@ internal fun TrailDetailDetailsSection(
                     val combinedPois = (waterAndToilets + shops).sortedBy { it.kmOnRoute }
                     if (isSyncingPois && combinedPois.isEmpty()) {
                         item {
+                            androidx.compose.foundation.layout.Box(Modifier.graphicsLayer { alpha = tabFade.value }) {
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_henter_data_202),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(16.dp)
                             )
+                            }
                         }
                     } else if (combinedPois.isEmpty()) {
                         item {
+                            androidx.compose.foundation.layout.Box(Modifier.graphicsLayer { alpha = tabFade.value }) {
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_ingen_vandposter_eller_butik_205),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(16.dp)
                             )
+                            }
                         }
                     } else {
                         items(combinedPois, key = { it.id }) { poi ->
+                            androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                             PoiItemCard(poi = poi)
+                            }
                         }
                     }
                     trailFoodAndLikelyWaterItems(foodPlaces, likelyWater, likelyWaterInLongestGap)
@@ -541,6 +563,7 @@ internal fun TrailDetailDetailsSection(
 
                 3 -> {
                     item {
+                        androidx.compose.foundation.layout.Box(Modifier.graphicsLayer { alpha = tabFade.value }) {
                         val appLocale = com.example.ui.components.rememberAppLocale()
                         Column(
                             modifier = Modifier
@@ -567,11 +590,13 @@ internal fun TrailDetailDetailsSection(
 
                             tideInfo?.let { TrailTideCard(info = it) }
                         }
+                        }
                     }
                 }
 
                 4 -> {
                     item {
+                        androidx.compose.foundation.layout.Box(Modifier.graphicsLayer { alpha = tabFade.value }) {
                         TrailStartEndTransportCard(
                             startPoint = points.firstOrNull(),
                             trailName = t.name,
@@ -579,14 +604,17 @@ internal fun TrailDetailDetailsSection(
                             nearestEndTransport = nearestEndTransport,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                         )
+                        }
                     }
                     if (transports.isEmpty()) {
                         item {
+                            androidx.compose.foundation.layout.Box(Modifier.graphicsLayer { alpha = tabFade.value }) {
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_ingen_togstationer_eller_f_r_207),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(16.dp)
                             )
+                            }
                         }
                     } else {
                         val visibleTransports = if (showAllTransportStops || transports.size <= 8) {
@@ -595,10 +623,13 @@ internal fun TrailDetailDetailsSection(
                             transports.take(8)
                         }
                         items(visibleTransports, key = { it.id }) { trans ->
+                            androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                             PoiItemCard(poi = trans)
+                            }
                         }
                         if (!showAllTransportStops && transports.size > 8) {
                             item(key = "transport_show_all_stops_row") {
+                                androidx.compose.foundation.layout.Box(Modifier.graphicsLayer { alpha = tabFade.value }) {
                                 Card(
                                     shape = com.example.ui.theme.TileShape,
                                     colors = CardDefaults.cardColors(
@@ -627,6 +658,7 @@ internal fun TrailDetailDetailsSection(
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                     }
+                                }
                                 }
                             }
                         }

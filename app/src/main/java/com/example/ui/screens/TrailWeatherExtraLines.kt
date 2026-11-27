@@ -1,6 +1,11 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Air
+import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.filled.Thunderstorm
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -33,43 +38,52 @@ fun TrailWeatherExtraLines(weather: TrailWeatherInfo) {
     Column(modifier = Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         weather.windSpeedMs?.let { speed ->
             val speedText = String.format(appLocale, "%.1f", speed)
-            Text(
-                text = weather.windDirectionDeg?.let {
-                    stringResource(R.string.weather_wind_from_fmt, speedText, WindAssessment.compassDanish(it))
-                } ?: stringResource(R.string.weather_wind_speed_fmt, speedText),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.testTag("trail_weather_wind")
-            )
+            com.example.ui.components.IconFactLine(Icons.Default.Air, MaterialTheme.colorScheme.onSurfaceVariant) {
+                Text(
+                    text = weather.windDirectionDeg?.let {
+                        stringResource(R.string.weather_wind_from_fmt, speedText, WindAssessment.compassDanish(it))
+                    } ?: stringResource(R.string.weather_wind_speed_fmt, speedText),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("trail_weather_wind")
+                )
+            }
         }
         val temp = weather.tempC
         val feels = weather.apparentTempC
         if (temp != null && feels != null && abs(feels - temp) >= 2.0) {
-            Text(
-                text = stringResource(R.string.weather_feels_like_fmt, feels.roundToInt()),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.testTag("trail_weather_feels_like")
-            )
-        }
-        weather.uvIndexMaxToday?.let { uv ->
-            uvLevelRes(uv)?.let { res ->
+            com.example.ui.components.IconFactLine(Icons.Default.Thermostat, MaterialTheme.colorScheme.onSurfaceVariant) {
                 Text(
-                    text = stringResource(res, String.format(appLocale, "%.0f", uv)),
+                    text = stringResource(R.string.weather_feels_like_fmt, feels.roundToInt()),
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (uv >= 6.0) DanskStiTheme.colors.warning else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("trail_weather_uv")
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("trail_weather_feels_like")
                 )
             }
         }
+        weather.uvIndexMaxToday?.let { uv ->
+            uvLevelRes(uv)?.let { res ->
+                com.example.ui.components.IconFactLine(Icons.Default.WbSunny, if (uv >= 6.0) DanskStiTheme.colors.warning else MaterialTheme.colorScheme.onSurfaceVariant) {
+                    Text(
+                        text = stringResource(res, String.format(appLocale, "%.0f", uv)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (uv >= 6.0) DanskStiTheme.colors.warning else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("trail_weather_uv")
+                    )
+                }
+            }
+        }
         weather.severeAlert?.let { alert ->
-            Text(
-                text = alert,
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold,
-                color = DanskStiTheme.colors.danger,
-                modifier = Modifier.testTag("trail_weather_alert")
-            )
+            com.example.ui.components.IconFactLine(Icons.Default.Thunderstorm, DanskStiTheme.colors.danger) {
+                Text(
+                    text = alert,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = DanskStiTheme.colors.danger,
+                    modifier = Modifier.testTag("trail_weather_alert")
+                )
+            }
         }
     }
 }
+

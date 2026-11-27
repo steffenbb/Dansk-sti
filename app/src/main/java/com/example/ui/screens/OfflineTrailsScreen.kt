@@ -431,6 +431,7 @@ fun OfflineTrailsScreen(
                 }
             } else {
                 items(downloadedTrails, key = { it.trailId }) { item ->
+                    androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                     val appLocale = com.example.ui.components.rememberAppLocale()
                     val itemMb = String.format(appLocale, "%.1f", item.sizeBytes / (1024.0 * 1024.0))
                     val downloadedLabel = formatDownloadedDateDanish(item.downloadedAt, appLocale)
@@ -524,6 +525,7 @@ fun OfflineTrailsScreen(
                                 )
                             }
                         }
+                    }
                     }
                 }
             }

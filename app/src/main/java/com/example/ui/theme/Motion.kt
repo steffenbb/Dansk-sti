@@ -209,3 +209,4 @@ fun countUp(target: Double, durationMs: Int = Motion.DATA_MS): Double {
 @Composable
 fun countUp(target: Int, durationMs: Int = Motion.DATA_MS): Int =
     countUp(target.toDouble(), durationMs).let { if (it == target.toDouble()) target else kotlin.math.round(it).toInt() }
+

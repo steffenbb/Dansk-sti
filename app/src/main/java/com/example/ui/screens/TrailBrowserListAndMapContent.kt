@@ -172,6 +172,7 @@ internal fun TrailBrowserListContent(
                         items = nearbyTrails.take(gridColumns),
                         key = { "near_${it.id}" }
                     ) { trail ->
+                        androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                         val metrics = trailMetrics[trail.id]
                         val points = allGeometries[trail.id] ?: metrics?.geometryPoints
                         val isSaved = savedTrailIds.contains(trail.id)
@@ -189,6 +190,7 @@ internal fun TrailBrowserListContent(
                             onClick = { onTrailClick(trail.id) },
                             testTagOverride = "near_trail_card_${trail.id}"
                         )
+                        }
                     }
                 }
 
@@ -215,16 +217,19 @@ internal fun TrailBrowserListContent(
                         items = shortMarkedRoutesNearYou,
                         key = { "short_marked_near_${it.osmRelationId}" }
                     ) { route ->
+                        androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                         ShortMarkedRouteNearYouCard(
                             route = route,
                             onClick = { onSelectMarkedRoute(route) }
                         )
+                        }
                     }
                 } else if (shortTrailsNearYou.isNotEmpty()) {
                     gridItems(
                         items = shortTrailsNearYou,
                         key = { "short_near_${it.id}" }
                     ) { trail ->
+                        androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                         val metrics = trailMetrics[trail.id]
                         val points = allGeometries[trail.id] ?: metrics?.geometryPoints
                         val isSaved = savedTrailIds.contains(trail.id)
@@ -242,6 +247,7 @@ internal fun TrailBrowserListContent(
                             onClick = { onTrailClick(trail.id) },
                             testTagOverride = "short_near_trail_card_${trail.id}"
                         )
+                        }
                     }
                 }
 
@@ -265,6 +271,7 @@ internal fun TrailBrowserListContent(
                         items = savedTrails,
                         key = { "saved_${it.id}" }
                     ) { trail ->
+                        androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                         val metrics = trailMetrics[trail.id]
                         val points = allGeometries[trail.id] ?: metrics?.geometryPoints
                         TrailCard(
@@ -281,6 +288,7 @@ internal fun TrailBrowserListContent(
                             onClick = { onTrailClick(trail.id) },
                             testTagOverride = "saved_trail_card_${trail.id}"
                         )
+                        }
                     }
                 }
 
@@ -299,6 +307,7 @@ internal fun TrailBrowserListContent(
                     items = trails,
                     key = { it.id }
                 ) { trail ->
+                    androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                     val metrics = trailMetrics[trail.id]
                     val points = allGeometries[trail.id] ?: metrics?.geometryPoints
                     val isSaved = savedTrailIds.contains(trail.id)
@@ -316,6 +325,7 @@ internal fun TrailBrowserListContent(
                         onBookmarkClick = { onToggleBookmark(trail.id) },
                         onClick = { onTrailClick(trail.id) }
                     )
+                    }
                 }
 
                 item(key = "section_more_marked_routes_header", span = { GridItemSpan(maxLineSpan) }) {
@@ -335,6 +345,7 @@ internal fun TrailBrowserListContent(
                         items = moreMarkedRoutes,
                         key = { "discovered_${it.osmRelationId}" }
                     ) { route ->
+                        androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                         val targetTrailId = "trail_osm_${route.osmRelationId}"
                         val activeProg = downloadProgress[targetTrailId]
                         val isDownloadingThis = downloadingDiscoveredRelationId == route.osmRelationId || activeProg != null
@@ -348,6 +359,7 @@ internal fun TrailBrowserListContent(
                                 }
                             }
                         )
+                        }
                     }
                 }
             }

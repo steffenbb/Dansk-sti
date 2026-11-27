@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -368,9 +369,12 @@ internal fun NavigationExpandedAheadDrawer(
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.animateContentSize(com.example.ui.theme.Motion.enter())
+                ) {
                     aheadItems.take(5).forEach { item ->
-                        AheadItemRow(item = item)
+                        androidx.compose.runtime.key(item.type, item.title) { AheadItemRow(item = item) }
                     }
                 }
             }

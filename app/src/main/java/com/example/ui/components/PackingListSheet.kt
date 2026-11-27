@@ -261,6 +261,7 @@ fun PackingListContent(
                     )
                 }
                 items(categoryItems, key = { it.id }) { gearItem ->
+                    androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                     Surface(
                         shape = com.example.ui.theme.TileShape,
                         color = if (gearItem.isPacked) {
@@ -328,6 +329,7 @@ fun PackingListContent(
                                 )
                             }
                         }
+                    }
                     }
                 }
             }

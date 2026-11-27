@@ -160,7 +160,7 @@ fun LazyListScope.trailAccommodationItems(accommodations: List<PoiSpotItem>) {
             SectionNote(stringResource(R.string.trail_accommodation_empty), "trail_accommodation_empty")
         }
     } else {
-        items(accommodations, key = { it.id }) { PoiItemCard(poi = it) }
+        items(accommodations, key = { it.id }) { androidx.compose.foundation.layout.Box(Modifier.animateItem()) { PoiItemCard(poi = it) } }
     }
 }
 
@@ -179,7 +179,7 @@ fun LazyListScope.trailFoodAndLikelyWaterItems(
     if (foodPlaces.isEmpty()) {
         item(key = "food_empty") { SectionNote(stringResource(R.string.trail_food_empty), "trail_food_empty") }
     } else {
-        items(foodPlaces, key = { it.id }) { PoiItemCard(poi = it) }
+        items(foodPlaces, key = { it.id }) { androidx.compose.foundation.layout.Box(Modifier.animateItem()) { PoiItemCard(poi = it) } }
     }
     if (likelyWater.isNotEmpty() || likelyWaterInLongestGap != null) {
         item(key = "likely_water_heading") {
@@ -201,7 +201,7 @@ fun LazyListScope.trailFoodAndLikelyWaterItems(
                 )
             }
         }
-        items(likelyWater, key = { it.id }) { PoiItemCard(poi = it) }
+        items(likelyWater, key = { it.id }) { androidx.compose.foundation.layout.Box(Modifier.animateItem()) { PoiItemCard(poi = it) } }
     }
 }
 

@@ -12,7 +12,9 @@ import com.example.util.TideRelevance
 data class TrailTideInfo(
     val stationName: String,
     val distanceKm: Double,
-    val days: List<Pair<Int, String>> // day offset (0 = today, 1 = tomorrow) to the tide line
+    val days: List<Pair<Int, String>>, // day offset (0 = today, 1 = tomorrow) to the tide line
+    /** The same DMI high/low events per day offset, for the 24-hour timeline (UI audit batch 3). */
+    val dayEvents: Map<Int, List<com.example.data.repository.TideEvent>> = emptyMap()
 )
 
 internal object TrailTides {
@@ -28,12 +30,16 @@ internal object TrailTides {
         if (points.isEmpty()) return null
         val nearest = TideRelevance.nearestStation(points, tideRepo.getStations(nowMs, allowNetwork = online)) ?: return null
         val hasTidal = pathWarnings.any { it.type == PathFeatureType.TIDAL }
+        val dayEvents = HashMap<Int, List<com.example.data.repository.TideEvent>>()
         val days = (0..1).mapNotNull { offset ->
             val dayMs = com.example.util.CopenhagenTime.localMidnightPlus(nowMs, offset, 12 * 60)
             val events = tideRepo.getPredictions(nearest.station, dayMs, nowMs, allowNetwork = online)
-            if (TideRelevance.isRelevant(events, hasTidal)) offset to TideRelevance.dayLine(events, context) else null
+            if (TideRelevance.isRelevant(events, hasTidal)) {
+                dayEvents[offset] = events
+                offset to TideRelevance.dayLine(events, context)
+            } else null
         }
         if (days.isEmpty()) return null
-        return TrailTideInfo(nearest.station.name, nearest.distanceKm, days)
+        return TrailTideInfo(nearest.station.name, nearest.distanceKm, days, dayEvents)
     }
 }

@@ -1,6 +1,14 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import com.example.data.repository.RestrictedAreaKind
+import com.example.ui.theme.RestrictedMilitaryColor
+import com.example.ui.theme.RestrictedReserveColor
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -52,14 +60,28 @@ fun TrailSafetyAccessCard(
                 color = MaterialTheme.colorScheme.onSurface
             )
             items.forEach { item ->
+                // UI audit batch 3: a coloured edge per kind, matching the map (military red, reserve orange, other warnings amber)
+                val edgeColor = when (item.areaCrossing?.area?.kind) {
+                    RestrictedAreaKind.MILITARY -> RestrictedMilitaryColor
+                    RestrictedAreaKind.WILDLIFE_RESERVE -> RestrictedReserveColor
+                    null -> warningColor
+                }
                 Row(
                     verticalAlignment = Alignment.Top,
-                    modifier = if (onItemClick != null) Modifier.fillMaxWidth().clickable { onItemClick(item) } else Modifier
+                    modifier = (if (onItemClick != null) Modifier.fillMaxWidth().clickable { onItemClick(item) } else Modifier)
+                        .height(IntrinsicSize.Min)
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .fillMaxHeight()
+                            .background(edgeColor, RoundedCornerShape(2.dp))
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Icon(
                         imageVector = if (item.isRestrictedArea) Icons.Default.Shield else Icons.Default.Warning,
                         contentDescription = null,
-                        tint = warningColor,
+                        tint = edgeColor,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))

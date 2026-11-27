@@ -336,6 +336,7 @@ fun SavedPlansScreen(
                             verticalArrangement = Arrangement.spacedBy(Spacing.s3)
                         ) {
                             items(savedPlans, key = { "plan_${it.id}" }) { plan ->
+                                androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                                 val hasOfflinePlan = downloadedTrails.any { it.trailId == "plan:${plan.id}" }
                                 SwipeToDeleteWrapper(
                                     itemKey = "plan_${plan.id}",
@@ -372,6 +373,7 @@ fun SavedPlansScreen(
                                         }
                                     )
                                 }
+                                }
                             }
                         }
                     }
@@ -400,6 +402,7 @@ fun SavedPlansScreen(
                             verticalArrangement = Arrangement.spacedBy(Spacing.s3)
                         ) {
                             items(customRoutes, key = { "custom_${it.id}" }) { route ->
+                                androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                                 val offlineItem = downloadedTrails.find { it.trailId == "route:${route.id}" }
                                 val currentHash = routeGeometryHashes[route.id]
                                 val isOfflineOutdated = offlineItem?.geometryHash != null &&
@@ -432,9 +435,11 @@ fun SavedPlansScreen(
                                         }
                                     )
                                 }
+                                }
                             }
 
                             items(savedTrails, key = { "saved_trail_${it.id}" }) { trail ->
+                                androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                                 SwipeToDeleteWrapper(
                                     itemKey = "saved_trail_${trail.id}",
                                     onDismissed = {
@@ -450,6 +455,7 @@ fun SavedPlansScreen(
                                             showUndoSnackbar(trail.name)
                                         }
                                     )
+                                }
                                 }
                             }
                         }
@@ -479,6 +485,7 @@ fun SavedPlansScreen(
                             verticalArrangement = Arrangement.spacedBy(Spacing.s3)
                         ) {
                             items(customWaypoints, key = { "wp_${it.id}" }) { wp ->
+                                androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                                 SwipeToDeleteWrapper(
                                     itemKey = "wp_${wp.id}",
                                     onDismissed = {
@@ -498,6 +505,7 @@ fun SavedPlansScreen(
                                             showUndoSnackbar("Foto (${wp.name})")
                                         }
                                     )
+                                }
                                 }
                             }
                         }
@@ -527,6 +535,7 @@ fun SavedPlansScreen(
                             verticalArrangement = Arrangement.spacedBy(Spacing.s3)
                         ) {
                             items(recordedDays, key = { "rec_${it.planId}_${it.dayNumber}" }) { rec ->
+                                androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                                 SwipeToDeleteWrapper(
                                     itemKey = "rec_${rec.planId}_${rec.dayNumber}",
                                     onDismissed = {
@@ -544,6 +553,7 @@ fun SavedPlansScreen(
                                             showUndoSnackbar("Dag ${rec.dayNumber}")
                                         }
                                     )
+                                }
                                 }
                             }
                         }
@@ -611,6 +621,7 @@ fun SavedPlansScreen(
                             }
                         } else {
                             items(downloadedTrails, key = { "offline_${it.trailId}" }) { item ->
+                                androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                                 val customRouteId = item.trailId.removePrefix("route:").toLongOrNull()
                                 val currentHash = if (customRouteId != null) routeGeometryHashes[customRouteId] else null
                                 val isOutdated = item.geometryHash != null &&
@@ -632,6 +643,7 @@ fun SavedPlansScreen(
                                             showUndoSnackbar(item.trailName)
                                         }
                                     )
+                                }
                                 }
                             }
                         }

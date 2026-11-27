@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -152,6 +154,8 @@ fun RouteElevationProfileChart(
     val displayMaxEle = maxEle + elePadding
     val eleRange = (displayMaxEle - displayMinEle).let { if (it.isFinite() && it > 0f) it else 10f }
 
+    val chartReveal = remember { androidx.compose.animation.core.Animatable(0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { chartReveal.animateTo(1f, com.example.ui.theme.Motion.data()) }
     var scrubFraction by remember { mutableFloatStateOf(-1f) }
     var scrubbedPoint by remember { mutableStateOf<RoutePoint3D?>(null) }
     var scrubbedKm by remember { mutableFloatStateOf(0f) }
@@ -356,9 +360,16 @@ fun RouteElevationProfileChart(
                 lineTo(lastX, height)
                 close()
             }
+            // UI audit batch 3: soft gradient under the line, drawn in left to right once per visit
+            clipRect(right = width * chartReveal.value) {
             drawPath(
                 path = fillPath,
-                color = lowSlopeColor.copy(alpha = 0.20f)
+                brush = Brush.verticalGradient(
+                    0f to lowSlopeColor.copy(alpha = 0.32f),
+                    1f to lowSlopeColor.copy(alpha = 0.03f),
+                    startY = yCoords.minOrNull() ?: 0f,
+                    endY = height
+                )
             )
 
             for (i in 0 until validPoints.size - 1) {
@@ -386,6 +397,8 @@ fun RouteElevationProfileChart(
                     strokeWidth = 3.5.dp.toPx(),
                     cap = StrokeCap.Round
                 )
+            }
+
             }
 
             // Draw day boundaries and overnight markers on the elevation profile when totalKm > 0

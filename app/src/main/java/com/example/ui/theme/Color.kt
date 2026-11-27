@@ -82,3 +82,7 @@ val WaymarkSignInk = Color(0xFF212121)
 
 // Surface mix bar (Phase B): sand share
 val SurfaceSandColor = Color(0xFFD7B377)
+
+// Restricted-area colours, the same as the map's area outlines (UI audit batch 3: coloured edges in lists)
+val RestrictedMilitaryColor = Color(0xFFD32F2F)
+val RestrictedReserveColor = Color(0xFFF57C00)

@@ -15,6 +15,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.Waves
+import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.NightShelter
@@ -373,18 +378,31 @@ fun PlannerDaySummaryCard(
                 }
             }
 
+            // UI audit batch 3: the day's facts in one compact block, one small icon per line (warnings stay above, unchanged)
+            val hasFacts = day.windLine != null || day.tideLine != null || day.uvLine != null || day.foodStops.isNotEmpty() || day.highlights.isNotEmpty()
+            if (hasFacts) {
+            Surface(
+                shape = com.example.ui.theme.ChipShape,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+            val factTint = MaterialTheme.colorScheme.onSurfaceVariant
             // Phase D7: wind relative to the walking direction, and UV for that date (only when data exists)
             day.windLine?.let {
-                Text(text = it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("day_card_wind_${day.dayNumber}"))
+                com.example.ui.components.IconFactLine(Icons.Default.Air, factTint) { Text(text = it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("day_card_wind_${day.dayNumber}")) }
             }
             day.tideLine?.let {
-                Text(text = it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("day_card_tide_${day.dayNumber}"))
+                com.example.ui.components.IconFactLine(Icons.Default.Waves, factTint) { Text(text = it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("day_card_tide_${day.dayNumber}")) }
             }
             day.uvLine?.let {
-                Text(text = it, style = MaterialTheme.typography.labelSmall, color = dsColors.warning,
-                    modifier = Modifier.testTag("day_card_uv_${day.dayNumber}"))
+                com.example.ui.components.IconFactLine(Icons.Default.WbSunny, dsColors.warning) { Text(text = it, style = MaterialTheme.typography.labelSmall, color = dsColors.warning,
+                    modifier = Modifier.testTag("day_card_uv_${day.dayNumber}")) }
             }
 
             // Phase C7: food stops with arrival time and open state, and highlights on the day's stretch
@@ -394,12 +412,12 @@ fun PlannerDaySummaryCard(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                     modifier = Modifier.testTag("day_card_food_${day.dayNumber}")
                 ) {
-                    Text(
+                    com.example.ui.components.IconFactLine(Icons.Default.Restaurant, factTint) { Text(
                         text = stringResource(R.string.planner_food_stops_label),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
-                    )
+                    ) }
                     day.foodStops.forEach { stop ->
                         Text(
                             text = stringResource(
@@ -416,12 +434,15 @@ fun PlannerDaySummaryCard(
                 }
             }
             if (day.highlights.isNotEmpty()) {
-                Text(
+                com.example.ui.components.IconFactLine(Icons.Default.Star, factTint) { Text(
                     text = stringResource(R.string.planner_highlights_fmt, day.highlights.joinToString(", ")),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("day_card_highlights_${day.dayNumber}")
-                )
+                ) }
+            }
+            }
+            }
             }
 
             if (day.overnightWaypointId != null) {

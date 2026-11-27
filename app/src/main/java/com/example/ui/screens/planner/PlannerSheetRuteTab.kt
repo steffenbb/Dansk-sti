@@ -1,5 +1,6 @@
 package com.example.ui.screens.planner
 
+import androidx.compose.animation.animateContentSize
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -87,7 +88,10 @@ internal fun PlannerRuteTabContent(
     onOpenSaveDialog: () -> Unit,
     onStartNavigation: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.animateContentSize(com.example.ui.theme.Motion.enter())
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -148,6 +152,7 @@ internal fun PlannerRuteTabContent(
                 color = MaterialTheme.colorScheme.onSurface
             )
             uiState.customUserWaypoints.forEach { customWp ->
+                androidx.compose.runtime.key(customWp.id) {
                 CustomWaypointRow(
                     waypoint = customWp,
                     onClick = { onCustomWaypointClicked(customWp) },
@@ -156,6 +161,7 @@ internal fun PlannerRuteTabContent(
                         { onDeleteCustomWaypointPhoto(customWp.id) }
                     } else null
                 )
+                }
             }
         }
     }

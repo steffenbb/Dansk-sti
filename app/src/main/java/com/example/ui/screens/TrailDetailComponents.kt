@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Shower
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Cabin
 import androidx.compose.material.icons.filled.DirectionsTransit
 import androidx.compose.material.icons.filled.Forest
@@ -401,16 +403,14 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     val facilityChips = buildList {
-                        if (spot.hasFireRing == true) add(stringResource(R.string.trail_overnight_fac_firepit))
-                        if (spot.hasOwnTap == true) add(stringResource(R.string.trail_overnight_fac_tap))
-                        if (spot.hasOwnToilet == true) add(stringResource(R.string.trail_overnight_fac_toilet))
-                        if (spot.hasShower == true) add(stringResource(R.string.trail_overnight_fac_shower))
+                        if (spot.hasFireRing == true) add(com.example.ui.components.FacilityPill(Icons.Default.LocalFireDepartment, stringResource(R.string.trail_overnight_fac_firepit)))
+                        if (spot.hasOwnTap == true) add(com.example.ui.components.FacilityPill(Icons.Default.WaterDrop, stringResource(R.string.trail_overnight_fac_tap)))
+                        if (spot.hasOwnToilet == true) add(com.example.ui.components.FacilityPill(Icons.Default.Wc, stringResource(R.string.trail_overnight_fac_toilet)))
+                        if (spot.hasShower == true) add(com.example.ui.components.FacilityPill(Icons.Default.Shower, stringResource(R.string.trail_overnight_fac_shower)))
                     }
                     if (facilityChips.isNotEmpty()) {
-                        Text(
-                            text = facilityChips.joinToString(" · "),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                        com.example.ui.components.FacilityPillRow(
+                            pills = facilityChips,
                             modifier = Modifier.testTag("overnight_facilities_${spot.id}")
                         )
                     }
