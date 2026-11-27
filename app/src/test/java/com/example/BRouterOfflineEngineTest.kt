@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "da")
 class BRouterOfflineEngineTest {
 
     private lateinit var app: DanskStiApp

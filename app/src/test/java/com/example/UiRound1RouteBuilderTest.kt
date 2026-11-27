@@ -27,7 +27,7 @@ import org.robolectric.annotation.Config
 import android.os.Looper
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE, qualifiers = "da")
 class UiRound1RouteBuilderTest {
 
     private lateinit var app: Application

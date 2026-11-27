@@ -13,8 +13,8 @@ android {
     applicationId = "com.aistudio.dansksti.hktvwp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 24
-    versionName = "24.0"
+    versionCode = 25
+    versionName = "25.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

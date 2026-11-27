@@ -43,7 +43,7 @@ import java.io.File
 import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE, qualifiers = "da")
 class RoutePhase11Test {
 
     private lateinit var app: Application

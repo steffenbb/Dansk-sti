@@ -49,12 +49,16 @@ enum class AccessLandType(
         }
 
     val fullRulesDanish: String
-        get() = when (this) {
-            PUBLIC_FOREST -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_public_forest_rules) ?: "Offentlig skov"
-            PRIVATE_FOREST -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_private_forest_rules) ?: "Privat skov"
-            UNCULTIVATED_LAND -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_uncultivated_rules) ?: "Udyrket areal"
-            BEACH -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_beach_rules) ?: "Strand og kyststrækning"
-            CULTIVATED_FIELD -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_cultivated_rules) ?: "Dyrket mark"
+        get() {
+            val baseRule = when (this) {
+                PUBLIC_FOREST -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_public_forest_rules) ?: "Offentlig skov"
+                PRIVATE_FOREST -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_private_forest_rules) ?: "Privat skov"
+                UNCULTIVATED_LAND -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_uncultivated_rules) ?: "Udyrket areal"
+                BEACH -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_beach_rules) ?: "Strand og kyststrækning"
+                CULTIVATED_FIELD -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.access_type_cultivated_rules) ?: "Dyrket mark"
+            }
+            val disclaimer = GENERAL_DISCLAIMER
+            return if (baseRule.contains(disclaimer)) baseRule else "$baseRule\n$disclaimer"
         }
 
     companion object {

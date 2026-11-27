@@ -1127,7 +1127,7 @@ Sent from Dansk Sti</string>
     <string name="access_type_military_title">Military area / Training ground</string>
     <string name="access_type_military_short">Access only when no firing exercises take place</string>
     <string name="access_type_military_rules">Military training areas are often open to the public on foot when no exercises or live firing are taking place. Always check military firing schedules and respect warning flags, balls and barriers.</string>
-    <string name="access_general_disclaimer">Guidance data from OpenStreetMap &amp; MiljøGIS — always follow on-site signage.</string>
+    <string name="access_general_disclaimer">Always follow signs on site - the owner may have legal restrictions.</string>
     <string name="drop_pin_access_public_forest">Public forest — open to walkers 24/7</string>
     <string name="drop_pin_access_private_forest">Private forest — trails and roads only, 06:00 to sunset</string>
     <string name="drop_pin_access_unknown_owner">Forest (ownership unknown in OSM — follow on-site signage)</string>

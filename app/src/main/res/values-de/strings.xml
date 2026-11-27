@@ -1127,7 +1127,7 @@ Gesendet von Dansk Sti</string>
     <string name="access_type_military_title">Militärgebiet / Übungsgelände</string>
     <string name="access_type_military_short">Zugang nur außerhalb von Schießübungen</string>
     <string name="access_type_military_rules">Militärische Übungsplätze sind oft für Fußgänger zugänglich, wenn keine Übungen oder Schießbetrieb stattfinden. Prüfe stets die Schießzeiten und beachte Warnflaggen, Kugeln und Absperrungen.</string>
-    <string name="access_general_disclaimer">Unverbindliche Daten von OpenStreetMap &amp; MiljøGIS — beachte stets die Beschilderung vor Ort.</string>
+    <string name="access_general_disclaimer">Beachte stets die Schilder vor Ort – der Eigentümer kann gesetzliche Einschränkungen festlegen.</string>
     <string name="drop_pin_access_public_forest">Öffentlicher Wald — freier Zugang zu Fuß rund um die Uhr</string>
     <string name="drop_pin_access_private_forest">Privatwald — nur auf Wegen und Straßen, 06:00 bis Sonnenuntergang</string>
     <string name="drop_pin_access_unknown_owner">Wald (Eigentümer in OSM unbekannt — Beschilderung vor Ort beachten)</string>

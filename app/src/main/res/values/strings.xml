@@ -1149,7 +1149,7 @@
     <string name="access_type_military_title">Militært område / Øvelsesterræn</string>
     <string name="access_type_military_short">Adgang kun når der ikke er skydeøvelser</string>
     <string name="access_type_military_rules">Forsvarets øvelsesterræn er ofte åbent for offentligheden til fods, når der ikke afholdes øvelser eller skydning. Tjek altid Forsvarets skydetider og respekter advarselsflag, kugler og afspærringer.</string>
-    <string name="access_general_disclaimer">Vejledende data fra OpenStreetMap &amp; MiljøGIS — følg altid skiltning på stedet.</string>
+    <string name="access_general_disclaimer">Følg altid skilte på stedet - ejeren kan have lovlige begrænsninger.</string>
     <string name="drop_pin_access_public_forest">Offentlig skov – fri færdsel til fods døgnet rundt</string>
     <string name="drop_pin_access_private_forest">Privat skov – kun på stier og veje, kl. 06 til solnedgang</string>
     <string name="drop_pin_access_unknown_owner">Skov (ejerskab ukendt i OSM – følg skiltning på stedet)</string>

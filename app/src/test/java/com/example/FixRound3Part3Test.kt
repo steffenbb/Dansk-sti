@@ -47,7 +47,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE, qualifiers = "da")
 class FixRound3Part3Test {
 
     private lateinit var app: Application

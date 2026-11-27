@@ -27,7 +27,7 @@ import org.robolectric.annotation.Config
 import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "da")
 class RoutingEngineTest {
 
     private lateinit var database: DanskStiDatabase

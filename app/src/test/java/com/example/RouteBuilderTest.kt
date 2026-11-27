@@ -25,7 +25,7 @@ import org.robolectric.annotation.Config
 import java.io.ByteArrayInputStream
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], manifest = Config.NONE)
+@Config(sdk = [34], manifest = Config.NONE, qualifiers = "da")
 class RouteBuilderTest {
 
     private lateinit var app: Application
