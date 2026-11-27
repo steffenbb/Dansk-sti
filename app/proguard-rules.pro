@@ -24,6 +24,19 @@
 -keep class com.example.data.local.** { *; }
 -keep class com.example.util.routing.** { *; }
 
+# Cache DTOs in data.repository read and written with Moshi reflection (KotlinJsonAdapterFactory).
+# Without these rules R8 full mode narrows field types (List -> ArrayList), which Moshi rejects:
+# "No JsonAdapter for class java.util.ArrayList ... for class TideStationCache" at app start.
+-keep class com.example.data.repository.OsmPoiResult { *; }
+-keep class com.example.data.repository.TideStation { *; }
+-keep class com.example.data.repository.TideEvent { *; }
+-keep class com.example.data.repository.TideStationCache { *; }
+-keep class com.example.data.repository.TideDayCache { *; }
+-keep class com.example.data.repository.RestrictedArea { *; }
+-keep class com.example.data.repository.RestrictedAreaCache { *; }
+-keep class com.example.data.repository.AreaBbox { *; }
+-keep enum com.example.data.repository.RestrictedAreaKind { *; }
+
 # Keep Moshi & Kotlin reflection metadata
 -keep class kotlin.Metadata { *; }
 -keep @com.squareup.moshi.JsonClass class * { *; }

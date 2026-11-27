@@ -120,8 +120,9 @@ class TideRepository(private val context: Context) {
     internal var customFetcher: ((url: String) -> String)? = null
 
     private val dir: File get() = File(context.filesDir, "tides").apply { mkdirs() }
-    private val stationsAdapter = moshi.adapter(TideStationCache::class.java)
-    private val dayAdapter = moshi.adapter(TideDayCache::class.java)
+    // Lazy: a JSON adapter problem must never stop the repository (and the app) from starting
+    private val stationsAdapter by lazy { moshi.adapter(TideStationCache::class.java) }
+    private val dayAdapter by lazy { moshi.adapter(TideDayCache::class.java) }
 
     private fun get(url: String): String {
         customFetcher?.let { return it(url) }

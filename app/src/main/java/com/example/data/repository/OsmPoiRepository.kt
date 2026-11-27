@@ -23,7 +23,7 @@ class OsmPoiRepository(private val context: Context) {
     private val cacheDir: File
         get() = File(context.filesDir, "osm_pois").apply { if (!exists()) mkdirs() }
 
-    private val resultAdapter = moshi.adapter(OsmPoiResult::class.java)
+    private val resultAdapter by lazy { moshi.adapter(OsmPoiResult::class.java) }
 
     suspend fun fetchPoisForTrail(
         trailId: String,
@@ -539,9 +539,9 @@ class OsmPoiRepository(private val context: Context) {
     @VisibleForTesting
     internal var customExtrasChunkFetcher: (suspend (simplifiedChunk: List<GeoPointDto>) -> List<PoiEntity>)? = null
 
-    private val poiListAdapter = moshi.adapter<List<PoiEntity>>(
+    private val poiListAdapter by lazy { moshi.adapter<List<PoiEntity>>(
         com.squareup.moshi.Types.newParameterizedType(List::class.java, PoiEntity::class.java)
-    )
+    ) }
 
     fun buildOverpassExtrasQuery(simplifiedPoints: List<GeoPointDto>): String {
         val c = simplifiedPoints.joinToString(",") { "${it.lat},${it.lng}" }

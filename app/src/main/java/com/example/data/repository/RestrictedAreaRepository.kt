@@ -40,7 +40,8 @@ data class RestrictedAreaCache(val fetchedAt: Long, val areas: List<RestrictedAr
 class RestrictedAreaRepository(private val context: Context) {
 
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-    private val cacheAdapter = moshi.adapter(RestrictedAreaCache::class.java)
+    // Lazy: a JSON adapter problem must never stop the repository (and the app) from starting
+    private val cacheAdapter by lazy { moshi.adapter(RestrictedAreaCache::class.java) }
     private val refreshMutex = Mutex()
 
     @Volatile
