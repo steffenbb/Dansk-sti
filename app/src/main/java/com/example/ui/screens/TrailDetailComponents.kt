@@ -3,7 +3,6 @@ package com.example.ui.screens
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -80,7 +79,7 @@ fun StatCardItem(
     value: String
 ) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = com.example.ui.theme.CardShape,
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
         modifier = Modifier.fillMaxWidth()
@@ -183,7 +182,7 @@ fun TrailOfflineDownloadDialog(
         },
         text = {
             Text(
-                text = "Hent offline-kort for $trailName ($sizeStr · ${estimate.tileCount} kortfliser)?",
+                text = stringResource(R.string.trail_offline_confirm_question_fmt, trailName, sizeStr, estimate.tileCount),
                 modifier = Modifier.testTag("trail_offline_confirm_text")
             )
         },
@@ -216,7 +215,7 @@ fun ElevationProfileCanvas(
     val lineColor = MaterialTheme.colorScheme.primary
     val warningColor = DanskStiTheme.colors.warning
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = com.example.ui.theme.CardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
         modifier = modifier
@@ -382,7 +381,7 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
     val appLocale = com.example.ui.components.rememberAppLocale()
     val warningColor = DanskStiTheme.colors.warning
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = com.example.ui.theme.TileShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
         modifier = Modifier
@@ -448,7 +447,7 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = com.example.ui.theme.ChipShape,
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     Text(
@@ -492,12 +491,12 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
                                 context.startActivity(intent)
                             } catch (_: ActivityNotFoundException) {
-                                Toast.makeText(context, context.getString(R.string.error_no_app_to_open_link), Toast.LENGTH_SHORT).show()
+                                com.example.ui.components.AppMessages.show(context.getString(R.string.error_no_app_to_open_link))
                             } catch (e: Exception) {
-                                Toast.makeText(context, context.getString(R.string.error_no_app_to_open_link), Toast.LENGTH_SHORT).show()
+                                com.example.ui.components.AppMessages.show(context.getString(R.string.error_no_app_to_open_link))
                             }
                         },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = warningColor),
                         border = BorderStroke(1.dp, warningColor),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
@@ -535,7 +534,7 @@ fun PoiItemCard(
     val openLine = openNowLine(poi)
 
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = com.example.ui.theme.TileShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
         modifier = Modifier
@@ -624,7 +623,7 @@ fun WeatherForecastCard(
 ) {
     val appLocale = com.example.ui.components.rememberAppLocale()
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = com.example.ui.theme.CardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
         modifier = Modifier
@@ -728,7 +727,7 @@ fun WeatherForecastCard(
                     ) {
                         weather.blocks24h.take(8).forEach { block ->
                             Surface(
-                                shape = RoundedCornerShape(8.dp),
+                                shape = com.example.ui.theme.ChipShape,
                                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
                                 modifier = Modifier.weight(1f)
                             ) {

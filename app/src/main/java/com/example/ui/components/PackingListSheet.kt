@@ -184,7 +184,7 @@ fun PackingListContent(
             }
 
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.primaryContainer,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
             ) {
@@ -206,7 +206,7 @@ fun PackingListContent(
         ) {
             Button(
                 onClick = { showAddDialog = true },
-                shape = RoundedCornerShape(10.dp),
+                shape = com.example.ui.theme.TileShape,
                 modifier = Modifier
                     .weight(1f)
                     .sizeIn(minHeight = 48.dp)
@@ -224,7 +224,7 @@ fun PackingListContent(
             if (otherPlans.isNotEmpty()) {
                 OutlinedButton(
                     onClick = { showCopyFromPlanDialog = true },
-                    shape = RoundedCornerShape(10.dp),
+                    shape = com.example.ui.theme.TileShape,
                     modifier = Modifier
                         .weight(1f)
                         .sizeIn(minHeight = 48.dp)
@@ -262,7 +262,7 @@ fun PackingListContent(
                 }
                 items(categoryItems, key = { it.id }) { gearItem ->
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = com.example.ui.theme.TileShape,
                         color = if (gearItem.isPacked) {
                             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                         } else {
@@ -384,7 +384,7 @@ fun PackingListContent(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     otherPlans.forEach { otherPlan ->
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
+                            shape = com.example.ui.theme.TileShape,
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier
                                 .fillMaxWidth()

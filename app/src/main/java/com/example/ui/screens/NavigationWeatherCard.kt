@@ -112,7 +112,7 @@ fun Navigation6HourWeatherCard(
     }
 
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = com.example.ui.theme.CardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
         modifier = modifier
@@ -158,7 +158,7 @@ fun Navigation6HourWeatherCard(
                 ) {
                     weather.next6Hours.take(6).forEach { block ->
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = com.example.ui.theme.ChipShape,
                             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
                             modifier = Modifier.weight(1f)
                         ) {

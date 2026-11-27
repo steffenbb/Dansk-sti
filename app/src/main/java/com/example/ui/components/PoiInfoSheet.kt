@@ -236,7 +236,7 @@ fun PoiInfoSheet(
             }
 
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
                 modifier = Modifier.fillMaxWidth()
@@ -372,7 +372,7 @@ fun PoiInfoSheet(
                     ) {
                         poiData.facilities.forEach { fac ->
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = com.example.ui.theme.TileShape,
                                 color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
                             ) {
@@ -412,7 +412,7 @@ fun PoiInfoSheet(
                         onDismiss()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = stiColors.overnight),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = com.example.ui.theme.CardShape,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp)
@@ -434,7 +434,7 @@ fun PoiInfoSheet(
                         onDismiss()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = com.example.ui.theme.CardShape,
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = 48.dp)
@@ -459,7 +459,7 @@ fun PoiInfoSheet(
                         onAddToRoute(poiData.lat, poiData.lng, poiData.name)
                         onDismiss()
                     },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = com.example.ui.theme.CardShape,
                     border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary),
                     modifier = Modifier
                         .weight(1f)
@@ -509,7 +509,7 @@ fun PoiInfoSheet(
                             Toast.makeText(context, savedToastMsg, Toast.LENGTH_SHORT).show()
                         }
                     },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = com.example.ui.theme.CardShape,
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = 48.dp)
@@ -563,7 +563,7 @@ fun PoiInfoSheet(
                             Toast.makeText(context, cannotShareMsg, Toast.LENGTH_SHORT).show()
                         }
                     },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = com.example.ui.theme.CardShape,
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = 48.dp)
@@ -616,7 +616,7 @@ fun AccessPolygonRulesDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = com.example.ui.theme.ChipShape,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     modifier = Modifier.fillMaxWidth()
                 ) {

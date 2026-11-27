@@ -245,7 +245,7 @@ internal fun BRouterOfflineDataCard(
                     Button(
                         onClick = { viewModel.updateBRouterData() },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp).testTag("btn_brouter_update")
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -256,7 +256,7 @@ internal fun BRouterOfflineDataCard(
                     Button(
                         onClick = { viewModel.downloadBRouterData() },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp).testTag("btn_brouter_download")
                     ) {
                         Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))

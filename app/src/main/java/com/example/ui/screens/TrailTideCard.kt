@@ -24,7 +24,7 @@ import com.example.ui.viewmodel.TrailTideInfo
 fun TrailTideCard(info: TrailTideInfo) {
     val appLocale = com.example.ui.components.rememberAppLocale()
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = com.example.ui.theme.CardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
         modifier = Modifier.fillMaxWidth().testTag("trail_tide_card")

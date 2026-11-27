@@ -17,6 +17,9 @@ val Shapes = Shapes(
 )
 
 val CardShape = RoundedCornerShape(16.dp)
+// UI audit batch 1: shared corner tokens (were 12 different literal radii)
+val ChipShape = RoundedCornerShape(8.dp)   // chips, small labels, inner rows
+val TileShape = RoundedCornerShape(12.dp)  // inner tiles, buttons, list rows (was 10 or 12)
 val SheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 val SheetTopShape = SheetShape
 val ButtonShape = RoundedCornerShape(16.dp)

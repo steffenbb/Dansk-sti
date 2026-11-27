@@ -303,7 +303,7 @@ fun TripDiaryEditorSection(
                         }
                     },
                     enabled = photoPaths.size < TripDiaryPhotoParser.MAX_PHOTOS_PER_DAY,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = com.example.ui.theme.TileShape,
                     modifier = Modifier
                         .sizeIn(minHeight = 48.dp)
                         .testTag("btn_diary_take_photo")
@@ -322,7 +322,7 @@ fun TripDiaryEditorSection(
                         }
                     },
                     enabled = photoPaths.size < TripDiaryPhotoParser.MAX_PHOTOS_PER_DAY,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = com.example.ui.theme.TileShape,
                     modifier = Modifier
                         .sizeIn(minHeight = 48.dp)
                         .testTag("btn_diary_pick_photo")
@@ -373,7 +373,7 @@ fun DiaryPhotoThumbnail(
     Box(
         modifier = Modifier
             .size(76.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(com.example.ui.theme.TileShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .testTag(testTag)
     ) {
@@ -492,7 +492,7 @@ fun TripDiarySummaryList(
                 TripDiaryPhotoParser.parsePhotoPaths(entry.photoPathsJson)
             }
             Surface(
-                shape = RoundedCornerShape(10.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
                 modifier = Modifier

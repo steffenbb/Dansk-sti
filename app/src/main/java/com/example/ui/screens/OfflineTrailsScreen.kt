@@ -223,7 +223,7 @@ fun OfflineTrailsScreen(
             item(key = "storage_summary") {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = com.example.ui.theme.CardShape,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                 ) {
@@ -275,7 +275,7 @@ fun OfflineTrailsScreen(
                 item(key = "trail_downloading") {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                     ) {
                         Row(
@@ -317,7 +317,7 @@ fun OfflineTrailsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("offline_refuse_error_banner"),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         colors = CardDefaults.cardColors(containerColor = danskStiColors.danger.copy(alpha = 0.14f)),
                         border = BorderStroke(1.dp, danskStiColors.danger.copy(alpha = 0.5f))
                     ) {
@@ -357,7 +357,7 @@ fun OfflineTrailsScreen(
                     )
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = com.example.ui.theme.CardShape,
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
                     ) {
@@ -398,7 +398,7 @@ fun OfflineTrailsScreen(
                 item(key = "empty_trails") {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = com.example.ui.theme.CardShape,
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                     ) {
@@ -442,7 +442,7 @@ fun OfflineTrailsScreen(
                     }
 
                     Card(
-                        shape = RoundedCornerShape(14.dp),
+                        shape = com.example.ui.theme.CardShape,
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
                         modifier = Modifier
@@ -490,7 +490,7 @@ fun OfflineTrailsScreen(
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Surface(
-                                        shape = RoundedCornerShape(8.dp),
+                                        shape = com.example.ui.theme.ChipShape,
                                         color = colorScheme.primaryContainer
                                     ) {
                                         Text(

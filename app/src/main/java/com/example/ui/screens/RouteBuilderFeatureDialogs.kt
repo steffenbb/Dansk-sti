@@ -158,7 +158,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                             }
                             items(candidates) { cand ->
                                 Card(
-                                    shape = RoundedCornerShape(10.dp),
+                                    shape = com.example.ui.theme.TileShape,
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -200,7 +200,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                         }
                                         Button(
                                             onClick = { viewModel.insertOvernightCandidate(cand) },
-                                            shape = RoundedCornerShape(8.dp),
+                                            shape = com.example.ui.theme.ChipShape,
                                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                             modifier = Modifier.heightIn(min = 30.dp)
@@ -290,7 +290,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                         },
                         enabled = !uiState.isGeneratingRundtur,
                         colors = ButtonDefaults.buttonColors(containerColor = danskStiColors.plannedRoute),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = com.example.ui.theme.ChipShape,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 38.dp)
@@ -316,7 +316,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                         )
                         uiState.rundturCandidates.forEach { candidate ->
                             Card(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = com.example.ui.theme.TileShape,
                                 border = BorderStroke(1.dp, danskStiColors.plannedRoute.copy(alpha = 0.4f)),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                 modifier = Modifier.fillMaxWidth().testTag("candidate_card_${candidate.id}")
@@ -357,7 +357,7 @@ internal fun RouteBuilderFeatureDialogsHost(
 
                                     Button(
                                         onClick = { viewModel.applyRundtur(candidate) },
-                                        shape = RoundedCornerShape(8.dp),
+                                        shape = com.example.ui.theme.ChipShape,
                                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                         modifier = Modifier
@@ -404,7 +404,7 @@ internal fun RouteBuilderFeatureDialogsHost(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = com.example.ui.theme.ChipShape,
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -442,7 +442,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                         }
                     } else if (uiState.showNearestShelterRoleChoice) {
                         Card(
-                            shape = RoundedCornerShape(10.dp),
+                            shape = com.example.ui.theme.TileShape,
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                             ),
@@ -466,7 +466,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                             com.example.util.routing.WaypointRole.OVERNIGHT
                                         )
                                     },
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = com.example.ui.theme.ChipShape,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .heightIn(min = 44.dp)
@@ -486,7 +486,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                             com.example.util.routing.WaypointRole.VIA
                                         )
                                     },
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = com.example.ui.theme.ChipShape,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .heightIn(min = 44.dp)
@@ -505,7 +505,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                     } else {
                         NearestPoiCategory.values().forEach { cat ->
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = com.example.ui.theme.TileShape,
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
                                 modifier = Modifier
@@ -636,7 +636,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                                     contentDescription = stringResource(R.string.ui_routebuilderscreen_valgt_foto_162),
                                     modifier = Modifier
                                         .height(120.dp)
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .clip(com.example.ui.theme.ChipShape)
                                 )
                             }
                         }
@@ -713,7 +713,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                             Image(
                                 bitmap = bitmap.asImageBitmap(),
                                 contentDescription = wp.name,
-                                modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(8.dp))
+                                modifier = Modifier.fillMaxWidth().height(160.dp).clip(com.example.ui.theme.ChipShape)
                             )
                         }
                         TextButton(

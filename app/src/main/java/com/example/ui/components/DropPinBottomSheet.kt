@@ -360,7 +360,7 @@ fun DropPinBottomSheet(
             // Coordinates Card (Decimal & Degrees/Minutes)
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
                 )
@@ -473,7 +473,7 @@ fun DropPinBottomSheet(
             if (showSaveForm) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = com.example.ui.theme.TileShape,
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                     )

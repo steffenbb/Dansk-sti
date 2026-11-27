@@ -1,9 +1,11 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.animation.animateContentSize
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -93,7 +95,7 @@ fun CuratedTrailDescriptionCard(
     if (!info.hasAnyContent) return
     val context = LocalContext.current
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = com.example.ui.theme.CardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
         modifier = modifier
@@ -143,7 +145,7 @@ fun CuratedTrailDescriptionCard(
                                 }
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(normalizedUrl)))
                             } catch (_: Exception) {
-                                Toast.makeText(context, context.getString(R.string.toast_no_app_for_link), Toast.LENGTH_SHORT).show()
+                                com.example.ui.components.AppMessages.show(context.getString(R.string.toast_no_app_for_link))
                             }
                         }
                         .testTag("trail_curated_official_url_text")
@@ -183,7 +185,7 @@ fun OsmRelationTagsCard(
     }
 
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = com.example.ui.theme.CardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
         modifier = modifier
@@ -285,9 +287,9 @@ fun OsmRelationTagsCard(
                                 }
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(normalizedUrl)))
                             } catch (_: ActivityNotFoundException) {
-                                Toast.makeText(context, context.getString(R.string.toast_no_app_for_link), Toast.LENGTH_SHORT).show()
+                                com.example.ui.components.AppMessages.show(context.getString(R.string.toast_no_app_for_link))
                             } catch (_: Exception) {
-                                Toast.makeText(context, context.getString(R.string.toast_no_app_for_link), Toast.LENGTH_SHORT).show()
+                                com.example.ui.components.AppMessages.show(context.getString(R.string.toast_no_app_for_link))
                             }
                         }
                         .testTag("trail_osm_tag_website")
@@ -308,24 +310,43 @@ fun TrailCardPhotoHeader(
     var bitmap by androidx.compose.runtime.remember(photo.imageUrl) {
         androidx.compose.runtime.mutableStateOf<android.graphics.Bitmap?>(null)
     }
+    // UI audit: reserve the photo's space while it loads so cards don't jump; collapse only if it fails
+    var loadFinished by androidx.compose.runtime.remember(photo.imageUrl) { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(photo.imageUrl) {
         bitmap = photoRepository.loadOrFetchPhotoBitmap(photo.imageUrl)
+        loadFinished = true
     }
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .animateContentSize(com.example.ui.theme.Motion.enter())
             .testTag("trail_card_photo_header_$trailId")
     ) {
         val bmp = bitmap
-        if (bmp != null) {
-            androidx.compose.foundation.Image(
-                bitmap = bmp.asImageBitmap(),
-                contentDescription = photo.title,
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+        if (bmp != null || !loadFinished) {
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(140.dp)
-            )
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            ) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = bmp != null,
+                    enter = androidx.compose.animation.fadeIn(com.example.ui.theme.Motion.enter()),
+                    exit = androidx.compose.animation.fadeOut(com.example.ui.theme.Motion.exit())
+                ) {
+                    if (bmp != null) {
+                        androidx.compose.foundation.Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = photo.title,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(140.dp)
+                        )
+                    }
+                }
+            }
         }
         Text(
             text = stringResource(R.string.trail_photo_attribution_fmt, photo.author, photo.license),
@@ -337,7 +358,7 @@ fun TrailCardPhotoHeader(
                     try {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(photo.commonsPageUrl)))
                     } catch (_: Exception) {
-                        Toast.makeText(context, context.getString(R.string.toast_no_app_for_link), Toast.LENGTH_SHORT).show()
+                        com.example.ui.components.AppMessages.show(context.getString(R.string.toast_no_app_for_link))
                     }
                 }
                 .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -355,7 +376,7 @@ fun ShortMarkedRouteNearYouCard(
     val appLocale = rememberAppLocale()
     val kmText = formatDanishKm(route.lengthKm, decimals = 1, locale = appLocale)
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = com.example.ui.theme.CardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -432,7 +453,7 @@ fun TrailCommonsPhotosSection(
                 bitmap = photoRepository.loadOrFetchPhotoBitmap(photo.imageUrl)
             }
             Card(
-                shape = RoundedCornerShape(14.dp),
+                shape = com.example.ui.theme.CardShape,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
                 modifier = Modifier
@@ -461,7 +482,7 @@ fun TrailCommonsPhotosSection(
                                 try {
                                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(photo.commonsPageUrl)))
                                 } catch (_: Exception) {
-                                    Toast.makeText(context, context.getString(R.string.toast_no_app_for_link), Toast.LENGTH_SHORT).show()
+                                    com.example.ui.components.AppMessages.show(context.getString(R.string.toast_no_app_for_link))
                                 }
                             }
                             .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -486,7 +507,7 @@ fun TrailStartEndTransportCard(
     if (startPoint == null && nearestStartTransport == null && nearestEndTransport == null) return
 
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = com.example.ui.theme.CardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)),
         modifier = modifier
@@ -529,7 +550,7 @@ fun TrailStartEndTransportCard(
                     onClick = {
                         openTransitDirectionsToStart(context, startPoint.lat, startPoint.lng, trailName)
                     },
-                    shape = RoundedCornerShape(10.dp),
+                    shape = com.example.ui.theme.TileShape,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp)
@@ -566,7 +587,7 @@ fun openTransitDirectionsToStart(
             val webUri = Uri.parse("https://www.openstreetmap.org/directions?to=$lat%2C$lng")
             context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
         } catch (_: Exception) {
-            Toast.makeText(context, context.getString(R.string.toast_no_app_for_link), Toast.LENGTH_SHORT).show()
+            com.example.ui.components.AppMessages.show(context.getString(R.string.toast_no_app_for_link))
         }
     }
 }

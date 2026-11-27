@@ -249,7 +249,7 @@ fun PinSelectionActionBar(
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .testTag("pin_selection_action_bar"),
-        shape = RoundedCornerShape(16.dp),
+        shape = com.example.ui.theme.CardShape,
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 6.dp,
         shadowElevation = 6.dp
@@ -398,7 +398,7 @@ fun SelectedLegCard(
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .testTag("selected_leg_card"),
-        shape = RoundedCornerShape(16.dp),
+        shape = com.example.ui.theme.CardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
@@ -602,14 +602,14 @@ fun PlannerCoachMarksOverlay(
         contentAlignment = Alignment.TopCenter
     ) {
         Card(
-            shape = RoundedCornerShape(12.dp),
+            shape = com.example.ui.theme.TileShape,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), com.example.ui.theme.TileShape)
                 .semantics { contentDescription = coachIntroCd }
         ) {
             Column(

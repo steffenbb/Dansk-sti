@@ -114,7 +114,7 @@ internal fun PlannerDetaljerTabContent(
     // Round 21 D1: Packing list card for a saved plan in the Detaljer tab
     if (onOpenPackingList != null) {
         Surface(
-            shape = RoundedCornerShape(10.dp),
+            shape = com.example.ui.theme.TileShape,
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
             modifier = Modifier
@@ -342,7 +342,7 @@ internal fun PlannerDetaljerTabContent(
             )
             uiState.daySummaries.forEach { day ->
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = com.example.ui.theme.ChipShape,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -416,7 +416,7 @@ fun RoadSectionWarningCard(
 ) {
     val dsColors = DanskStiTheme.colors
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = com.example.ui.theme.ChipShape,
         colors = CardDefaults.cardColors(containerColor = dsColors.warning.copy(alpha = 0.16f)),
         border = BorderStroke(1.dp, dsColors.overnight.copy(alpha = 0.5f)),
         modifier = Modifier.fillMaxWidth()
@@ -467,7 +467,7 @@ fun WaypointWeatherEtaCard(
     val locale = rememberAppLocale()
     val dsColors = DanskStiTheme.colors
     Card(
-        shape = RoundedCornerShape(10.dp),
+        shape = com.example.ui.theme.TileShape,
         colors = CardDefaults.cardColors(
             containerColor = if (weather.isAfterSunset) dsColors.warning.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
         ),
@@ -691,7 +691,7 @@ internal fun PlannerSaveAndStartRow(
         OutlinedButton(
             onClick = onOpenSaveDialog,
             enabled = visibleWaypointsCount >= 2 && !isSaving && !isStarting,
-            shape = RoundedCornerShape(10.dp),
+            shape = com.example.ui.theme.TileShape,
             modifier = Modifier
                 .weight(1f)
                 .heightIn(min = 48.dp)
@@ -715,7 +715,7 @@ internal fun PlannerSaveAndStartRow(
             onClick = onStartNavigation,
             enabled = visibleWaypointsCount >= 2 && !isSaving && !isStarting,
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            shape = RoundedCornerShape(10.dp),
+            shape = com.example.ui.theme.TileShape,
             modifier = Modifier
                 .weight(1f)
                 .heightIn(min = 48.dp)
@@ -746,7 +746,7 @@ fun SheetHeightChip(
     testTag: String
 ) {
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = com.example.ui.theme.ChipShape,
         color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         modifier = Modifier
             .heightIn(min = 32.dp)

@@ -376,7 +376,7 @@ internal fun NavigationExpandedAheadDrawer(
             }
 
             Card(
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
                 modifier = Modifier
@@ -399,7 +399,7 @@ internal fun NavigationExpandedAheadDrawer(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = com.example.ui.theme.ChipShape,
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                         ) {
                             Text(
@@ -477,7 +477,7 @@ internal fun NavigationExpandedAheadDrawer(
                     ) {
                         OutlinedButton(
                             onClick = { viewModel.exportDayGpx(context, currentDay) },
-                            shape = RoundedCornerShape(10.dp),
+                            shape = com.example.ui.theme.TileShape,
                             modifier = Modifier
                                 .weight(1f)
                                 .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -492,7 +492,7 @@ internal fun NavigationExpandedAheadDrawer(
                         Button(
                             onClick = { viewModel.exportWholeTripGpx(context) },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = com.example.ui.theme.TileShape,
                             modifier = Modifier
                                 .weight(1f)
                                 .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -508,7 +508,7 @@ internal fun NavigationExpandedAheadDrawer(
                     OutlinedButton(
                         onClick = { viewModel.shareCurrentLocation(context) },
                         enabled = hasGpsFix,
-                        shape = RoundedCornerShape(10.dp),
+                        shape = com.example.ui.theme.TileShape,
                         modifier = Modifier
                             .fillMaxWidth()
                             .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -586,7 +586,7 @@ internal fun DayProgressBarWithIcons(progressFraction: Float, stops: List<DayPro
         val barWidth = maxWidth
         Box(modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant))
         Box(modifier = Modifier.fillMaxWidth(progressFraction.coerceIn(0f, 1f)).height(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
-        val displayStops = if (stops.isNotEmpty()) stops else listOf(DayProgressStopIcon("CAMP", "Lejr", 1.0f, 0.0))
+        val displayStops = if (stops.isNotEmpty()) stops else listOf(DayProgressStopIcon("CAMP", stringResource(R.string.nav_progress_camp_label), 1.0f, 0.0))
         displayStops.forEach { stop ->
             val xOffset = (barWidth - 20.dp) * stop.fraction.coerceIn(0f, 1f)
             val stopColor = when (stop.type) {
@@ -652,7 +652,7 @@ fun ElevationPositionCanvas(points: List<GeoPointDto>, progressFraction: Float, 
     val lineColor = MaterialTheme.colorScheme.primary
     val dotColor = MaterialTheme.colorScheme.tertiary
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = com.example.ui.theme.TileShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
         modifier = if (onClick != null) modifier.clickable { onClick() } else modifier
     ) {

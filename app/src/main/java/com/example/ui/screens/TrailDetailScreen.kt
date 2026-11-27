@@ -128,10 +128,12 @@ fun TrailDetailScreen(
             contentAlignment = Alignment.Center
         ) {
             if (isLoading) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(stringResource(R.string.ui_traildetailscreen_henter_ruteoplysninger_187), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                com.example.ui.components.DelayedLoadingVisibility {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(stringResource(R.string.ui_traildetailscreen_henter_ruteoplysninger_187), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             } else {
                 Column(
@@ -303,7 +305,7 @@ fun TrailDetailScreen(
 
                 if (isFetchingLiveRoute || (activeDownloadProgress != null && routeError == null)) {
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = com.example.ui.theme.CardShape,
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
                         shadowElevation = 6.dp,
                         modifier = Modifier
@@ -383,7 +385,7 @@ fun TrailDetailScreen(
 
                 if (routeError != null && points.isEmpty() && !isLoading && !isFetchingLiveRoute) {
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = com.example.ui.theme.CardShape,
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
                         shadowElevation = 6.dp,
@@ -492,7 +494,7 @@ fun TrailDetailScreen(
                 val segmentsCount = trailGeometry?.segments?.size ?: 0
                 if (segmentsCount == 0 && isLoading) {
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = com.example.ui.theme.CardShape,
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                         shadowElevation = 6.dp,
                         modifier = Modifier
@@ -518,7 +520,7 @@ fun TrailDetailScreen(
                     }
                 } else if (segmentsCount > 0) {
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.78f),
                         modifier = Modifier
                             .align(Alignment.BottomEnd)

@@ -60,7 +60,7 @@ internal fun OfflineBRouterDenmarkCard(
     val danskStiColors = DanskStiTheme.colors
 
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = com.example.ui.theme.CardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(
             1.dp,
@@ -292,7 +292,7 @@ internal fun OfflineBRouterDenmarkCard(
                         Button(
                             onClick = { viewModel.updateBRouterData() },
                             colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = com.example.ui.theme.TileShape,
                             modifier = Modifier.testTag("btn_brouter_update")
                         ) {
                             Icon(
@@ -308,7 +308,7 @@ internal fun OfflineBRouterDenmarkCard(
                     Button(
                         onClick = { viewModel.downloadBRouterData() },
                         colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = com.example.ui.theme.TileShape,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("btn_brouter_download")

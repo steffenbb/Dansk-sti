@@ -196,7 +196,7 @@ fun WaypointRow(
     val dsColors = DanskStiTheme.colors
 
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = com.example.ui.theme.TileShape,
         color = if (isSelected) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
         } else {
@@ -387,7 +387,7 @@ fun AlternativeRouteCard(
     )
 
     Card(
-        shape = RoundedCornerShape(10.dp),
+        shape = com.example.ui.theme.TileShape,
         border = BorderStroke(1.dp, altColor.copy(alpha = 0.5f)),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth()
@@ -429,7 +429,7 @@ fun AlternativeRouteCard(
 
             Button(
                 onClick = onSelect,
-                shape = RoundedCornerShape(8.dp),
+                shape = com.example.ui.theme.ChipShape,
                 colors = ButtonDefaults.buttonColors(containerColor = altColor),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                 modifier = Modifier.heightIn(min = 30.dp)
@@ -448,7 +448,7 @@ fun CustomWaypointRow(
     onDeletePhoto: (() -> Unit)? = null
 ) {
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = com.example.ui.theme.TileShape,
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         modifier = Modifier
             .fillMaxWidth()

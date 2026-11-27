@@ -1682,4 +1682,6 @@ Gesendet von Dansk Sti</string>
     <string name="credit_dmi_title">DMI – Gezeitenvorhersagen (Dänisches Meteorologisches Institut)</string>
     <string name="credit_dmi_subtitle">Hoch- und Niedrigwasser an den DMI-Pegelstationen</string>
     <string name="credit_dmi_desc">Gezeitenvorhersagen aus den offenen Daten des DMI (oceanObs). Nur nahe Gezeitenküsten wie dem Wattenmeer angezeigt.</string>
+    <string name="trail_offline_confirm_question_fmt">Offline-Karten für %1$s herunterladen (%2$s · %3$d Kartenkacheln)?</string>
+    <string name="nav_progress_camp_label">Lager</string>
 </resources>

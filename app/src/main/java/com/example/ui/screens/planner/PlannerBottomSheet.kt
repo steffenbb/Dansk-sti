@@ -448,7 +448,7 @@ fun PlannerBottomSheet(
                             .fillMaxWidth()
                             .background(
                                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                RoundedCornerShape(10.dp)
+                                com.example.ui.theme.TileShape
                             )
                             .padding(2.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -541,7 +541,7 @@ internal fun PlannerTabButton(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = com.example.ui.theme.ChipShape,
         color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
         modifier = modifier
             .heightIn(min = 40.dp)

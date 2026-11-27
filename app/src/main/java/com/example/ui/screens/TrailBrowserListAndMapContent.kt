@@ -35,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -102,6 +103,11 @@ internal fun TrailBrowserListContent(
     onTrailClick: (String) -> Unit,
     onDownloadDiscoveredRoute: (DiscoveredHikingRouteDto) -> Unit
 ) {
+    // Read the daily target once for every trail card in the list (UI audit: was one settings collector per card)
+    val listSettingsContext = androidx.compose.ui.platform.LocalContext.current
+    val listSettingsRepo = androidx.compose.runtime.remember(listSettingsContext) { com.example.DanskStiApp.getSettingsRepository(listSettingsContext) }
+    val listSettings by listSettingsRepo.settingsFlow.collectAsState(initial = androidx.compose.runtime.remember(listSettingsRepo) { listSettingsRepo.currentSettingsSnapshot() })
+    val listDailyTargetKm = listSettings.dailyTargetKm
     val windowSizeClass = DanskStiTheme.windowSizeClass
     val gridColumns = windowSizeClass.udforskColumns
     if (gridColumns >= 2) {
@@ -170,6 +176,7 @@ internal fun TrailBrowserListContent(
                         val points = allGeometries[trail.id] ?: metrics?.geometryPoints
                         val isSaved = savedTrailIds.contains(trail.id)
                         TrailCard(
+                            dailyTargetKm = listDailyTargetKm,
                             trail = trail,
                             points = points,
                             sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
@@ -222,6 +229,7 @@ internal fun TrailBrowserListContent(
                         val points = allGeometries[trail.id] ?: metrics?.geometryPoints
                         val isSaved = savedTrailIds.contains(trail.id)
                         TrailCard(
+                            dailyTargetKm = listDailyTargetKm,
                             trail = trail,
                             points = points,
                             sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
@@ -260,6 +268,7 @@ internal fun TrailBrowserListContent(
                         val metrics = trailMetrics[trail.id]
                         val points = allGeometries[trail.id] ?: metrics?.geometryPoints
                         TrailCard(
+                            dailyTargetKm = listDailyTargetKm,
                             trail = trail,
                             points = points,
                             sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
@@ -294,6 +303,7 @@ internal fun TrailBrowserListContent(
                     val points = allGeometries[trail.id] ?: metrics?.geometryPoints
                     val isSaved = savedTrailIds.contains(trail.id)
                     TrailCard(
+                        dailyTargetKm = listDailyTargetKm,
                         trail = trail,
                         points = points,
                         sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
@@ -406,6 +416,7 @@ internal fun TrailBrowserListContent(
                         val points = allGeometries[trail.id] ?: metrics?.geometryPoints
                         val isSaved = savedTrailIds.contains(trail.id)
                         TrailCard(
+                            dailyTargetKm = listDailyTargetKm,
                             trail = trail,
                             points = points,
                             sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
@@ -458,6 +469,7 @@ internal fun TrailBrowserListContent(
                         val points = allGeometries[trail.id] ?: metrics?.geometryPoints
                         val isSaved = savedTrailIds.contains(trail.id)
                         TrailCard(
+                            dailyTargetKm = listDailyTargetKm,
                             trail = trail,
                             points = points,
                             sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
@@ -496,6 +508,7 @@ internal fun TrailBrowserListContent(
                         val metrics = trailMetrics[trail.id]
                         val points = allGeometries[trail.id] ?: metrics?.geometryPoints
                         TrailCard(
+                            dailyTargetKm = listDailyTargetKm,
                             trail = trail,
                             points = points,
                             sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
@@ -530,6 +543,7 @@ internal fun TrailBrowserListContent(
                     val points = allGeometries[trail.id] ?: metrics?.geometryPoints
                     val isSaved = savedTrailIds.contains(trail.id)
                     TrailCard(
+                        dailyTargetKm = listDailyTargetKm,
                         trail = trail,
                         points = points,
                         sheltersCount = shelterCounts[trail.id] ?: metrics?.shelterCount ?: 0,
@@ -616,7 +630,7 @@ private fun CreateLoopFromHereCard(onClick: () -> Unit) {
             Button(
                 onClick = onClick,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 modifier = Modifier
                     .sizeIn(minHeight = 48.dp)
                     .testTag("create_loop_from_here_button")
@@ -663,7 +677,7 @@ private fun NearYouPermissionCard(onRequestLocation: () -> Unit) {
             Button(
                 onClick = onRequestLocation,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 modifier = Modifier
                     .sizeIn(minHeight = 48.dp)
                     .testTag("enable_location_button")

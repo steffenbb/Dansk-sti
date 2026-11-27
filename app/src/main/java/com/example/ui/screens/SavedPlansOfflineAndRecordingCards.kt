@@ -149,7 +149,7 @@ internal fun RecordingLibraryCard(
 
             if (diaryEntry != null && (diaryEntry.note.isNotBlank() || diaryPhotosCount > 0)) {
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = com.example.ui.theme.TileShape,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                     modifier = Modifier
                         .fillMaxWidth()

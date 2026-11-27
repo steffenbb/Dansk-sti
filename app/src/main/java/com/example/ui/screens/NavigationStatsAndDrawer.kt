@@ -331,7 +331,7 @@ fun NavigationBottomOrSideControlsAndStats(
     }
 
     Surface(
-        shape = if (isLandscapeRightColumn) RoundedCornerShape(16.dp) else SheetTopShape,
+        shape = if (isLandscapeRightColumn) com.example.ui.theme.CardShape else SheetTopShape,
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = if (isLandscapeRightColumn) 0.dp else 8.dp,
         shadowElevation = if (isLandscapeRightColumn) 0.dp else 8.dp,
@@ -573,7 +573,7 @@ fun NavigationBottomOrSideControlsAndStats(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = com.example.ui.theme.TileShape,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                     modifier = Modifier
                         .weight(1f)
@@ -610,7 +610,7 @@ fun NavigationBottomOrSideControlsAndStats(
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = com.example.ui.theme.TileShape,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                     modifier = Modifier
                         .weight(1f)
@@ -647,7 +647,7 @@ fun NavigationBottomOrSideControlsAndStats(
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = com.example.ui.theme.TileShape,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                     modifier = Modifier
                         .weight(1f)
@@ -710,7 +710,7 @@ fun NavigationBottomOrSideControlsAndStats(
                         onBack()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = com.example.ui.theme.CardShape,
                     modifier = Modifier
                         .weight(1f)
                         .sizeIn(minWidth = 48.dp, minHeight = 52.dp)
@@ -725,12 +725,12 @@ fun NavigationBottomOrSideControlsAndStats(
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = com.example.ui.theme.CardShape,
                     color = danskStiColors.danger,
                     shadowElevation = 4.dp,
                     modifier = Modifier
                         .sizeIn(minWidth = 48.dp, minHeight = 52.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(com.example.ui.theme.CardShape)
                         .clickable { viewModel.setSosSheet(true) }
                         .testTag("nav_sos_button")
                 ) {

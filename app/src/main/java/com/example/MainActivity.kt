@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -116,6 +118,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Launch screen with the app icon, then Theme.MyApplication (must run before super.onCreate)
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         handleNavigationIntent(intent)
         val app = application as DanskStiApp
@@ -125,6 +129,12 @@ class MainActivity : ComponentActivity() {
             android.content.res.Configuration.UI_MODE_NIGHT_YES
         val initialDark = initialSnapshot.resolveIsDarkApp(initialSystemDark)
         applySystemBarStyle(initialDark)
+        // The app's own light/dark choice can differ from the system's: paint the window to match it
+        window.setBackgroundDrawable(
+            android.graphics.drawable.ColorDrawable(
+                if (initialDark) com.example.ui.theme.BackgroundDark.toArgb() else com.example.ui.theme.BackgroundLight.toArgb()
+            )
+        )
         setContent {
             val dbError by app.databaseError.collectAsState()
             val appSettings by settingsRepository.settingsFlow.collectAsState(
@@ -245,6 +255,15 @@ fun DanskStiAppRoot(
     val currentRoute = navBackStackEntry?.destination?.route
     val liveState by NavigationTrackingService.liveState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    // App-wide messages (formerly Toasts on full screens) shown in the themed Snackbar host
+    LaunchedEffect(snackbarHostState) {
+        com.example.ui.components.AppMessages.messages.collect { msg ->
+            snackbarHostState.showSnackbar(
+                message = msg.text,
+                duration = if (msg.long) androidx.compose.material3.SnackbarDuration.Long else androidx.compose.material3.SnackbarDuration.Short
+            )
+        }
+    }
 
     LaunchedEffect(pendingNavigationPlanId, currentRoute) {
         if (pendingNavigationPlanId != null && currentRoute != null) {
@@ -342,7 +361,13 @@ fun DanskStiAppRoot(
                     startDestination = Screen.Explore.route,
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxSize()
+                        .fillMaxSize(),
+                    // UI audit: replaces the default 700 ms cross-fade. Tabs fade through quickly;
+                    // other screens slide in slightly from the side and back out on return.
+                    enterTransition = { com.example.ui.navigation.ScreenTransitions.enter(initialState.destination.route, targetState.destination.route) },
+                    exitTransition = { com.example.ui.navigation.ScreenTransitions.exit(initialState.destination.route, targetState.destination.route) },
+                    popEnterTransition = { com.example.ui.navigation.ScreenTransitions.popEnter(initialState.destination.route, targetState.destination.route) },
+                    popExitTransition = { com.example.ui.navigation.ScreenTransitions.popExit(initialState.destination.route, targetState.destination.route) }
                 ) {
             // Tab 1: Udforsk
             composable(Screen.Explore.route) {

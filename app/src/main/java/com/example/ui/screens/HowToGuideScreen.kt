@@ -308,7 +308,7 @@ fun HowToGuideScreen(
                 itemsIndexed(visibleSections, key = { _, pair -> pair.second.id }) { _, (originalIdx, section) ->
                     val isExpanded = expandedSections.contains(originalIdx)
                     Card(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = com.example.ui.theme.CardShape,
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surface
                         ),
@@ -341,7 +341,7 @@ fun HowToGuideScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Surface(
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = com.example.ui.theme.TileShape,
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                                     modifier = Modifier.size(44.dp)
                                 ) {
@@ -388,7 +388,7 @@ fun HowToGuideScreen(
                                 ) {
                                     section.bulletResList.forEachIndexed { stepIdx, stepRes ->
                                         Surface(
-                                            shape = RoundedCornerShape(10.dp),
+                                            shape = com.example.ui.theme.TileShape,
                                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
@@ -434,7 +434,7 @@ fun HowToGuideScreen(
                 ) {
                     Button(
                         onClick = onDismiss,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp)

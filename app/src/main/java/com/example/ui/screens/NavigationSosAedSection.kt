@@ -23,7 +23,7 @@ import com.example.ui.viewmodel.NearbyAed
 @Composable
 fun NavigationSosAedSection(aeds: List<NearbyAed>) {
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = com.example.ui.theme.TileShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         modifier = Modifier.fillMaxWidth().testTag("sos_nearest_aed")
     ) {

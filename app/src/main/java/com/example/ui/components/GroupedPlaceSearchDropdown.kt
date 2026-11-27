@@ -283,7 +283,7 @@ private fun PlaceActionButtonsRow(
         Button(
             onClick = onRouteHere,
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            shape = RoundedCornerShape(10.dp),
+            shape = com.example.ui.theme.TileShape,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             modifier = Modifier
                 .sizeIn(minHeight = 36.dp)
@@ -304,7 +304,7 @@ private fun PlaceActionButtonsRow(
 
         OutlinedButton(
             onClick = onAddAsPoint,
-            shape = RoundedCornerShape(10.dp),
+            shape = com.example.ui.theme.TileShape,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             modifier = Modifier
                 .sizeIn(minHeight = 36.dp)
@@ -325,7 +325,7 @@ private fun PlaceActionButtonsRow(
 
         OutlinedButton(
             onClick = onShowOnMap,
-            shape = RoundedCornerShape(10.dp),
+            shape = com.example.ui.theme.TileShape,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             modifier = Modifier
                 .sizeIn(minHeight = 36.dp)

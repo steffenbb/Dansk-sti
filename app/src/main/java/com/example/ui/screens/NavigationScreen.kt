@@ -358,7 +358,7 @@ fun NavigationScreen(
     LaunchedEffect(routeBackErrorMessage) {
         val msg = routeBackErrorMessage
         if (!msg.isNullOrBlank()) {
-            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            com.example.ui.components.AppMessages.show(msg)
         }
     }
 

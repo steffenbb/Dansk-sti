@@ -244,7 +244,7 @@ fun FullscreenMapScreen(
         // Live loading indicator if downloading from OSM
         if (segments.isEmpty() && (isLoading || isFetchingLiveRoute)) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                 shadowElevation = 6.dp,
                 modifier = Modifier
@@ -277,7 +277,7 @@ fun FullscreenMapScreen(
         // Error card overlay with retry button when route fetch fails
         if (segments.isEmpty() && routeError != null && !isLoading && !isFetchingLiveRoute) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
                 shadowElevation = 8.dp,

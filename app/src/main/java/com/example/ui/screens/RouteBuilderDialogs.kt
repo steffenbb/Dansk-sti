@@ -268,7 +268,7 @@ internal fun RouteBuilderBasicDialogs(
                     Button(
                         onClick = { viewModel.onTrailTapStartHer() },
                         colors = ButtonDefaults.buttonColors(containerColor = danskStiColors.success),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = com.example.ui.theme.TileShape,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 40.dp)
@@ -280,7 +280,7 @@ internal fun RouteBuilderBasicDialogs(
                     Button(
                         onClick = { viewModel.onTrailTapSlutHer() },
                         colors = ButtonDefaults.buttonColors(containerColor = danskStiColors.danger),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = com.example.ui.theme.TileShape,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 40.dp)
@@ -292,7 +292,7 @@ internal fun RouteBuilderBasicDialogs(
                     Button(
                         onClick = { viewModel.onTrailTapOvernatHer() },
                         colors = ButtonDefaults.buttonColors(containerColor = danskStiColors.overnight),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = com.example.ui.theme.TileShape,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 40.dp)
@@ -305,7 +305,7 @@ internal fun RouteBuilderBasicDialogs(
 
                     OutlinedButton(
                         onClick = { viewModel.onTrailTapTilfoejPunkt() },
-                        shape = RoundedCornerShape(10.dp),
+                        shape = com.example.ui.theme.TileShape,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 40.dp)
@@ -380,7 +380,7 @@ internal fun RouteBuilderBasicDialogs(
                     ) {
                         items(uiState.replaceOvernightCandidates) { cand ->
                             Card(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = com.example.ui.theme.TileShape,
                                 colors = CardDefaults.cardColors(
                                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                                 ),
@@ -408,7 +408,7 @@ internal fun RouteBuilderBasicDialogs(
                                     }
                                     Button(
                                         onClick = { viewModel.replaceOvernightWaypoint(cand) },
-                                        shape = RoundedCornerShape(8.dp),
+                                        shape = com.example.ui.theme.ChipShape,
                                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                         modifier = Modifier.heightIn(min = 30.dp)
@@ -702,7 +702,7 @@ internal fun TripSettingsDialog(
                         ).forEach { (key, label) ->
                             OutlinedButton(
                                 onClick = { overnightPref = key },
-                                shape = RoundedCornerShape(8.dp),
+                                shape = com.example.ui.theme.ChipShape,
                                 colors = if (overnightPref == key) {
                                     ButtonDefaults.outlinedButtonColors(
                                         containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),

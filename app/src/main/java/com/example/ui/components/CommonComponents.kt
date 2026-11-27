@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import android.view.HapticFeedbackConstants
 import android.view.View
+import androidx.compose.runtime.remember
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -39,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -152,8 +154,12 @@ fun OfflineStatusPill(
     }
 }
 
+/** The feels the app uses, one meaning each (UI audit "haptics map"). */
+enum class HapticKind { TICK, CONFIRM, REJECT, THRESHOLD, HEAVY }
+
 /**
- * Haptic tick when a pin is added, snapped or dropped.
+ * Haptic feedback through [View.performHapticFeedback]: follows the phone's own touch-feedback
+ * setting and needs no vibrate permission. Newer constants fall back on older Android versions.
  */
 object HapticFeedbackHelper {
     @androidx.annotation.VisibleForTesting
@@ -166,22 +172,69 @@ object HapticFeedbackHelper {
     internal var lastEventReason: String = ""
         private set
 
+    @androidx.annotation.VisibleForTesting
+    @Volatile
+    internal var lastKindForTesting: HapticKind? = null
+        private set
+
+    /** Haptic tick when a pin is added, snapped or dropped. */
     fun performPinHapticTick(view: View?, reason: String = "pin") {
         tickCountForTesting++
         lastEventReason = reason
+        perform(view, HapticKind.TICK, reason, countAsPinTick = false)
+    }
+
+    fun perform(view: View?, kind: HapticKind, reason: String = kind.name.lowercase(), countAsPinTick: Boolean = false) {
+        if (countAsPinTick) tickCountForTesting++
+        lastEventReason = reason
+        lastKindForTesting = kind
         try {
-            view?.performHapticFeedback(
-                HapticFeedbackConstants.CLOCK_TICK,
-                HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
-            )
+            view?.performHapticFeedback(constantFor(kind))
         } catch (_: Exception) {}
+    }
+
+    internal fun constantFor(kind: HapticKind, sdk: Int = android.os.Build.VERSION.SDK_INT): Int = when (kind) {
+        HapticKind.TICK -> if (sdk >= 34) HapticFeedbackConstants.SEGMENT_TICK else HapticFeedbackConstants.CLOCK_TICK
+        HapticKind.CONFIRM -> if (sdk >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY
+        HapticKind.REJECT -> if (sdk >= 30) HapticFeedbackConstants.REJECT else HapticFeedbackConstants.LONG_PRESS
+        HapticKind.THRESHOLD -> if (sdk >= 34) HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE else HapticFeedbackConstants.CONTEXT_CLICK
+        HapticKind.HEAVY -> HapticFeedbackConstants.LONG_PRESS
     }
 
     @androidx.annotation.VisibleForTesting
     internal fun resetForTesting() {
         tickCountForTesting = 0
         lastEventReason = ""
+        lastKindForTesting = null
     }
+}
+
+/** Haptics bound to the current view: `val haptics = rememberHaptics(); haptics(HapticKind.CONFIRM)`. */
+class Haptics internal constructor(private val view: View) {
+    operator fun invoke(kind: HapticKind, reason: String = kind.name.lowercase()) = HapticFeedbackHelper.perform(view, kind, reason)
+}
+
+@Composable
+fun rememberHaptics(): Haptics {
+    val view = androidx.compose.ui.platform.LocalView.current
+    return remember(view) { Haptics(view) }
+}
+
+/**
+ * Shows [content] only when loading lasts longer than [delayMs], then fades it in, so fast loads
+ * never flash a spinner (UI audit batch 1).
+ */
+@Composable
+fun DelayedLoadingVisibility(delayMs: Long = 300L, content: @Composable () -> Unit) {
+    var show by remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(delayMs)
+        show = true
+    }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = show,
+        enter = androidx.compose.animation.fadeIn(com.example.ui.theme.Motion.enter())
+    ) { content() }
 }
 
 /**
@@ -268,7 +321,7 @@ fun SkeletonLoadingList(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(cardHeight)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(com.example.ui.theme.TileShape)
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
                     )
                     Spacer(modifier = Modifier.height(Spacing.md))

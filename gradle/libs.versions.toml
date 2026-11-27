@@ -40,10 +40,12 @@ credentials = "1.5.0"
 googleid = "1.1.1"
 osmdroid = "6.1.20"
 work = "2.10.0"
+coreSplashscreen = "1.0.1"
 brouter = "v1.7.9"
 
 
 [libraries]
+androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
 osmdroid-android = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroid" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }

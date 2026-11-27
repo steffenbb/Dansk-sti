@@ -181,7 +181,7 @@ internal fun TripPlanLibraryCard(
                         )
                         if (isCompleted) {
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = com.example.ui.theme.TileShape,
                                 color = MaterialTheme.colorScheme.primaryContainer,
                                 modifier = Modifier.testTag("plan_completed_badge_${plan.id}")
                             ) {
@@ -264,7 +264,7 @@ internal fun TripPlanLibraryCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = com.example.ui.theme.TileShape,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
                     modifier = Modifier
                         .clickable { onOpenPackingList() }
@@ -292,7 +292,7 @@ internal fun TripPlanLibraryCard(
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = com.example.ui.theme.TileShape,
                     color = if (isDownloadedOffline) {
                         MaterialTheme.colorScheme.primaryContainer
                     } else {
@@ -339,7 +339,7 @@ internal fun TripPlanLibraryCard(
             ) {
                 OutlinedButton(
                     onClick = onOpenInPlanner,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = com.example.ui.theme.TileShape,
                     modifier = Modifier
                         .weight(1f)
                         .sizeIn(minHeight = 48.dp)
@@ -353,7 +353,7 @@ internal fun TripPlanLibraryCard(
                 Button(
                     onClick = onStartNavigation,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = com.example.ui.theme.TileShape,
                     modifier = Modifier
                         .weight(1f)
                         .sizeIn(minHeight = 48.dp)
@@ -472,7 +472,7 @@ internal fun CustomRouteLibraryCard(
 
             if (isOfflineOutdated) {
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = com.example.ui.theme.TileShape,
                     color = MaterialTheme.colorScheme.errorContainer,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -634,7 +634,7 @@ internal fun WaypointLibraryCard(
                 Spacer(modifier = Modifier.height(Spacing.s2))
                 OutlinedButton(
                     onClick = onDeletePhoto,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = com.example.ui.theme.TileShape,
                     modifier = Modifier
                         .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                         .testTag("delete_waypoint_photo_${waypoint.id}")

@@ -539,7 +539,7 @@ private fun BaseMapOptionCard(
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = com.example.ui.theme.CardShape,
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) {
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
@@ -702,7 +702,7 @@ fun MapAttributionPill(
     }
 
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = com.example.ui.theme.CardShape,
         color = containerColor,
         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier

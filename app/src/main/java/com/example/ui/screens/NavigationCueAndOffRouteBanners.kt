@@ -142,7 +142,7 @@ fun NavigationTopCueAndAlertsStack(
                     Spacer(modifier = Modifier.width(6.dp))
 
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         color = if (isImmediateTurn) {
                             MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.2f)
                         } else {
@@ -210,7 +210,7 @@ fun NavigationTopCueAndAlertsStack(
                 stringResource(R.string.nav_off_route_banner_with_dir_format, offMeters, compassDirectionText)
             }
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = danskStiColors.offRoute,
                 shadowElevation = 6.dp,
                 modifier = Modifier
@@ -260,7 +260,7 @@ fun NavigationTopCueAndAlertsStack(
                             )
                         } else {
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = com.example.ui.theme.TileShape,
                                 color = MaterialTheme.colorScheme.onError.copy(alpha = 0.22f),
                                 modifier = Modifier.testTag("nav_off_route_direction_text")
                             ) {
@@ -307,7 +307,7 @@ fun NavigationTopCueAndAlertsStack(
                                 containerColor = MaterialTheme.colorScheme.onError,
                                 contentColor = danskStiColors.offRoute
                             ),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = com.example.ui.theme.TileShape,
                             modifier = Modifier
                                 .weight(1f)
                                 .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -324,7 +324,7 @@ fun NavigationTopCueAndAlertsStack(
                             onClick = onTakeDetour,
                             border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.onError),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onError),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = com.example.ui.theme.TileShape,
                             modifier = Modifier
                                 .weight(1f)
                                 .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -373,7 +373,7 @@ fun NavigationTopCueAndAlertsStack(
 
         if (isDaylightWarningVisible) {
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f),
                 shadowElevation = 4.dp,
                 modifier = Modifier
@@ -408,7 +408,7 @@ fun NavigationTopCueAndAlertsStack(
         // Phase D5: once per area per trip, 2 km before a military area
         militaryAreaBanner?.let { text ->
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = danskStiColors.danger.copy(alpha = 0.95f),
                 shadowElevation = 4.dp,
                 modifier = Modifier.fillMaxWidth().clickable { onDismissMilitaryAreaBanner() }.testTag("nav_military_area_banner")
@@ -426,7 +426,7 @@ fun NavigationTopCueAndAlertsStack(
 
         liveState.privateForestSunsetWarning?.let { warningText ->
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f),
                 shadowElevation = 4.dp,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSecondary.copy(alpha = 0.2f)),
@@ -464,7 +464,7 @@ fun NavigationTopCueAndAlertsStack(
 
         if (isLocationPermissionMissing) {
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 6.dp,
                 border = BorderStroke(1.dp, danskStiColors.warning),
@@ -519,7 +519,7 @@ fun NavigationTopCueAndAlertsStack(
         if (!corridorPoisErrorMessage.isNullOrBlank()) {
             Surface(
                 onClick = onRetryCorridorPois,
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.96f),
                 shadowElevation = 4.dp,
                 modifier = Modifier
@@ -548,7 +548,7 @@ fun NavigationTopCueAndAlertsStack(
                     )
                     OutlinedButton(
                         onClick = onRetryCorridorPois,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = com.example.ui.theme.ChipShape,
                         modifier = Modifier
                             .sizeIn(minWidth = 48.dp, minHeight = 36.dp)
                             .testTag("nav_corridor_pois_retry_button")

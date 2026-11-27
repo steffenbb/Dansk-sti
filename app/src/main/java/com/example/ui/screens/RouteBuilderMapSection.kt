@@ -362,7 +362,7 @@ internal fun RouteBuilderBottomSelectionAndSnackbarStack(
 ) {
     uiState.deletedPinSnackbarMessage?.let { snackMsg ->
         Surface(
-            shape = RoundedCornerShape(14.dp),
+            shape = com.example.ui.theme.CardShape,
             color = MaterialTheme.colorScheme.inverseSurface,
             shadowElevation = 6.dp,
             modifier = Modifier
@@ -467,11 +467,11 @@ internal fun RouteBuilderFloatingToolbar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (uiState.canUndo) 0.7f else 0.3f),
                 modifier = Modifier
                     .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(com.example.ui.theme.CardShape)
                     .clickable(enabled = uiState.canUndo) { viewModel.undo() }
                     .testTag("btn_undo")
             ) {
@@ -495,11 +495,11 @@ internal fun RouteBuilderFloatingToolbar(
             }
 
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (uiState.canRedo) 0.7f else 0.3f),
                 modifier = Modifier
                     .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(com.example.ui.theme.CardShape)
                     .clickable(enabled = uiState.canRedo) { viewModel.redo() }
                     .testTag("btn_redo")
             ) {
@@ -524,12 +524,12 @@ internal fun RouteBuilderFloatingToolbar(
 
             val isStraightNext = uiState.nextLegMode == LegMode.STRAIGHT
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = if (isStraightNext) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.secondary.copy(alpha = 0.22f),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary),
                 modifier = Modifier
                     .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(com.example.ui.theme.CardShape)
                     .clickable { viewModel.toggleNextLegMode() }
                     .testTag("btn_toggle_leg_mode")
             ) {
@@ -554,11 +554,11 @@ internal fun RouteBuilderFloatingToolbar(
             }
 
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = if (uiState.isReverse) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                 modifier = Modifier
                     .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(com.example.ui.theme.CardShape)
                     .clickable(enabled = visibleWaypoints.size >= 2) { viewModel.reverseRoute() }
                     .testTag("btn_reverse_route")
             ) {
@@ -583,11 +583,11 @@ internal fun RouteBuilderFloatingToolbar(
             }
 
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (visibleWaypoints.size >= 2) 0.7f else 0.3f),
                 modifier = Modifier
                     .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(com.example.ui.theme.CardShape)
                     .clickable(enabled = visibleWaypoints.size >= 2) { viewModel.closeRouteLoop() }
                     .testTag("btn_close_route_loop")
             ) {
@@ -611,11 +611,11 @@ internal fun RouteBuilderFloatingToolbar(
             }
 
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (visibleWaypoints.size >= 2) 0.7f else 0.3f),
                 modifier = Modifier
                     .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(com.example.ui.theme.CardShape)
                     .clickable(enabled = visibleWaypoints.size >= 2) { viewModel.appendOutAndBack() }
                     .testTag("btn_out_and_back")
             ) {
@@ -639,11 +639,11 @@ internal fun RouteBuilderFloatingToolbar(
             }
 
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = if (uiState.isOvernightToolActive) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                 modifier = Modifier
                     .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(com.example.ui.theme.CardShape)
                     .clickable { viewModel.toggleOvernightTool() }
                     .testTag("btn_overnight_tool")
             ) {
@@ -671,7 +671,7 @@ internal fun RouteBuilderFloatingToolbar(
                 onClick = onOpenSaveDialog,
                 enabled = visibleWaypoints.size >= 2 && !uiState.isSaving && !uiState.isStarting,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 modifier = Modifier
                     .heightIn(min = 48.dp)

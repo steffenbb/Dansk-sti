@@ -160,7 +160,7 @@ fun MarkedRouteDetailSheet(
                             .background(routeColor, CircleShape)
                     )
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = com.example.ui.theme.ChipShape,
                         color = routeColor.copy(alpha = 0.15f)
                     ) {
                         Text(
@@ -203,7 +203,7 @@ fun MarkedRouteDetailSheet(
             ) {
                 // Length
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = com.example.ui.theme.TileShape,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     modifier = Modifier.weight(1f)
                 ) {
@@ -236,7 +236,7 @@ fun MarkedRouteDetailSheet(
 
                 // Estimated Time
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = com.example.ui.theme.TileShape,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     modifier = Modifier.weight(1f)
                 ) {
@@ -274,7 +274,7 @@ fun MarkedRouteDetailSheet(
 
             // Operator & Details Card
             Card(
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                 ),
@@ -337,7 +337,7 @@ fun MarkedRouteDetailSheet(
             // Action / Save Button
             if (savedTrail != null) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = com.example.ui.theme.TileShape,
                     color = primaryColor.copy(alpha = 0.15f),
                     border = BorderStroke(1.dp, primaryColor),
                     modifier = Modifier.fillMaxWidth()
@@ -370,7 +370,7 @@ fun MarkedRouteDetailSheet(
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(stringResource(R.string.btn_close))
@@ -382,7 +382,7 @@ fun MarkedRouteDetailSheet(
                             savedTrail?.let { onOpenTrailDetails(it.id) }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         modifier = Modifier
                             .weight(1f)
                             .testTag("open_saved_trail_button")
@@ -417,7 +417,7 @@ fun MarkedRouteDetailSheet(
                     },
                     enabled = !isSaving,
                     colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = com.example.ui.theme.CardShape,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 50.dp)

@@ -166,7 +166,7 @@ fun PlannerDaySummaryCard(
     val locale = AppLocaleHelper.getCurrentLocale(context)
     val dsColors = DanskStiTheme.colors
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = com.example.ui.theme.TileShape,
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) {
                 MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
@@ -327,7 +327,7 @@ fun PlannerDaySummaryCard(
 
             if (showNightWeather && day.nightWeatherSummary.isNotBlank()) {
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = com.example.ui.theme.ChipShape,
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -432,7 +432,7 @@ fun PlannerDaySummaryCard(
                 ) {
                     OutlinedButton(
                         onClick = { onReplaceOvernight(day.overnightWaypointId) },
-                        shape = RoundedCornerShape(8.dp),
+                        shape = com.example.ui.theme.ChipShape,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         modifier = Modifier
                             .heightIn(min = 36.dp)
@@ -449,7 +449,7 @@ fun PlannerDaySummaryCard(
 
                     OutlinedButton(
                         onClick = { onZoomToEnd(day.overnightWaypointId) },
-                        shape = RoundedCornerShape(8.dp),
+                        shape = com.example.ui.theme.ChipShape,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                         modifier = Modifier.heightIn(min = 36.dp)
                     ) {
@@ -484,7 +484,7 @@ fun AccessWarningCard(
 ) {
     val warningColor = DanskStiTheme.colors.warning
     Card(
-        shape = RoundedCornerShape(10.dp),
+        shape = com.example.ui.theme.TileShape,
         colors = CardDefaults.cardColors(containerColor = warningColor.copy(alpha = 0.12f)),
         border = BorderStroke(1.dp, warningColor.copy(alpha = 0.8f)),
         modifier = Modifier
@@ -542,7 +542,7 @@ fun AccessWarningCard(
                     Button(
                         onClick = onRerouteAround,
                         colors = ButtonDefaults.buttonColors(containerColor = warningColor),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = com.example.ui.theme.ChipShape,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         modifier = Modifier
                             .heightIn(min = 28.dp)
@@ -570,7 +570,7 @@ fun SupplyGapWarningCard(
 ) {
     val dsColors = DanskStiTheme.colors
     Card(
-        shape = RoundedCornerShape(10.dp),
+        shape = com.example.ui.theme.TileShape,
         colors = CardDefaults.cardColors(containerColor = dsColors.warning.copy(alpha = 0.14f)),
         border = BorderStroke(1.dp, dsColors.overnight.copy(alpha = 0.6f)),
         modifier = Modifier

@@ -105,9 +105,12 @@ fun TrailCard(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val appLocale = com.example.ui.components.rememberAppLocale()
-    val settingsRepo = remember(context) { com.example.DanskStiApp.getSettingsRepository(context) }
-    val settings by settingsRepo.settingsFlow.collectAsState(initial = remember(settingsRepo) { settingsRepo.currentSettingsSnapshot() })
-    val effectiveDailyTargetKm = dailyTargetKm ?: settings.dailyTargetKm
+    // Lists pass dailyTargetKm once; only a standalone card reads the settings itself (UI audit)
+    val effectiveDailyTargetKm = dailyTargetKm ?: run {
+        val settingsRepo = remember(context) { com.example.DanskStiApp.getSettingsRepository(context) }
+        val settings by settingsRepo.settingsFlow.collectAsState(initial = remember(settingsRepo) { settingsRepo.currentSettingsSnapshot() })
+        settings.dailyTargetKm
+    }
     val totalKm = trail.computedWalkingKm
     val estimatedDays = GeoUtils.estimateDays(totalKm, effectiveDailyTargetKm)
     val computedRegion = remember(trail) { GeoUtils.computeDanishRegionForTrail(trail) }
@@ -538,7 +541,7 @@ fun NearbyOvernightSpotCard(
 
                 if (showDistance) {
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = com.example.ui.theme.ChipShape,
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                     ) {
                         Text(
@@ -571,7 +574,7 @@ fun NearbyOvernightSpotCard(
             ) {
                 OutlinedButton(
                     onClick = onRouteHerTil,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = com.example.ui.theme.TileShape,
                     modifier = Modifier
                         .sizeIn(minHeight = 48.dp)
                         .testTag("route_here_button_${spot.id}")
@@ -588,7 +591,7 @@ fun NearbyOvernightSpotCard(
 
                 Button(
                     onClick = onOpenDirections,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = com.example.ui.theme.TileShape,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     modifier = Modifier
                         .sizeIn(minHeight = 48.dp)

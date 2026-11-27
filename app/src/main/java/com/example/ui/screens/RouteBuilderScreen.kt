@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -132,7 +131,7 @@ fun RouteBuilderScreen(
                     viewModel.importGpx(stream)
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, context.getString(R.string.toast_could_not_read_file, com.example.util.userMessageFor(e)), Toast.LENGTH_LONG).show()
+                com.example.ui.components.AppMessages.show(context.getString(R.string.toast_could_not_read_file, com.example.util.userMessageFor(e)), long = true)
             }
         }
     }
@@ -154,7 +153,7 @@ fun RouteBuilderScreen(
                     customWpPhotoPath = photoFile.absolutePath
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, context.getString(R.string.toast_could_not_save_photo, com.example.util.userMessageFor(e)), Toast.LENGTH_SHORT).show()
+                com.example.ui.components.AppMessages.show(context.getString(R.string.toast_could_not_save_photo, com.example.util.userMessageFor(e)))
             }
         } else if (!path.isNullOrBlank()) {
             runCatching { File(path).delete() }
@@ -175,7 +174,7 @@ fun RouteBuilderScreen(
                     customWpPhotoPath = photoFile.absolutePath
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, context.getString(R.string.toast_could_not_load_photo, com.example.util.userMessageFor(e)), Toast.LENGTH_SHORT).show()
+                com.example.ui.components.AppMessages.show(context.getString(R.string.toast_could_not_load_photo, com.example.util.userMessageFor(e)))
             }
         }
     }
@@ -228,7 +227,9 @@ fun RouteBuilderScreen(
         viewModel.userMessage.collect { msg ->
             withContext(Dispatchers.Main) {
                 if (android.os.Looper.myLooper() != null) {
-                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    // Kept as a Toast: these messages often come with a screen change (e.g. "Turen er gemt"
+                    // before Gemt opens), where a Snackbar would cover the next screen's buttons
+                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -473,7 +474,7 @@ fun RouteBuilderScreen(
                                     viewModel.setCurrentPosition(lastLoc.latitude, lastLoc.longitude)
                                     mapViewInstance?.controller?.animateTo(GeoPoint(lastLoc.latitude, lastLoc.longitude), 14.5, 500L)
                                 } else {
-                                    Toast.makeText(context, context.getString(R.string.toast_gps_unavailable), Toast.LENGTH_SHORT).show()
+                                    com.example.ui.components.AppMessages.show(context.getString(R.string.toast_gps_unavailable))
                                 }
                             }
                         },
@@ -666,7 +667,7 @@ fun RouteBuilderScreen(
                                 if (center != null && (center.latitude != 0.0 || center.longitude != 0.0)) {
                                     viewModel.openAddCustomWaypointDialog(center.latitude, center.longitude)
                                 } else {
-                                    Toast.makeText(context, context.getString(R.string.toast_map_position_not_ready), Toast.LENGTH_SHORT).show()
+                                    com.example.ui.components.AppMessages.show(context.getString(R.string.toast_map_position_not_ready))
                                 }
                             },
                             containerColor = MaterialTheme.colorScheme.surface,
@@ -774,7 +775,7 @@ fun RouteBuilderScreen(
                         pendingCameraPhotoPath = photoFile.absolutePath
                         cameraPhotoLauncher.launch(photoUri)
                     } catch (e: Exception) {
-                        Toast.makeText(context, context.getString(R.string.toast_could_not_open_camera, com.example.util.userMessageFor(e)), Toast.LENGTH_SHORT).show()
+                        com.example.ui.components.AppMessages.show(context.getString(R.string.toast_could_not_open_camera, com.example.util.userMessageFor(e)))
                     }
                 }, onLaunchGallery = { galleryPhotoLauncher.launch("image/*") },
                 availableHeightDp = availableHeightDp

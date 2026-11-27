@@ -1682,4 +1682,6 @@ Sent from Dansk Sti</string>
     <string name="credit_dmi_title">DMI – tide predictions (Danish Meteorological Institute)</string>
     <string name="credit_dmi_subtitle">High and low water at DMI tide stations</string>
     <string name="credit_dmi_desc">Tide predictions from DMI open data (oceanObs). Shown only near tidal coasts such as the Wadden Sea.</string>
+    <string name="trail_offline_confirm_question_fmt">Download offline maps for %1$s (%2$s · %3$d map tiles)?</string>
+    <string name="nav_progress_camp_label">Camp</string>
 </resources>

@@ -1,3 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Matches BackgroundLight in ui/theme/Color.kt; dark value in values-night -->
+    <color name="window_background">#F6F7F5</color>
+    <!-- Splash icon circle: the launcher icon background's own green (drawable/ic_launcher_background) -->
+    <color name="splash_icon_background">#1B4332</color>
 </resources>

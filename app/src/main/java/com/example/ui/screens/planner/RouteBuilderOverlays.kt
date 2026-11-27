@@ -649,7 +649,7 @@ fun RouteBuilderPinDragOverlay(
                     }
                     .size(width = 96.dp, height = 28.dp)
                     .testTag("drag_length_delta_badge"),
-                shape = RoundedCornerShape(14.dp),
+                shape = com.example.ui.theme.CardShape,
                 color = scheme.inverseSurface.copy(alpha = 0.93f),
                 shadowElevation = 4.dp
             ) {

@@ -39,7 +39,7 @@ fun TrailSafetyAccessCard(
 ) {
     val warningColor = DanskStiTheme.colors.warning
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = com.example.ui.theme.TileShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
         modifier = Modifier.fillMaxWidth().testTag("trail_safety_access_card")

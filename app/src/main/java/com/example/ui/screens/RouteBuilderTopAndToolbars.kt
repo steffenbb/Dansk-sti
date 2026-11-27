@@ -131,7 +131,7 @@ internal fun RouteBuilderTopAppBar(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         color = MaterialTheme.colorScheme.primaryContainer,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
                         modifier = Modifier
@@ -326,7 +326,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Surface(
-            shape = RoundedCornerShape(14.dp),
+            shape = com.example.ui.theme.CardShape,
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
             shadowElevation = 4.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
@@ -367,7 +367,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                     }
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp),
+                shape = com.example.ui.theme.CardShape,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                     unfocusedBorderColor = Color.Transparent,
@@ -382,7 +382,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
 
         if (isOfflineRouteOutdated && onUpdateOfflineRoute != null) {
             Surface(
-                shape = RoundedCornerShape(10.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.errorContainer,
                 shadowElevation = 4.dp,
                 modifier = Modifier
@@ -488,7 +488,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
 
         if (uiState.isBuiltinFallbackInUse || BRouterOnlineEngine.isBuiltinFallbackInUse()) {
             Surface(
-                shape = RoundedCornerShape(10.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 border = BorderStroke(1.dp, danskStiColors.warning),
                 shadowElevation = 4.dp,
@@ -519,7 +519,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
 
         uiState.staleStartLocationMessage?.let { staleMsg ->
             Surface(
-                shape = RoundedCornerShape(10.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 border = BorderStroke(1.dp, danskStiColors.warning),
                 shadowElevation = 4.dp,
@@ -546,7 +546,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                     Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(
                         onClick = { viewModel.enablePickAnotherStart() },
-                        shape = RoundedCornerShape(8.dp),
+                        shape = com.example.ui.theme.ChipShape,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         modifier = Modifier
                             .heightIn(min = 36.dp)
@@ -564,7 +564,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
 
         if (uiState.waitingForStartPointTap) {
             Surface(
-                shape = RoundedCornerShape(10.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.primary,
                 shadowElevation = 4.dp,
                 modifier = Modifier
@@ -583,7 +583,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
 
         if (uiState.isRoutingGpxLegs || (uiState.gpxOriginalPoints.size >= 2 && !uiState.isUsingOriginalGpxGeometry)) {
             Surface(
-                shape = RoundedCornerShape(10.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                 shadowElevation = 4.dp,
@@ -632,7 +632,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                         }
                         OutlinedButton(
                             onClick = { viewModel.keepOriginalGpxGeometry() },
-                            shape = RoundedCornerShape(8.dp),
+                            shape = com.example.ui.theme.ChipShape,
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                             modifier = Modifier
                                 .heightIn(min = 36.dp)
@@ -663,7 +663,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
 
         if (uiState.isDownloadingTrailGeometry || activeDownloadProgress != null) {
             Surface(
-                shape = RoundedCornerShape(10.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                 shadowElevation = 4.dp,
@@ -719,7 +719,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
 
         if (uiState.trailGeometryDownloadFailed) {
             Surface(
-                shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface,
+                shape = com.example.ui.theme.TileShape, color = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.5.dp, danskStiColors.danger), shadowElevation = 6.dp,
                 modifier = Modifier.fillMaxWidth().testTag("banner_trail_download_failed")
             ) {
@@ -735,7 +735,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                     Button(
                         onClick = { viewModel.retryDownloadTrailGeometry() },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        shape = com.example.ui.theme.ChipShape, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                         modifier = Modifier.heightIn(min = 36.dp).testTag("btn_retry_trail_download")
                     ) {
                         Text(stringResource(R.string.state_Close_or_retry), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
@@ -745,7 +745,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
         }
         uiState.corridorPoisOfflineNotice?.let { notice ->
             Surface(
-                shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = com.example.ui.theme.TileShape, color = MaterialTheme.colorScheme.surfaceVariant,
                 shadowElevation = 3.dp, modifier = Modifier.fillMaxWidth().testTag("banner_corridor_pois_offline")
             ) {
                 Text(
@@ -756,7 +756,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
         }
         uiState.failedLegs.entries.forEach { (legKey, errorMsg) ->
             Surface(
-                shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface,
+                shape = com.example.ui.theme.TileShape, color = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.5.dp, danskStiColors.danger), shadowElevation = 6.dp,
                 modifier = Modifier.fillMaxWidth().testTag("failed_leg_chip_$legKey")
             ) {
@@ -769,20 +769,20 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                         Button(
                             onClick = { viewModel.retryFailedLeg(legKey) },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            shape = com.example.ui.theme.ChipShape, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                             modifier = Modifier.weight(1f).heightIn(min = 36.dp).testTag("btn_retry_leg_$legKey")
                         ) {
                             Text(stringResource(R.string.state_Close_or_retry), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         }
                         OutlinedButton(
-                            onClick = { viewModel.setFailedLegStraight(legKey) }, shape = RoundedCornerShape(8.dp),
+                            onClick = { viewModel.setFailedLegStraight(legKey) }, shape = com.example.ui.theme.ChipShape,
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                             modifier = Modifier.weight(1f).heightIn(min = 36.dp).testTag("btn_straight_leg_$legKey")
                         ) {
                             Text(stringResource(R.string.ui_routebuilderscreen_tegn_lige_linje_108), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         }
                         OutlinedButton(
-                            onClick = { viewModel.activateMovePointForFailedLeg(legKey) }, shape = RoundedCornerShape(8.dp),
+                            onClick = { viewModel.activateMovePointForFailedLeg(legKey) }, shape = com.example.ui.theme.ChipShape,
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                             modifier = Modifier.weight(1f).heightIn(min = 36.dp).testTag("btn_move_point_$legKey")
                         ) {

@@ -48,7 +48,7 @@ fun TrailHighlightsAlongCard(highlights: List<PoiSpotItem>, isSyncingPois: Boole
     val appLocale = com.example.ui.components.rememberAppLocale()
     var showAll by remember(highlights.size) { mutableStateOf(false) }
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = com.example.ui.theme.TileShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
         modifier = Modifier.fillMaxWidth().testTag("trail_highlights_card")

@@ -117,7 +117,7 @@ fun NavigationBatterySaverScreen(
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = com.example.ui.theme.ChipShape,
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     modifier = Modifier
@@ -165,7 +165,7 @@ fun NavigationBatterySaverScreen(
                 if (liveState.isOffTrailWarning && !liveState.isDetourMuted) {
                     val offMeters = kotlin.math.round(liveState.offTrailDistanceMeters).toInt().coerceAtLeast(1)
                     Surface(
-                        shape = RoundedCornerShape(14.dp),
+                        shape = com.example.ui.theme.CardShape,
                         color = danskStiColors.offRoute,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -337,7 +337,7 @@ fun NavigationBatterySaverScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         color = danskStiColors.danger,
                         modifier = Modifier
                             .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -365,7 +365,7 @@ fun NavigationBatterySaverScreen(
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = com.example.ui.theme.TileShape,
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         modifier = Modifier
@@ -451,7 +451,7 @@ fun NavigationSosBottomSheet(
             )
 
             Card(
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -509,7 +509,7 @@ fun NavigationSosBottomSheet(
                         ).show()
                     }
                 },
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 colors = ButtonDefaults.buttonColors(containerColor = danskStiColors.danger),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -534,7 +534,7 @@ fun NavigationSosBottomSheet(
 
             OutlinedButton(
                 onClick = onDismiss,
-                shape = RoundedCornerShape(16.dp),
+                shape = com.example.ui.theme.CardShape,
                 modifier = Modifier
                     .fillMaxWidth()
                     .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -563,13 +563,13 @@ fun NavigationCampAndContinuePrompts(
     val currentDayDiaryEntry = diaryEntries.firstOrNull { it.dayNumber == currentDay }
 
     liveState.autoAdvancedDayMessage?.let { msg ->
-        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("nav_auto_advanced_day_banner")) {
+        Surface(shape = com.example.ui.theme.TileShape, color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("nav_auto_advanced_day_banner")) {
             Text(text = msg, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.padding(12.dp))
         }
     }
     if (isNearTonightCamp && campNameForArrival != null) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = com.example.ui.theme.CardShape,
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 8.dp,
             shadowElevation = 8.dp,
@@ -651,7 +651,7 @@ fun NavigationCampAndContinuePrompts(
         val stageKm = liveState.currentStage?.stageKm ?: distanceRemainingToday
         val firstWaterText = nextWater?.let { "${it.name} (${formatDanishKm(it.distanceRemainingKm, 1)} km)" } ?: stringResource(R.string.nav_first_water_none)
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = com.example.ui.theme.CardShape,
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 8.dp,
             shadowElevation = 8.dp,
@@ -718,7 +718,7 @@ fun NavigationTripCompletedSummaryDialog(
                 if (trailName.isNotBlank()) {
                     Text(text = trailName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                 }
-                Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
+                Surface(shape = com.example.ui.theme.CardShape, color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(stringResource(R.string.nav_trip_completed_distance_label), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
@@ -747,7 +747,7 @@ fun NavigationTripCompletedSummaryDialog(
                 OutlinedButton(onClick = onShareTrip, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).testTag("nav_trip_completed_share_button")) {
                     Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Del", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.action_share), fontWeight = FontWeight.Bold)
                 }
             }
         } else null,

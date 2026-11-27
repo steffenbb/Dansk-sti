@@ -255,7 +255,7 @@ fun DataCreditsScreen(
 
             items(credits) { credit ->
                 Card(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = com.example.ui.theme.CardShape,
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surface
                     ),
@@ -301,7 +301,7 @@ fun DataCreditsScreen(
 
                         if (!credit.dateInApp.isNullOrBlank()) {
                             Surface(
-                                shape = RoundedCornerShape(8.dp),
+                                shape = com.example.ui.theme.ChipShape,
                                 color = MaterialTheme.colorScheme.surfaceVariant,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -348,20 +348,12 @@ fun DataCreditsScreen(
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(credit.url))
                                     context.startActivity(intent)
                                 } catch (_: android.content.ActivityNotFoundException) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        noBrowserText,
-                                        android.widget.Toast.LENGTH_SHORT
-                                    ).show()
+                                    com.example.ui.components.AppMessages.show(noBrowserText)
                                 } catch (e: Exception) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        openLinkErrorText,
-                                        android.widget.Toast.LENGTH_SHORT
-                                    ).show()
+                                    com.example.ui.components.AppMessages.show(openLinkErrorText)
                                 }
                             },
-                            shape = RoundedCornerShape(10.dp),
+                            shape = com.example.ui.theme.TileShape,
                             modifier = Modifier.align(Alignment.End).testTag("credit_link_${credit.title.take(10).replace(" ", "_")}"),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                         ) {

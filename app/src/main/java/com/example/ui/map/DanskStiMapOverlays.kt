@@ -71,7 +71,7 @@ internal fun BoxScope.DanskStiMapBottomAttributionAndBanners(
         }
         for (errMsg in layerErrorMessages) {
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.94f),
                 modifier = Modifier.testTag("map_layer_error_banner")
             ) {
@@ -86,7 +86,7 @@ internal fun BoxScope.DanskStiMapBottomAttributionAndBanners(
         }
         if (transientMessage != null) {
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
                 modifier = Modifier
                     .clickable { onClearTransientMessage() }
@@ -102,7 +102,7 @@ internal fun BoxScope.DanskStiMapBottomAttributionAndBanners(
         }
         if (staleText != null) {
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
                 modifier = Modifier.testTag("map_stale_location_badge")
             ) {
@@ -116,7 +116,7 @@ internal fun BoxScope.DanskStiMapBottomAttributionAndBanners(
         }
         if (locationErrorMessage != null) {
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.errorContainer,
                 modifier = Modifier
                     .clickable { onClearLocationError() }

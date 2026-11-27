@@ -435,7 +435,7 @@ fun KortScreen(
                                                 measurePoints.add(GeoPoint(center.latitude, center.longitude))
                                             }
                                         },
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = com.example.ui.theme.TileShape,
                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                                         modifier = Modifier
                                             .sizeIn(minHeight = 48.dp)
@@ -450,7 +450,7 @@ fun KortScreen(
                                             containerColor = MaterialTheme.colorScheme.surfaceVariant,
                                             contentColor = MaterialTheme.colorScheme.onSurface
                                         ),
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = com.example.ui.theme.TileShape,
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                         modifier = Modifier
                                             .sizeIn(minHeight = 48.dp)
@@ -808,7 +808,7 @@ private fun KortFloatingToolButton(
     val contentColor = if (isSelected) colorScheme.onSecondary else colorScheme.onSurface
 
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = com.example.ui.theme.CardShape,
         color = containerColor,
         border = BorderStroke(
             1.dp,
@@ -816,7 +816,7 @@ private fun KortFloatingToolButton(
         ),
         modifier = Modifier
             .sizeIn(minHeight = 48.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(com.example.ui.theme.CardShape)
             .clickable(onClick = onClick)
             .testTag(testTag)
     ) {

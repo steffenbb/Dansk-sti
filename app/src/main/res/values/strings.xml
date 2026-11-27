@@ -1704,4 +1704,6 @@
     <string name="credit_dmi_title">DMI – tidevandsprognoser (Danmarks Meteorologiske Institut)</string>
     <string name="credit_dmi_subtitle">Høj- og lavvande ved DMI\'s vandstandsstationer</string>
     <string name="credit_dmi_desc">Tidevandsprognoser fra DMI\'s frie data (oceanObs). Vises kun nær tidevandskyster som Vadehavet.</string>
+    <string name="trail_offline_confirm_question_fmt">Hent offline-kort for %1$s (%2$s · %3$d kortfliser)?</string>
+    <string name="nav_progress_camp_label">Lejr</string>
 </resources>

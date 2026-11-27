@@ -290,7 +290,7 @@ internal fun PlannerIconOverLabelButton(
     Surface(
         onClick = spec.onClick,
         enabled = spec.enabled,
-        shape = RoundedCornerShape(10.dp),
+        shape = com.example.ui.theme.TileShape,
         color = containerColor,
         contentColor = contentColor,
         border = borderStroke,
