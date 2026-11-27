@@ -40,6 +40,15 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Wc
+import androidx.compose.material.icons.filled.LocalCafe
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Deck
+import androidx.compose.material.icons.filled.Landscape
+import androidx.compose.material.icons.filled.BeachAccess
+import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.LocalPharmacy
+import androidx.compose.material.icons.filled.Hotel
+import androidx.compose.material.icons.outlined.WaterDrop as OutlinedWaterDrop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -129,13 +138,24 @@ fun PoiInfoSheet(
         "water", "drinking_water", "vand" -> Icons.Default.WaterDrop
         "toilet", "toilets" -> Icons.Default.Wc
         "shop", "supermarket", "indkoeb" -> Icons.Default.ShoppingCart
-        "transit", "station", "ferry" -> Icons.Default.DirectionsBus
+        "transit", "station", "ferry", "bus_stop" -> Icons.Default.DirectionsBus
+        // Phase C: new OSM place types
+        "cafe" -> Icons.Default.LocalCafe
+        "water_likely" -> Icons.Outlined.OutlinedWaterDrop
+        "firepit" -> Icons.Default.LocalFireDepartment
+        "picnic" -> Icons.Default.Deck
+        "highlight" -> Icons.Default.Landscape
+        "beach" -> Icons.Default.BeachAccess
+        "aed" -> Icons.Default.MonitorHeart
+        "pharmacy" -> Icons.Default.LocalPharmacy
+        "accommodation" -> Icons.Default.Hotel
         else -> Icons.Default.Place
     }
 
     val badgeColor = when (poiData.rawType.lowercase()) {
         "shelter", "tent", "fri_teltning" -> stiColors.overnight
-        "water", "drinking_water", "vand" -> stiColors.water
+        "water", "drinking_water", "vand", "water_likely" -> stiColors.water
+        "aed", "pharmacy" -> stiColors.danger
         "toilet", "toilets" -> MaterialTheme.colorScheme.secondary
         "shop", "supermarket", "indkoeb" -> stiColors.warning
         else -> MaterialTheme.colorScheme.primary

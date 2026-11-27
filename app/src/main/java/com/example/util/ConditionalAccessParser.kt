@@ -1,8 +1,5 @@
 package com.example.util
 
-import java.time.Instant
-import java.time.ZoneId
-
 data class DateRange(
     val startMonth: Int,
     val startDay: Int,
@@ -19,9 +16,10 @@ data class ClosureRule(
 ) {
     fun isClosedOn(epochMs: Long): Boolean {
         val dr = dateRange ?: return false
-        val zdt = Instant.ofEpochMilli(epochMs).atZone(COPENHAGEN_ZONE)
-        val month = zdt.monthValue
-        val day = zdt.dayOfMonth
+        // java.util.Calendar instead of java.time so this works on minSdk 24 (Android 7)
+        val cal = CopenhagenTime.calendar(epochMs)
+        val month = CopenhagenTime.month(cal)
+        val day = cal.get(java.util.Calendar.DAY_OF_MONTH)
         val targetVal = month * 100 + day
         val startVal = dr.startMonth * 100 + dr.startDay
         val endVal = dr.endMonth * 100 + dr.endDay
@@ -47,8 +45,6 @@ data class ClosureRule(
     }
 
     companion object {
-        private val COPENHAGEN_ZONE: ZoneId = ZoneId.of("Europe/Copenhagen")
-
         private val DA_MONTHS = arrayOf(
             "", "jan", "feb", "mar", "apr", "maj", "jun",
             "jul", "aug", "sep", "okt", "nov", "dec"

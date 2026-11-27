@@ -411,7 +411,8 @@ fun NavigationBatterySaverScreen(
 fun NavigationSosBottomSheet(
     liveState: NavigationLiveState,
     emergencyInfo: DanishEmergencyInfo?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    nearestAeds: List<com.example.ui.viewmodel.NearbyAed> = emptyList()
 ) {
     val context = LocalContext.current
     val danskStiColors = DanskStiTheme.colors
@@ -528,6 +529,8 @@ fun NavigationSosBottomSheet(
                     color = MaterialTheme.colorScheme.onError
                 )
             }
+
+            NavigationSosAedSection(aeds = nearestAeds)
 
             OutlinedButton(
                 onClick = onDismiss,

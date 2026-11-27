@@ -136,7 +136,8 @@ class MapLayersPhase13Test {
             showToilets = false,
             showShops = false,
             showTransport = false,
-            showMyPoints = false
+            showMyPoints = false,
+            showSafety = false // Phase C: Sikkerhed is on by default
         )
         val attr2 = DanskStiTileSourceHelper.getAttributionSummary(luftfotoState)
         assertEquals("GeoDanmark Ortofoto", attr2)

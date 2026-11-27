@@ -770,7 +770,8 @@ fun NavigationScreen(
         )
     }
     if (showSosSheet) {
-        NavigationSosBottomSheet(liveState = liveState, emergencyInfo = emergencyInfo, onDismiss = { viewModel.setSosSheet(false) })
+        val nearestAeds by viewModel.nearestAeds.collectAsState()
+        NavigationSosBottomSheet(liveState = liveState, emergencyInfo = emergencyInfo, onDismiss = { viewModel.setSosSheet(false) }, nearestAeds = nearestAeds)
     }
     if (showHowToGuide) {
         HowToGuideScreen(onDismiss = { showHowToGuide = false }, initialSection = HowToGuideDefinitions.SECTION_OFFLINE_NAVIGATION)

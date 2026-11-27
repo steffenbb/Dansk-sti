@@ -37,7 +37,12 @@ data class OvernightSpotItem(
     val hasToiletNearby: Boolean,
     val lat: Double,
     val lng: Double,
-    val description: String? = null
+    val description: String? = null,
+    // Phase C6: facilities shown as chips (only when known to be true)
+    val hasFireRing: Boolean? = null,
+    val hasOwnTap: Boolean? = null,
+    val hasOwnToilet: Boolean? = null,
+    val hasShower: Boolean? = null
 )
 
 data class PoiSpotItem(
@@ -50,7 +55,8 @@ data class PoiSpotItem(
     val lng: Double,
     val openingHours: String? = null,
     val seasonal: String? = null,
-    val isPotentiallyClosed: Boolean = false
+    val isPotentiallyClosed: Boolean = false,
+    val subtype: String? = null
 )
 
 class TrailViewModel(application: Application) : AndroidViewModel(application) {
@@ -78,6 +84,26 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _transports = MutableStateFlow<List<PoiSpotItem>>(emptyList())
     val transports: StateFlow<List<PoiSpotItem>> = _transports.asStateFlow()
+
+    // Phase C6: new OSM place groups
+    private val _foodPlaces = MutableStateFlow<List<PoiSpotItem>>(emptyList())
+    val foodPlaces: StateFlow<List<PoiSpotItem>> = _foodPlaces.asStateFlow()
+
+    private val _likelyWater = MutableStateFlow<List<PoiSpotItem>>(emptyList())
+    val likelyWater: StateFlow<List<PoiSpotItem>> = _likelyWater.asStateFlow()
+
+    private val _highlights = MutableStateFlow<List<PoiSpotItem>>(emptyList())
+    val highlights: StateFlow<List<PoiSpotItem>> = _highlights.asStateFlow()
+
+    private val _accommodations = MutableStateFlow<List<PoiSpotItem>>(emptyList())
+    val accommodations: StateFlow<List<PoiSpotItem>> = _accommodations.asStateFlow()
+
+    private val _safetyPois = MutableStateFlow<List<PoiSpotItem>>(emptyList())
+    val safetyPois: StateFlow<List<PoiSpotItem>> = _safetyPois.asStateFlow()
+
+    /** A churchyard (possible, unconfirmed tap) inside the longest confirmed water gap, if any. */
+    private val _likelyWaterInLongestGap = MutableStateFlow<PoiSpotItem?>(null)
+    val likelyWaterInLongestGap: StateFlow<PoiSpotItem?> = _likelyWaterInLongestGap.asStateFlow()
 
     private val _nearestStartTransport = MutableStateFlow<Pair<PoiEntity, Double>?>(null)
     val nearestStartTransport: StateFlow<Pair<PoiEntity, Double>?> = _nearestStartTransport.asStateFlow()
@@ -592,7 +618,11 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                         hasToiletNearby = s.hasToiletNearby,
                         lat = s.lat,
                         lng = s.lng,
-                        description = s.description
+                        description = s.description,
+                        hasFireRing = s.hasFireRing,
+                        hasOwnTap = s.hasOwnTap,
+                        hasOwnToilet = s.hasOwnToilet,
+                        hasShower = s.hasShower
                     )
                 )
             }
@@ -634,6 +664,11 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
         val shopList = mutableListOf<PoiSpotItem>()
         val stationFerryList = mutableListOf<PoiSpotItem>()
         val busStopCandidates = mutableListOf<PoiSpotItem>()
+        val foodList = mutableListOf<PoiSpotItem>()
+        val likelyWaterList = mutableListOf<PoiSpotItem>()
+        val highlightList = mutableListOf<PoiSpotItem>()
+        val accommodationList = mutableListOf<PoiSpotItem>()
+        val safetyList = mutableListOf<PoiSpotItem>()
 
         for (p in nearbyPois) {
             val (wKm, dM) = projectOnSegments(segments, p.lat, p.lng)
@@ -650,10 +685,16 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                     lng = p.lng,
                     openingHours = p.openingHours,
                     seasonal = p.seasonal,
-                    isPotentiallyClosed = closed
+                    isPotentiallyClosed = closed,
+                    subtype = p.subtype
                 )
                 when (p.type) {
                     "water", "toilet" -> waterToilets.add(item)
+                    "cafe" -> foodList.add(item)
+                    "water_likely" -> likelyWaterList.add(item)
+                    "highlight", "beach", "picnic", "firepit" -> highlightList.add(item)
+                    "accommodation" -> if (!hasPoints || dM <= 2000.0) accommodationList.add(item)
+                    "aed", "pharmacy" -> safetyList.add(item)
                     "shop", "supermarket", "convenience", "bakery", "farm" -> shopList.add(item)
                     "station", "ferry" -> stationFerryList.add(item)
                     "bus_stop" -> {
@@ -677,6 +718,11 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
         _waterAndToilets.value = waterToilets.distinctBy { it.id }
         _shops.value = shopList.distinctBy { it.id }
         _transports.value = transList
+        _foodPlaces.value = foodList.distinctBy { it.id }.sortedBy { it.kmOnRoute }
+        _likelyWater.value = likelyWaterList.distinctBy { it.id }.sortedBy { it.kmOnRoute }
+        _highlights.value = highlightList.distinctBy { it.id }.sortedBy { it.kmOnRoute }
+        _accommodations.value = accommodationList.distinctBy { it.id }.sortedBy { it.kmOnRoute }
+        _safetyPois.value = safetyList.distinctBy { it.id }.sortedBy { it.kmOnRoute }
 
         // Part F3: Nearest station or bus_stop within 3 km of trail start and end
         val firstPt = points.firstOrNull()
@@ -692,12 +738,10 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
             waterToilets.filter { it.type == "water" && !it.isPotentiallyClosed }.map { it.kmOnRoute } +
             overnightList.filter { it.hasWaterNearby }.map { it.kmOnRoute } +
             listOf(totalKm)).distinct().sorted()
-        var maxWaterGap = 0.0
-        for (i in 0 until waterKms.size - 1) {
-            val gap = waterKms[i + 1] - waterKms[i]
-            if (gap > maxWaterGap) maxWaterGap = gap
-        }
-        _longestGapWithoutWaterKm.value = maxWaterGap
+        // Only confirmed water counts; a churchyard inside the gap is shown as a hint (Phase C6)
+        val longestGap = TrailCorridorExtras.longestGap(waterKms)
+        _longestGapWithoutWaterKm.value = longestGap?.let { it.second - it.first } ?: 0.0
+        _likelyWaterInLongestGap.value = TrailCorridorExtras.likelyWaterInGap(longestGap, _likelyWater.value)
 
         val overnightKms = (listOf(0.0) + overnightList.map { it.kmOnRoute } + listOf(totalKm)).distinct().sorted()
         var maxOvernightGap = 0.0

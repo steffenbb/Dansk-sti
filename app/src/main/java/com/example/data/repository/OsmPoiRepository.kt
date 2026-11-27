@@ -269,6 +269,12 @@ class OsmPoiRepository(private val context: Context) {
         """.trimIndent()
     }
 
+    private fun yesNoTag(value: String?): Boolean? = when (value?.trim()?.lowercase()) {
+        "yes" -> true
+        "no" -> false
+        else -> null
+    }
+
     @Suppress("UNCHECKED_CAST")
     fun parseOverpassJson(jsonStr: String): OsmPoiResult {
         val root = try {
@@ -284,6 +290,9 @@ class OsmPoiRepository(private val context: Context) {
         val defaultBusStopName = runCatching {
             localizedCtx.getString(com.example.R.string.osm_default_bus_stop_name)
         }.getOrDefault("Busstoppested")
+        val primitiveCampName = runCatching {
+            localizedCtx.getString(com.example.R.string.osm_shelter_type_primitive_camp)
+        }.getOrDefault("Primitiv teltplads")
 
         for (el in elements) {
             val type = el["type"] as? String ?: continue
@@ -338,7 +347,11 @@ class OsmPoiRepository(private val context: Context) {
 
             // 1. Shelter or Camp site
             if (amenity == "shelter" || tourism == "camp_site" || tourism == "wilderness_hut") {
-                val shelterType = tags["shelter_type"] ?: if (tourism == "camp_site") "Teltplads" else "Shelter"
+                val shelterType = if (tags["backcountry"]?.trim()?.lowercase() == "yes") {
+                    primitiveCampName
+                } else {
+                    tags["shelter_type"] ?: if (tourism == "camp_site") "Teltplads" else "Shelter"
+                }
                 val cap = tags["capacity"]?.toIntOrNull()
                 val isBookingReq = tags["reservation"]?.equals("required", ignoreCase = true) == true
                 shelters.add(
@@ -360,7 +373,16 @@ class OsmPoiRepository(private val context: Context) {
                         dogAllowed = dogAllowed,
                         shelterType = shelterType,
                         fee = feeNullable,
-                        fetchedAt = now
+                        fetchedAt = now,
+                        // Phase C2: OSM facility tags
+                        hasOwnTap = yesNoTag(tags["drinking_water"]),
+                        hasOwnToilet = yesNoTag(tags["toilets"]),
+                        hasShower = when (tags["shower"]?.trim()?.lowercase()) {
+                            "yes", "hot" -> true
+                            "no" -> false
+                            else -> null
+                        },
+                        hasElectricity = if (tags["power_supply"]?.trim()?.lowercase() == "yes") true else null
                     )
                 )
             }
@@ -506,5 +528,248 @@ class OsmPoiRepository(private val context: Context) {
         }
 
         return OsmPoiResult(shelters = shelters, pois = mergedPois)
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Phase C1: "extras" – cafés, likely water, highlights, beaches, AEDs, pharmacies, hostels.
+    // Separate query, parser and cache, so these never pass through parseOverpassJson (whose
+    // amenity=shelter branch would turn picnic shelters into overnight shelters).
+    // ---------------------------------------------------------------------------------------
+
+    @VisibleForTesting
+    internal var customExtrasChunkFetcher: (suspend (simplifiedChunk: List<GeoPointDto>) -> List<PoiEntity>)? = null
+
+    private val poiListAdapter = moshi.adapter<List<PoiEntity>>(
+        com.squareup.moshi.Types.newParameterizedType(List::class.java, PoiEntity::class.java)
+    )
+
+    fun buildOverpassExtrasQuery(simplifiedPoints: List<GeoPointDto>): String {
+        val c = simplifiedPoints.joinToString(",") { "${it.lat},${it.lng}" }
+        return """
+            [out:json][timeout:60][maxsize:67108864];
+            (
+              nwr["amenity"~"^(cafe|restaurant|fast_food|ice_cream)$"](around:1000,$c);
+              nwr["amenity"="fuel"](around:1500,$c);
+              nwr["amenity"="water_point"](around:2000,$c);
+              nwr["natural"="spring"]["drinking_water"="yes"](around:2000,$c);
+              nwr["amenity"="grave_yard"](around:1000,$c);
+              nwr["landuse"="cemetery"](around:1000,$c);
+              nwr["leisure"="firepit"](around:500,$c);
+              nwr["amenity"="bbq"](around:500,$c);
+              nwr["tourism"="picnic_site"](around:500,$c);
+              nwr["amenity"="shelter"]["shelter_type"="picnic_shelter"](around:500,$c);
+              nwr["tourism"="viewpoint"](around:500,$c);
+              nwr["man_made"="tower"]["tower:type"="observation"](around:1000,$c);
+              nwr["leisure"="bird_hide"](around:500,$c);
+              nwr["historic"~"^(archaeological_site|tumulus|ruins|castle|manor|rune_stone|monument)$"](around:300,$c);
+              nwr["historic"="memorial"]["name"](around:300,$c);
+              nwr["natural"="beach"](around:500,$c);
+              nwr["leisure"~"^(bathing_place|swimming_area)$"](around:500,$c);
+              nwr["emergency"="defibrillator"](around:1500,$c);
+              nwr["amenity"="pharmacy"](around:3000,$c);
+              nwr["tourism"~"^(hostel|guest_house|hotel|chalet)$"](around:2000,$c);
+            );
+            out center tags;
+        """.trimIndent()
+    }
+
+    /**
+     * Fetches extras along [points] (same 50 km chunking and 200 m simplification as
+     * [fetchPoisForPolyline]) at BACKGROUND priority. Live first, then the per-id cache
+     * `filesDir/osm_pois/<cacheId>_extras.json`, then empty. Pass an empty [points] to skip
+     * the network (offline).
+     */
+    suspend fun fetchExtrasForPolyline(cacheId: String, points: List<GeoPointDto>): List<PoiEntity> = withContext(Dispatchers.IO) {
+        val cacheFile = File(cacheDir, "${cacheId}_extras.json")
+        if (points.isNotEmpty()) {
+            val chunks = splitPolylineIntoChunks(points, chunkLengthKm = 50.0, overlapKm = 3.0)
+            val merged = mutableListOf<PoiEntity>()
+            var anyChunkSucceeded = false
+            for ((chunkIdx, chunkPoints) in chunks.withIndex()) {
+                val simplified = simplifyPointsForCorridor(chunkPoints, minDistanceMeters = 200.0)
+                if (simplified.isEmpty()) continue
+                try {
+                    val customFetcher = customExtrasChunkFetcher
+                    val chunkPois = if (customFetcher != null) {
+                        customFetcher(simplified)
+                    } else {
+                        val body = com.example.data.remote.OverpassClient.queryRawJson(
+                            query = buildOverpassExtrasQuery(simplified),
+                            label = "OsmPoiExtras(chunk=${chunkIdx + 1}/${chunks.size},pts=${simplified.size})",
+                            priority = com.example.data.remote.OverpassClient.Priority.BACKGROUND
+                        )
+                        parseExtrasOverpassJson(body)
+                    }
+                    anyChunkSucceeded = true
+                    merged.addAll(chunkPois)
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.w("OsmPoiRepo", "Overpass extras chunk ${chunkIdx + 1}/${chunks.size} failed: ${e.message}")
+                }
+            }
+            if (anyChunkSucceeded) {
+                val result = dedupeExtras(merged, unnamedIds = null)
+                runCatching { cacheFile.writeText(poiListAdapter.toJson(result)) }
+                return@withContext result
+            }
+        }
+        if (cacheFile.exists()) {
+            try {
+                return@withContext poiListAdapter.fromJson(cacheFile.readText()).orEmpty()
+            } catch (e: Exception) {
+                Log.w("OsmPoiRepo", "Failed to parse cached extras for $cacheId: ${e.message}")
+            }
+        }
+        emptyList()
+    }
+
+    /** Keys copied into detailsJson when present (Phase C1 whitelist). */
+    private val extrasDetailKeys = listOf(
+        "wikipedia", "wikidata", "wheelchair", "defibrillator:location", "indoor", "access",
+        "fee", "cuisine", "outdoor_seating", "inscription", "heritage"
+    )
+
+    private data class ExtraKind(val type: String, val subtype: String, val fallbackRes: Int, val fallbackDa: String)
+
+    private fun classifyExtra(tags: Map<String, String>): ExtraKind? {
+        val amenity = tags["amenity"]
+        val leisure = tags["leisure"]
+        val tourism = tags["tourism"]
+        val historic = tags["historic"]
+        return when {
+            amenity == "cafe" -> ExtraKind("cafe", "cafe", com.example.R.string.osm_extra_name_cafe, "Café")
+            amenity == "restaurant" -> ExtraKind("cafe", "restaurant", com.example.R.string.osm_extra_name_restaurant, "Restaurant")
+            amenity == "fast_food" -> ExtraKind("cafe", "fast_food", com.example.R.string.osm_extra_name_fast_food, "Grillbar")
+            amenity == "ice_cream" -> ExtraKind("cafe", "ice_cream", com.example.R.string.osm_extra_name_ice_cream, "Is")
+            amenity == "fuel" -> ExtraKind("shop", "fuel", com.example.R.string.osm_extra_name_fuel, "Tankstation")
+            amenity == "water_point" -> ExtraKind("water", "water_point", com.example.R.string.osm_extra_name_water_point, "Vandpost")
+            tags["natural"] == "spring" && tags["drinking_water"] == "yes" ->
+                ExtraKind("water", "spring", com.example.R.string.osm_extra_name_spring, "Kilde (drikkevand)")
+            amenity == "grave_yard" || tags["landuse"] == "cemetery" -> {
+                val access = tags["access"]?.lowercase()
+                if (access == "private" || access == "no") null
+                else ExtraKind("water_likely", "churchyard", com.example.R.string.osm_extra_name_churchyard, "Kirkegård")
+            }
+            leisure == "firepit" -> ExtraKind("firepit", "firepit", com.example.R.string.osm_extra_name_firepit, "Bålplads")
+            amenity == "bbq" -> ExtraKind("firepit", "bbq", com.example.R.string.osm_extra_name_bbq, "Grillplads")
+            tourism == "picnic_site" -> ExtraKind("picnic", "picnic_site", com.example.R.string.osm_extra_name_picnic_site, "Rasteplads")
+            amenity == "shelter" && tags["shelter_type"] == "picnic_shelter" ->
+                ExtraKind("picnic", "madpakkehus", com.example.R.string.osm_extra_name_madpakkehus, "Madpakkehus")
+            tourism == "viewpoint" -> ExtraKind("highlight", "viewpoint", com.example.R.string.osm_extra_name_viewpoint, "Udsigtspunkt")
+            tags["man_made"] == "tower" && tags["tower:type"] == "observation" ->
+                ExtraKind("highlight", "observation_tower", com.example.R.string.osm_extra_name_observation_tower, "Udsigtstårn")
+            leisure == "bird_hide" -> ExtraKind("highlight", "bird_hide", com.example.R.string.osm_extra_name_bird_hide, "Fugleskjul")
+            historic != null -> when (historic) {
+                "archaeological_site" -> ExtraKind("highlight", "historic_archaeological_site", com.example.R.string.osm_extra_name_historic_archaeological_site, "Fortidsminde")
+                "tumulus" -> ExtraKind("highlight", "historic_tumulus", com.example.R.string.osm_extra_name_historic_tumulus, "Gravhøj")
+                "ruins" -> ExtraKind("highlight", "historic_ruins", com.example.R.string.osm_extra_name_historic_ruins, "Ruin")
+                "castle" -> ExtraKind("highlight", "historic_castle", com.example.R.string.osm_extra_name_historic_castle, "Slot")
+                "manor" -> ExtraKind("highlight", "historic_manor", com.example.R.string.osm_extra_name_historic_manor, "Herregård")
+                "rune_stone" -> ExtraKind("highlight", "historic_rune_stone", com.example.R.string.osm_extra_name_historic_rune_stone, "Runesten")
+                "monument" -> ExtraKind("highlight", "historic_monument", com.example.R.string.osm_extra_name_historic_monument, "Monument")
+                "memorial" -> if (tags["name"].isNullOrBlank()) null
+                    else ExtraKind("highlight", "historic_memorial", com.example.R.string.osm_extra_name_historic_memorial, "Mindesmærke")
+                else -> null
+            }
+            tags["natural"] == "beach" -> ExtraKind("beach", "beach", com.example.R.string.osm_extra_name_beach, "Strand")
+            leisure == "bathing_place" || leisure == "swimming_area" ->
+                ExtraKind("beach", leisure, com.example.R.string.osm_extra_name_bathing_place, "Badested")
+            tags["emergency"] == "defibrillator" -> ExtraKind("aed", "defibrillator", com.example.R.string.osm_extra_name_aed, "Hjertestarter")
+            amenity == "pharmacy" -> ExtraKind("pharmacy", "pharmacy", com.example.R.string.osm_extra_name_pharmacy, "Apotek")
+            tourism == "hostel" -> ExtraKind("accommodation", "hostel", com.example.R.string.osm_extra_name_hostel, "Vandrehjem")
+            tourism == "guest_house" -> ExtraKind("accommodation", "guest_house", com.example.R.string.osm_extra_name_guest_house, "B&B / gæstehus")
+            tourism == "hotel" -> ExtraKind("accommodation", "hotel", com.example.R.string.osm_extra_name_hotel, "Hotel")
+            tourism == "chalet" -> ExtraKind("accommodation", "chalet", com.example.R.string.osm_extra_name_chalet, "Hytte")
+            else -> null
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun parseExtrasOverpassJson(jsonStr: String): List<PoiEntity> {
+        val root = try {
+            moshi.adapter(Map::class.java).fromJson(jsonStr) as? Map<String, Any> ?: return emptyList()
+        } catch (e: Exception) {
+            return emptyList()
+        }
+        val elements = root["elements"] as? List<Map<String, Any>> ?: return emptyList()
+        val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(context)
+        val mapAdapter = moshi.adapter(Map::class.java)
+        val now = System.currentTimeMillis()
+        val pois = mutableListOf<PoiEntity>()
+        val unnamedIds = HashSet<String>()
+
+        for (el in elements) {
+            val elType = el["type"] as? String ?: continue
+            val id = (el["id"] as? Number)?.toLong() ?: continue
+            val tags = (el["tags"] as? Map<String, Any>)?.mapValues { it.value.toString() } ?: continue
+            val kind = classifyExtra(tags) ?: continue
+
+            val lat: Double
+            val lng: Double
+            if (elType == "node") {
+                lat = (el["lat"] as? Number)?.toDouble() ?: continue
+                lng = (el["lon"] as? Number)?.toDouble() ?: continue
+            } else {
+                val center = el["center"] as? Map<String, Any> ?: continue
+                lat = (center["lat"] as? Number)?.toDouble() ?: continue
+                lng = (center["lon"] as? Number)?.toDouble() ?: continue
+            }
+
+            val details = LinkedHashMap<String, String>()
+            val description = (tags["description:da"] ?: tags["description"])?.trim()
+            if (!description.isNullOrBlank()) details["description"] = description
+            for (key in extrasDetailKeys) {
+                tags[key]?.trim()?.takeIf { it.isNotBlank() }?.let { details[key] = it }
+            }
+
+            val osmName = tags["name"]?.trim()?.takeIf { it.isNotBlank() }
+            if (osmName == null) unnamedIds.add("osm_${elType}_$id")
+            val name = osmName ?: runCatching { localizedCtx.getString(kind.fallbackRes) }.getOrDefault(kind.fallbackDa)
+
+            pois.add(
+                PoiEntity(
+                    id = "osm_${elType}_$id",
+                    type = kind.type,
+                    name = name,
+                    lat = lat,
+                    lng = lng,
+                    access = tags["access"]?.trim(),
+                    fee = tags["fee"]?.trim()?.lowercase() == "yes",
+                    openingHours = tags["opening_hours"]?.trim()?.takeIf { it.isNotBlank() },
+                    operator = tags["operator"]?.trim()?.takeIf { it.isNotBlank() },
+                    website = (tags["website"] ?: tags["contact:website"] ?: tags["url"])?.trim()?.takeIf { it.isNotBlank() },
+                    source = "osm",
+                    fetchedAt = now,
+                    seasonal = tags["seasonal"]?.trim()?.takeIf { it.isNotBlank() },
+                    subtype = kind.subtype,
+                    detailsJson = if (details.isEmpty()) null else runCatching { mapAdapter.toJson(details) }.getOrNull()
+                )
+            )
+        }
+        return dedupeExtras(pois, unnamedIds)
+    }
+
+    /**
+     * Same type within 20 m: keep one. Same type and same name within 150 m: keep one (this merges
+     * a grave_yard and the cemetery around it). The name rule is skipped when [unnamedIds] is null
+     * (merging chunks that were each de-duplicated already) and for places without a real OSM
+     * name (their fallback names are all equal), except churchyards.
+     */
+    fun dedupeExtras(pois: List<PoiEntity>, unnamedIds: Set<String>? = emptySet()): List<PoiEntity> {
+        val kept = mutableListOf<PoiEntity>()
+        val seenIds = HashSet<String>()
+        for (poi in pois) {
+            if (!seenIds.add(poi.id)) continue
+            val normName = poi.name.trim().lowercase()
+            val duplicate = kept.any { existing ->
+                if (existing.type != poi.type) return@any false
+                val d = com.example.util.GeoUtils.distanceMeters(existing.lat, existing.lng, poi.lat, poi.lng)
+                val nameRuleApplies = unnamedIds != null &&
+                    (poi.type == "water_likely" || (poi.id !in unnamedIds && existing.id !in unnamedIds))
+                d <= 20.0 || (nameRuleApplies && d <= 150.0 && existing.name.trim().lowercase() == normName)
+            }
+            if (!duplicate) kept.add(poi)
+        }
+        return kept
     }
 }

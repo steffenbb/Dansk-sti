@@ -117,7 +117,35 @@ class DanskStiRepository(
     companion object {
         const val CATALOGUE_META_TTL_MS = 30L * 24L * 3600L * 1000L
         const val CATALOGUE_META_FILE_NAME = "catalogue_relations_meta_cache.json"
-        const val CORRIDOR_POI_VERSION = 2
+        /** Phase C: raised to 3 so already-synced trails and routes fetch the extras once. */
+        const val CORRIDOR_POI_VERSION = 3
+
+        /**
+         * Shelter recompute shared by seeding, trail sync and route sync:
+         * water/toilet = own facility or a matching POI within 500 m (Phase A);
+         * Phase C: a firepit POI within 75 m sets hasFireRing = true when it is still unknown.
+         */
+        fun recomputeShelterFacilities(
+            sh: ShelterEntity,
+            waterPois: List<PoiEntity>,
+            toiletPois: List<PoiEntity>,
+            firepitPois: List<PoiEntity>
+        ): ShelterEntity {
+            // Cheap box first (0.006° lat ≈ 670 m, 0.012° lng ≥ 690 m across Denmark), then exact distance
+            fun near(list: List<PoiEntity>, maxM: Double): Boolean = list.any { p ->
+                kotlin.math.abs(p.lat - sh.lat) < 0.006 &&
+                    kotlin.math.abs(p.lng - sh.lng) < 0.012 &&
+                    GeoUtils.distanceMeters(sh.lat, sh.lng, p.lat, p.lng) <= maxM
+            }
+            val hasWater = sh.hasOwnTap == true || near(waterPois, 500.0)
+            val hasToilet = sh.hasOwnToilet == true || near(toiletPois, 500.0)
+            val fireRing = sh.hasFireRing ?: if (near(firepitPois, 75.0)) true else null
+            return if (sh.hasWaterNearby == hasWater && sh.hasToiletNearby == hasToilet && sh.hasFireRing == fireRing) {
+                sh
+            } else {
+                sh.copy(hasWaterNearby = hasWater, hasToiletNearby = hasToilet, hasFireRing = fireRing)
+            }
+        }
     }
 
     private fun getMigrationPrefs(): android.content.SharedPreferences =
@@ -395,6 +423,7 @@ class DanskStiRepository(
 
                         val waterPois = pois.filter { it.type == "water" }
                         val toiletPois = pois.filter { it.type == "toilet" }
+                        val firepitPois = pois.filter { it.type == "firepit" }
                         if (pois.isNotEmpty()) {
                             pois.distinctBy { it.id }.chunked(250).forEach { dao.insertPois(it) }
                         }
@@ -402,17 +431,7 @@ class DanskStiRepository(
                         pois.clear()
 
                         val computedShelters = shelters.map { sh ->
-                            val hasWater = sh.hasOwnTap == true || waterPois.any { w ->
-                                kotlin.math.abs(w.lat - sh.lat) < 0.005 &&
-                                kotlin.math.abs(w.lng - sh.lng) < 0.008 &&
-                                GeoUtils.distanceMeters(sh.lat, sh.lng, w.lat, w.lng) <= 500.0
-                            }
-                            val hasToilet = sh.hasOwnToilet == true || toiletPois.any { t ->
-                                kotlin.math.abs(t.lat - sh.lat) < 0.005 &&
-                                kotlin.math.abs(t.lng - sh.lng) < 0.008 &&
-                                GeoUtils.distanceMeters(sh.lat, sh.lng, t.lat, t.lng) <= 500.0
-                            }
-                            sh.copy(hasWaterNearby = hasWater, hasToiletNearby = hasToilet)
+                            recomputeShelterFacilities(sh, waterPois, toiletPois, firepitPois)
                         }
                         if (computedShelters.isNotEmpty()) {
                             computedShelters.chunked(250).forEach { dao.insertShelters(it) }
@@ -828,6 +847,16 @@ class DanskStiRepository(
         )
     }
 
+    /** Phase C2: an extras failure is logged and ignored so it can never fail the normal POI sync. */
+    private suspend fun fetchExtrasSafely(cacheId: String, points: List<GeoPointDto>): List<PoiEntity> = try {
+        osmPoiRepository.fetchExtrasForPolyline(cacheId, points)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w("DanskStiRepo", "Extras POI fetch failed for $cacheId: ${e.message}")
+        emptyList()
+    }
+
     fun getAllTrails(): Flow<List<TrailEntity>> = dao.getAllTrails()
 
     suspend fun getTrailById(id: String): TrailEntity? = withContext(Dispatchers.IO) {
@@ -1226,6 +1255,8 @@ class DanskStiRepository(
             } else {
                 osmPoiRepository.fetchPoisForTrail(trail.id, emptyList())
             }
+            // Phase C2: extras (cafés, highlights, AEDs …) in their own try/catch so they never fail the sync
+            val extraPois = fetchExtrasSafely(trail.id, if (online) points else emptyList())
 
             val minLat = points.minOf { it.lat } - 0.04
             val maxLat = points.maxOf { it.lat } + 0.04
@@ -1261,7 +1292,7 @@ class DanskStiRepository(
             val updatedPois = mutableListOf<PoiEntity>()
             val newPois = mutableListOf<PoiEntity>()
 
-            for (osmPoi in osmResult.pois) {
+            for (osmPoi in osmResult.pois + extraPois) {
                 val matchIdx = existingPois.indexOfFirst { gf ->
                     gf.type == osmPoi.type && GeoUtils.distanceMeters(gf.lat, gf.lng, osmPoi.lat, osmPoi.lng) <= 50.0
                 }
@@ -1286,17 +1317,16 @@ class DanskStiRepository(
             if (updatedPois.isNotEmpty()) dao.insertPois(updatedPois)
             if (newPois.isNotEmpty()) dao.insertPois(newPois)
 
-            // 4. Compute hasWaterNearby / hasToiletNearby on shelters within 500m (or own tap/toilet)
+            // 4. Compute hasWaterNearby / hasToiletNearby (500 m or own tap/toilet) and hasFireRing (firepit within 75 m)
             val allWaterPois = existingPois.filter { it.type == "water" }
             val allToiletPois = existingPois.filter { it.type == "toilet" }
+            val allFirepitPois = existingPois.filter { it.type == "firepit" }
 
             val reevaluatedShelters = mutableListOf<ShelterEntity>()
             for (i in existingShelters.indices) {
                 val sh = existingShelters[i]
-                val hasWater = sh.hasOwnTap == true || allWaterPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
-                val hasToilet = sh.hasOwnToilet == true || allToiletPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
-                if (sh.hasWaterNearby != hasWater || sh.hasToiletNearby != hasToilet) {
-                    val updated = sh.copy(hasWaterNearby = hasWater, hasToiletNearby = hasToilet)
+                val updated = recomputeShelterFacilities(sh, allWaterPois, allToiletPois, allFirepitPois)
+                if (updated !== sh) {
                     existingShelters[i] = updated
                     reevaluatedShelters.add(updated)
                 }
@@ -1435,6 +1465,8 @@ class DanskStiRepository(
             if (online) {
                 val osmResult = osmPoiRepository.fetchPoisForPolyline(points)
                 kotlinx.coroutines.yield()
+                // Phase C2: extras in their own try/catch so they never fail the sync
+                val extraPois = fetchExtrasSafely("route_$routeId", points)
 
                 val updatedShelters = mutableListOf<ShelterEntity>()
                 val newShelters = mutableListOf<ShelterEntity>()
@@ -1457,7 +1489,7 @@ class DanskStiRepository(
                 val updatedPois = mutableListOf<PoiEntity>()
                 val newPois = mutableListOf<PoiEntity>()
 
-                for (osmPoi in osmResult.pois) {
+                for (osmPoi in osmResult.pois + extraPois) {
                     val matchIdx = existingPois.indexOfFirst { gf ->
                         gf.type == osmPoi.type && GeoUtils.distanceMeters(gf.lat, gf.lng, osmPoi.lat, osmPoi.lng) <= 50.0
                     }
@@ -1489,17 +1521,16 @@ class DanskStiRepository(
             val latestShelters = dao.getAllSheltersList().toMutableList()
             val latestPois = dao.getAllPoisList()
 
-            // 3. Compute hasWaterNearby / hasToiletNearby on shelters within 500m (or own tap/toilet)
+            // 3. Compute hasWaterNearby / hasToiletNearby (500 m or own tap/toilet) and hasFireRing (firepit within 75 m)
             val allWaterPois = latestPois.filter { it.type == "water" }
             val allToiletPois = latestPois.filter { it.type == "toilet" }
+            val allFirepitPois = latestPois.filter { it.type == "firepit" }
 
             val reevaluatedShelters = mutableListOf<ShelterEntity>()
             for (i in latestShelters.indices) {
                 val sh = latestShelters[i]
-                val hasWater = sh.hasOwnTap == true || allWaterPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
-                val hasToilet = sh.hasOwnToilet == true || allToiletPois.any { GeoUtils.distanceMeters(sh.lat, sh.lng, it.lat, it.lng) <= 500.0 }
-                if (sh.hasWaterNearby != hasWater || sh.hasToiletNearby != hasToilet) {
-                    val updated = sh.copy(hasWaterNearby = hasWater, hasToiletNearby = hasToilet)
+                val updated = recomputeShelterFacilities(sh, allWaterPois, allToiletPois, allFirepitPois)
+                if (updated !== sh) {
                     latestShelters[i] = updated
                     reevaluatedShelters.add(updated)
                 }

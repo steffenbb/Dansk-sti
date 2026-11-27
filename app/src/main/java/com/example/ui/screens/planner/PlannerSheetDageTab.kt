@@ -373,6 +373,43 @@ fun PlannerDaySummaryCard(
                 }
             }
 
+            // Phase C7: food stops with arrival time and open state, and highlights on the day's stretch
+            if (day.foodStops.isNotEmpty()) {
+                val appLocale = com.example.ui.components.rememberAppLocale()
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.testTag("day_card_food_${day.dayNumber}")
+                ) {
+                    Text(
+                        text = stringResource(R.string.planner_food_stops_label),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    day.foodStops.forEach { stop ->
+                        Text(
+                            text = stringResource(
+                                R.string.planner_food_stop_fmt,
+                                stop.name,
+                                String.format(appLocale, "%.1f", stop.km),
+                                stop.etaText,
+                                stop.statusText
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+            if (day.highlights.isNotEmpty()) {
+                Text(
+                    text = stringResource(R.string.planner_highlights_fmt, day.highlights.joinToString(", ")),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("day_card_highlights_${day.dayNumber}")
+                )
+            }
+
             if (day.overnightWaypointId != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

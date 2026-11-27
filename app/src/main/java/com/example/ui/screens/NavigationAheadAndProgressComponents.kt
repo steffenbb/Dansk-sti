@@ -35,6 +35,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocalCafe
+import androidx.compose.material.icons.filled.Landscape
 import androidx.compose.material.icons.filled.Cabin
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.MyLocation
@@ -727,6 +729,8 @@ fun AheadItemRow(item: AheadOnRouteItem) {
                     "TOILET" -> Icons.Default.Wc
                     "SHOP" -> Icons.Default.ShoppingBag
                     "WARNING" -> Icons.Default.Warning
+                    "HIGHLIGHT" -> Icons.Default.Landscape
+                    "CAFE" -> Icons.Default.LocalCafe
                     else -> Icons.Default.Navigation
                 },
                 contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)
