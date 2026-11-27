@@ -169,7 +169,7 @@ class FixRound5PartBTest {
         assertTrue(
             "HybridRoutingEngine must indicate that Rut uden om was routed online, got: ${success.sourceName}",
             success.sourceName.contains("online", ignoreCase = true) &&
-                success.sourceName.contains("Rut uden om", ignoreCase = true)
+                success.sourceName.contains("undgå spærret område", ignoreCase = true)
         )
     }
 

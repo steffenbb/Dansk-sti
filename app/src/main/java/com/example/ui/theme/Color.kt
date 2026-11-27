@@ -75,3 +75,10 @@ val FriTeltningGreen = Color(0x332E6B3F)
 val CompletedRouteColor = Color(0xFF9CA3AF)
 val ActiveRouteColor = ForestGreenPrimary
 val NearestGuideColor = WarningAmber
+
+// Waymark badge (Phase B): physical sign paint, intentionally the same in light and dark mode
+val WaymarkSignWhite = Color(0xFFFFFFFF)
+val WaymarkSignInk = Color(0xFF212121)
+
+// Surface mix bar (Phase B): sand share
+val SurfaceSandColor = Color(0xFFD7B377)

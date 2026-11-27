@@ -711,6 +711,12 @@ class DanskStiRepository(
                 effectivePoisJson = poisFallbackJson
             }
 
+            if (parsedShelters.isEmpty() && parsedFri.isEmpty() && parsedPois.isEmpty()) {
+                // Nothing could be parsed: leave the flag unset so the backfill retries next start
+                Log.w("DanskStiRepo", "GeoFA v29 backfill skipped: no dataset could be parsed")
+                return@withContext 0
+            }
+
             var updatedSheltersCount = 0
             for (sh in parsedShelters) {
                 if (sh.source == "geofa") {

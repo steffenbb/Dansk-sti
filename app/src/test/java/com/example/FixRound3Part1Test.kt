@@ -121,23 +121,23 @@ class FixRound3Part1Test {
     @Test
     fun testBRouterDanishErrorTranslationAndMissingProfileDetection() {
         assertEquals(
-            "Punktet ligger for langt fra en sti eller vej. Flyt det tættere på en sti.",
+            "Start- eller slutpunkt ligger ikke ved en sti eller vej i rutenetværket.",
             BRouterOnlineEngine.translateBRouterError("from-position not mapped in existing datafile")
         )
         assertEquals(
-            "Punktet ligger på en ø eller et område uden forbindelse. Prøv et andet punkt.",
+            "Der blev ikke fundet en rute mellem punkterne.",
             BRouterOnlineEngine.translateBRouterError("target island detected for section 0")
         )
         assertEquals(
-            "Strækningen er for lang til én beregning. Tilføj et punkt imellem.",
+            "Tidsgrænsen for ruteberegning blev overskredet. Prøv en kortere strækning.",
             BRouterOnlineEngine.translateBRouterError("operation killed after timeout")
         )
         assertEquals(
-            "Ruten kunne ikke beregnes. Prøv igen.",
+            "Kunne ikke beregne rute langs stier.",
             BRouterOnlineEngine.translateBRouterError(null)
         )
         assertEquals(
-            "Ruten kunne ikke beregnes. Prøv igen.",
+            "Kunne ikke beregne rute langs stier.",
             BRouterOnlineEngine.translateBRouterError("null")
         )
 

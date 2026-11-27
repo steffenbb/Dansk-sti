@@ -304,7 +304,8 @@ class FixRound13Test {
                 DanskStiDatabase.MIGRATION_24_25,
                 DanskStiDatabase.MIGRATION_25_26,
                 DanskStiDatabase.MIGRATION_26_27,
-                DanskStiDatabase.MIGRATION_27_28
+                DanskStiDatabase.MIGRATION_27_28,
+                DanskStiDatabase.MIGRATION_28_29
             )
             .build()
 

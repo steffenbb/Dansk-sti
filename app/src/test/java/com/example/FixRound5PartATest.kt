@@ -116,7 +116,9 @@ class FixRound5PartATest {
         )
         val expectedBundledPoiIds = (
             com.example.data.repository.GeoFaRepository(app).loadBundledPois().map { it.id } +
-            com.example.data.repository.OsmPoiRepository(app).loadBundledPois("trail_ohavsstien").pois.map { it.id }
+            com.example.data.repository.OsmPoiRepository(app).loadBundledPois("trail_ohavsstien").pois.map { it.id } +
+            // Phase A: shelters with their own tap also seed a "<shelterId>_vandhane" water POI
+            com.example.data.repository.GeoFaRepository(app).let { gf -> gf.tapPoisFor(gf.loadBundledShelters()).map { it.id } }
         ).toSet()
         assertEquals(
             "All POIs in a fresh DB must equal the exact set of POIs from the bundled GeoFA and Øhavsstien OSM asset files",

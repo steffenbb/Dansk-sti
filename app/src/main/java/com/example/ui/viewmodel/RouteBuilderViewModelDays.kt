@@ -727,79 +727,12 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
             }
         }
 
-        // B6 Bug fix: project RouteAccessWarning.location onto the combined route so each warning is added ONLY to the day whose km range contains it
-        val orderedLegsForProj = buildList {
-            for (i in 0 until wps.size - 1) {
-                val k = "${wps[i].id}_to_${wps[i + 1].id}"
-                state.legs[k]?.let { add(it) }
-            }
-        }
-        val combinedPtsForProj = if (orderedLegsForProj.isNotEmpty()) {
-            RouteGeometryStorageManager.getCombinedPoints(orderedLegsForProj)
-                .map { GeoPointDto(it.lat, it.lng, it.ele) }
-        } else {
-            visibleWps.map { GeoPointDto(it.lat, it.lng) }
-        }
-        state.accessWarnings.forEach { acc ->
-            val belongsToThisDay = if (combinedPtsForProj.size >= 2) {
-                val (projKm, _) = com.example.util.GeoUtils.projectPointOnPolyline(
-                    GeoPointDto(acc.location.lat, acc.location.lng),
-                    combinedPtsForProj
-                )
-                val isFirstDay = idx == 0
-                val inStart = if (isFirstDay) projKm >= stage.startKm - 1e-6 else projKm >= stage.startKm - 1e-6
-                val inEnd = if (isLastDay) projKm <= stage.endKm + 1e-3 else projKm < stage.endKm + 1e-6
-                inStart && inEnd
-            } else {
-                idx == 0
-            }
-            if (belongsToThisDay && dayWarnings.none { it.contains(acc.message) }) {
-                dayWarnings.add(acc.message)
-            }
-        }
-
         val dayEpochMs = state.startDateMillis + idx.toLong() * 86_400_000L
-        val appLocale = com.example.util.AppLocaleHelper.getCurrentLocale(getApplication())
-
-        // B6: Add path warnings whose km range overlaps [stage.startKm, stage.endKm], evaluating SEASONAL_CLOSURE against dayEpochMs
-        state.pathFeatureWarnings.forEach { pw ->
-            val overlapsDay = pw.endKm >= stage.startKm - 1e-6 && pw.startKm <= stage.endKm + 1e-6 &&
-                (idx == 0 || pw.endKm > stage.startKm + 1e-6 || kotlin.math.abs(pw.startKm - stage.startKm) < 1e-6) &&
-                (isLastDay || pw.startKm < stage.endKm - 1e-6)
-            if (overlapsDay) {
-                val kmLabel = com.example.ui.components.formatDanishKm(
-                    pw.startKm.coerceAtLeast(stage.startKm),
-                    decimals = 1,
-                    locale = appLocale
-                )
-                if (pw.type == com.example.util.PathFeatureType.SEASONAL_CLOSURE) {
-                    val rule = pw.closureRule
-                    if (rule != null && !rule.isUnparseable) {
-                        if (rule.isClosedOn(dayEpochMs)) {
-                            val periodStr = rule.displayPeriod(appLocale.language)
-                            val closedMsg = localizedCtx.getString(
-                                com.example.R.string.day_seasonal_closure_on_date_fmt,
-                                kmLabel,
-                                periodStr
-                            )
-                            if (dayWarnings.none { it == closedMsg }) {
-                                dayWarnings.add(closedMsg)
-                            }
-                        }
-                    } else {
-                        val msg = localizedCtx.getString(com.example.R.string.day_path_warning_km_fmt, kmLabel, pw.title)
-                        if (dayWarnings.none { it == msg }) {
-                            dayWarnings.add(msg)
-                        }
-                    }
-                } else {
-                    val msg = localizedCtx.getString(com.example.R.string.day_path_warning_km_fmt, kmLabel, pw.title)
-                    if (dayWarnings.none { it == msg }) {
-                        dayWarnings.add(msg)
-                    }
-                }
-            }
-        }
+        PlannerDayWarnings.appendAccessWarnings(state, PlannerDayWarnings.combinedRoutePoints(state, wps), stage, idx, isLastDay, dayWarnings)
+        PlannerDayWarnings.appendPathWarnings(
+            state, stage, idx, isLastDay, dayEpochMs,
+            com.example.util.AppLocaleHelper.getCurrentLocale(getApplication()), localizedCtx, dayWarnings
+        )
 
         val allWaterPois = state.nearbyPois.filter { it.type.lowercase().contains("water") }
         val waterPois = allWaterPois.filter { !com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(it, dayEpochMs) }
