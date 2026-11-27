@@ -373,6 +373,16 @@ fun PlannerDaySummaryCard(
                 }
             }
 
+            // Phase D7: wind relative to the walking direction, and UV for that date (only when data exists)
+            day.windLine?.let {
+                Text(text = it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("day_card_wind_${day.dayNumber}"))
+            }
+            day.uvLine?.let {
+                Text(text = it, style = MaterialTheme.typography.labelSmall, color = dsColors.warning,
+                    modifier = Modifier.testTag("day_card_uv_${day.dayNumber}"))
+            }
+
             // Phase C7: food stops with arrival time and open state, and highlights on the day's stretch
             if (day.foodStops.isNotEmpty()) {
                 val appLocale = com.example.ui.components.rememberAppLocale()

@@ -63,6 +63,22 @@ internal object PlannerDayWarnings {
         }
     }
 
+    /** Phase D5: each area crossing goes to the day whose km range contains its start. */
+    fun appendAreaCrossings(
+        state: RouteBuilderUiState,
+        stage: TripStage,
+        isLastDay: Boolean,
+        localizedCtx: Context,
+        dayWarnings: MutableList<String>
+    ) {
+        val locale = com.example.util.AppLocaleHelper.getCurrentLocale(localizedCtx)
+        state.areaCrossings.forEach { c ->
+            if (!kmBelongsToDay(c.startKm, stage, isLastDay)) return@forEach
+            val msg = com.example.util.SafetyAccess.areaWarningText(c, localizedCtx, locale) ?: return@forEach
+            if (dayWarnings.none { it == msg }) dayWarnings.add(msg)
+        }
+    }
+
     /** B6: path warnings overlapping [stage.startKm, stage.endKm]; SEASONAL_CLOSURE only when closed that day. */
     fun appendPathWarnings(
         state: RouteBuilderUiState,

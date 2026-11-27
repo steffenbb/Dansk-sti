@@ -54,8 +54,17 @@ class MapLayersOverlayManager(
     ),
     private val onMarkedRouteTapped: ((MarkedRouteDto) -> Unit)? = null,
     private val onPoiTapped: ((PoiItem) -> Unit)? = null,
-    private val onAccessPolygonTapped: ((AccessPolygon) -> Unit)? = null
+    private val onAccessPolygonTapped: ((AccessPolygon) -> Unit)? = null,
+    private val onRestrictedAreaTapped: ((com.example.data.repository.RestrictedArea) -> Unit)? = null
 ) {
+    // Phase D3: military areas & wildlife reserves (Sikkerhed layer, zoom >= 9); shared repository so one cache/refresh
+    private val restrictedAreaRepository: com.example.data.repository.RestrictedAreaRepository =
+        runCatching { com.example.DanskStiApp.instance.repository.restrictedAreaRepository }
+            .getOrElse { com.example.data.repository.RestrictedAreaRepository(context) }
+    private val restrictedAreasFolderOverlay = FolderOverlay().apply { name = KEY_RESTRICTED_AREAS; isEnabled = false }
+    private var restrictedAreasLoaded = false
+    private var restrictedAreasJob: Job? = null
+
     private var mapView: MapView? = null
     private var currentState: MapLayersState =
         com.example.DanskStiApp.getSettingsRepository(context).currentSettingsSnapshot().mapLayers
@@ -138,6 +147,7 @@ class MapLayersOverlayManager(
         const val KEY_TERRAIN_HILLSHADE = "terrain_hillshade"
         const val KEY_TERRAIN_CONTOURS = "terrain_contours"
         const val KEY_ACCESS = "access"
+        const val KEY_RESTRICTED_AREAS = "restricted_areas"
         const val KEY_WATER = "water"
         const val KEY_MARKED_ROUTES = "marked_routes"
         const val KEY_ROUTE = "route"
@@ -209,6 +219,7 @@ class MapLayersOverlayManager(
         if (hs != null) registerOverlay(KEY_TERRAIN_HILLSHADE, hs)
         if (ct != null) registerOverlay(KEY_TERRAIN_CONTOURS, ct)
         registerOverlay(KEY_ACCESS, accessFolderOverlay)
+        registerOverlay(KEY_RESTRICTED_AREAS, restrictedAreasFolderOverlay)
         registerOverlay(KEY_WATER, waterLayerOverlay)
         registerOverlay(KEY_MARKED_ROUTES, markedRoutesBatchOverlay)
         registerOverlay(KEY_ROUTE, routeFolderOverlay)
@@ -244,6 +255,7 @@ class MapLayersOverlayManager(
                     requestMapInvalidate()
                 }
                 val newZoom = event?.zoomLevel ?: map.zoomLevelDouble
+                updateRestrictedAreasLayer(newZoom)
                 val isHighDetailNow = newZoom >= 12.0
                 val prevHighDetail = lastFetchedWasHighDetailZoom
                 if (currentState.showMarkedRoutes && prevHighDetail != null && prevHighDetail != isHighDetailNow) {
@@ -313,6 +325,7 @@ class MapLayersOverlayManager(
         KEY_TERRAIN_HILLSHADE -> 10
         KEY_TERRAIN_CONTOURS -> 11
         KEY_ACCESS -> 20
+        KEY_RESTRICTED_AREAS -> 22
         KEY_WATER -> 25
         KEY_MARKED_ROUTES -> 30
         KEY_ROUTE -> 40
@@ -414,6 +427,9 @@ class MapLayersOverlayManager(
             lastFetchedBoundsKey = null
             fetchMarkedRoutesForCurrentViewport()
         }
+
+        // 6b. Military areas & wildlife reserves ("Sikkerhed", from zoom 9)
+        updateRestrictedAreasLayer(map.zoomLevelDouble)
 
         // 6. Access polygons ("Adgang og ejerskab")
         accessFolderOverlay.isEnabled = state.showAccessLand
@@ -624,6 +640,28 @@ class MapLayersOverlayManager(
         }
         accessItems.addAll(osmdroidPolygons)
         requestMapInvalidate()
+    }
+
+    /** Phase D3: enables the layer for Sikkerhed at zoom >= 9 and loads the national areas once. */
+    private fun updateRestrictedAreasLayer(zoom: Double) {
+        val shouldShow = currentState.showSafety && zoom >= RestrictedAreaOverlayHelper.MIN_ZOOM
+        if (restrictedAreasFolderOverlay.isEnabled != shouldShow) {
+            restrictedAreasFolderOverlay.isEnabled = shouldShow
+            requestMapInvalidate()
+        }
+        if (!shouldShow || restrictedAreasLoaded || restrictedAreasJob?.isActive == true) return
+        restrictedAreasJob = scope.launch {
+            val areas = withContext(Dispatchers.IO) { restrictedAreaRepository.getAreas() }
+            ensureActive()
+            val map = mapView ?: return@launch
+            val items = restrictedAreasFolderOverlay.items ?: return@launch
+            items.clear()
+            areas.forEach { area ->
+                items.addAll(RestrictedAreaOverlayHelper.createPolygons(map, area) { tapped -> onRestrictedAreaTapped?.invoke(tapped) })
+            }
+            restrictedAreasLoaded = areas.isNotEmpty()
+            requestMapInvalidate()
+        }
     }
 
     private var cachedPlannerPois: List<com.example.ui.viewmodel.PlannerMapPoi> = emptyList()

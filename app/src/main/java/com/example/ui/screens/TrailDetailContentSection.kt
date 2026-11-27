@@ -124,6 +124,8 @@ internal fun TrailDetailDetailsSection(
     val likelyWater by viewModel.likelyWater.collectAsState()
     val likelyWaterInLongestGap by viewModel.likelyWaterInLongestGap.collectAsState()
     val accommodations by viewModel.accommodations.collectAsState()
+    val safetyAccessItems by viewModel.safetyAccessItems.collectAsState()
+    val restrictedAreaDataMissing by viewModel.restrictedAreaDataMissing.collectAsState()
     var showAllTransportStops by androidx.compose.runtime.remember(trailId) {
         androidx.compose.runtime.mutableStateOf(false)
     }
@@ -450,6 +452,8 @@ internal fun TrailDetailDetailsSection(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             SurfaceMixBar(surfaceMix = surfaceMix)
+
+                            TrailSafetyAccessCard(items = safetyAccessItems, areaDataMissing = restrictedAreaDataMissing)
 
                             PathFeaturesAlongTrailCard(
                                 summary = pathFeatureSummary,

@@ -51,6 +51,7 @@ class DanskStiRepository(
 
     val geoFaRepository = GeoFaRepository(context)
     val osmPoiRepository = OsmPoiRepository(context)
+    val restrictedAreaRepository = RestrictedAreaRepository(context)
     val geometryRepository = TrailGeometryRepository(context)
     val markedRouteRepository = MarkedRouteRepository(context, dao, geometryRepository)
     val photonPlaceSearchService = com.example.data.remote.PhotonPlaceSearchService(context)

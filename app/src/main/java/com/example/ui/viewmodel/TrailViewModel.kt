@@ -101,6 +101,14 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
     private val _safetyPois = MutableStateFlow<List<PoiSpotItem>>(emptyList())
     val safetyPois: StateFlow<List<PoiSpotItem>> = _safetyPois.asStateFlow()
 
+    // Phase D5: "Sikkerhed og adgang" – restricted areas + closure/access path warnings
+    private val _safetyAccessItems = MutableStateFlow<List<com.example.util.SafetyAccessItem>>(emptyList())
+    val safetyAccessItems: StateFlow<List<com.example.util.SafetyAccessItem>> = _safetyAccessItems.asStateFlow()
+
+    private val _restrictedAreaDataMissing = MutableStateFlow(false)
+    val restrictedAreaDataMissing: StateFlow<Boolean> = _restrictedAreaDataMissing.asStateFlow()
+    private var safetyAccessJob: kotlinx.coroutines.Job? = null
+
     /** A churchyard (possible, unconfirmed tap) inside the longest confirmed water gap, if any. */
     private val _likelyWaterInLongestGap = MutableStateFlow<PoiSpotItem?>(null)
     val likelyWaterInLongestGap: StateFlow<PoiSpotItem?> = _likelyWaterInLongestGap.asStateFlow()
@@ -514,6 +522,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 _pathFeatureSummary.value = pathAnalysis.summary
                 _pathFeatureWarnings.value = pathAnalysis.warnings
+                refreshSafetyAccess(segments, pathAnalysis.warnings)
 
                 // Corridor Overnights & POIs (only route's own corridor POIs, never whole DB)
                 var shelters = if (points.isNotEmpty()) repository.getSheltersForTrail(trailId) else emptyList()
@@ -750,6 +759,24 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
             if (gap > maxOvernightGap) maxOvernightGap = gap
         }
         _longestGapWithoutOvernightKm.value = maxOvernightGap
+    }
+
+    /** Phase D5: computes the safety list from cached areas at once, then again after a (30-day) refresh. */
+    private fun refreshSafetyAccess(segments: List<TrailSegmentDto>, pathWarnings: List<com.example.util.PathFeatureWarning>) {
+        safetyAccessJob?.cancel()
+        safetyAccessJob = viewModelScope.launch(Dispatchers.Default) {
+            val areaRepo = repository.restrictedAreaRepository
+            val app = getApplication<Application>()
+            val locale = com.example.util.AppLocaleHelper.getCurrentLocale(app)
+            val ctx = com.example.util.AppLocaleHelper.getLocalizedContext(app)
+            fun publish(areas: List<com.example.data.repository.RestrictedArea>) {
+                val crossings = com.example.util.RestrictedAreaChecker.findCrossingsOnSegments(segments, areas)
+                _safetyAccessItems.value = com.example.util.SafetyAccess.buildItems(crossings, pathWarnings, System.currentTimeMillis(), ctx, locale)
+                _restrictedAreaDataMissing.value = !areaRepo.hasCache()
+            }
+            publish(withContext(Dispatchers.IO) { areaRepo.cachedAreas() })
+            if (repository.isDeviceOnline()) publish(areaRepo.getAreas())
+        }
     }
 
     private fun projectOnSegments(segments: List<TrailSegmentDto>, lat: Double, lng: Double): Pair<Double, Double> {

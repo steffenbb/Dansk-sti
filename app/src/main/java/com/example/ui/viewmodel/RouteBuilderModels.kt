@@ -109,7 +109,10 @@ data class PlannerDaySummary(
     val campExplanation: String,
     // Phase C7
     val foodStops: List<DayFoodStop> = emptyList(),
-    val highlights: List<String> = emptyList()
+    val highlights: List<String> = emptyList(),
+    // Phase D7
+    val windLine: String? = null,
+    val uvLine: String? = null
 ) {
     val detourDistanceKm: Double?
         get() = detourKm.takeIf { it > 0.0 }
@@ -171,6 +174,9 @@ data class RouteBuilderState(
     val showTripSettingsSheet: Boolean = false,
     val paceKmh: Double = com.example.data.local.SettingsRepository.cachedMitTempoKmh,
     val dailyTargetKm: Double = 15.0,
+    // Phase D5: military areas / wildlife reserves the route crosses or passes near
+    val areaCrossings: List<com.example.util.AreaCrossing> = emptyList(),
+    val restrictedAreaDataMissing: Boolean = false,
     val startDateMillis: Long = System.currentTimeMillis(),
     val startTimeStr: String = "09:00",
     val maxDetourKm: Double = 3.0,

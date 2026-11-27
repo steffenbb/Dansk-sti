@@ -204,14 +204,20 @@ class RoutePhase12Test {
             toWaypointId = "wp_2",
             legMode = LegMode.SNAP,
             points = listOf(RoutePoint3D(56.18, 10.18, 40.0), RoutePoint3D(56.25, 10.25, 30.0)),
-            lengthKm = 12.0,
+            lengthKm = 18.0,
             ascentM = 40.0,
             descentM = 50.0,
             pathSharePct = 90.0,
             roadKm = 1.0
         )
 
-        // Mock WeatherApiService returning a forecast with sunset at 17:00
+        // Mock WeatherApiService: sunset 17:00 both days; daily values for today and tomorrow,
+        // and one hourly point tomorrow at 18:00 (the day-2 arrival).
+        val cph = java.util.TimeZone.getTimeZone("Europe/Copenhagen")
+        val dayFmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { timeZone = cph }
+        val now = System.currentTimeMillis()
+        val today = dayFmt.format(java.util.Date(now))
+        val tomorrow = dayFmt.format(java.util.Date(com.example.util.CopenhagenTime.localMidnightPlus(now, 1, 12 * 60)))
         val mockWeatherService = object : WeatherApiService {
             override suspend fun getTrailWeather(
                 lat: Double,
@@ -231,9 +237,20 @@ class RoutePhase12Test {
                         windSpeed = 4.5,
                         weatherCode = 1
                     ),
+                    hourly = com.example.data.remote.HourlyWeatherDto(
+                        time = listOf("${tomorrow}T18:00"),
+                        temperature2m = listOf(9.0),
+                        precipitation = listOf(0.4),
+                        windSpeed10m = listOf(6.0),
+                        weatherCode = listOf(3),
+                        windDirection10m = listOf(225),
+                        apparentTemperature = listOf(5.5)
+                    ),
                     daily = DailyWeatherDto(
-                        time = listOf("2026-10-18"),
-                        sunset = listOf("2026-10-18T17:00") // Sunset at 17:00
+                        time = listOf(today, tomorrow),
+                        weatherCode = listOf(1, 3),
+                        tempMax = listOf(14.5, 11.0),
+                        sunset = listOf("${today}T17:00", "${tomorrow}T17:00") // Sunset at 17:00
                     )
                 )
             }
@@ -247,8 +264,9 @@ class RoutePhase12Test {
         }
 
         // Start at 12:00, speed 3 km/h.
-        // Leg 1: 15 km / 3 km/h = 5 hours -> arrival at 17:00.
-        // Leg 2: 27 km cumulative / 3 km/h = 9 hours -> arrival at 21:00 (after sunset 17:00!).
+        // Day 1: 15 km / 3 km/h = 5 hours -> arrival at 17:00.
+        // Day 2 starts again at 12:00: 18 km / 3 km/h = 6 hours -> arrival at 18:00 (after sunset 17:00!).
+        // (Before Phase D7 the day-2 ETA wrongly counted all km since day 1.)
         val etas = RouteSmartTools.calculateWaypointWeatherEtas(
             waypoints = listOf(wpStart, wpOvernight, wpEnd),
             orderedLegs = listOf(leg1, leg2),
@@ -262,12 +280,16 @@ class RoutePhase12Test {
         assertEquals("wp_1", overnightEta.waypointId)
         assertEquals("17:00", overnightEta.etaFormatted)
         assertEquals("17:00", overnightEta.sunsetTime)
-        assertEquals(14.5, overnightEta.tempC ?: 0.0, 0.5)
+        assertEquals("day 1 has no hourly point: today's daily values", 14.5, overnightEta.tempC ?: 0.0, 0.01)
 
         val endEta = etas[1]
         assertEquals("wp_2", endEta.waypointId)
-        assertEquals("21:00", endEta.etaFormatted)
-        assertTrue("Arrival at 21:00 should be marked after sunset (17:00)", endEta.isAfterSunset)
+        assertEquals("18:00", endEta.etaFormatted)
+        assertEquals("day-2 walking time only", 360, endEta.etaMinutesFromStart)
+        assertEquals("weather from tomorrow's 18:00 hourly point, not 'now'", 9.0, endEta.tempC ?: 0.0, 0.01)
+        assertEquals(225, endEta.windDirectionDeg)
+        assertEquals(5.5, endEta.apparentTempC ?: 0.0, 0.01)
+        assertTrue("Arrival at 18:00 should be marked after sunset (17:00)", endEta.isAfterSunset)
         assertNotNull(endEta.warningMessage)
         assertTrue(endEta.warningMessage!!.contains("Ankomst efter solnedgang"))
     }
