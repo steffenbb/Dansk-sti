@@ -14,6 +14,30 @@ internal object MapLayersPoiBuilder {
 
     private const val DEDUP_DISTANCE_METERS = 25.0
 
+    /** Every cluster type key a PoiEntity can map to (used for long-press hit tests). */
+    val POI_ENTITY_TYPE_KEYS = setOf(
+        "water", "water_likely", "toilet", "shop", "cafe", "transit",
+        "firepit", "picnic", "highlight", "beach", "aed", "pharmacy", "accommodation"
+    )
+
+    /**
+     * Maps a PoiEntity type to its cluster icon key and the layer toggle that shows it, or null for
+     * types that are never drawn (unknown types are excluded on purpose).
+     */
+    fun poiTypeKeyAndToggle(type: String, state: MapLayersState): Pair<String, Boolean>? =
+        when (type.lowercase()) {
+            "water", "drinking_water", "vand" -> "water" to state.showWaterPois
+            "water_likely" -> "water_likely" to state.showWaterPois
+            "toilet", "toilets" -> "toilet" to state.showToilets
+            "shop", "supermarket", "convenience", "bakery", "indkoeb" -> "shop" to state.showShops
+            "cafe" -> "cafe" to state.showShops
+            "station", "ferry", "train_station", "bus_stop", "ferry_terminal", "transit", "offentlig_transport" -> "transit" to state.showTransit
+            "firepit", "picnic", "highlight", "beach" -> type.lowercase() to state.showHighlights
+            "aed", "pharmacy" -> type.lowercase() to state.showSafety
+            "accommodation" -> "accommodation" to state.showAccommodation
+            else -> null
+        }
+
     fun computePoiSignature(
         state: MapLayersState,
         shelters: List<ShelterEntity>,
@@ -30,6 +54,9 @@ internal object MapLayersPoiBuilder {
         sig = 31 * sig + state.showShops.hashCode()
         sig = 31 * sig + state.showTransit.hashCode()
         sig = 31 * sig + state.showMyPoints.hashCode()
+        sig = 31 * sig + state.showHighlights.hashCode()
+        sig = 31 * sig + state.showSafety.hashCode()
+        sig = 31 * sig + state.showAccommodation.hashCode()
         sig = 31 * sig + shelters.size
         sig = 31 * sig + friTeltning.size
         sig = 31 * sig + pois.size
@@ -109,21 +136,8 @@ internal object MapLayersPoiBuilder {
 
         for (p in pois) {
             if (p.subtype == "geofa_shelter_tap" && state.showShelters) continue
-            val normalized = p.type.lowercase()
-            val shouldInclude = when (normalized) {
-                "water", "drinking_water", "vand" -> state.showWaterPois
-                "toilet", "toilets" -> state.showToilets
-                "shop", "supermarket", "convenience", "bakery", "indkoeb" -> state.showShops
-                "station", "ferry", "train_station", "bus_stop", "ferry_terminal", "transit", "offentlig_transport" -> state.showTransit
-                else -> false
-            }
+            val (typeKey, shouldInclude) = poiTypeKeyAndToggle(p.type, state) ?: continue
             if (shouldInclude) {
-                val typeKey = when (normalized) {
-                    "water", "drinking_water", "vand" -> "water"
-                    "toilet", "toilets" -> "toilet"
-                    "shop", "supermarket", "convenience", "bakery", "indkoeb" -> "shop"
-                    else -> "transit"
-                }
                 addIfUnique(
                     PoiItem(
                         id = p.id,
@@ -133,7 +147,8 @@ internal object MapLayersPoiBuilder {
                                 "water" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_poi_drinking_water) ?: "Drinking water"
                                 "toilet" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_poi_toilet) ?: "Toilet"
                                 "shop" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_poi_shopping) ?: "Groceries"
-                                else -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_poi_transit_stop) ?: "Transit stop"
+                                "transit" -> com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.map_poi_transit_stop) ?: "Transit stop"
+                                else -> p.type
                             }
                         },
                         subText = p.openingHours ?: p.operator ?: "",
@@ -148,7 +163,7 @@ internal object MapLayersPoiBuilder {
         // Include planner POIs only when not already shown by the map's shelter/POI layer
         for (pp in plannerPois) {
             val normalized = pp.type.lowercase()
-            val (typeKey, enabled) = when {
+            val (typeKey, enabled) = poiTypeKeyAndToggle(normalized, state) ?: when {
                 normalized.contains("shelter") || normalized == "overnight" -> "shelter" to state.showShelters
                 normalized.contains("tent") || normalized.contains("telt") -> "tent" to state.showFriTeltning
                 normalized.contains("water") || normalized.contains("vand") -> "water" to state.showWaterPois
@@ -203,7 +218,7 @@ internal object MapLayersPoiBuilder {
         cachedFriTeltning: List<FriTeltningEntity>,
         cachedPois: List<PoiEntity>
     ): PoiItem? {
-        val allowedTypes = setOf("shelter", "tent", "water", "toilet", "shop")
+        val allowedTypes = setOf("shelter", "tent") + (POI_ENTITY_TYPE_KEYS - "transit")
 
         var bestPoi: PoiItem? = null
         var bestDist = maxDistanceMeters
@@ -260,13 +275,8 @@ internal object MapLayersPoiBuilder {
         }
 
         for (p in cachedPois) {
-            val normalized = p.type.lowercase()
-            val typeKey = when (normalized) {
-                "water", "drinking_water", "vand" -> "water"
-                "toilet", "toilets" -> "toilet"
-                "shop", "supermarket", "convenience", "bakery", "indkoeb" -> "shop"
-                else -> null
-            } ?: continue
+            val typeKey = poiTypeKeyAndToggle(p.type, MapLayersState())?.first
+                ?.takeIf { it in allowedTypes } ?: continue
             val d = GeoUtils.distanceMeters(point.latitude, point.longitude, p.lat, p.lng)
             if (d <= bestDist) {
                 bestDist = d
@@ -277,7 +287,8 @@ internal object MapLayersPoiBuilder {
                         when (typeKey) {
                             "water" -> com.example.util.AppLocaleHelper.strOrNull(mapView?.context, com.example.R.string.map_poi_drinking_water) ?: "Drinking water"
                             "toilet" -> com.example.util.AppLocaleHelper.strOrNull(mapView?.context, com.example.R.string.map_poi_toilet) ?: "Toilet"
-                            else -> com.example.util.AppLocaleHelper.strOrNull(mapView?.context, com.example.R.string.map_poi_shopping) ?: "Groceries"
+                            "shop" -> com.example.util.AppLocaleHelper.strOrNull(mapView?.context, com.example.R.string.map_poi_shopping) ?: "Groceries"
+                            else -> p.type
                         }
                     },
                     subText = p.openingHours ?: p.operator ?: "",

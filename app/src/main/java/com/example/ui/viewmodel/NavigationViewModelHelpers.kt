@@ -65,7 +65,9 @@ internal fun computeRouteStopsAndAhead(
     shops: List<PoiEntity>,
     shelters: List<ShelterEntity>,
     previousNextOvernight: NextStopInfo?,
-    pathWarnings: List<com.example.util.PathFeatureWarning> = emptyList()
+    pathWarnings: List<com.example.util.PathFeatureWarning> = emptyList(),
+    highlights: List<PoiEntity> = emptyList(),
+    cafes: List<PoiEntity> = emptyList()
 ): RouteStopsCalculationResult {
     val stage = currentStage ?: route.stages.getOrNull(currentDay - 1) ?: route.stages.lastOrNull()
     val stageStartKm = stage?.startWalkKm ?: 0.0
@@ -119,6 +121,17 @@ internal fun computeRouteStopsAndAhead(
         val remKm = shKm - currentWalkKm
         if (detourM <= 1500.0 && remKm > 0.05 && shKm <= stageEndKm + 0.5) {
             upcomingItems.add(AheadOnRouteItem(sh.name, "SHELTER", remKm, detourM))
+        }
+    }
+
+    // Phase C8: highlights and cafés within 1000 m detour, on today's stage (like shelters)
+    for ((list, itemType) in listOf(highlights to "HIGHLIGHT", cafes to "CAFE")) {
+        for (p in list) {
+            val (pKm, detourM) = route.projectPoint(p.lat, p.lng)
+            val remKm = pKm - currentWalkKm
+            if (detourM <= 1000.0 && remKm > 0.02 && pKm <= stageEndKm + 0.5) {
+                upcomingItems.add(AheadOnRouteItem(p.name, itemType, remKm, detourM))
+            }
         }
     }
 

@@ -565,7 +565,9 @@ internal fun RouteBuilderViewModel.updateStagesAndNearbyPois() {
             val corridorFriTeltning = friTeltning.filter { isNearPlannedSection(it.centerLat, it.centerLng, 2500.0) }
             val corridorPois = allPois.filter { poi ->
                 val t = poi.type.lowercase()
-                (t.contains("water") || t.contains("toilet") || t.contains("shop") || t.contains("supermarket") || t.contains("grocer")) &&
+                // water_likely (churchyards) is never confirmed water; cafés and highlights feed the day cards (Phase C7)
+                ((t.contains("water") && t != "water_likely") || t.contains("toilet") || t.contains("shop") || t.contains("supermarket") || t.contains("grocer") ||
+                    t in PlannerDayPlaces.DAY_CARD_EXTRA_TYPES) &&
                     isNearPlannedSection(poi.lat, poi.lng, 2000.0)
             }
 
@@ -651,6 +653,10 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
     dayBoundaryWps.add(visibleWps.last())
 
     val daySummaries = mutableListOf<PlannerDaySummary>()
+    // Phase C7: project food places and highlights onto the route once for all days
+    val combinedRoutePts = PlannerDayWarnings.combinedRoutePoints(state, wps)
+    val projectedFood = PlannerDayPlaces.projectFood(state.nearbyPois, combinedRoutePts)
+    val projectedHighlights = PlannerDayPlaces.projectHighlights(state.nearbyPois, combinedRoutePts)
     for ((idx, stage) in stages.withIndex()) {
         val fromWp = dayBoundaryWps.getOrNull(idx)
         val toWp = dayBoundaryWps.getOrNull(idx + 1)
@@ -728,13 +734,13 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
         }
 
         val dayEpochMs = state.startDateMillis + idx.toLong() * 86_400_000L
-        PlannerDayWarnings.appendAccessWarnings(state, PlannerDayWarnings.combinedRoutePoints(state, wps), stage, idx, isLastDay, dayWarnings)
+        PlannerDayWarnings.appendAccessWarnings(state, combinedRoutePts, stage, idx, isLastDay, dayWarnings)
         PlannerDayWarnings.appendPathWarnings(
             state, stage, idx, isLastDay, dayEpochMs,
             com.example.util.AppLocaleHelper.getCurrentLocale(getApplication()), localizedCtx, dayWarnings
         )
 
-        val allWaterPois = state.nearbyPois.filter { it.type.lowercase().contains("water") }
+        val allWaterPois = state.nearbyPois.filter { it.type.lowercase().let { t -> t.contains("water") && t != "water_likely" } }
         val waterPois = allWaterPois.filter { !com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(it, dayEpochMs) }
         val closedWaterPoisNearby = allWaterPois.filter {
             com.example.util.SeasonalWaterEvaluator.isWaterPoiPotentiallyClosed(it, dayEpochMs) && haversineM(campLat, campLng, it.lat, it.lng) <= 500.0
@@ -776,7 +782,14 @@ internal fun RouteBuilderViewModel.buildDaySummariesSync(
                 nightWeatherSummary = localizedCtx.getString(com.example.R.string.day_weather_loading),
                 campLat = campLat, campLng = campLng, estimatedHours = stage.estimatedWalkMinutes / 60.0,
                 overnightType = when { matchedFt != null -> "FRI_TELTNING"; matchedShelter != null -> "SHELTER"; else -> stage.stopType.ifBlank { "SHELTER" } },
-                bookingRequired = isBookingReq, campExplanation = campExplanation
+                bookingRequired = isBookingReq, campExplanation = campExplanation,
+                foodStops = PlannerDayPlaces.foodStopsForDay(
+                    projectedFood, stage, idx, state.startHour, state.startDateMillis, localizedCtx
+                ),
+                highlights = PlannerDayPlaces.highlightsForDay(
+                    projectedHighlights, stage,
+                    com.example.util.AppLocaleHelper.getCurrentLocale(getApplication())
+                ) { localizedCtx.getString(it) }
             )
         )
     }

@@ -112,6 +112,7 @@ object MapIconUtils {
             "shop", "supermarket", "convenience", "bakery", "indkøb", "resupply" -> "shop"
             "transit", "bus_stop", "station", "ferry" -> "transit"
             "my_point", "custom", "waypoint", "mine_punkter" -> "my_point"
+            "accommodation", "bed" -> "accommodation"
             else -> type.lowercase()
         }
 
@@ -148,6 +149,16 @@ object MapIconUtils {
                 "shop" -> android.graphics.Color.parseColor("#EA580C") to R.drawable.ic_poi_resupply
                 "transit" -> android.graphics.Color.parseColor("#4F46E5") to R.drawable.ic_poi_transit
                 "my_point" -> android.graphics.Color.parseColor("#7B1FA2") to R.drawable.ic_poi_crosshair
+                // Phase C: new OSM place types
+                "cafe" -> android.graphics.Color.parseColor("#795548") to R.drawable.ic_poi_cafe
+                "water_likely" -> android.graphics.Color.parseColor("#4FA3C7") to R.drawable.ic_poi_water_likely
+                "firepit" -> android.graphics.Color.parseColor("#E64A19") to R.drawable.ic_poi_firepit
+                "picnic" -> android.graphics.Color.parseColor("#689F38") to R.drawable.ic_poi_picnic
+                "highlight" -> android.graphics.Color.parseColor("#C2185B") to R.drawable.ic_poi_highlight
+                "beach" -> android.graphics.Color.parseColor("#F9A825") to R.drawable.ic_poi_beach
+                "aed" -> android.graphics.Color.parseColor("#D32F2F") to R.drawable.ic_poi_aed
+                "pharmacy" -> android.graphics.Color.parseColor("#2E7D32") to R.drawable.ic_poi_pharmacy
+                "accommodation" -> android.graphics.Color.parseColor("#00695C") to R.drawable.ic_poi_bed
                 else -> android.graphics.Color.parseColor("#4B5563") to R.drawable.ic_poi_hazard
             }
 

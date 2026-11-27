@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Phase C: Binoculars (viewpoints, towers, monuments); tinted at runtime by MapIconUtils -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M4,13L5.5,4h4l0.5,9z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M14,13l0.5,-9h4L20,13z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M10,7.5h4v4.5h-4z" />
+    <path
+        android:fillColor="#FF000000"
+        android:fillType="evenOdd"
+        android:pathData="M7,11.5a4.5,4.5 0 1,0 0,9a4.5,4.5 0 1,0 0,-9zM7,14a2,2 0 1,1 0,4a2,2 0 1,1 0,-4z" />
+    <path
+        android:fillColor="#FF000000"
+        android:fillType="evenOdd"
+        android:pathData="M17,11.5a4.5,4.5 0 1,0 0,9a4.5,4.5 0 1,0 0,-9zM17,14a2,2 0 1,1 0,4a2,2 0 1,1 0,-4z" />
+</vector>

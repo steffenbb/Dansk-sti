@@ -106,7 +106,10 @@ data class PlannerDaySummary(
     val estimatedHours: Double = 0.0,
     val overnightType: String = "SHELTER",
     val bookingRequired: Boolean = false,
-    val campExplanation: String
+    val campExplanation: String,
+    // Phase C7
+    val foodStops: List<DayFoodStop> = emptyList(),
+    val highlights: List<String> = emptyList()
 ) {
     val detourDistanceKm: Double?
         get() = detourKm.takeIf { it > 0.0 }

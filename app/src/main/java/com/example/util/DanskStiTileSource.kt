@@ -1383,7 +1383,8 @@ object DanskStiTileSourceHelper {
         }
         val anyFeatureLayerActive = state.showMarkedRoutes || state.showAccess ||
             state.showShelters || state.showFriTeltning || state.showWater ||
-            state.showToilets || state.showShops || state.showTransport || state.showMyPoints
+            state.showToilets || state.showShops || state.showTransport || state.showMyPoints ||
+            state.showHighlights || state.showSafety || state.showAccommodation
 
         val overlays = mutableListOf<String>()
         if (state.showTerrain && (state.baseMap != BaseMapType.LUFTFOTO || anyFeatureLayerActive)) {
@@ -1395,7 +1396,9 @@ object DanskStiTileSourceHelper {
         if (state.showMarkedRoutes) overlays.add("OSM Ruter")
         if (state.showAccess) overlays.add("Miljøportalen")
         if (state.showShelters || state.showFriTeltning) overlays.add("GeoFA/NST")
-        if (state.showWater || state.showToilets || state.showShops || state.showTransport) overlays.add("OSM POI")
+        if (state.showWater || state.showToilets || state.showShops || state.showTransport ||
+            state.showHighlights || state.showSafety || state.showAccommodation
+        ) overlays.add("OSM POI")
 
         return if (overlays.isEmpty()) {
             base

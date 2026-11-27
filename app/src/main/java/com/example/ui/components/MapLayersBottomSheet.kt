@@ -26,7 +26,9 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Forest
+import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.HolidayVillage
+import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.Landscape
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Map
@@ -81,7 +83,8 @@ import com.example.ui.theme.DanskStiTheme
  * - Base map selector: Topografisk (Skærmkortet), Udendørs (Thunderforest / OpenTopoMap), Luftfoto
  * - Appearance setting ("Udseende"): Følg telefonen / Lyst / Mørkt + "Kortet følger appen"
  * - Overlays: Terræn (DHM skyggekort + kurver), Vand (søer, vandløb, vådområder, kilder),
- *   Afmærkede ruter, Adgangsforhold, Shelters, Fri teltning, Drikkevand, Toiletter, Butikker, Transport, Mine punkter
+ *   Afmærkede ruter, Adgangsforhold, Shelters, Fri teltning, Drikkevand, Toiletter, Butikker, Transport,
+ *   Oplevelser & pauser, Sikkerhed, Hostels & B&B, Mine punkter
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -103,6 +106,9 @@ fun MapLayersBottomSheet(
         onToggleShops = { scope.launch { settingsRepository.setOverlayShops(it) } },
         onToggleTransport = { scope.launch { settingsRepository.setOverlayTransport(it) } },
         onToggleMyPoints = { scope.launch { settingsRepository.setOverlayMyPoints(it) } },
+        onToggleHighlights = { scope.launch { settingsRepository.setOverlayHighlights(it) } },
+        onToggleSafety = { scope.launch { settingsRepository.setOverlaySafety(it) } },
+        onToggleAccommodation = { scope.launch { settingsRepository.setOverlayAccommodation(it) } },
         onToggleTerrain = { scope.launch { settingsRepository.setOverlayTerrain(it) } },
         onToggleWaterLayer = { scope.launch { settingsRepository.setOverlayWaterLayer(it) } },
         onMapDarkModeChanged = { scope.launch { settingsRepository.setMapDarkMode(it) } },
@@ -131,7 +137,10 @@ fun MapLayersBottomSheet(
     onToggleWaterLayer: (Boolean) -> Unit = {},
     onMapDarkModeChanged: (MapDarkMode) -> Unit = {},
     onMapFollowsAppChanged: (Boolean) -> Unit = {},
-    onMapThemeOverrideChanged: (MapThemeOverride) -> Unit = {}
+    onMapThemeOverrideChanged: (MapThemeOverride) -> Unit = {},
+    onToggleHighlights: (Boolean) -> Unit = {},
+    onToggleSafety: (Boolean) -> Unit = {},
+    onToggleAccommodation: (Boolean) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val primaryColor = MaterialTheme.colorScheme.primary
@@ -472,6 +481,36 @@ fun MapLayersBottomSheet(
                 checked = layersState.showTransport,
                 onCheckedChange = onToggleTransport,
                 testTag = "toggle_layer_transport"
+            )
+
+            LayerToggleRow(
+                title = stringResource(R.string.map_layer_highlights_title),
+                subtitle = stringResource(R.string.map_layer_highlights_subtitle),
+                icon = Icons.Default.Landscape,
+                iconTint = primaryColor,
+                checked = layersState.showHighlights,
+                onCheckedChange = onToggleHighlights,
+                testTag = "toggle_layer_highlights"
+            )
+
+            LayerToggleRow(
+                title = stringResource(R.string.map_layer_safety_title),
+                subtitle = stringResource(R.string.map_layer_safety_subtitle),
+                icon = Icons.Default.HealthAndSafety,
+                iconTint = stiColors.danger,
+                checked = layersState.showSafety,
+                onCheckedChange = onToggleSafety,
+                testTag = "toggle_layer_safety"
+            )
+
+            LayerToggleRow(
+                title = stringResource(R.string.map_layer_accommodation_title),
+                subtitle = stringResource(R.string.map_layer_accommodation_subtitle),
+                icon = Icons.Default.Hotel,
+                iconTint = stiColors.overnight,
+                checked = layersState.showAccommodation,
+                onCheckedChange = onToggleAccommodation,
+                testTag = "toggle_layer_accommodation"
             )
 
             LayerToggleRow(

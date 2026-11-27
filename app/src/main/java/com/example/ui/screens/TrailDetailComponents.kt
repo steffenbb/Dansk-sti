@@ -28,6 +28,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cabin
 import androidx.compose.material.icons.filled.DirectionsTransit
 import androidx.compose.material.icons.filled.Forest
+import androidx.compose.material.icons.filled.Hotel
+import androidx.compose.material.icons.filled.Landscape
+import androidx.compose.material.icons.filled.LocalCafe
+import androidx.compose.material.icons.filled.LocalPharmacy
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Route
@@ -419,6 +423,20 @@ fun OvernightSpotCard(spot: OvernightSpotItem) {
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    val facilityChips = buildList {
+                        if (spot.hasFireRing == true) add(stringResource(R.string.trail_overnight_fac_firepit))
+                        if (spot.hasOwnTap == true) add(stringResource(R.string.trail_overnight_fac_tap))
+                        if (spot.hasOwnToilet == true) add(stringResource(R.string.trail_overnight_fac_toilet))
+                        if (spot.hasShower == true) add(stringResource(R.string.trail_overnight_fac_shower))
+                    }
+                    if (facilityChips.isNotEmpty()) {
+                        Text(
+                            text = facilityChips.joinToString(" · "),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.testTag("overnight_facilities_${spot.id}")
+                        )
+                    }
                     if (spot.bookingRequired) {
                         Text(
                             text = stringResource(R.string.ui_traildetailscreen_kr_ver_booking_213),
@@ -506,8 +524,15 @@ fun PoiItemCard(
         "toilet" -> Icons.Default.Wc
         "shop" -> Icons.Default.Storefront
         "station", "ferry", "bus_stop" -> Icons.Default.DirectionsTransit
+        "cafe" -> Icons.Default.LocalCafe
+        "water_likely" -> Icons.Default.WaterDrop
+        "highlight", "beach", "picnic", "firepit" -> Icons.Default.Landscape
+        "accommodation" -> Icons.Default.Hotel
+        "aed", "pharmacy" -> Icons.Default.LocalPharmacy
         else -> Icons.Default.Place
     }
+    val typeLabel = placeTypeLabel(poi)?.takeIf { !it.equals(poi.name, ignoreCase = true) }
+    val openLine = openNowLine(poi)
 
     Card(
         shape = RoundedCornerShape(12.dp),
@@ -535,6 +560,22 @@ fun PoiItemCard(
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+                if (typeLabel != null) {
+                    Text(
+                        text = typeLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (openLine != null) {
+                    Text(
+                        text = openLine,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("poi_open_now_${poi.id}")
+                    )
+                }
                 if (poi.detourMeters > 50) {
                     Text(
                         text = stringResource(R.string.ui_traildetailscreen_m_afstikker_216, poi.detourMeters.toInt()),

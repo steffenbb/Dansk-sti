@@ -119,6 +119,11 @@ internal fun TrailDetailDetailsSection(
     val pathFeatureSummary by viewModel.pathFeatureSummary.collectAsState()
     val pathFeatureWarnings by viewModel.pathFeatureWarnings.collectAsState()
     val trailGeometry by viewModel.trailGeometry.collectAsState()
+    val highlights by viewModel.highlights.collectAsState()
+    val foodPlaces by viewModel.foodPlaces.collectAsState()
+    val likelyWater by viewModel.likelyWater.collectAsState()
+    val likelyWaterInLongestGap by viewModel.likelyWaterInLongestGap.collectAsState()
+    val accommodations by viewModel.accommodations.collectAsState()
     var showAllTransportStops by androidx.compose.runtime.remember(trailId) {
         androidx.compose.runtime.mutableStateOf(false)
     }
@@ -452,6 +457,8 @@ internal fun TrailDetailDetailsSection(
                                 pathTagsVersion = trailGeometry?.pathTagsVersion ?: 0
                             )
 
+                            TrailHighlightsAlongCard(highlights = highlights, isSyncingPois = isSyncingPois)
+
                             Text(
                                 text = stringResource(R.string.ui_traildetailscreen_forsyning_p_ruten_201),
                                 style = MaterialTheme.typography.titleMedium,
@@ -499,6 +506,7 @@ internal fun TrailDetailDetailsSection(
                             OvernightSpotCard(spot = spot)
                         }
                     }
+                    trailAccommodationItems(accommodations)
                 }
 
                 2 -> {
@@ -524,6 +532,7 @@ internal fun TrailDetailDetailsSection(
                             PoiItemCard(poi = poi)
                         }
                     }
+                    trailFoodAndLikelyWaterItems(foodPlaces, likelyWater, likelyWaterInLongestGap)
                 }
 
                 3 -> {

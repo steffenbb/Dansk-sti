@@ -131,6 +131,10 @@ data class MapLayersState(
     val showShops: Boolean = false,
     val showTransport: Boolean = false,
     val showMyPoints: Boolean = true,
+    // Phase C4: Oplevelser & pauser, Sikkerhed, Hostels & B&B
+    val showHighlights: Boolean = false,
+    val showSafety: Boolean = true,
+    val showAccommodation: Boolean = false,
     val mapDarkMode: MapDarkMode = MapDarkMode.FOLLOW_SYSTEM,
     val mapFollowsApp: Boolean = true,
     val mapThemeOverride: MapThemeOverride = MapThemeOverride.LIGHT
@@ -340,6 +344,9 @@ class SettingsRepository(context: Context) {
         val KEY_OVERLAY_SHOPS = booleanPreferencesKey("overlay_shops")
         val KEY_OVERLAY_TRANSPORT = booleanPreferencesKey("overlay_transport")
         val KEY_OVERLAY_MY_POINTS = booleanPreferencesKey("overlay_my_points")
+        val KEY_OVERLAY_HIGHLIGHTS = booleanPreferencesKey("overlay_highlights")
+        val KEY_OVERLAY_SAFETY = booleanPreferencesKey("overlay_safety")
+        val KEY_OVERLAY_ACCOMMODATION = booleanPreferencesKey("overlay_accommodation")
 
         private val DOUBLE_KEYS = listOf(
             KEY_MIT_TEMPO,
@@ -376,7 +383,10 @@ class SettingsRepository(context: Context) {
             KEY_OVERLAY_TOILETS,
             KEY_OVERLAY_SHOPS,
             KEY_OVERLAY_TRANSPORT,
-            KEY_OVERLAY_MY_POINTS
+            KEY_OVERLAY_MY_POINTS,
+            KEY_OVERLAY_HIGHLIGHTS,
+            KEY_OVERLAY_SAFETY,
+            KEY_OVERLAY_ACCOMMODATION
         )
     }
 
@@ -548,6 +558,9 @@ class SettingsRepository(context: Context) {
             showShops = prefs[KEY_OVERLAY_SHOPS] ?: false,
             showTransport = prefs[KEY_OVERLAY_TRANSPORT] ?: false,
             showMyPoints = prefs[KEY_OVERLAY_MY_POINTS] ?: true,
+            showHighlights = prefs[KEY_OVERLAY_HIGHLIGHTS] ?: false,
+            showSafety = prefs[KEY_OVERLAY_SAFETY] ?: true,
+            showAccommodation = prefs[KEY_OVERLAY_ACCOMMODATION] ?: false,
             mapDarkMode = MapDarkMode.fromString(prefs[KEY_MAP_DARK_MODE]),
             mapFollowsApp = prefs[KEY_MAP_FOLLOWS_APP] ?: true,
             mapThemeOverride = MapThemeOverride.fromString(prefs[KEY_MAP_THEME_OVERRIDE])
@@ -678,6 +691,18 @@ class SettingsRepository(context: Context) {
 
     suspend fun setOverlayMyPoints(enabled: Boolean) {
         updatePref(KEY_OVERLAY_MY_POINTS, enabled)
+    }
+
+    suspend fun setOverlayHighlights(enabled: Boolean) {
+        updatePref(KEY_OVERLAY_HIGHLIGHTS, enabled)
+    }
+
+    suspend fun setOverlaySafety(enabled: Boolean) {
+        updatePref(KEY_OVERLAY_SAFETY, enabled)
+    }
+
+    suspend fun setOverlayAccommodation(enabled: Boolean) {
+        updatePref(KEY_OVERLAY_ACCOMMODATION, enabled)
     }
 
     suspend fun setMitTempoKmh(tempo: Double) {

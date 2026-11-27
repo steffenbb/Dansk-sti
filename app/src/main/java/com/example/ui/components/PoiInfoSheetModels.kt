@@ -260,28 +260,59 @@ data class PoiInfoSheetData(
             )
         }
 
-        fun fromPoiEntity(p: PoiEntity, context: android.content.Context? = null): PoiInfoSheetData {
+        private val TRANSPORT_TYPES = setOf("station", "ferry", "train_station", "bus_stop", "ferry_terminal", "transit", "offentlig_transport")
+
+        fun fromPoiEntity(
+            p: PoiEntity,
+            context: android.content.Context? = null,
+            nowMs: Long = System.currentTimeMillis()
+        ): PoiInfoSheetData {
             val norm = p.type.lowercase()
             val isTapPoi = p.subtype == "geofa_toilet_tap" || p.subtype == "geofa_shelter_tap"
-            val typeLabel = if (isTapPoi) {
-                resString(com.example.R.string.poi_type_tap, context)
-            } else {
-                when (norm) {
-                    "water", "drinking_water", "vand" -> resString(com.example.R.string.poi_type_water, context)
-                    "toilet", "toilets" -> resString(com.example.R.string.poi_type_toilet, context)
-                    "shop", "supermarket", "convenience", "bakery", "indkoeb" -> resString(com.example.R.string.poi_type_shop, context)
-                    else -> resString(com.example.R.string.poi_type_transit, context)
-                }
+            val extraLabelRes = com.example.util.OsmExtraLabels.labelRes(norm, p.subtype)
+            val typeLabel = when {
+                isTapPoi -> resString(com.example.R.string.poi_type_tap, context)
+                norm == "shop" && p.subtype == "fuel" -> resString(com.example.R.string.osm_extra_name_fuel, context)
+                norm == "water" && (p.subtype == "water_point" || p.subtype == "spring") && extraLabelRes != null ->
+                    resString(extraLabelRes, context)
+                norm in setOf("water", "drinking_water", "vand") -> resString(com.example.R.string.poi_type_water, context)
+                norm in setOf("toilet", "toilets") -> resString(com.example.R.string.poi_type_toilet, context)
+                norm in setOf("shop", "supermarket", "convenience", "bakery", "indkoeb") -> resString(com.example.R.string.poi_type_shop, context)
+                norm in TRANSPORT_TYPES -> resString(com.example.R.string.poi_type_transit, context)
+                extraLabelRes != null -> resString(extraLabelRes, context)
+                else -> resString(com.example.R.string.poi_type_generic, context)
             }
             val details = com.example.data.repository.GeoFaFieldParser.parseDetailsJson(p.detailsJson)
             val detailAccessibility = details["accessibility"]?.takeIf { it.isNotBlank() }
             val detailAccessNote = details["accessNote"]?.takeIf { it.isNotBlank() }
+            val isConfirmedWater = norm in setOf("water", "drinking_water", "vand")
 
             val facilities = buildList {
-                if (norm.contains("water") || norm == "vand") add(resString(com.example.R.string.poi_fac_drinking_water, context))
+                if (isConfirmedWater) add(resString(com.example.R.string.poi_fac_drinking_water, context))
                 if (norm.contains("toilet")) add(resString(com.example.R.string.poi_fac_toilet, context))
-                if (norm.contains("shop") || norm == "supermarket" || norm == "convenience" || norm == "bakery") {
+                if (p.subtype != "fuel" && (norm.contains("shop") || norm == "supermarket" || norm == "convenience" || norm == "bakery")) {
                     add(resString(com.example.R.string.poi_fac_groceries, context))
+                }
+                // Phase C5: open-now line for cafés, shops and pharmacies with opening hours
+                if ((norm == "cafe" || norm == "shop" || norm == "pharmacy") && !p.openingHours.isNullOrBlank()) {
+                    add(
+                        com.example.util.OpeningHoursEvaluator.formatDanish(
+                            com.example.util.OpeningHoursEvaluator.evaluate(p.openingHours, nowMs),
+                            context ?: com.example.DanskStiApp.instance
+                        )
+                    )
+                }
+                if (norm == "water_likely") add(resString(com.example.R.string.poi_water_likely_disclaimer, context))
+                if (norm == "aed") {
+                    details["defibrillator:location"]?.takeIf { it.isNotBlank() }?.let {
+                        add(resString(com.example.R.string.poi_aed_location_fmt, context, it))
+                    }
+                    if (details["indoor"]?.lowercase() == "yes") add(resString(com.example.R.string.poi_aed_indoor, context))
+                    add(resString(com.example.R.string.poi_aed_call_112, context))
+                }
+                when (details["wheelchair"]?.lowercase()) {
+                    "yes" -> add(resString(com.example.R.string.poi_fac_wheelchair_yes, context))
+                    "limited" -> add(resString(com.example.R.string.poi_fac_wheelchair_limited, context))
                 }
                 p.seasonal?.takeIf { it.isNotBlank() && !it.equals("no", ignoreCase = true) }?.let { seasonalStr ->
                     val monthPair = formatSeasonalMonthsPair(seasonalStr)
@@ -305,6 +336,7 @@ data class PoiInfoSheetData(
                 "osm" -> "OpenStreetMap (ODbL)"
                 else -> p.source
             }
+            val description = details["description"]?.takeIf { it.isNotBlank() }
             return PoiInfoSheetData(
                 id = p.id,
                 name = p.name.ifBlank { typeLabel },
@@ -316,9 +348,9 @@ data class PoiInfoSheetData(
                 bookingText = null,
                 bookingRequired = null,
                 bookingUrl = null,
-                infoUrl = p.website,
+                infoUrl = p.website ?: com.example.util.OsmExtraLabels.wikipediaUrl(details["wikipedia"]),
                 facilities = facilities,
-                description = combineDescriptionAndAccessNote(null, detailAccessNote, context),
+                description = combineDescriptionAndAccessNote(description, detailAccessNote, context),
                 dataSource = sourceLabel,
                 fetchedAtMillis = p.fetchedAt
             )
