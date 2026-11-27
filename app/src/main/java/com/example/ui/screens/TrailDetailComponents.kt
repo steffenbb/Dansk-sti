@@ -709,6 +709,7 @@ fun WeatherForecastCard(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
+                TrailWeatherExtraLines(weather)
 
                 if (weather.blocks24h.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(10.dp))

@@ -55,6 +55,9 @@ internal data class RouteStopsCalculationResult(
     val dayProgressStops: List<DayProgressStopIcon>
 )
 
+/** Phase D5: how far ahead a military area is announced in navigation. */
+internal const val AREA_WARNING_AHEAD_KM = 2.0
+
 internal fun computeRouteStopsAndAhead(
     route: PlannedRoute,
     currentWalkKm: Double,
@@ -67,7 +70,8 @@ internal fun computeRouteStopsAndAhead(
     previousNextOvernight: NextStopInfo?,
     pathWarnings: List<com.example.util.PathFeatureWarning> = emptyList(),
     highlights: List<PoiEntity> = emptyList(),
-    cafes: List<PoiEntity> = emptyList()
+    cafes: List<PoiEntity> = emptyList(),
+    areaCrossings: List<com.example.util.AreaCrossing> = emptyList()
 ): RouteStopsCalculationResult {
     val stage = currentStage ?: route.stages.getOrNull(currentDay - 1) ?: route.stages.lastOrNull()
     val stageStartKm = stage?.startWalkKm ?: 0.0
@@ -132,6 +136,20 @@ internal fun computeRouteStopsAndAhead(
             if (detourM <= 1000.0 && remKm > 0.02 && pKm <= stageEndKm + 0.5) {
                 upcomingItems.add(AheadOnRouteItem(p.name, itemType, remKm, detourM))
             }
+        }
+    }
+
+    // Phase D5: WARNING 2 km before a military area
+    for (c in areaCrossings) {
+        if (c.area.kind != com.example.data.repository.RestrictedAreaKind.MILITARY) continue
+        val (cKm, _) = route.projectPoint(c.lat, c.lng)
+        val remKm = cKm - currentWalkKm
+        if (remKm in 0.0..AREA_WARNING_AHEAD_KM) {
+            val title = com.example.util.AppLocaleHelper.strOrNull(
+                null, com.example.R.string.nav_ahead_military_area_fmt,
+                com.example.util.SafetyAccess.areaTitle(c.area.kind, c.area.name, null)
+            ) ?: "Militært område: ${c.area.name ?: ""}"
+            upcomingItems.add(AheadOnRouteItem(title, "WARNING", remKm, 0.0))
         }
     }
 

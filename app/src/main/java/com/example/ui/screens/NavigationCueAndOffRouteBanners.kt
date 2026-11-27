@@ -7,6 +7,7 @@ import android.os.Build
 import android.view.Window
 import android.view.WindowManager
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,7 +90,9 @@ fun NavigationTopCueAndAlertsStack(
     onRequestLocationPermission: () -> Unit,
     modifier: Modifier = Modifier,
     corridorPoisErrorMessage: String? = null,
-    onRetryCorridorPois: () -> Unit = {}
+    onRetryCorridorPois: () -> Unit = {},
+    militaryAreaBanner: String? = null,
+    onDismissMilitaryAreaBanner: () -> Unit = {}
 ) {
     val danskStiColors = DanskStiTheme.colors
     Column(
@@ -398,6 +401,25 @@ fun NavigationTopCueAndAlertsStack(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSecondary
                     )
+                }
+            }
+        }
+
+        // Phase D5: once per area per trip, 2 km before a military area
+        militaryAreaBanner?.let { text ->
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = danskStiColors.danger.copy(alpha = 0.95f),
+                shadowElevation = 4.dp,
+                modifier = Modifier.fillMaxWidth().clickable { onDismissMilitaryAreaBanner() }.testTag("nav_military_area_banner")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onError, modifier = Modifier.size(20.dp))
+                    Text(text = text, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onError)
                 }
             }
         }

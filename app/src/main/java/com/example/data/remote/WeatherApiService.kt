@@ -42,21 +42,41 @@ data class HourlyWeatherDto(
     @Json(name = "precipitation") val precipitation: List<Double?>? = null,
     @Json(name = "wind_speed_10m") val windSpeed10m: List<Double?>? = null,
     @Json(name = "wind_gusts_10m") val windGusts10m: List<Double?>? = null,
-    @Json(name = "weather_code") val weatherCode: List<Int?>? = null
+    @Json(name = "weather_code") val weatherCode: List<Int?>? = null,
+    // Phase D6 (dmi_seamless may return null for any of these)
+    @Json(name = "wind_direction_10m") val windDirection10m: List<Int?>? = null,
+    @Json(name = "apparent_temperature") val apparentTemperature: List<Double?>? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class DailyWeatherDto(
     @Json(name = "time") val time: List<String>? = null,
-    @Json(name = "weather_code") val weatherCode: List<Int>? = null,
-    @Json(name = "temperature_2m_max") val tempMax: List<Double>? = null,
-    @Json(name = "temperature_2m_min") val tempMin: List<Double>? = null,
-    @Json(name = "precipitation_sum") val precipitationSum: List<Double>? = null,
-    @Json(name = "wind_speed_10m_max") val windSpeedMax: List<Double>? = null,
-    @Json(name = "wind_gusts_10m_max") val windGustsMax: List<Double>? = null,
+    @Json(name = "weather_code") val weatherCode: List<Int?>? = null,
+    @Json(name = "temperature_2m_max") val tempMax: List<Double?>? = null,
+    @Json(name = "temperature_2m_min") val tempMin: List<Double?>? = null,
+    @Json(name = "precipitation_sum") val precipitationSum: List<Double?>? = null,
+    @Json(name = "wind_speed_10m_max") val windSpeedMax: List<Double?>? = null,
+    @Json(name = "wind_gusts_10m_max") val windGustsMax: List<Double?>? = null,
     @Json(name = "sunrise") val sunrise: List<String>? = null,
     @Json(name = "sunset") val sunset: List<String>? = null,
-    @Json(name = "civil_twilight_end") val civilTwilightEnd: List<String>? = null
+    @Json(name = "civil_twilight_end") val civilTwilightEnd: List<String>? = null,
+    // Phase D6 (nullable: dmi_seamless may not provide them)
+    @Json(name = "wind_direction_10m_dominant") val windDirectionDominant: List<Int?>? = null,
+    @Json(name = "apparent_temperature_min") val apparentTempMin: List<Double?>? = null,
+    @Json(name = "uv_index_max") val uvIndexMax: List<Double?>? = null
+)
+
+/** Phase D6: one day of the daily forecast, so the planner can look up a date. Null = not provided. */
+data class DailyPoint(
+    val date: String,
+    val dominantWindDeg: Int?,
+    val windMaxMs: Double?,
+    val apparentMinC: Double?,
+    val uvMax: Double?,
+    val tempMinC: Double? = null,
+    val tempMaxC: Double? = null,
+    val weatherCode: Int? = null,
+    val precipitationSumMm: Double? = null
 )
 
 data class HourlyForecastPoint(
@@ -69,7 +89,9 @@ data class HourlyForecastPoint(
     val windGustsMs: Double?,
     val weatherCode: Int,
     val weatherIcon: String,
-    val conditionDescription: String
+    val conditionDescription: String,
+    val windDirectionDeg: Int? = null,
+    val apparentTempC: Double? = null
 ) {
     val timeLabel: String
         get() = hourLabel
@@ -93,7 +115,13 @@ data class TrailWeatherInfo(
     val hourly48h: List<HourlyForecastPoint> = emptyList(),
     val blocks24h: List<HourlyForecastPoint> = emptyList(),
     val next6Hours: List<HourlyForecastPoint> = emptyList(),
-    val fetchedAtMillis: Long = 0L
+    val fetchedAtMillis: Long = 0L,
+    // Phase D6
+    val windDirectionDeg: Int? = null,
+    val apparentTempC: Double? = null,
+    val uvIndexMaxToday: Double? = null,
+    val thunderFromTime: String? = null,
+    val daily: List<DailyPoint> = emptyList()
 ) {
     fun isStale(nowMillis: Long = System.currentTimeMillis()): Boolean {
         return (nowMillis - fetchedAtMillis) > WeatherInterpreter.STALE_THRESHOLD_MS
@@ -118,8 +146,8 @@ interface WeatherApiService {
         @Query("latitude") lat: Double,
         @Query("longitude") lon: Double,
         @Query("current") current: String = "temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m,weather_code",
-        @Query("hourly") hourly: String = "temperature_2m,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,weather_code",
-        @Query("daily") daily: String = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,wind_gusts_10m_max,sunrise,sunset",
+        @Query("hourly") hourly: String = "temperature_2m,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,weather_code,wind_direction_10m,apparent_temperature",
+        @Query("daily") daily: String = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,wind_gusts_10m_max,sunrise,sunset,wind_direction_10m_dominant,apparent_temperature_min,uv_index_max",
         @Query("forecast_hours") forecastHours: Int = 48,
         @Query("models") models: String? = "dmi_seamless",
         @Query("wind_speed_unit") windSpeedUnit: String = "ms",
@@ -327,7 +355,7 @@ object WeatherInterpreter {
         val code = current?.weatherCode ?: firstHourly?.weatherCode ?: 0
         val precip = current?.precipitation ?: firstHourly?.precipitationMm
 
-        val recentRain = (daily?.precipitationSum?.take(2)?.sum() ?: 0.0) + (precip ?: 0.0)
+        val recentRain = (daily?.precipitationSum?.take(2)?.sumOf { it ?: 0.0 } ?: 0.0) + (precip ?: 0.0)
         val isMuddy = recentRain > 5.0
         val isWindAlert = (wind ?: 0.0) >= 12.0 || (gusts ?: 0.0) >= 18.0
 
@@ -352,9 +380,13 @@ object WeatherInterpreter {
 
         val ctx = context ?: runCatching { com.example.DanskStiApp.instance }.getOrNull()
         val localizedCtx = ctx?.let { com.example.util.AppLocaleHelper.createLocalizedContext(it) }
+        // Phase D6: thunder in the next 12 hourly points (codes 95, 96, 99)
+        val thunderFrom = findThunderFromTime(hourlyPoints)
         val severeAlert = when {
             code in listOf(95, 96, 99) -> localizedCtx?.getString(com.example.R.string.weather_alert_thunderstorm)
                 ?: "Varsel om tordenvejr — undgå åbne højdedrag og enkeltstående træer."
+            thunderFrom != null -> localizedCtx?.getString(com.example.R.string.weather_alert_thunder_from_fmt, thunderFrom)
+                ?: "Risiko for torden fra kl. $thunderFrom – undgå åbne højdedrag og enkeltstående træer"
             isWindAlert -> localizedCtx?.getString(com.example.R.string.weather_alert_high_wind)
                 ?: "Kraftig vind/vindstød varslet — pas på nedfaldende grene i skovområder."
             else -> null
@@ -381,8 +413,60 @@ object WeatherInterpreter {
             hourly48h = hourlyPoints,
             blocks24h = blocks24h,
             next6Hours = next6h,
-            fetchedAtMillis = fetchedAtMillis
+            fetchedAtMillis = fetchedAtMillis,
+            windDirectionDeg = firstHourly?.windDirectionDeg,
+            apparentTempC = firstHourly?.apparentTempC,
+            uvIndexMaxToday = daily?.uvIndexMax?.firstOrNull(),
+            thunderFromTime = thunderFrom,
+            daily = parseDailyPoints(daily)
         )
+    }
+
+    /** Phase D7: the forecast for one moment – from the hourly point covering it, else that date's daily values. */
+    data class ArrivalForecast(
+        val tempC: Double?,
+        val precipMm: Double?,
+        val windMs: Double?,
+        val windDirectionDeg: Int?,
+        val apparentTempC: Double?,
+        val weatherCode: Int?,
+        val fromHourly: Boolean
+    )
+
+    /** Null when neither an hourly point nor a daily value exists for [atEpochMs]. */
+    fun forecastAt(info: TrailWeatherInfo, atEpochMs: Long): ArrivalForecast? {
+        val hour = info.hourly48h.firstOrNull { pt ->
+            val start = parseIsoToEpochMillis(pt.isoTime) ?: return@firstOrNull false
+            atEpochMs >= start && atEpochMs < start + 3_600_000L
+        }
+        if (hour != null) {
+            return ArrivalForecast(hour.tempC, hour.precipitationMm, hour.windSpeedMs, hour.windDirectionDeg, hour.apparentTempC, hour.weatherCode, true)
+        }
+        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = COPENHAGEN_TZ }.format(Date(atEpochMs))
+        val day = info.daily.firstOrNull { it.date == dateStr } ?: return null
+        if (day.tempMaxC == null && day.weatherCode == null) return null
+        return ArrivalForecast(day.tempMaxC, day.precipitationSumMm, day.windMaxMs, day.dominantWindDeg, null, day.weatherCode, false)
+    }
+
+    /** Phase D6: the first of the next 12 hourly points with a thunder code, as "HH:mm". */
+    fun findThunderFromTime(hourlyPoints: List<HourlyForecastPoint>): String? =
+        hourlyPoints.take(12).firstOrNull { it.weatherCode in setOf(95, 96, 99) }?.hourLabel
+
+    private fun parseDailyPoints(daily: DailyWeatherDto?): List<DailyPoint> {
+        val dates = daily?.time ?: return emptyList()
+        return dates.mapIndexed { i, date ->
+            DailyPoint(
+                date = date,
+                dominantWindDeg = daily.windDirectionDominant?.getOrNull(i),
+                windMaxMs = daily.windSpeedMax?.getOrNull(i),
+                apparentMinC = daily.apparentTempMin?.getOrNull(i),
+                uvMax = daily.uvIndexMax?.getOrNull(i),
+                tempMinC = daily.tempMin?.getOrNull(i),
+                tempMaxC = daily.tempMax?.getOrNull(i),
+                weatherCode = daily.weatherCode?.getOrNull(i),
+                precipitationSumMm = daily.precipitationSum?.getOrNull(i)
+            )
+        }
     }
 
     private fun parseHourlyPoints(
@@ -413,7 +497,9 @@ object WeatherInterpreter {
                     windGustsMs = gusts,
                     weatherCode = code,
                     weatherIcon = icon,
-                    conditionDescription = desc
+                    conditionDescription = desc,
+                    windDirectionDeg = hourly.windDirection10m?.getOrNull(i),
+                    apparentTempC = hourly.apparentTemperature?.getOrNull(i)
                 )
             )
         }

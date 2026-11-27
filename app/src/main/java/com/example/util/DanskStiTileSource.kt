@@ -1399,6 +1399,7 @@ object DanskStiTileSourceHelper {
         if (state.showWater || state.showToilets || state.showShops || state.showTransport ||
             state.showHighlights || state.showSafety || state.showAccommodation
         ) overlays.add("OSM POI")
+        // Phase D3: the Sikkerhed area layer is OSM data too; "OSM POI" above already credits it
 
         return if (overlays.isEmpty()) {
             base

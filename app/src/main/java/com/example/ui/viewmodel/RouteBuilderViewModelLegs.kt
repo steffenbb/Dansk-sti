@@ -408,6 +408,7 @@ internal fun RouteBuilderViewModel.updateRouteStats(transform: ((RouteBuilderSta
     evaluateAccessRules()
     analyzeSupplyGaps()
     updateStagesAndNearbyPois()
+    refreshRestrictedAreaCrossings()
 }
 
 internal fun RouteBuilderViewModel.loadAccessPolygonsForRouteCorridor() {

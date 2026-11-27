@@ -97,7 +97,10 @@ data class WaypointWeatherEta(
     val weatherDescription: String? = null,
     val sunsetTime: String? = null,
     val isAfterSunset: Boolean = false,
-    val warningMessage: String? = null
+    val warningMessage: String? = null,
+    // Phase D7
+    val windDirectionDeg: Int? = null,
+    val apparentTempC: Double? = null
 )
 
 /**

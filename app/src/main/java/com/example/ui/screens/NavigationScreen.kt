@@ -109,6 +109,7 @@ fun NavigationScreen(
     val voiceGuidance by viewModel.voiceGuidance.collectAsState()
     val sunsetTime by viewModel.sunsetTime.collectAsState()
     val corridorPoisErrorMessage by viewModel.corridorPoisErrorMessage.collectAsState()
+    val militaryAreaBanner by viewModel.militaryAreaBanner.collectAsState()
 
     // Read device heading from the rotation vector sensor
     // and remap coordinate system according to display rotation.
@@ -661,7 +662,9 @@ fun NavigationScreen(
                     },
                     modifier = cueMod,
                     corridorPoisErrorMessage = corridorPoisErrorMessage,
-                    onRetryCorridorPois = { viewModel.retryLoadRouteCorridorPois() }
+                    onRetryCorridorPois = { viewModel.retryLoadRouteCorridorPois() },
+                    militaryAreaBanner = militaryAreaBanner,
+                    onDismissMilitaryAreaBanner = { viewModel.dismissMilitaryAreaBanner() }
                 )
             }
 

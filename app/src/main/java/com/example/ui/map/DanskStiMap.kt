@@ -248,6 +248,7 @@ fun DanskStiMap(
     var droppedPinLocation by remember { mutableStateOf<GeoPoint?>(null) }
     var selectedPoiForInfoSheet by remember { mutableStateOf<PoiInfoSheetData?>(null) }
     var selectedAccessPolygonForRules by remember { mutableStateOf<AccessPolygon?>(null) }
+    var selectedRestrictedArea by remember { mutableStateOf<com.example.data.repository.RestrictedArea?>(null) }
 
     val latestOnMapTap by rememberUpdatedState(onMapTap)
     val latestOnLongPressInterceptor by rememberUpdatedState(onMapLongPressInterceptor)
@@ -278,7 +279,8 @@ fun DanskStiMap(
             onAccessPolygonTapped = { poly ->
                 selectedAccessPolygonForRules = poly
                 latestOnAccessTapped?.invoke(poly)
-            }
+            },
+            onRestrictedAreaTapped = { area -> selectedRestrictedArea = area }
         ).apply {
             setMarkedRouteTapsEnabled(markedRouteTapsEnabled)
         }
@@ -683,6 +685,11 @@ fun DanskStiMap(
             polygon = poly,
             onDismiss = { selectedAccessPolygonForRules = null }
         )
+    }
+
+    // Phase D3: military area / wildlife reserve tap sheet
+    selectedRestrictedArea?.let { area ->
+        com.example.ui.components.RestrictedAreaInfoSheet(area = area, onDismiss = { selectedRestrictedArea = null })
     }
 
     // Long-press anywhere on any map (onX-style "drop pin")

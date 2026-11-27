@@ -684,6 +684,7 @@ object RouteSmartTools {
         val legsByKey = orderedLegs.associateBy { it.legKey }
 
         var accumulatedKm = 0.0
+        var dayStartKm = 0.0
         var accumulatedAscentM = 0.0
         var dayIndex = 0
         val baseStartEpochMs = startDateEpochMs ?: System.currentTimeMillis()
@@ -699,7 +700,8 @@ object RouteSmartTools {
             }
 
             if (next.role == WaypointRole.OVERNIGHT || i + 1 == waypoints.lastIndex) {
-                val walkMinutes = ((accumulatedKm / effectivePace) * 60.0).toInt()
+                // Each day starts at the start time again: only that day's km count (bug fix, Phase D7)
+                val walkMinutes = (((accumulatedKm - dayStartKm) / effectivePace) * 60.0).toInt()
                 val totalMinutes = startTotalMinutes + walkMinutes
                 val etaHour = (totalMinutes / 60) % 24
                 val etaMin = totalMinutes % 60
@@ -720,15 +722,27 @@ object RouteSmartTools {
                 var sunsetTime: String? = onDeviceSunset
                 var isAfterSunset = false
                 var warningMessage: String? = null
+                var windDirDeg: Int? = null
+                var apparentC: Double? = null
 
                 try {
                     val resp = weatherService.getTrailWeather(lat = next.lat, lon = next.lng)
                     val parsed = WeatherInterpreter.parseWeather(resp)
-                    tempC = parsed.tempC
-                    precipMm = parsed.precipitationMm
-                    windMs = parsed.windSpeedMs
-                    weatherIcon = parsed.weatherIcon
-                    weatherDesc = parsed.conditionDescription
+                    // Phase D7 bug fix: the weather AT ARRIVAL (start date + day index + ETA, Copenhagen time),
+                    // from the hourly point, else that date's daily values, else "not available" (all null)
+                    val arrivalMs = com.example.util.CopenhagenTime.localMidnightPlus(baseStartEpochMs, dayIndex, totalMinutes)
+                    WeatherInterpreter.forecastAt(parsed, arrivalMs)?.let { f ->
+                        tempC = f.tempC
+                        precipMm = f.precipMm
+                        windMs = f.windMs
+                        windDirDeg = f.windDirectionDeg
+                        apparentC = f.apparentTempC
+                        f.weatherCode?.let { c ->
+                            val (d, ic) = WeatherInterpreter.describeWeatherCode(c)
+                            weatherDesc = d
+                            weatherIcon = ic
+                        }
+                    }
 
                     if (startDateEpochMs == null) {
                         val rawSunset = resp.daily?.sunset?.getOrNull(dayIndex)
@@ -780,12 +794,15 @@ object RouteSmartTools {
                         weatherDescription = weatherDesc,
                         sunsetTime = sunsetTime,
                         isAfterSunset = isAfterSunset,
-                        warningMessage = warningMessage
+                        warningMessage = warningMessage,
+                        windDirectionDeg = windDirDeg,
+                        apparentTempC = apparentC
                     )
                 )
 
                 if (next.role == WaypointRole.OVERNIGHT) {
                     dayIndex++
+                    dayStartKm = accumulatedKm
                 }
             }
         }

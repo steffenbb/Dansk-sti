@@ -298,6 +298,18 @@ internal fun PlannerDetaljerTabContent(
             }
         }
 
+        // Phase D5: "Sikkerhed og adgang" with tap-to-zoom
+        val safetyContext = androidx.compose.ui.platform.LocalContext.current
+        val safetyLocale = com.example.ui.components.rememberAppLocale()
+        val safetyItems = androidx.compose.runtime.remember(uiState.areaCrossings, uiState.pathFeatureWarnings, safetyLocale) {
+            com.example.util.SafetyAccess.buildItems(uiState.areaCrossings, uiState.pathFeatureWarnings, System.currentTimeMillis(), safetyContext, safetyLocale)
+        }
+        com.example.ui.screens.TrailSafetyAccessCard(
+            items = safetyItems,
+            areaDataMissing = uiState.restrictedAreaDataMissing,
+            onItemClick = { item -> onZoomToCoordinate(item.lat, item.lng) }
+        )
+
         com.example.ui.screens.PathFeaturesAlongTrailCard(
             summary = uiState.pathFeatureSummary,
             warnings = uiState.pathFeatureWarnings,

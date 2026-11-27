@@ -353,7 +353,11 @@ internal fun NavigationExpandedAheadDrawer(
             // Part E1: Compact 6-hour weather card while navigating
             val displayWeather = navigationWeather ?: tonightCampWeather
             if (displayWeather != null) {
-                Navigation6HourWeatherCard(weather = displayWeather)
+                val navWind by viewModel.navWindRelation.collectAsState()
+                Navigation6HourWeatherCard(
+                    weather = displayWeather,
+                    windRelation = if (displayWeather === navigationWeather) navWind else com.example.util.WindRelation.NONE
+                )
             }
 
             if (aheadItems.isEmpty()) {
@@ -569,113 +573,6 @@ internal fun NavigationExpandedAheadDrawer(
                             }
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun Navigation6HourWeatherCard(
-    weather: TrailWeatherInfo,
-    modifier: Modifier = Modifier
-) {
-    val appLocale = rememberAppLocale()
-    val isStale = weather.isStale()
-    val updatedClock = weather.formatUpdatedClock()
-    val statusText = if (isStale) {
-        stringResource(R.string.weather_updated_at_stale_fmt, updatedClock)
-    } else {
-        stringResource(R.string.weather_updated_at_fmt, updatedClock)
-    }
-
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("nav_6h_weather_card")
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Thermostat,
-                        contentDescription = null,
-                        tint = DanskStiTheme.colors.warning,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = stringResource(R.string.nav_weather_next_6h_title),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                Text(
-                    text = statusText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (isStale) DanskStiTheme.colors.warning else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("nav_weather_updated_label")
-                )
-            }
-
-            if (weather.next6Hours.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    weather.next6Hours.take(6).forEach { block ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(vertical = 4.dp, horizontal = 2.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = block.timeLabel,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
-                                )
-                                Text(
-                                    text = "${block.tempC.toInt()}°",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1
-                                )
-                                Text(
-                                    text = "${String.format(appLocale, "%.1f", block.precipitationMm)}mm",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (block.precipitationMm >= 1.0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-                }
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(text = "${weather.tempC?.toInt() ?: "--"}°C", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.WaterDrop, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text(text = "${String.format(appLocale, "%.1f", weather.precipitationMm ?: 0.0)} mm", style = MaterialTheme.typography.labelMedium)
-                    }
-                    Text(text = weather.conditionDescription ?: "", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

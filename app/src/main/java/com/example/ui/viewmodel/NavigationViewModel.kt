@@ -111,12 +111,12 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private val _routeShops = MutableStateFlow<List<PoiEntity>>(emptyList())
     val routeShops: StateFlow<List<PoiEntity>> = _routeShops.asStateFlow()
 
-    // Phase C8: highlights/cafés for "Foran dig", AEDs for the SOS sheet
-    private val _routeHighlights = MutableStateFlow<List<PoiEntity>>(emptyList())
-    private val _routeCafes = MutableStateFlow<List<PoiEntity>>(emptyList())
-    private val _routeAeds = MutableStateFlow<List<PoiEntity>>(emptyList())
-    private val _nearestAeds = MutableStateFlow<List<NearbyAed>>(emptyList())
-    val nearestAeds: StateFlow<List<NearbyAed>> = _nearestAeds.asStateFlow()
+    // Phases C8/D5/D7: highlights/cafés ahead, nearest AEDs, military areas, wind relation
+    private val routeExtras = NavigationRouteExtras(application)
+    val militaryAreaBanner: StateFlow<String?> = routeExtras.militaryAreaBanner
+    fun dismissMilitaryAreaBanner() = routeExtras.dismissMilitaryAreaBanner()
+    val navWindRelation: StateFlow<com.example.util.WindRelation> = routeExtras.navWindRelation
+    val nearestAeds: StateFlow<List<NearbyAed>> = routeExtras.nearestAeds
 
     private val _routeHazards = MutableStateFlow<List<UserHazardNoteEntity>>(emptyList())
     val routeHazards: StateFlow<List<UserHazardNoteEntity>> = _routeHazards.asStateFlow()
@@ -406,8 +406,10 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
             remainingTodayKm = remainingTodayKm, waters = _routeWaters.value, shops = _routeShops.value,
             shelters = _routeShelters.value, previousNextOvernight = _nextOvernight.value,
             pathWarnings = _routePathWarnings.value,
-            highlights = _routeHighlights.value, cafes = _routeCafes.value
+            highlights = routeExtras.highlights.value, cafes = routeExtras.cafes.value,
+            areaCrossings = routeExtras.areaCrossings.value
         )
+        routeExtras.onProgress(route, currentWalkKm, liveState.value, _navigationWeather.value)
         _nextWater.value = result.nextWater
         _nextShop.value = result.nextShop
         _nextOvernight.value = result.nextOvernight
@@ -426,9 +428,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         _routeWaters.value = pois.filter { it.type.equals("water", ignoreCase = true) }
         _routeToilets.value = pois.filter { it.type.equals("toilet", ignoreCase = true) }
         _routeShops.value = pois.filter { it.type.equals("shop", ignoreCase = true) }
-        _routeHighlights.value = pois.filter { it.type == "highlight" || it.type == "beach" }
-        _routeCafes.value = pois.filter { it.type == "cafe" }
-        _routeAeds.value = pois.filter { it.type == "aed" }
+        routeExtras.applyCorridorPois(pois)
 
         val st = liveState.value
         recalculateRouteStopsAndAhead(
@@ -479,6 +479,8 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                     } else {
                         _routePathWarnings.value = emptyList()
                     }
+
+                    routeExtras.loadAreaCrossings(route, repository)
 
                     val data = loadInitialCorridorDataForRoute(repository, route)
                     applyRouteCorridorSheltersAndPois(route, data.initialShelters, data.initialPois)
@@ -721,17 +723,9 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
     fun setSosSheet(show: Boolean) {
         _showSosSheet.value = show
-        if (show) refreshNearestAeds()
+        if (show) viewModelScope.launch { routeExtras.refreshNearestAeds(liveState.value, repository) }
     }
 
-    /** Phase C8: nearest AEDs from the route corridor and from Room (within 5 km) for the SOS sheet. */
-    private fun refreshNearestAeds() {
-        val st = liveState.value
-        viewModelScope.launch {
-            val roomAeds = runCatching { withContext(Dispatchers.IO) { repository.getPoisByType("aed") } }.getOrDefault(emptyList())
-            _nearestAeds.value = NavigationNearbyAeds.nearest(st.currentLat, st.currentLng, _routeAeds.value, roomAeds)
-        }
-    }
     fun cycleMapTileMode() { _mapTileMode.value = if (_mapTileMode.value == "topo") "offline" else "topo" }
 
     private val _allRecordedDayStats = MutableStateFlow<List<com.example.data.model.RecordedDayStatEntity>>(emptyList())
