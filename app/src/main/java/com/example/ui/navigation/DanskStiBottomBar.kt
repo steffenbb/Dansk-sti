@@ -110,8 +110,14 @@ fun DanskStiBottomBar(
     onNavigate: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptics = com.example.ui.components.rememberHaptics()
     Column(modifier = modifier.fillMaxWidth()) {
-        if (activeTripState.isActive) {
+        // Slides in when a trip starts and out when it ends (UI audit batch 2)
+        androidx.compose.animation.AnimatedVisibility(
+            visible = activeTripState.isActive,
+            enter = com.example.ui.theme.Motion.ExpandEnter,
+            exit = com.example.ui.theme.Motion.ExpandExit
+        ) {
             ActiveTripSlimBanner(
                 state = activeTripState,
                 onClick = onContinueActiveTrip
@@ -138,6 +144,7 @@ fun DanskStiBottomBar(
                     selected = isSelected,
                     onClick = {
                         if (currentRoute != tab.route) {
+                            haptics(com.example.ui.components.HapticKind.TICK, "tab_${tab.route}")
                             onNavigate(tab.route)
                         }
                     },
@@ -176,6 +183,7 @@ fun DanskStiNavigationRail(
     onNavigate: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val railHaptics = com.example.ui.components.rememberHaptics()
     Row(modifier = modifier.fillMaxHeight()) {
         NavigationRail(
             containerColor = MaterialTheme.colorScheme.surface,
@@ -201,6 +209,7 @@ fun DanskStiNavigationRail(
                         selected = isSelected,
                         onClick = {
                             if (currentRoute != tab.route) {
+                                railHaptics(com.example.ui.components.HapticKind.TICK, "tab_${tab.route}")
                                 onNavigate(tab.route)
                             }
                         },

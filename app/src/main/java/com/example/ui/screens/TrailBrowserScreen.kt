@@ -465,7 +465,7 @@ fun TrailBrowserScreen(
                 val hasRegion = selectedRegion != null && selectedRegion != "Alle"
                 FilterChip(
                     selected = hasRegion,
-                    onClick = { showRegionMenu = true },
+                    onClick = com.example.ui.components.hapticClick { showRegionMenu = true },
                     label = {
                         Text(
                             text = if (hasRegion) selectedRegion!! else stringResource(R.string.explore_filter_region),
@@ -508,7 +508,7 @@ fun TrailBrowserScreen(
                 val hasLength = lengthFilter != LengthFilter.ALL
                 FilterChip(
                     selected = hasLength,
-                    onClick = { showLengthMenu = true },
+                    onClick = com.example.ui.components.hapticClick { showLengthMenu = true },
                     label = {
                         Text(
                             text = if (hasLength) lengthFilter.label else stringResource(R.string.explore_filter_length),
@@ -548,7 +548,7 @@ fun TrailBrowserScreen(
 
             FilterChip(
                 selected = flerdagesOnly,
-                onClick = { viewModel.toggleFlerdagesOnly() },
+                onClick = com.example.ui.components.hapticClick { viewModel.toggleFlerdagesOnly() },
                 label = {
                     Text(
                         text = stringResource(R.string.explore_filter_multiday),
@@ -566,7 +566,7 @@ fun TrailBrowserScreen(
 
             FilterChip(
                 selected = sheltersUndervejs,
-                onClick = { viewModel.toggleSheltersUndervejs() },
+                onClick = com.example.ui.components.hapticClick { viewModel.toggleSheltersUndervejs() },
                 label = {
                     Text(
                         text = stringResource(R.string.explore_filter_shelters),
@@ -584,7 +584,7 @@ fun TrailBrowserScreen(
 
             FilterChip(
                 selected = friTeltningOnly,
-                onClick = { viewModel.toggleFriTeltningOnly() },
+                onClick = com.example.ui.components.hapticClick { viewModel.toggleFriTeltningOnly() },
                 label = {
                     Text(
                         text = stringResource(R.string.explore_filter_fri_teltning),
@@ -602,7 +602,7 @@ fun TrailBrowserScreen(
 
             FilterChip(
                 selected = showNearbySheet,
-                onClick = { requestLocationForDiscovery(openNearbySheet = true) },
+                onClick = com.example.ui.components.hapticClick { requestLocationForDiscovery(openNearbySheet = true) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.MyLocation,

@@ -281,7 +281,7 @@ fun PackingListContent(
                         ) {
                             Checkbox(
                                 checked = gearItem.isPacked,
-                                onCheckedChange = { checked ->
+                                onCheckedChange = com.example.ui.components.hapticToggle { checked ->
                                     onToggleItem(gearItem.copy(isPacked = checked))
                                 },
                                 modifier = Modifier.testTag("packing_item_checkbox_${gearItem.id}")

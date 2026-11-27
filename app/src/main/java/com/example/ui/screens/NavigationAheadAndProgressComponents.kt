@@ -585,7 +585,8 @@ internal fun DayProgressBarWithIcons(progressFraction: Float, stops: List<DayPro
     BoxWithConstraints(modifier = modifier.height(26.dp), contentAlignment = Alignment.CenterStart) {
         val barWidth = maxWidth
         Box(modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant))
-        Box(modifier = Modifier.fillMaxWidth(progressFraction.coerceIn(0f, 1f)).height(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+        val smoothProgress = com.example.ui.theme.animatedProgress(progressFraction, "nav_day_progress")
+        Box(modifier = Modifier.fillMaxWidth(smoothProgress).height(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
         val displayStops = if (stops.isNotEmpty()) stops else listOf(DayProgressStopIcon("CAMP", stringResource(R.string.nav_progress_camp_label), 1.0f, 0.0))
         displayStops.forEach { stop ->
             val xOffset = (barWidth - 20.dp) * stop.fraction.coerceIn(0f, 1f)

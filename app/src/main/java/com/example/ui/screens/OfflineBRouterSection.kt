@@ -160,7 +160,7 @@ internal fun OfflineBRouterDenmarkCard(
 
                     Spacer(modifier = Modifier.height(6.dp))
                     LinearProgressIndicator(
-                        progress = { brouterState.progressPercent / 100f },
+                        progress = com.example.ui.theme.smoothProgress(brouterState.progressPercent / 100f),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(8.dp),
@@ -269,7 +269,7 @@ internal fun OfflineBRouterDenmarkCard(
                     }
                     Switch(
                         checked = brouterState.wifiOnly,
-                        onCheckedChange = { viewModel.setBRouterWifiOnly(it) },
+                        onCheckedChange = com.example.ui.components.hapticToggle { viewModel.setBRouterWifiOnly(it) },
                         colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.primary),
                         modifier = Modifier.testTag("switch_brouter_wifi_only")
                     )

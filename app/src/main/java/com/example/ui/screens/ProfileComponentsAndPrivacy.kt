@@ -118,7 +118,7 @@ internal fun ProfileStatisticsSectionCard(
                     Text(
                         text = stringResource(
                             R.string.profile_stats_km_value_fmt,
-                            String.format(locale, "%.1f", stats.totalKmWalked)
+                            String.format(locale, "%.1f", com.example.ui.theme.countUp(stats.totalKmWalked))
                         ),
                         style = TabularBodyStyle,
                         fontWeight = FontWeight.Bold,
@@ -133,7 +133,7 @@ internal fun ProfileStatisticsSectionCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = stats.hikingDaysCount.toString(),
+                        text = com.example.ui.theme.countUp(stats.hikingDaysCount).toString(),
                         style = TabularBodyStyle,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
@@ -146,7 +146,7 @@ internal fun ProfileStatisticsSectionCard(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    val ascentStr = stats.totalAscentMeters?.let { "+${it.toInt()} m" } ?: "—"
+                    val ascentStr = stats.totalAscentMeters?.let { "+${com.example.ui.theme.countUp(it.toInt())} m" } ?: "—"
                     Text(
                         text = ascentStr,
                         style = TabularBodyStyle,
@@ -464,7 +464,7 @@ internal fun ProfileStorageSectionCard(
             )
             Switch(
                 checked = downloadWifiOnly,
-                onCheckedChange = onSetDownloadWifiOnly,
+                onCheckedChange = com.example.ui.components.hapticToggle(onSetDownloadWifiOnly),
                 modifier = Modifier.testTag("profile_download_wifi_only_switch")
             )
         }
@@ -527,7 +527,7 @@ internal fun ProfileStorageSectionCard(
         if (brouterState.isDownloading) {
             Spacer(modifier = Modifier.height(Spacing.s2))
             LinearProgressIndicator(
-                progress = { (brouterState.progressPercent / 100f).coerceIn(0f, 1f) },
+                progress = com.example.ui.theme.smoothProgress((brouterState.progressPercent / 100f).coerceIn(0f, 1f)),
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.primary
             )

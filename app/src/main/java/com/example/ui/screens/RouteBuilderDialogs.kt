@@ -80,6 +80,7 @@ internal fun RouteBuilderBasicDialogs(
     onDismissRenameWaypointDialog: () -> Unit,
     availableHeightDp: Float? = null
 ) {
+    val saveHaptics = com.example.ui.components.rememberHaptics()
     val danskStiColors = DanskStiTheme.colors
     val configuration = LocalConfiguration.current
     val realAvailableHeightDp = (availableHeightDp ?: configuration.screenHeightDp.takeIf { it > 0 }?.toFloat() ?: 640f)
@@ -134,6 +135,7 @@ internal fun RouteBuilderBasicDialogs(
                         viewModel.updateRouteName(renameRouteName)
                         onDismissSaveDialog()
                         viewModel.saveRoute(onSuccess = {
+                            saveHaptics(com.example.ui.components.HapticKind.CONFIRM, "route_saved")
                             onSavedSuccessfully()
                         })
                     },

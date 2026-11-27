@@ -3,8 +3,9 @@ package com.example.ui.screens
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import com.example.ui.theme.springClickable
+import com.example.ui.theme.revealOnce
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -54,9 +55,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -122,7 +120,7 @@ fun RoundActionButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .testTag(testTag)
-            .clickable(onClick = onClick)
+            .springClickable(onClick = onClick)
             .padding(horizontal = 4.dp)
     ) {
         Surface(
@@ -231,30 +229,9 @@ fun ElevationProfileCanvas(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val elePoints = points.mapNotNull { it.ele }
-                if (elePoints.size < 2) return@Canvas
-
-                val minEle = elePoints.minOrNull() ?: 0.0
-                val maxEle = elePoints.maxOrNull() ?: 0.0
-                val dEle = (maxEle - minEle).coerceAtLeast(10.0)
-
-                val step = size.width / (points.size - 1)
-                val path = Path()
-
-                points.forEachIndexed { i, pt ->
-                    val ele = pt.ele ?: minEle
-                    val x = i * step
-                    val y = ((1.0 - (ele - minEle) / dEle) * size.height).toFloat().coerceIn(0f, size.height)
-                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                }
-
-                drawPath(
-                    path = path,
-                    color = lineColor,
-                    style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
-                )
-            }
+            // UI audit batch 3: the planner's chart (gradient fill, min/max heights, finger scrub) instead of a plain line
+            val chartPoints = androidx.compose.runtime.remember(points) { points.map { com.example.util.routing.RoutePoint3D(it.lat, it.lng, it.ele) } }
+            com.example.ui.components.RouteElevationProfileChart(points = chartPoints)
         }
     }
 }
@@ -291,6 +268,7 @@ fun SurfaceMixBar(surfaceMix: Map<String, Int>) {
                 .fillMaxWidth()
                 .height(14.dp)
                 .clip(RoundedCornerShape(7.dp))
+                .revealOnce()
         ) {
             Box(
                 modifier = Modifier

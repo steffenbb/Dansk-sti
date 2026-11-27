@@ -648,7 +648,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                     if (uiState.isRoutingGpxLegs && uiState.gpxLegsTotalCount > 0) {
                         val frac = (uiState.gpxLegsCompletedCount.toFloat() / uiState.gpxLegsTotalCount.toFloat()).coerceIn(0f, 1f)
                         LinearProgressIndicator(
-                            progress = { frac },
+                            progress = com.example.ui.theme.smoothProgress(frac),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(4.dp)
@@ -707,7 +707,7 @@ internal fun RouteBuilderTopSearchAndBannersOverlay(
                         )
                     } else {
                         LinearProgressIndicator(
-                            progress = { activeDownloadProgress.fraction.coerceIn(0f, 1f) },
+                            progress = com.example.ui.theme.smoothProgress(activeDownloadProgress.fraction.coerceIn(0f, 1f)),
                             modifier = Modifier.fillMaxWidth().height(4.dp).testTag("planner_trail_download_linear_progress"),
                             color = MaterialTheme.colorScheme.primary,
                             trackColor = MaterialTheme.colorScheme.surfaceVariant

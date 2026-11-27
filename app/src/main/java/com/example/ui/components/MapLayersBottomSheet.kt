@@ -293,7 +293,7 @@ fun MapLayersBottomSheet(
                     val selected = layersState.mapDarkMode == mode
                     FilterChip(
                         selected = selected,
-                        onClick = { onMapDarkModeChanged(mode) },
+                        onClick = com.example.ui.components.hapticClick { onMapDarkModeChanged(mode) },
                         label = {
                             Text(
                                 text = mode.displayName,
@@ -329,7 +329,7 @@ fun MapLayersBottomSheet(
                 )
                 Switch(
                     checked = layersState.mapFollowsApp,
-                    onCheckedChange = onMapFollowsAppChanged,
+                    onCheckedChange = com.example.ui.components.hapticToggle(onMapFollowsAppChanged),
                     modifier = Modifier.testTag("map_follows_app_switch")
                 )
             }
@@ -344,7 +344,7 @@ fun MapLayersBottomSheet(
                         val selected = layersState.mapThemeOverride == overrideMode
                         FilterChip(
                             selected = selected,
-                            onClick = { onMapThemeOverrideChanged(overrideMode) },
+                            onClick = com.example.ui.components.hapticClick { onMapThemeOverrideChanged(overrideMode) },
                             label = {
                                 Text(
                                     text = overrideMode.displayName,
@@ -609,10 +609,11 @@ private fun LayerToggleRow(
     onCheckedChange: (Boolean) -> Unit,
     testTag: String
 ) {
+    val layerRowHaptics = com.example.ui.components.rememberHaptics()
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
+            .clickable { layerRowHaptics(com.example.ui.components.HapticKind.TICK); onCheckedChange(!checked) }
             .padding(vertical = 8.dp)
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically
@@ -649,7 +650,7 @@ private fun LayerToggleRow(
 
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = com.example.ui.components.hapticToggle(onCheckedChange),
             colors = SwitchDefaults.colors(
                 checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
                 checkedTrackColor = MaterialTheme.colorScheme.primary

@@ -280,7 +280,7 @@ fun NavigationBottomOrSideControlsAndStats(
                                 )
                                 Switch(
                                     checked = keepScreenOn,
-                                    onCheckedChange = { viewModel.setKeepScreenOn(it) },
+                                    onCheckedChange = com.example.ui.components.hapticToggle { viewModel.setKeepScreenOn(it) },
                                     modifier = Modifier.testTag("nav_keep_screen_on_switch")
                                 )
                             }
@@ -300,7 +300,7 @@ fun NavigationBottomOrSideControlsAndStats(
                                 )
                                 Switch(
                                     checked = voiceGuidance,
-                                    onCheckedChange = { viewModel.setVoiceGuidance(it) },
+                                    onCheckedChange = com.example.ui.components.hapticToggle { viewModel.setVoiceGuidance(it) },
                                     modifier = Modifier.testTag("nav_voice_guidance_switch")
                                 )
                             }

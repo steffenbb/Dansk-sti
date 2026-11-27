@@ -646,7 +646,7 @@ internal fun PlannerRoutingOptionsSection(
             )
             Switch(
                 checked = options.preferNature,
-                onCheckedChange = { checked ->
+                onCheckedChange = com.example.ui.components.hapticToggle { checked ->
                     onUpdateOptions(options.copy(preferNature = checked))
                 },
                 colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary),
@@ -666,7 +666,7 @@ internal fun PlannerRoutingOptionsSection(
             )
             Switch(
                 checked = options.allowFerries,
-                onCheckedChange = { checked ->
+                onCheckedChange = com.example.ui.components.hapticToggle { checked ->
                     onUpdateOptions(options.copy(allowFerries = checked))
                 },
                 colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary),

@@ -384,7 +384,7 @@ fun OfflineTrailsScreen(
                             }
                             Switch(
                                 checked = mapTilesWifiOnly,
-                                onCheckedChange = { viewModel.setMapTilesWifiOnly(it) },
+                                onCheckedChange = com.example.ui.components.hapticToggle { viewModel.setMapTilesWifiOnly(it) },
                                 colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.primary),
                                 modifier = Modifier.testTag("switch_map_tiles_wifi_only")
                             )

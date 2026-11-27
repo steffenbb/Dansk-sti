@@ -68,6 +68,7 @@ fun KigTegnSegmentedToggle(
     onModeChange: (PlannerInteractionMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val kigTegnHaptics = com.example.ui.components.rememberHaptics()
     Surface(
         modifier = modifier
             .heightIn(min = 48.dp)
@@ -92,7 +93,7 @@ fun KigTegnSegmentedToggle(
                     .background(
                         if (isKig) MaterialTheme.colorScheme.primary else Color.Transparent
                     )
-                    .clickable { onModeChange(PlannerInteractionMode.KIG) }
+                    .clickable { kigTegnHaptics(com.example.ui.components.HapticKind.TICK); onModeChange(PlannerInteractionMode.KIG) }
                     .padding(horizontal = 14.dp, vertical = 6.dp)
                     .semantics { contentDescription = kigCd }
                     .testTag("mode_kig_button"),
@@ -124,7 +125,7 @@ fun KigTegnSegmentedToggle(
                     .background(
                         if (isTegn) MaterialTheme.colorScheme.primary else Color.Transparent
                     )
-                    .clickable { onModeChange(PlannerInteractionMode.TEGN) }
+                    .clickable { kigTegnHaptics(com.example.ui.components.HapticKind.TICK); onModeChange(PlannerInteractionMode.TEGN) }
                     .padding(horizontal = 14.dp, vertical = 6.dp)
                     .semantics { contentDescription = tegnCd }
                     .testTag("mode_tegn_button"),

@@ -106,6 +106,7 @@ fun PoiInfoSheet(
     onOvernightHereInPlanner: (() -> Unit)? = null,
     onSavedPoint: ((UserCustomWaypointEntity) -> Unit)? = null
 ) {
+    val sheetHaptics = com.example.ui.components.rememberHaptics()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -430,6 +431,7 @@ fun PoiInfoSheet(
             ) {
                 Button(
                     onClick = {
+                        sheetHaptics(com.example.ui.components.HapticKind.CONFIRM, "route_here")
                         onRouteHere(poiData.lat, poiData.lng, poiData.name)
                         onDismiss()
                     },

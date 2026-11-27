@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import com.example.ui.theme.springClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,6 +54,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -106,6 +108,14 @@ internal fun SwipeToDeleteWrapper(
         }
     }
 
+    // UI audit batch 2: a threshold haptic when letting go would delete
+    val swipeHaptics = com.example.ui.components.rememberHaptics()
+    LaunchedEffect(dismissState) {
+        androidx.compose.runtime.snapshotFlow { dismissState.targetValue }.collect { target ->
+            if (target != SwipeToDismissBoxValue.Settled) swipeHaptics(com.example.ui.components.HapticKind.THRESHOLD, "swipe_delete")
+        }
+    }
+
     SwipeToDismissBox(
         state = dismissState,
         backgroundContent = {
@@ -117,10 +127,13 @@ internal fun SwipeToDeleteWrapper(
                     .padding(horizontal = Spacing.s5),
                 contentAlignment = Alignment.CenterEnd
             ) {
+                // The bin grows as the swipe approaches the delete point
+                val binScale = 0.8f + 0.5f * dismissState.progress.coerceIn(0f, 1f).let { if (dismissState.targetValue == SwipeToDismissBoxValue.Settled) it * 0.6f else 1f }
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = stringResource(R.string.cd_delete_item),
-                    tint = MaterialTheme.colorScheme.onError
+                    tint = MaterialTheme.colorScheme.onError,
+                    modifier = Modifier.graphicsLayer { scaleX = binScale; scaleY = binScale }
                 )
             }
         },
@@ -160,7 +173,7 @@ internal fun TripPlanLibraryCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onOpenInPlanner() }
+            .springClickable(0.98f) { onOpenInPlanner() }
             .testTag("plan_card_${plan.id}")
     ) {
         Column(modifier = Modifier.padding(Spacing.s4)) {
@@ -385,7 +398,7 @@ internal fun CustomRouteLibraryCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onEdit() }
+            .springClickable(0.98f) { onEdit() }
             .testTag("custom_route_card_${route.id}")
     ) {
         Column(
@@ -517,7 +530,7 @@ internal fun SavedTrailLibraryCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .springClickable(0.98f, onClick)
             .testTag("saved_trail_card_${trail.id}")
     ) {
         Row(
@@ -583,7 +596,7 @@ internal fun WaypointLibraryCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .springClickable(0.98f, onClick)
             .testTag("waypoint_card_${waypoint.id}")
     ) {
         Column(modifier = Modifier.padding(Spacing.s4)) {

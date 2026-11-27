@@ -76,6 +76,16 @@ fun TrailDetailScreen(
     onOpenRouteBuilder: (destLat: Double?, destLng: Double?, destName: String?) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
+    // UI audit batch 2: a reject haptic when a retry of the route download fails again
+    val retryHaptics = com.example.ui.components.rememberHaptics()
+    var retriedRoute by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val routeErrorForHaptics by viewModel.routeError.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(routeErrorForHaptics) {
+        if (retriedRoute && routeErrorForHaptics != null) {
+            retryHaptics(com.example.ui.components.HapticKind.REJECT, "route_retry_failed")
+            retriedRoute = false
+        }
+    }
     val trail by viewModel.trail.collectAsState()
     val points by viewModel.trailPoints.collectAsState()
     val trailGeometry by viewModel.trailGeometry.collectAsState()
@@ -357,7 +367,7 @@ fun TrailDetailScreen(
                                 )
                             } else {
                                 LinearProgressIndicator(
-                                    progress = { activeDownloadProgress.fraction.coerceIn(0f, 1f) },
+                                    progress = com.example.ui.theme.smoothProgress(activeDownloadProgress.fraction.coerceIn(0f, 1f)),
                                     modifier = Modifier
                                         .width(200.dp)
                                         .height(4.dp)
@@ -419,7 +429,10 @@ fun TrailDetailScreen(
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Button(
-                                onClick = { viewModel.retryLoadRoute() },
+                                onClick = {
+                                    retriedRoute = true
+                                    viewModel.retryLoadRoute()
+                                },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                 shape = RoundedCornerShape(20.dp),
                                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),

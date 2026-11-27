@@ -260,7 +260,7 @@ fun HowToGuideScreen(
                     ) {
                         FilterChip(
                             selected = selectedCategoryIndex == 0,
-                            onClick = {
+                            onClick = com.example.ui.components.hapticClick { 
                                 selectedCategoryIndex = 0
                                 expandedSections = setOf(0, 1, 2, 3)
                             },
@@ -272,7 +272,7 @@ fun HowToGuideScreen(
                         sections.forEachIndexed { idx, section ->
                             FilterChip(
                                 selected = selectedCategoryIndex == idx + 1,
-                                onClick = {
+                                onClick = com.example.ui.components.hapticClick { 
                                     selectedCategoryIndex = idx + 1
                                     expandedSections = expandedSections + idx
                                 },

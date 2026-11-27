@@ -155,7 +155,7 @@ internal fun BRouterOfflineDataCard(
                         )
                     }
                     LinearProgressIndicator(
-                        progress = { brouterState.progressPercent / 100f },
+                        progress = com.example.ui.theme.smoothProgress(brouterState.progressPercent / 100f),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(8.dp),
@@ -235,7 +235,7 @@ internal fun BRouterOfflineDataCard(
                     }
                     Switch(
                         checked = brouterState.wifiOnly,
-                        onCheckedChange = { viewModel.setBRouterWifiOnly(it) },
+                        onCheckedChange = com.example.ui.components.hapticToggle { viewModel.setBRouterWifiOnly(it) },
                         colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.testTag("switch_brouter_wifi_only")
                     )
@@ -358,7 +358,7 @@ internal fun SavedPlansModalsAndDialogs(
                     ) {
                         Checkbox(
                             checked = includeAerial,
-                            onCheckedChange = { includeAerial = it }
+                            onCheckedChange = com.example.ui.components.hapticToggle { includeAerial = it }
                         )
                         Text(
                             text = stringResource(R.string.offline_layer_aerial),
@@ -373,7 +373,7 @@ internal fun SavedPlansModalsAndDialogs(
                     ) {
                         Checkbox(
                             checked = includeTerrain,
-                            onCheckedChange = { includeTerrain = it }
+                            onCheckedChange = com.example.ui.components.hapticToggle { includeTerrain = it }
                         )
                         Text(
                             text = stringResource(R.string.offline_layer_terrain),
@@ -388,7 +388,7 @@ internal fun SavedPlansModalsAndDialogs(
                     ) {
                         Checkbox(
                             checked = wifiOnly,
-                            onCheckedChange = { wifiOnly = it }
+                            onCheckedChange = com.example.ui.components.hapticToggle { wifiOnly = it }
                         )
                         Text(
                             text = stringResource(R.string.offline_wifi_only_map_tiles),

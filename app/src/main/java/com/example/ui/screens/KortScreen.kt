@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.graphics.DashPathEffect
 import android.graphics.Paint
+import com.example.ui.theme.springClickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -618,7 +619,7 @@ fun KortScreen(
                     ) {
                         androidx.compose.material3.Checkbox(
                             checked = areaIncludeAerial,
-                            onCheckedChange = { areaIncludeAerial = it }
+                            onCheckedChange = com.example.ui.components.hapticToggle { areaIncludeAerial = it }
                         )
                         Text(
                             text = stringResource(R.string.offline_layer_aerial),
@@ -634,7 +635,7 @@ fun KortScreen(
                     ) {
                         androidx.compose.material3.Checkbox(
                             checked = areaIncludeTerrain,
-                            onCheckedChange = { areaIncludeTerrain = it }
+                            onCheckedChange = com.example.ui.components.hapticToggle { areaIncludeTerrain = it }
                         )
                         Text(
                             text = stringResource(R.string.offline_layer_terrain),
@@ -817,7 +818,7 @@ private fun KortFloatingToolButton(
         modifier = Modifier
             .sizeIn(minHeight = 48.dp)
             .clip(com.example.ui.theme.CardShape)
-            .clickable(onClick = onClick)
+            .springClickable(onClick = onClick)
             .testTag(testTag)
     ) {
         Row(

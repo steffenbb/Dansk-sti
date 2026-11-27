@@ -415,7 +415,7 @@ fun ProfileScreen(
                         val selected = appSettings.startTime == timeStr
                         FilterChip(
                             selected = selected,
-                            onClick = {
+                            onClick = com.example.ui.components.hapticClick { 
                                 coroutineScope.launch {
                                     settingsRepository.setStartTime(timeStr)
                                 }
@@ -469,7 +469,7 @@ fun ProfileScreen(
                     }
                     Switch(
                         checked = appSettings.voiceGuidanceEnabled,
-                        onCheckedChange = { enabled ->
+                        onCheckedChange = com.example.ui.components.hapticToggle { enabled ->
                             coroutineScope.launch {
                                 settingsRepository.setVoiceGuidanceEnabled(enabled)
                             }
@@ -530,7 +530,7 @@ fun ProfileScreen(
                     }
                     Switch(
                         checked = appSettings.watchTurnCuesEnabled,
-                        onCheckedChange = { enabled ->
+                        onCheckedChange = com.example.ui.components.hapticToggle { enabled ->
                             coroutineScope.launch {
                                 settingsRepository.setWatchTurnCuesEnabled(enabled)
                             }
@@ -570,7 +570,7 @@ fun ProfileScreen(
                     }
                     Switch(
                         checked = appSettings.rainAlertEnabled,
-                        onCheckedChange = { enabled ->
+                        onCheckedChange = com.example.ui.components.hapticToggle { enabled ->
                             coroutineScope.launch {
                                 settingsRepository.setRainAlertEnabled(enabled)
                             }
@@ -609,7 +609,7 @@ fun ProfileScreen(
                         val selected = appSettings.mapDarkMode == mode
                         FilterChip(
                             selected = selected,
-                            onClick = {
+                            onClick = com.example.ui.components.hapticClick { 
                                 coroutineScope.launch {
                                     settingsRepository.setAppearanceMode(mode)
                                 }
@@ -648,7 +648,7 @@ fun ProfileScreen(
                     )
                     Switch(
                         checked = appSettings.mapFollowsApp,
-                        onCheckedChange = { checked ->
+                        onCheckedChange = com.example.ui.components.hapticToggle { checked ->
                             coroutineScope.launch {
                                 settingsRepository.setMapFollowsApp(checked)
                             }
@@ -668,7 +668,7 @@ fun ProfileScreen(
                             val selected = appSettings.mapThemeOverride == overrideMode
                             FilterChip(
                                 selected = selected,
-                                onClick = {
+                                onClick = com.example.ui.components.hapticClick { 
                                     coroutineScope.launch {
                                         settingsRepository.setMapThemeOverride(overrideMode)
                                     }
@@ -731,7 +731,7 @@ fun ProfileScreen(
                             }
                             FilterChip(
                                 selected = selected,
-                                onClick = {
+                                onClick = com.example.ui.components.hapticClick { 
                                     selectedLanguageOption = option
                                     AppLocaleHelper.setApplicationLanguage(context, option)
                                 },

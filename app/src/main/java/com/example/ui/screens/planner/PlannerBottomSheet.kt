@@ -540,12 +540,22 @@ internal fun PlannerTabButton(
     testTag: String,
     modifier: Modifier = Modifier
 ) {
+    // UI audit batch 2: colours fade between tabs, with a tick on change
+    val containerColor by androidx.compose.animation.animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+        com.example.ui.theme.Motion.micro(), label = "planner_tab_bg"
+    )
+    val labelColor by androidx.compose.animation.animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        com.example.ui.theme.Motion.micro(), label = "planner_tab_fg"
+    )
+    val tabClick = com.example.ui.components.hapticClick(onClick = onClick)
     Surface(
         shape = com.example.ui.theme.ChipShape,
-        color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+        color = containerColor,
         modifier = modifier
             .heightIn(min = 40.dp)
-            .clickable(onClick = onClick)
+            .clickable(onClick = tabClick)
             .testTag(testTag)
     ) {
         Box(
@@ -556,7 +566,7 @@ internal fun PlannerTabButton(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                color = labelColor
             )
         }
     }

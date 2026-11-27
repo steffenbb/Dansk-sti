@@ -43,6 +43,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -62,6 +63,8 @@ import com.example.R
 import com.example.data.model.TurnCue
 import com.example.service.NavigationLiveState
 import com.example.ui.components.formatDanishKm
+import com.example.ui.theme.AnimatedBanner
+import com.example.ui.theme.slideInOnChange
 import com.example.ui.theme.CardShape
 import com.example.ui.theme.DanskStiTheme
 import com.example.ui.theme.TabularBodyStyle
@@ -101,9 +104,14 @@ fun NavigationTopCueAndAlertsStack(
     ) {
         val isImmediateTurn = activeCueWithin500m != null &&
             activeCueWithin500m.second <= TurnCueGenerator.CUE_FIRST_ALERT_METERS
+        // UI audit batch 2: the card fades to green near a turn; a new cue slides up into place
+        val cueCardColor by androidx.compose.animation.animateColorAsState(
+            if (isImmediateTurn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            com.example.ui.theme.Motion.enter(), label = "nav_cue_card"
+        )
         Surface(
             shape = CardShape,
-            color = if (isImmediateTurn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            color = cueCardColor,
             tonalElevation = 6.dp,
             shadowElevation = 6.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
@@ -150,7 +158,7 @@ fun NavigationTopCueAndAlertsStack(
                         },
                         modifier = Modifier.size(44.dp)
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.slideInOnChange(activeCueWithin500m?.first?.direction)) {
                             TurnCueDirectionIcon(
                                 cue = activeCueWithin500m?.first,
                                 tint = if (isImmediateTurn) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
@@ -169,7 +177,9 @@ fun NavigationTopCueAndAlertsStack(
                             color = if (isImmediateTurn) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.testTag("nav_cue_primary_text")
+                            modifier = Modifier
+                                .slideInOnChange(cueBannerPrimaryText)
+                                .testTag("nav_cue_primary_text")
                         )
                         Text(
                             text = topCardHeadline,
@@ -190,7 +200,7 @@ fun NavigationTopCueAndAlertsStack(
             }
         }
 
-        if (liveState.isOffTrailWarning && !liveState.isDetourMuted) {
+        androidx.compose.animation.AnimatedVisibility(visible = liveState.isOffTrailWarning && !liveState.isDetourMuted, enter = com.example.ui.theme.Motion.BannerEnter, exit = com.example.ui.theme.Motion.BannerExit) {
             val offMeters = liveState.offTrailDistanceMeters.roundToInt().coerceAtLeast(1)
             val effectiveHeading = deviceHeadingDegrees ?: liveState.deviceHeadingDegrees
             val (arrowRotationDeg, compassDirectionText) = remember(
@@ -341,7 +351,7 @@ fun NavigationTopCueAndAlertsStack(
             }
         }
 
-        if (isGpsWeakOrStale) {
+        androidx.compose.animation.AnimatedVisibility(visible = isGpsWeakOrStale, enter = com.example.ui.theme.Motion.BannerEnter, exit = com.example.ui.theme.Motion.BannerExit) {
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f),
@@ -371,7 +381,7 @@ fun NavigationTopCueAndAlertsStack(
             }
         }
 
-        if (isDaylightWarningVisible) {
+        androidx.compose.animation.AnimatedVisibility(visible = isDaylightWarningVisible, enter = com.example.ui.theme.Motion.BannerEnter, exit = com.example.ui.theme.Motion.BannerExit) {
             Surface(
                 shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f),
@@ -406,7 +416,7 @@ fun NavigationTopCueAndAlertsStack(
         }
 
         // Phase D5: once per area per trip, 2 km before a military area
-        militaryAreaBanner?.let { text ->
+        AnimatedBanner(militaryAreaBanner) { text ->
             Surface(
                 shape = com.example.ui.theme.TileShape,
                 color = danskStiColors.danger.copy(alpha = 0.95f),
@@ -424,7 +434,7 @@ fun NavigationTopCueAndAlertsStack(
             }
         }
 
-        liveState.privateForestSunsetWarning?.let { warningText ->
+        AnimatedBanner(liveState.privateForestSunsetWarning) { warningText ->
             Surface(
                 shape = com.example.ui.theme.TileShape,
                 color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.95f),
@@ -462,7 +472,7 @@ fun NavigationTopCueAndAlertsStack(
             }
         }
 
-        if (isLocationPermissionMissing) {
+        androidx.compose.animation.AnimatedVisibility(visible = isLocationPermissionMissing, enter = com.example.ui.theme.Motion.BannerEnter, exit = com.example.ui.theme.Motion.BannerExit) {
             Surface(
                 shape = com.example.ui.theme.CardShape,
                 color = MaterialTheme.colorScheme.surface,
@@ -516,7 +526,7 @@ fun NavigationTopCueAndAlertsStack(
             }
         }
 
-        if (!corridorPoisErrorMessage.isNullOrBlank()) {
+        AnimatedBanner(corridorPoisErrorMessage?.takeIf { it.isNotBlank() }) { corridorMessage ->
             Surface(
                 onClick = onRetryCorridorPois,
                 shape = com.example.ui.theme.TileShape,
@@ -538,7 +548,7 @@ fun NavigationTopCueAndAlertsStack(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = corridorPoisErrorMessage,
+                        text = corridorMessage,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onErrorContainer,

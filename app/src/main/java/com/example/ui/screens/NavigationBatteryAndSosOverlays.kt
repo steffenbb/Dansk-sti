@@ -414,6 +414,7 @@ fun NavigationSosBottomSheet(
     onDismiss: () -> Unit,
     nearestAeds: List<com.example.ui.viewmodel.NearbyAed> = emptyList()
 ) {
+    val sosHaptics = com.example.ui.components.rememberHaptics()
     val context = LocalContext.current
     val danskStiColors = DanskStiTheme.colors
     ModalBottomSheet(
@@ -490,6 +491,7 @@ fun NavigationSosBottomSheet(
 
             Button(
                 onClick = {
+                    sosHaptics(com.example.ui.components.HapticKind.HEAVY, "sos_112")
                     val dialIntent = Intent(Intent.ACTION_DIAL).apply {
                         data = Uri.parse("tel:112")
                     }

@@ -133,7 +133,7 @@ fun ClearCacheSheet(
                     ) {
                         Checkbox(
                             checked = isChecked,
-                            onCheckedChange = { toggleItem() },
+                            onCheckedChange = com.example.ui.components.hapticToggle { toggleItem() },
                             modifier = Modifier.testTag("clear_cache_checkbox_$tagSuffix")
                         )
                         Spacer(modifier = Modifier.width(8.dp))

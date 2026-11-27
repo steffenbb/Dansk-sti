@@ -493,7 +493,7 @@ fun SelectedLegCard(
                     alternatives.forEach { alt ->
                         FilterChip(
                             selected = false,
-                            onClick = { onSelectAlternative(alt) },
+                            onClick = com.example.ui.components.hapticClick { onSelectAlternative(alt) },
                             label = {
                                 Text(
                                     String.format(

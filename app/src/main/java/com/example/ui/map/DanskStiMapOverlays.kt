@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Point
+import com.example.ui.theme.pressScale
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
@@ -152,6 +153,9 @@ internal fun BoxScope.DanskStiMapStandardButtonsColumn(
     onResetCompass: () -> Unit,
     onMyLocationButtonClick: () -> Unit
 ) {
+    val mapFabSource1 = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val mapFabSource2 = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val mapFabSource3 = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val primaryColor = MaterialTheme.colorScheme.primary
     Column(
         modifier = Modifier
@@ -163,12 +167,13 @@ internal fun BoxScope.DanskStiMapStandardButtonsColumn(
         horizontalAlignment = Alignment.End
     ) {
         SmallFloatingActionButton(
+            interactionSource = mapFabSource1,
             onClick = onOpenLayersSheet,
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
             contentColor = primaryColor,
             shape = CircleShape,
             elevation = FloatingActionButtonDefaults.elevation(4.dp),
-            modifier = Modifier
+            modifier = Modifier.pressScale(mapFabSource1, 0.92f)
                 .size(48.dp)
                 .testTag(layersButtonTestTag)
         ) {
@@ -179,12 +184,13 @@ internal fun BoxScope.DanskStiMapStandardButtonsColumn(
         }
 
         SmallFloatingActionButton(
+            interactionSource = mapFabSource2,
             onClick = onResetCompass,
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
             contentColor = if (currentBearing != 0f) primaryColor else MaterialTheme.colorScheme.onSurface,
             shape = CircleShape,
             elevation = FloatingActionButtonDefaults.elevation(4.dp),
-            modifier = Modifier
+            modifier = Modifier.pressScale(mapFabSource2, 0.92f)
                 .size(48.dp)
                 .testTag(compassButtonTestTag)
         ) {
@@ -196,12 +202,13 @@ internal fun BoxScope.DanskStiMapStandardButtonsColumn(
         }
 
         SmallFloatingActionButton(
+            interactionSource = mapFabSource3,
             onClick = onMyLocationButtonClick,
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
             contentColor = primaryColor,
             shape = CircleShape,
             elevation = FloatingActionButtonDefaults.elevation(4.dp),
-            modifier = Modifier
+            modifier = Modifier.pressScale(mapFabSource3, 0.92f)
                 .size(48.dp)
                 .testTag(myLocationButtonTestTag)
         ) {

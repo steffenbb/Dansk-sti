@@ -188,8 +188,14 @@ object HapticFeedbackHelper {
         if (countAsPinTick) tickCountForTesting++
         lastEventReason = reason
         lastKindForTesting = kind
+        val constant = constantFor(kind)
         try {
-            view?.performHapticFeedback(constantFor(kind))
+            // Callbacks such as "saved" can arrive off the main thread: hand the haptic to the view's thread
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                view?.performHapticFeedback(constant)
+            } else {
+                view?.post { view.performHapticFeedback(constant) }
+            }
         } catch (_: Exception) {}
     }
 
@@ -594,4 +600,18 @@ fun TrailGeometryThumbnail(
             drawCircle(color = routeColor, radius = 4.5.dp.toPx(), center = center)
         }
     }
+}
+
+/** Wraps a click action with a haptic [kind] (tick by default) – for chips, segmented buttons and similar. */
+@Composable
+fun hapticClick(kind: HapticKind = HapticKind.TICK, onClick: () -> Unit): () -> Unit {
+    val haptics = rememberHaptics()
+    return { haptics(kind); onClick() }
+}
+
+/** Wraps a switch/checkbox change with a tick (UI audit haptics map). */
+@Composable
+fun hapticToggle(onChange: (Boolean) -> Unit): (Boolean) -> Unit {
+    val haptics = rememberHaptics()
+    return { checked -> haptics(HapticKind.TICK); onChange(checked) }
 }

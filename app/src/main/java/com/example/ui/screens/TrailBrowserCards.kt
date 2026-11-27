@@ -67,6 +67,8 @@ import com.example.ui.components.formatDanishElevationMeters
 import com.example.ui.components.formatDanishKm
 import com.example.ui.components.formatDownloadedDateDanish
 import com.example.ui.theme.CardShape
+import com.example.ui.theme.bookmarkPop
+import com.example.ui.theme.pressScale
 import com.example.ui.theme.SheetTopShape
 import com.example.ui.theme.Spacing
 import com.example.ui.theme.TabularBodyStyle
@@ -103,6 +105,16 @@ fun TrailCard(
     testTagOverride: String? = null,
     modifier: Modifier = Modifier
 ) {
+    // UI audit batch 2: confirm haptic when this card's download finishes
+    val downloadHaptics = com.example.ui.components.rememberHaptics()
+    val wasDownloading = remember(trail.id) { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(downloadProgress == null, downloadedAt) {
+        if (downloadProgress != null) wasDownloading.value = true
+        else if (wasDownloading.value && downloadedAt != null) {
+            downloadHaptics(com.example.ui.components.HapticKind.CONFIRM, "download_done")
+            wasDownloading.value = false
+        }
+    }
     val context = androidx.compose.ui.platform.LocalContext.current
     val appLocale = com.example.ui.components.rememberAppLocale()
     // Lists pass dailyTargetKm once; only a standalone card reads the settings itself (UI audit)
@@ -154,6 +166,8 @@ fun TrailCard(
         }
     }
 
+    val cardInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val haptics = com.example.ui.components.rememberHaptics()
     Card(
         shape = CardShape,
         colors = CardDefaults.cardColors(
@@ -170,8 +184,13 @@ fun TrailCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = modifier
             .fillMaxWidth()
+            .pressScale(cardInteraction)
             .clip(CardShape)
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = cardInteraction,
+                indication = androidx.compose.foundation.LocalIndication.current,
+                onClick = onClick
+            )
             .testTag(testTagOverride ?: "trail_card_${trail.id}")
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -236,12 +255,16 @@ fun TrailCard(
 
                     if (onBookmarkClick != null) {
                         IconButton(
-                            onClick = onBookmarkClick,
+                            onClick = {
+                                haptics(if (isSaved) com.example.ui.components.HapticKind.TICK else com.example.ui.components.HapticKind.CONFIRM, "bookmark")
+                                onBookmarkClick()
+                            },
                             modifier = Modifier
                                 .size(48.dp)
                                 .testTag("bookmark_trail_${trail.id}")
                         ) {
                             Icon(
+                                modifier = Modifier.bookmarkPop(isSaved),
                                 imageVector = if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                 contentDescription = if (isSaved) {
                                     stringResource(R.string.cd_bookmark_remove)
@@ -297,6 +320,7 @@ fun TrailCard(
                 }
 
                 if (downloadProgress != null) {
+                    val cardDownloadFraction = com.example.ui.theme.animatedProgress(downloadProgress.fraction, "trail_card_download")
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -314,7 +338,7 @@ fun TrailCard(
                             )
                         } else {
                             LinearProgressIndicator(
-                                progress = { downloadProgress.fraction.coerceIn(0f, 1f) },
+                                progress = { cardDownloadFraction },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(4.dp),
@@ -425,6 +449,7 @@ fun DiscoveredHikingRouteCard(
             }
 
             if (isDownloading) {
+                val discoveredFraction = com.example.ui.theme.animatedProgress(progress?.fraction ?: 0.1f, "discovered_route_download")
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -433,7 +458,7 @@ fun DiscoveredHikingRouteCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     LinearProgressIndicator(
-                        progress = { (progress?.fraction ?: 0.1f).coerceIn(0f, 1f) },
+                        progress = { discoveredFraction },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(5.dp),
