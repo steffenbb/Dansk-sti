@@ -326,9 +326,9 @@ class FixRound3Part3Test {
             source = "GeoFA / Naturstyrelsen"
         )
         val rulePublic = DropPinInspectorHelper.resolveAccessRuleAtPoint(56.81, 9.83, listOf(roldSkovPoly))
-        assertEquals("Statsskov - fri færdsel", rulePublic)
+        assertEquals("Offentlig skov – fri færdsel til fods døgnet rundt", rulePublic)
 
         val ruleUnknown = DropPinInspectorHelper.resolveAccessRuleAtPoint(55.00, 10.00, listOf(roldSkovPoly))
-        assertEquals("Ejerforhold ukendt - følg skilte på stedet", ruleUnknown)
+        assertEquals("Skov (ejerskab ukendt i OSM – følg skiltning på stedet)", ruleUnknown)
     }
 }

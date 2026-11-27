@@ -263,6 +263,6 @@ class RoutingEngineTest {
 
         assertTrue("Expected Offline on network failure", result is RouteLegResult.Offline)
         val offline = result as RouteLegResult.Offline
-        assertEquals("Ingen internetforbindelse", offline.message)
+        assertEquals("Ingen internetforbindelse og offline rutedata er ikke hentet", offline.message)
     }
 }

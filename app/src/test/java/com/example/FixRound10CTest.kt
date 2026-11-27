@@ -798,7 +798,7 @@ class FixRound10CTest {
         )
         assertTrue("HybridRoutingEngine must fall back to online routing on version mismatch", result is RouteLegResult.Success)
         val success = result as RouteLegResult.Success
-        assertEquals("Rutedata skal opdateres", success.warningMessage)
+        assertEquals("Offline rutedata skal opdateres for at passe til den indbyggede rutemotor.", success.warningMessage)
         assertTrue("BRouterStorageManager must flag version mismatch", storageManager.hasVersionMismatch())
 
         offlineVm.refreshBRouterState()

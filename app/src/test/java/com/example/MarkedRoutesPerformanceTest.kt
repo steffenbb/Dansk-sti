@@ -547,7 +547,7 @@ class MarkedRoutesPerformanceTest {
         assertNull("Detail sheet must not open when route is no longer in Room", tappedRoute)
         assertTrue("layerErrorMessages must be empty on expired route tap", managerExpired.layerErrorMessages.value.isEmpty())
         assertEquals(
-            "Ruten er ikke længere gemt. Zoom ind for at hente den igen.",
+            "Ruten er udløbet fra cachen – zoom til området på kortet for at genindlæse",
             managerExpired.transientLayerMessage.value
         )
     }

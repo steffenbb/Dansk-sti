@@ -26,6 +26,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.theme.WaymarkSignInk
+import com.example.ui.theme.WaymarkSignWhite
 import com.example.util.OsmcBackgroundShape
 import com.example.util.OsmcColor
 import com.example.util.OsmcForegroundShape
@@ -46,16 +48,16 @@ fun WaymarkBadge(
         ?: if (parsed.foreground == null && parsed.text.isNullOrBlank() && parsed.wayColor != null) {
             Color(parsed.wayColor.argbHex)
         } else {
-            Color.White
+            WaymarkSignWhite
         }
 
     val textColor = when {
         parsed.textColor != null -> Color(parsed.textColor.argbHex)
         parsed.foreground != null -> {
             if (parsed.foreground.color == OsmcColor.WHITE || parsed.foreground.color == OsmcColor.YELLOW) {
-                Color(0xFF212121)
+                WaymarkSignInk
             } else {
-                Color.White
+                WaymarkSignWhite
             }
         }
         parsed.backgroundColor == OsmcColor.BLACK ||
@@ -63,8 +65,8 @@ fun WaymarkBadge(
             parsed.backgroundColor == OsmcColor.RED ||
             parsed.backgroundColor == OsmcColor.GREEN ||
             parsed.backgroundColor == OsmcColor.PURPLE ||
-            parsed.backgroundColor == OsmcColor.BROWN -> Color.White
-        else -> Color(0xFF212121)
+            parsed.backgroundColor == OsmcColor.BROWN -> WaymarkSignWhite
+        else -> WaymarkSignInk
     }
 
     val shape = RoundedCornerShape(6.dp)
@@ -93,7 +95,7 @@ fun WaymarkBadge(
                         )
                     }
                     OsmcBackgroundShape.ROUND -> {
-                        drawRect(color = Color.White)
+                        drawRect(color = WaymarkSignWhite)
                         drawCircle(
                             color = bgColor,
                             radius = w * 0.44f,
@@ -101,7 +103,7 @@ fun WaymarkBadge(
                         )
                     }
                     OsmcBackgroundShape.CIRCLE -> {
-                        drawRect(color = Color.White)
+                        drawRect(color = WaymarkSignWhite)
                         drawCircle(
                             color = bgColor,
                             radius = w * 0.38f,
@@ -110,7 +112,7 @@ fun WaymarkBadge(
                         )
                     }
                     OsmcBackgroundShape.FRAME -> {
-                        drawRect(color = Color.White)
+                        drawRect(color = WaymarkSignWhite)
                         drawRect(
                             color = bgColor,
                             topLeft = Offset(w * 0.08f, h * 0.08f),

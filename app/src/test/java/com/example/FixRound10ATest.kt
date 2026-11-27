@@ -272,7 +272,7 @@ class FixRound10ATest {
 
         // Verify updated unknown owner copy in DropPinInspectorHelper
         assertEquals(
-            "Ejerforhold ukendt - følg skilte på stedet",
+            "Skov (ejerskab ukendt i OSM – følg skiltning på stedet)",
             DropPinInspectorHelper.ACCESS_UNKNOWN_OWNER
         )
     }

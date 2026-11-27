@@ -197,7 +197,7 @@ class UiRound1RouteBuilderTest {
      * - Pin selection & empty map tap deselect
      * - 48 dp touch area on all pin icons
      * - "Luk ruten" & "Ud og hjem"
-     * - TalkBack contentDescription format ("Punkt 3, overnatning, Shelter Skovbo, km 32,1")
+     * - TalkBack contentDescription format ("Punkt 3, overnatning, Shelter Skovbo, 32,1 km")
      */
     @Test
     fun crosshair_pinSelection_menuActions_andTalkBackFormat() {
@@ -265,6 +265,6 @@ class UiRound1RouteBuilderTest {
             waypoint = wp,
             cumulativeKm = 32.1
         )
-        assertEquals("Punkt 3, overnatning, Shelter Skovbo, km 32,1", desc)
+        assertEquals("Punkt 3, overnatning, Shelter Skovbo, 32,1 km", desc)
     }
 }
