@@ -36,6 +36,7 @@ internal class NavigationRouteExtras(private val app: Context) {
     private val _navWindRelation = MutableStateFlow(WindRelation.NONE)
     val navWindRelation: StateFlow<WindRelation> = _navWindRelation.asStateFlow()
     private val recentTrack = ArrayDeque<GeoPointDto>()
+    private var tideEvents: List<com.example.data.repository.TideEvent> = emptyList()
 
     fun dismissMilitaryAreaBanner() { _militaryAreaBanner.value = null }
 
@@ -53,6 +54,35 @@ internal class NavigationRouteExtras(private val app: Context) {
             com.example.util.RestrictedAreaChecker.findCrossings(pts, areas).filter { it.area.kind == RestrictedAreaKind.MILITARY }
         areaCrossings.value = military(areaRepo.cachedAreas())
         if (repository.isDeviceOnline()) areaCrossings.value = military(areaRepo.getAreas())
+    }
+
+    /** Phase E3: today's and tomorrow's high/low waters at the DMI station nearest the route (15 km), cached. */
+    suspend fun loadTides(route: PlannedRoute, repository: DanskStiRepository, nowMs: Long = System.currentTimeMillis()) {
+        val online = repository.isDeviceOnline()
+        val tideRepo = repository.tideRepository
+        val nearest = com.example.util.TideRelevance.nearestStation(
+            route.points.map { GeoPointDto(it.lat, it.lng) }, tideRepo.getStations(nowMs, allowNetwork = online)
+        ) ?: run { tideEvents = emptyList(); return }
+        tideEvents = (0..1).flatMap { d ->
+            tideRepo.getPredictions(nearest.station, com.example.util.CopenhagenTime.localMidnightPlus(nowMs, d, 12 * 60), nowMs, online)
+        }
+    }
+
+    /** Phase E3: WARNING when a TIDAL path section lies in the next 5 km and the next high water is within 2 h. */
+    fun tideAheadItems(
+        route: PlannedRoute,
+        currentWalkKm: Double,
+        pathWarnings: List<com.example.util.PathFeatureWarning>,
+        nowMs: Long = System.currentTimeMillis()
+    ): List<AheadOnRouteItem> {
+        val hw = com.example.util.TideRelevance.nextHighWaterWithin2h(tideEvents, nowMs) ?: return emptyList()
+        val tidal = pathWarnings.filter { it.type == com.example.util.PathFeatureType.TIDAL }
+            .map { route.projectPoint(it.lat, it.lng).first - currentWalkKm }
+            .filter { it in 0.0..5.0 }
+            .minOrNull() ?: return emptyList()
+        val title = com.example.util.AppLocaleHelper.strOrNull(null, com.example.R.string.nav_ahead_high_water_fmt, com.example.util.TideRelevance.clock(hw.timeMs))
+            ?: "Højvande kl. ${com.example.util.TideRelevance.clock(hw.timeMs)} – stien kan stå under vand"
+        return listOf(AheadOnRouteItem(title, "WARNING", tidal, 0.0))
     }
 
     /** Called on each position update. */

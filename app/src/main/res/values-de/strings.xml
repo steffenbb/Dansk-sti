@@ -1668,4 +1668,18 @@ Gesendet von Dansk Sti</string>
     <string name="nav_wind_headwind">Gegenwind</string>
     <string name="nav_wind_tailwind">Rückenwind</string>
     <string name="nav_wind_crosswind">Seitenwind</string>
+    <string name="tide_title">Gezeiten</string>
+    <string name="tide_today_fmt">Heute: %1$s</string>
+    <string name="tide_tomorrow_fmt">Morgen: %1$s</string>
+    <string name="tide_high_water_fmt">Hochwasser %1$s</string>
+    <string name="tide_low_water_fmt">Niedrigwasser %1$s</string>
+    <string name="tide_and">und</string>
+    <string name="tide_station_fmt">Station: %1$s (DMI) · %2$s km von der Route</string>
+    <string name="tide_source_dmi">Quelle: DMI</string>
+    <string name="planner_tide_fmt">Gezeiten: Hochwasser %1$s, Niedrigwasser %2$s (DMI, %3$s)</string>
+    <string name="planner_tide_arrival_warning_fmt">Sie erreichen km %1$s um Hochwasser (%2$s Uhr) – der Weg kann überflutet sein</string>
+    <string name="nav_ahead_high_water_fmt">Hochwasser um %1$s Uhr – der Weg kann überflutet sein</string>
+    <string name="credit_dmi_title">DMI – Gezeitenvorhersagen (Dänisches Meteorologisches Institut)</string>
+    <string name="credit_dmi_subtitle">Hoch- und Niedrigwasser an den DMI-Pegelstationen</string>
+    <string name="credit_dmi_desc">Gezeitenvorhersagen aus den offenen Daten des DMI (oceanObs). Nur nahe Gezeitenküsten wie dem Wattenmeer angezeigt.</string>
 </resources>

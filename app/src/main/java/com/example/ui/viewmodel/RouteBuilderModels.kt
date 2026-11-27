@@ -112,7 +112,9 @@ data class PlannerDaySummary(
     val highlights: List<String> = emptyList(),
     // Phase D7
     val windLine: String? = null,
-    val uvLine: String? = null
+    val uvLine: String? = null,
+    // Phase E3
+    val tideLine: String? = null
 ) {
     val detourDistanceKm: Double?
         get() = detourKm.takeIf { it > 0.0 }

@@ -378,6 +378,10 @@ fun PlannerDaySummaryCard(
                 Text(text = it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("day_card_wind_${day.dayNumber}"))
             }
+            day.tideLine?.let {
+                Text(text = it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("day_card_tide_${day.dayNumber}"))
+            }
             day.uvLine?.let {
                 Text(text = it, style = MaterialTheme.typography.labelSmall, color = dsColors.warning,
                     modifier = Modifier.testTag("day_card_uv_${day.dayNumber}"))

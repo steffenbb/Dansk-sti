@@ -1,0 +1,165 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": "862b89c1-f4be-08bd-c177-11b63cf21853",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     9.427,
+     55.0448
+    ]
+   },
+   "properties": {
+    "predictionType": "minimum",
+    "predictionTime": "2026-12-01T03:14:00Z",
+    "created": "2026-03-23T09:29:57.310451Z",
+    "value": -13.4,
+    "stationId": "26239"
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "983448c9-e506-9d26-4aee-e89e36cff204",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     9.427,
+     55.0448
+    ]
+   },
+   "properties": {
+    "predictionType": "maximum",
+    "predictionTime": "2026-12-01T10:18:00Z",
+    "created": "2026-03-23T09:29:57.310459Z",
+    "value": 6.1,
+    "stationId": "26239"
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "83b92e50-7cde-2c48-559e-756a0bd36c06",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     9.427,
+     55.0448
+    ]
+   },
+   "properties": {
+    "predictionType": "minimum",
+    "predictionTime": "2026-12-01T15:34:00Z",
+    "created": "2026-03-23T09:29:57.310467Z",
+    "value": -0.2,
+    "stationId": "26239"
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "31cb70c2-dae7-0826-a564-7338983b3969",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     9.427,
+     55.0448
+    ]
+   },
+   "properties": {
+    "predictionType": "maximum",
+    "predictionTime": "2026-12-01T20:52:00Z",
+    "created": "2026-03-23T09:29:57.310476Z",
+    "value": 7.6,
+    "stationId": "26239"
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "3adf25a7-611f-dd05-ccee-aeacd3de9035",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     9.427,
+     55.0448
+    ]
+   },
+   "properties": {
+    "predictionType": "minimum",
+    "predictionTime": "2026-12-02T04:09:00Z",
+    "created": "2026-03-23T09:29:57.310484Z",
+    "value": -13.6,
+    "stationId": "26239"
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "bdc1059c-d9d2-30bd-1f3b-74f2da47a488",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     9.427,
+     55.0448
+    ]
+   },
+   "properties": {
+    "predictionType": "maximum",
+    "predictionTime": "2026-12-02T11:17:00Z",
+    "created": "2026-03-23T09:29:57.310492Z",
+    "value": 7.6,
+    "stationId": "26239"
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "71b9e94a-4c19-7f79-4806-af5e7e8be028",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     9.427,
+     55.0448
+    ]
+   },
+   "properties": {
+    "predictionType": "minimum",
+    "predictionTime": "2026-12-02T16:42:00Z",
+    "created": "2026-03-23T09:29:57.3105Z",
+    "value": -1.2,
+    "stationId": "26239"
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "651d189b-dd2b-7afe-2c9b-b1fea47aaca8",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     9.427,
+     55.0448
+    ]
+   },
+   "properties": {
+    "predictionType": "maximum",
+    "predictionTime": "2026-12-02T22:04:00Z",
+    "created": "2026-03-23T09:29:57.310508Z",
+    "value": 6.9,
+    "stationId": "26239"
+   }
+  }
+ ],
+ "timeStamp": "2026-11-27T14:54:17Z",
+ "numberReturned": 8,
+ "links": [
+  {
+   "href": "https://opendataapi.dmi.dk/v2/oceanObs/collections/tidewater/items?stationId=26239&predictionType=minimum_maximum&datetime=2026-12-01T00:00:00Z/2026-12-03T00:00:00Z&limit=200",
+   "rel": "self",
+   "type": "application/geo+json",
+   "title": "This document"
+  },
+  {
+   "href": "https://opendataapi.dmi.dk/v2/oceanObs/collections/tidewater/items?stationId=26239&predictionType=minimum_maximum&datetime=2026-12-01T00:00:00Z/2026-12-03T00:00:00Z&limit=200&offset=8",
+   "rel": "next",
+   "type": "application/geo+json",
+   "title": "Next set of results"
+  }
+ ]
+}

@@ -51,6 +51,7 @@ class DanskStiRepository(
 
     val geoFaRepository = GeoFaRepository(context)
     val osmPoiRepository = OsmPoiRepository(context)
+    val tideRepository = TideRepository(context)
     val restrictedAreaRepository = RestrictedAreaRepository(context)
     val geometryRepository = TrailGeometryRepository(context)
     val markedRouteRepository = MarkedRouteRepository(context, dao, geometryRepository)

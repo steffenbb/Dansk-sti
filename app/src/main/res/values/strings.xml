@@ -1690,4 +1690,18 @@
     <string name="nav_wind_headwind">modvind</string>
     <string name="nav_wind_tailwind">medvind</string>
     <string name="nav_wind_crosswind">sidevind</string>
+    <string name="tide_title">Tidevand</string>
+    <string name="tide_today_fmt">I dag: %1$s</string>
+    <string name="tide_tomorrow_fmt">I morgen: %1$s</string>
+    <string name="tide_high_water_fmt">Højvande %1$s</string>
+    <string name="tide_low_water_fmt">Lavvande %1$s</string>
+    <string name="tide_and">og</string>
+    <string name="tide_station_fmt">Station: %1$s (DMI) · %2$s km fra ruten</string>
+    <string name="tide_source_dmi">Kilde: DMI</string>
+    <string name="planner_tide_fmt">Tidevand: højvande %1$s, lavvande %2$s (DMI, %3$s)</string>
+    <string name="planner_tide_arrival_warning_fmt">Du når km %1$s omkring højvande (kl. %2$s) – stien kan stå under vand</string>
+    <string name="nav_ahead_high_water_fmt">Højvande kl. %1$s – stien kan stå under vand</string>
+    <string name="credit_dmi_title">DMI – tidevandsprognoser (Danmarks Meteorologiske Institut)</string>
+    <string name="credit_dmi_subtitle">Høj- og lavvande ved DMI\'s vandstandsstationer</string>
+    <string name="credit_dmi_desc">Tidevandsprognoser fra DMI\'s frie data (oceanObs). Vises kun nær tidevandskyster som Vadehavet.</string>
 </resources>

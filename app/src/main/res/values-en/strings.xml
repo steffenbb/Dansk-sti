@@ -1668,4 +1668,18 @@ Sent from Dansk Sti</string>
     <string name="nav_wind_headwind">headwind</string>
     <string name="nav_wind_tailwind">tailwind</string>
     <string name="nav_wind_crosswind">crosswind</string>
+    <string name="tide_title">Tides</string>
+    <string name="tide_today_fmt">Today: %1$s</string>
+    <string name="tide_tomorrow_fmt">Tomorrow: %1$s</string>
+    <string name="tide_high_water_fmt">High water %1$s</string>
+    <string name="tide_low_water_fmt">Low water %1$s</string>
+    <string name="tide_and">and</string>
+    <string name="tide_station_fmt">Station: %1$s (DMI) · %2$s km from the route</string>
+    <string name="tide_source_dmi">Source: DMI</string>
+    <string name="planner_tide_fmt">Tides: high water %1$s, low water %2$s (DMI, %3$s)</string>
+    <string name="planner_tide_arrival_warning_fmt">You reach km %1$s around high water (%2$s) – the path may be flooded</string>
+    <string name="nav_ahead_high_water_fmt">High water at %1$s – the path may be flooded</string>
+    <string name="credit_dmi_title">DMI – tide predictions (Danish Meteorological Institute)</string>
+    <string name="credit_dmi_subtitle">High and low water at DMI tide stations</string>
+    <string name="credit_dmi_desc">Tide predictions from DMI open data (oceanObs). Shown only near tidal coasts such as the Wadden Sea.</string>
 </resources>

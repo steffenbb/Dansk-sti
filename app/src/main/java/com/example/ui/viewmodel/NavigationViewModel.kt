@@ -413,7 +413,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         _nextWater.value = result.nextWater
         _nextShop.value = result.nextShop
         _nextOvernight.value = result.nextOvernight
-        _aheadItems.value = result.aheadItems
+        _aheadItems.value = (result.aheadItems + routeExtras.tideAheadItems(route, currentWalkKm, _routePathWarnings.value)).sortedBy { it.kmRemaining }
         _dayProgressStops.value = result.dayProgressStops
     }
 
@@ -481,6 +481,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                     }
 
                     routeExtras.loadAreaCrossings(route, repository)
+                    runCatching { routeExtras.loadTides(route, repository) }
 
                     val data = loadInitialCorridorDataForRoute(repository, route)
                     applyRouteCorridorSheltersAndPois(route, data.initialShelters, data.initialPois)

@@ -125,6 +125,7 @@ internal fun TrailDetailDetailsSection(
     val likelyWaterInLongestGap by viewModel.likelyWaterInLongestGap.collectAsState()
     val accommodations by viewModel.accommodations.collectAsState()
     val safetyAccessItems by viewModel.safetyAccessItems.collectAsState()
+    val tideInfo by viewModel.tideInfo.collectAsState()
     val restrictedAreaDataMissing by viewModel.restrictedAreaDataMissing.collectAsState()
     var showAllTransportStops by androidx.compose.runtime.remember(trailId) {
         androidx.compose.runtime.mutableStateOf(false)
@@ -564,6 +565,8 @@ internal fun TrailDetailDetailsSection(
                                 title = stringResource(R.string.trail_detail_weather_end_fmt, points.lastOrNull()?.let { "km ${String.format(appLocale, "%.1f", totalKm)}" } ?: ""),
                                 weather = weatherEnd
                             )
+
+                            tideInfo?.let { TrailTideCard(info = it) }
                         }
                     }
                 }

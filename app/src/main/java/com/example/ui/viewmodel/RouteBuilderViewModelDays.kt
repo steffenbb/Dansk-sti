@@ -461,7 +461,7 @@ internal fun RouteBuilderViewModel.updateStagesAndNearbyPois() {
                     lat = summary.campLat,
                     lng = summary.campLng
                 )
-                withDayWeatherExtras(summary.copy(nightWeatherSummary = nightWeather), idx)
+                withDayTides(withDayWeatherExtras(summary.copy(nightWeatherSummary = nightWeather), idx), idx)
             }
             _uiState.update { it.copy(daySummaries = weatherEnrichedSummaries) }
         } catch (e: kotlinx.coroutines.CancellationException) {

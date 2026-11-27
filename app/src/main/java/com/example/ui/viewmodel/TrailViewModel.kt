@@ -523,6 +523,7 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
                 _pathFeatureSummary.value = pathAnalysis.summary
                 _pathFeatureWarnings.value = pathAnalysis.warnings
                 refreshSafetyAccess(segments, pathAnalysis.warnings)
+                refreshTides(segments, pathAnalysis.warnings)
 
                 // Corridor Overnights & POIs (only route's own corridor POIs, never whole DB)
                 var shelters = if (points.isNotEmpty()) repository.getSheltersForTrail(trailId) else emptyList()
@@ -759,6 +760,23 @@ class TrailViewModel(application: Application) : AndroidViewModel(application) {
             if (gap > maxOvernightGap) maxOvernightGap = gap
         }
         _longestGapWithoutOvernightKm.value = maxOvernightGap
+    }
+
+    // Phase E3: DMI tides near tidal coasts (null = not relevant / no data)
+    private val _tideInfo = MutableStateFlow<TrailTideInfo?>(null)
+    val tideInfo: StateFlow<TrailTideInfo?> = _tideInfo.asStateFlow()
+    private var tideJob: kotlinx.coroutines.Job? = null
+
+    private fun refreshTides(segments: List<TrailSegmentDto>, pathWarnings: List<com.example.util.PathFeatureWarning>) {
+        tideJob?.cancel()
+        _tideInfo.value = null
+        tideJob = viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            _tideInfo.value = runCatching {
+                TrailTides.load(repository.tideRepository, segments, pathWarnings, repository.isDeviceOnline(),
+                    System.currentTimeMillis(), com.example.util.AppLocaleHelper.getLocalizedContext(app))
+            }.getOrNull()
+        }
     }
 
     /** Phase D5: computes the safety list from cached areas at once, then again after a (30-day) refresh. */

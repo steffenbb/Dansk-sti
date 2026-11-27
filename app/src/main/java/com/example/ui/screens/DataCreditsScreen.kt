@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Water
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Explore
@@ -120,6 +121,15 @@ fun DataCreditsScreen(
             url = "https://open-meteo.com/",
             icon = Icons.Default.Cloud,
             iconTint = danskStiColors.plannedRoute
+        ),
+        DataCreditItem(
+            title = stringResource(R.string.credit_dmi_title),
+            subtitle = stringResource(R.string.credit_dmi_subtitle),
+            license = "Frie data fra DMI – se dmi.dk/friedata",
+            description = stringResource(R.string.credit_dmi_desc),
+            url = "https://www.dmi.dk/friedata",
+            icon = Icons.Default.Water,
+            iconTint = danskStiColors.water
         ),
         DataCreditItem(
             title = "Klimadatastyrelsen / Dataforsyningen",
