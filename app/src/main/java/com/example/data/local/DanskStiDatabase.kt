@@ -52,6 +52,17 @@ abstract class DanskStiDatabase : RoomDatabase() {
     abstract fun dao(): DanskStiDao
     fun danskStiDao(): DanskStiDao = dao()
 
+    /** Set when Room first opens this instance (see the onOpen callback in getInstance). */
+    @Volatile
+    internal var hasBeenOpened: Boolean = false
+
+    /**
+     * False only once this instance has been opened and closed again. An instance that simply hasn't
+     * opened yet is usable: since the database opens in the background at start-up (audit fix
+     * batch 4), treating "not open yet" as closed built a second instance on the same file.
+     */
+    val isUsable: Boolean get() = isOpen || !hasBeenOpened
+
     companion object {
         @Volatile
         private var INSTANCE: DanskStiDatabase? = null
@@ -837,18 +848,19 @@ abstract class DanskStiDatabase : RoomDatabase() {
                 ?: (context.applicationContext ?: context)
             appFilesDir = appCtx.filesDir
             val current = INSTANCE
-            if (current != null && current.isOpen && lastAppContextRef?.get() === appCtx) {
+            if (current != null && current.isUsable && lastAppContextRef?.get() === appCtx) {
                 return current
             }
             return synchronized(this) {
                 val existing = INSTANCE
-                if (existing != null && existing.isOpen && lastAppContextRef?.get() === appCtx) {
+                if (existing != null && existing.isUsable && lastAppContextRef?.get() === appCtx) {
                     existing
                 } else {
                     if (existing != null && lastAppContextRef?.get() !== appCtx) {
                         com.example.DanskStiApp.cancelActiveInitJob()
                         runCatching { existing.close() }
                     }
+                    val built = arrayOfNulls<DanskStiDatabase>(1)
                     val instance = Room.databaseBuilder(
                         appCtx,
                         DanskStiDatabase::class.java,
@@ -862,7 +874,14 @@ abstract class DanskStiDatabase : RoomDatabase() {
                         MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
                         MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29
                     )
+                        .addCallback(object : RoomDatabase.Callback() {
+                            override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                                // Opening happens after build() has returned, so the holder is set
+                                built[0]?.hasBeenOpened = true
+                            }
+                        })
                         .build()
+                    built[0] = instance
                     INSTANCE = instance
                     lastAppContextRef = java.lang.ref.WeakReference(appCtx)
                     instance

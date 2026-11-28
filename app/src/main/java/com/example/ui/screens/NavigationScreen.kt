@@ -237,7 +237,7 @@ fun NavigationScreen(
         currentStage = liveState.currentStage,
         currentDay = currentDay,
         isFollowingUser = isFollowingUser,
-        lastTouchTimeMs = lastTouchTimeMs,
+        lastTouchTimeMs = { lastTouchTimeMs },
         onFollowingChange = { isFollowingUser = it }
     )
 

@@ -53,7 +53,8 @@ fun NavigationCameraEffects(
     currentStage: TripStage?,
     currentDay: Int,
     isFollowingUser: Boolean,
-    lastTouchTimeMs: Long,
+    /** Read inside the effect only, so touch events don't recompose the navigation screen. */
+    lastTouchTimeMs: () -> Long,
     onFollowingChange: (Boolean) -> Unit
 ) {
     // 1. Mode entry (and a new route/day in overview)
@@ -87,10 +88,15 @@ fun NavigationCameraEffects(
     }
 
     // 3. Resume following after a while without touch
-    LaunchedEffect(isFollowingUser, lastTouchTimeMs, mapMode) {
+    LaunchedEffect(isFollowingUser, mapMode) {
         if (isFollowingUser || mapMode == NavigationMapMode.OVERVIEW) return@LaunchedEffect
-        delay(NAV_FOLLOW_RESUME_AFTER_MS)
-        onFollowingChange(true)
+        while (true) {
+            delay(1_000L)
+            if (System.currentTimeMillis() - lastTouchTimeMs() >= NAV_FOLLOW_RESUME_AFTER_MS) {
+                onFollowingChange(true)
+                break
+            }
+        }
     }
 }
 

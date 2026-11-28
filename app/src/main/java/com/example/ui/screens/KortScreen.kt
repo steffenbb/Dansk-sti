@@ -147,6 +147,7 @@ fun KortScreen(
     val defaultAreaName = stringResource(R.string.kort_default_area_name)
     var showAreaDownloadDialog by remember { mutableStateOf(false) }
     var showKortSos by remember { mutableStateOf(false) }
+    var areaEnqueueInFlight by remember { mutableStateOf(false) }
     var areaDownloadName by remember { mutableStateOf(defaultAreaName) }
     var areaIncludeAerial by remember { mutableStateOf(false) }
     var areaIncludeTerrain by remember { mutableStateOf(false) }
@@ -690,7 +691,10 @@ fun KortScreen(
                         val finalName = areaDownloadName.trim().ifBlank { defaultAreaName }
                         val areaId = "area:${UUID.randomUUID()}"
                         val startedMsg = context.getString(R.string.offline_area_download_started_fmt, finalName)
-                        // Free-space check, database row and WorkManager off the main thread (audit fix batch 4)
+                        // Free-space check, database row and WorkManager off the main thread (audit fix batch 4);
+                        // the flag stops a quick second tap from starting the same area twice
+                        if (areaEnqueueInFlight) return@Button
+                        areaEnqueueInFlight = true
                         coroutineScope.launch {
                         val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.example.util.OfflineDownloadManager.enqueueDownload(
                             context = context,
@@ -705,13 +709,14 @@ fun KortScreen(
                             areaMinLng = areaMinLng,
                             areaMaxLng = areaMaxLng
                         ) }
+                        areaEnqueueInFlight = false
                         if (res.isAllowed) {
                             showAreaDownloadDialog = false
                             snackbarHostState.showSnackbar(startedMsg)
                         }
                         }
                     },
-                    enabled = est?.isAllowed == true,
+                    enabled = est?.isAllowed == true && !areaEnqueueInFlight,
                     colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
                     modifier = Modifier.testTag("kort_area_download_confirm_button")
                 ) {

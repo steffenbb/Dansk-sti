@@ -25,7 +25,7 @@ class DanskStiApp : Application() {
         get() {
             val currentSingleton = DanskStiDatabase.getInstance(this)
             val existing = databaseField
-            if (existing == null || existing !== currentSingleton || !existing.isOpen) {
+            if (existing == null || existing !== currentSingleton || !existing.isUsable) {
                 databaseField = currentSingleton
                 repositoryField = DanskStiRepository(currentSingleton.dao(), this)
             }

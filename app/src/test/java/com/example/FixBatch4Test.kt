@@ -110,6 +110,22 @@ class FixBatch4Test {
     }
 
     @Test
+    fun database_staysOneInstanceUntilItIsReallyClosed() {
+        com.example.data.local.DanskStiDatabase.resetInstance()
+        val a = com.example.data.local.DanskStiDatabase.getInstance(app)
+        val b = com.example.data.local.DanskStiDatabase.getInstance(app)
+        assertSame("not opened yet is still the same database", a, b)
+        a.openHelper.writableDatabase
+        assertTrue(a.hasBeenOpened && a.isUsable)
+        assertSame(a, com.example.data.local.DanskStiDatabase.getInstance(app))
+        a.close()
+        assertFalse(a.isUsable)
+        val c = com.example.data.local.DanskStiDatabase.getInstance(app)
+        assertTrue("a closed database is replaced", c !== a)
+        com.example.data.local.DanskStiDatabase.resetInstance()
+    }
+
+    @Test
     fun tiles_noRunBlockingOnTheMainThread() {
         assertFalse(main.resolve("util/DanskStiTileSource.kt").readText().contains("runBlocking("))
     }
