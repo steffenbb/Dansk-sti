@@ -616,17 +616,8 @@ internal fun NavigationViewModel.applyNavigationWeatherResult(
     }
     if (hasHourly && (networkSucceeded || _navigationWeather.value == null)) {
         _navigationWeather.value = weather
-        if (_rainAlertEnabled.value && state.isTracking && !state.isPaused) {
-            com.example.data.remote.WeatherInterpreter.shouldPostRainAlert(
-                rainAlertEnabled = true,
-                lastAlertAtMs = lastRainAlertPostedMs,
-                nowMs = nowMs,
-                hourlyPoints = weather!!.hourly48h
-            )?.let { alertBlock ->
-                lastRainAlertPostedMs = nowMs
-                postRainAlertNotification(alertBlock.precipitationMm, alertBlock.hourLabel)
-            }
-        }
+        // Rain alerts are posted by NavigationTrackingService (NavigationRainWatcher), so they also
+        // arrive when this screen is closed; posting here too would alert twice.
     }
 }
 

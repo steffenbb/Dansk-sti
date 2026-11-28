@@ -114,6 +114,18 @@ enum class GpsPowerProfile(
 class NavigationTrackingService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Spoken turn cues (setting "Stemmevejledning"); lives here so it works with the app's UI closed. */
+    internal val voiceGuide by lazy { NavigationVoiceGuide(this) }
+    @Volatile internal var voiceGuidanceEnabled = false
+
+    /** Rain alerts (setting "Regnvarsel"); here so they work with the app's UI closed. */
+    internal val rainWatcher by lazy {
+        NavigationRainWatcher(this) { lat, lng, nowMs ->
+            DanskStiApp.instance.repository.getTrailWeather(lat, lng, forceNetworkRefresh = true, nowMs = nowMs)
+        }
+    }
+    @Volatile internal var rainAlertEnabled = true
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var locationCallback: LocationCallback? = null
 
@@ -239,6 +251,11 @@ class NavigationTrackingService : Service() {
             settingsRepository.settingsFlow.collect { settings ->
                 userPaceKmh = settings.mitTempoKmh
                 watchTurnCueNotificationsEnabled = settings.watchTurnCueNotificationsEnabled
+                rainAlertEnabled = settings.rainAlertEnabled
+                if (settings.voiceGuidance != voiceGuidanceEnabled) {
+                    voiceGuidanceEnabled = settings.voiceGuidance
+                    voiceGuide.setEnabled(settings.voiceGuidance)
+                }
             }
         }
     }
@@ -250,6 +267,8 @@ class NavigationTrackingService : Service() {
             ACTION_START -> {
                 // Foreground first: the route load below can take longer than Android's start deadline
                 if (!enterForeground()) return START_NOT_STICKY
+                voiceGuidanceEnabled = settingsRepository.currentSettingsSnapshot().voiceGuidance
+                voiceGuide.setEnabled(voiceGuidanceEnabled)
                 val intentPlanId = intent?.getLongExtra(EXTRA_PLAN_ID, 0L) ?: 0L
                 val targetPlanId = if (intentPlanId != 0L) {
                     intentPlanId
@@ -981,6 +1000,11 @@ class NavigationTrackingService : Service() {
             autoAdvancedDayMessage = trackResult.autoAdvancedDayMessage
         )
 
+        // Rain alert check (throttled inside the watcher: hourly, or after moving a few km)
+        if (!trackResult.isCompleted) {
+            rainWatcher.onFix(serviceScope, location.latitude, location.longitude, rainAlertEnabled, now)
+        }
+
         // Phase 7a: Save actual GPS track point per day (accuracy-filtered <= 30m) in Room
         if (location.accuracy <= 30.0f) {
             serviceScope.launch {
@@ -1177,6 +1201,7 @@ class NavigationTrackingService : Service() {
         cue: com.example.data.model.TurnCue,
         distanceMeters: Double
     ) {
+        if (voiceGuidanceEnabled) voiceGuide.speakCue(cue, distanceMeters)
         val channelId = channelIdForTurnDirection(cue.direction)
         val shouldUseWatchNotification = watchTurnCueNotificationsEnabled && canTurnCueChannelVibrate(channelId)
         if (shouldUseWatchNotification) {
@@ -1569,6 +1594,8 @@ class NavigationTrackingService : Service() {
         sunsetCheckJob?.cancel()
         sunsetCheckJob = null
         cancelTurnCueNotification()
+        voiceGuide.shutdown()
+        voiceGuidanceEnabled = false
         unregisterCorridorNetworkCallbackIfNeeded()
         unregisterScreenReceiverIfNeeded()
         try {
@@ -1711,6 +1738,7 @@ class NavigationTrackingService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        voiceGuide.shutdown()
         cancelActiveConfirmationRequests()
         unregisterCorridorNetworkCallbackIfNeeded()
         unregisterScreenReceiverIfNeeded()

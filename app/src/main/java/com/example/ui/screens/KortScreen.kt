@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddLocationAlt
+import androidx.compose.material.icons.filled.Sos
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -145,6 +146,7 @@ fun KortScreen(
 
     val defaultAreaName = stringResource(R.string.kort_default_area_name)
     var showAreaDownloadDialog by remember { mutableStateOf(false) }
+    var showKortSos by remember { mutableStateOf(false) }
     var areaDownloadName by remember { mutableStateOf(defaultAreaName) }
     var areaIncludeAerial by remember { mutableStateOf(false) }
     var areaIncludeTerrain by remember { mutableStateOf(false) }
@@ -530,6 +532,13 @@ fun KortScreen(
                             )
 
                             KortFloatingToolButton(
+                                icon = Icons.Default.Sos,
+                                label = stringResource(R.string.map_tool_sos),
+                                isSelected = showKortSos,
+                                onClick = { showKortSos = true },
+                                testTag = "kort_tool_sos"
+                            )
+                            KortFloatingToolButton(
                                 icon = Icons.Default.CloudDownload,
                                 label = stringResource(R.string.map_tool_offline_maps),
                                 isSelected = showAreaDownloadDialog,
@@ -589,6 +598,10 @@ fun KortScreen(
     }
 
     // "Hent dette område" dialog (Part C2)
+    if (showKortSos) {
+        KortSosSheet(onDismiss = { showKortSos = false })
+    }
+
     if (showAreaDownloadDialog) {
         val est = areaEstimate
         AlertDialog(

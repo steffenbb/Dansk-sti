@@ -1,17 +1,14 @@
 package com.example.ui.screens
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.map
 import com.example.ui.viewmodel.confirmReplaceTrip
 import com.example.ui.viewmodel.keepActiveTrip
 import android.Manifest
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.os.Build
-import android.speech.tts.TextToSpeech
 import android.view.MotionEvent
 import android.view.ViewConfiguration
-import android.view.Window
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -20,36 +17,25 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -67,7 +53,6 @@ import com.example.util.routing.TurnCueGenerator
 import kotlinx.coroutines.delay
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
-import java.util.Locale
 import kotlin.math.max
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -192,67 +177,8 @@ fun NavigationScreen(
         restoreWindowBrightness(activity?.window)
     }
 
-    var ttsRef by remember { mutableStateOf<TextToSpeech?>(null) }
-    var ttsReady by remember { mutableStateOf(false) }
-    var ttsVoiceLocale by remember { mutableStateOf(com.example.util.DanishTtsChecker.DANISH_LOCALE) }
-    var lastSpokenKey by remember { mutableStateOf<String?>(null) }
-
-    DisposableEffect(voiceGuidance) {
-        var engine: TextToSpeech? = null
-        if (voiceGuidance) {
-            runCatching {
-                engine = TextToSpeech(context.applicationContext) { status ->
-                    if (status == TextToSpeech.SUCCESS) {
-                        val effectiveLocale = com.example.util.DanishTtsChecker.resolveEffectiveTtsLocale(context, engine)
-                        if (effectiveLocale != null) {
-                            engine?.language = effectiveLocale
-                            ttsVoiceLocale = effectiveLocale
-                            ttsReady = true
-                        } else {
-                            ttsReady = false
-                        }
-                    } else {
-                        ttsReady = false
-                    }
-                }
-                ttsRef = engine
-            }
-        }
-        onDispose {
-            runCatching {
-                engine?.stop()
-                engine?.shutdown()
-            }
-            ttsRef = null
-            ttsReady = false
-        }
-    }
-
-    LaunchedEffect(liveState.nextTurnCue, liveState.distanceToNextCueMeters, voiceGuidance, ttsReady, ttsVoiceLocale) {
-        if (!voiceGuidance || !ttsReady) return@LaunchedEffect
-        val cue = liveState.nextTurnCue ?: return@LaunchedEffect
-        val distM = liveState.distanceToNextCueMeters ?: return@LaunchedEffect
-        val thresholdBucket = when {
-            distM <= TurnCueGenerator.CUE_SECOND_ALERT_METERS -> "30"
-            distM <= TurnCueGenerator.CUE_FIRST_ALERT_METERS -> "150"
-            else -> null
-        }
-        if (thresholdBucket != null) {
-            val key = "${cue.pointIndex}_${cue.walkKm}_$thresholdBucket"
-            if (key != lastSpokenKey) {
-                lastSpokenKey = key
-                val speechText = com.example.util.DanishTtsChecker.formatSpeechCueText(
-                    context = context,
-                    cue = cue,
-                    distanceMeters = distM,
-                    effectiveVoiceLocale = ttsVoiceLocale
-                )
-                runCatching {
-                    ttsRef?.speak(speechText, TextToSpeech.QUEUE_FLUSH, null, key)
-                }
-            }
-        }
-    }
+    // Spoken turn cues are handled by NavigationTrackingService (NavigationVoiceGuide), so they
+    // keep working when Android closes this screen during a long hike.
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -752,7 +678,7 @@ fun NavigationScreen(
     }
     if (showSosSheet) {
         val nearestAeds by viewModel.nearestAeds.collectAsState()
-        NavigationSosBottomSheet(liveState = liveState, emergencyInfo = emergencyInfo, onDismiss = { viewModel.setSosSheet(false) }, nearestAeds = nearestAeds)
+        NavigationSosBottomSheet(liveState = liveState, onDismiss = { viewModel.setSosSheet(false) }, nearestAeds = nearestAeds)
     }
     if (showHowToGuide) {
         HowToGuideScreen(onDismiss = { showHowToGuide = false }, initialSection = HowToGuideDefinitions.SECTION_OFFLINE_NAVIGATION)

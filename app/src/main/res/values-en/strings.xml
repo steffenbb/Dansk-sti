@@ -1690,4 +1690,9 @@ Sent from Dansk Sti</string>
     <string name="nav_replace_trip_confirm">End and start new</string>
     <string name="nav_replace_trip_keep">Keep active trip</string>
     <string name="nav_dim_screen_when_idle">Dim screen after 30 s</string>
+    <string name="sos_decimal_coords_fmt">%1$s° N, %2$s° E</string>
+    <string name="sos_fix_age_now">just now</string>
+    <string name="sos_fix_age_min_fmt">%1$d min old</string>
+    <string name="sos_fix_quality_fmt">±%1$d m · %2$s</string>
+    <string name="map_tool_sos">112 / SOS</string>
 </resources>

@@ -463,6 +463,16 @@ object GeoUtils {
      * Formats coordinates into spoken Danish WGS84 for Danish 112 emergency central:
      * e.g. "55 grader 03 minutter 42 sekunder Nord, 10 grader 36 minutter 18 sekunder Øst"
      */
+    /**
+     * Decimal WGS84 for the SOS sheet, 5 decimals (about 1 m), e.g. "55.67891° N, 10.12346° Ø".
+     * The compass letters come from the strings (Ø in Danish, E in English, O in German).
+     */
+    fun formatDecimalWgs84(lat: Double, lng: Double): String {
+        val la = String.format(java.util.Locale.US, "%.5f", lat)
+        val lo = String.format(java.util.Locale.US, "%.5f", lng)
+        return AppLocaleHelper.strOrNull(null, com.example.R.string.sos_decimal_coords_fmt, la, lo) ?: "$la° N, $lo° Ø"
+    }
+
     fun formatDanishSpokenWgs84(lat: Double, lng: Double): String {
         val latDeg = lat.toInt()
         val latMin = ((lat - latDeg) * 60).toInt()

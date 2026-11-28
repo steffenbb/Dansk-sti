@@ -82,7 +82,7 @@ class UiBatch2Test {
     @Test
     fun hapticMoments_areWired() {
         fun src(path: String) = ui.resolve(path).readText()
-        assertTrue(src("screens/NavigationBatteryAndSosOverlays.kt").contains("HapticKind.HEAVY"))
+        assertTrue("112 button (shared SOS sheet)", src("screens/EmergencySosSheet.kt").contains("HapticKind.HEAVY"))
         assertTrue(src("screens/RouteBuilderDialogs.kt").contains("HapticKind.CONFIRM"))
         assertTrue(src("components/PoiInfoSheet.kt").contains("HapticKind.CONFIRM, \"route_here\""))
         assertTrue(src("screens/TrailDetailScreen.kt").contains("HapticKind.REJECT, \"route_retry_failed\""))

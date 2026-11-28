@@ -204,8 +204,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     private val _voiceGuidance = MutableStateFlow(false)
     val voiceGuidance: StateFlow<Boolean> = _voiceGuidance.asStateFlow()
 
-    internal val _rainAlertEnabled = MutableStateFlow(true)
-    val rainAlertEnabled: StateFlow<Boolean> = _rainAlertEnabled.asStateFlow()
 
     // Part D2: Trip diary entries for active plan
     private val _diaryEntries = MutableStateFlow<List<TripDiaryEntryEntity>>(emptyList())
@@ -224,7 +222,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
     internal var lastWeatherFetchLat: Double = Double.NaN
     internal var lastWeatherFetchLng: Double = Double.NaN
     internal var lastWeatherFailureMs: Long = 0L
-    internal var lastRainAlertPostedMs: Long = 0L
     internal var lastPrefetchedCampDay: Int = -1
     internal var lastCampWeatherFailureMs: Long = 0L
     @Volatile
@@ -248,7 +245,6 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
                 _mitTempoKmh.value = settings.mitTempoKmh
                 _keepScreenOn.value = settings.keepScreenOn
                 _voiceGuidance.value = settings.voiceGuidance
-                _rainAlertEnabled.value = settings.rainAlertEnabled
             }
         }
         viewModelScope.launch {
@@ -370,14 +366,8 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    internal fun postRainAlertNotification(precipMm: Double, timeLabel: String) {
-        postNavigationRainAlertNotification(
-            appCtx = getApplication(), channelId = CHANNEL_RAIN_ALERT_ID,
-            notificationId = RAIN_ALERT_NOTIFICATION_ID, precipMm = precipMm, timeLabel = timeLabel
-        )
-    }
-
     companion object {
+        /** Used by NavigationRainWatcher in the tracking service. */
         const val CHANNEL_RAIN_ALERT_ID = "dansk_sti_rain_alert"
         const val RAIN_ALERT_NOTIFICATION_ID = 4049
     }

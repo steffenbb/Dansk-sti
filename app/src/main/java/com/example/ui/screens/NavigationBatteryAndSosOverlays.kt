@@ -1,7 +1,7 @@
 package com.example.ui.screens
 
-import android.content.Intent
-import android.net.Uri
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,8 +20,6 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatterySaver
@@ -30,18 +27,14 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -410,143 +403,18 @@ fun NavigationBatterySaverScreen(
 @Composable
 fun NavigationSosBottomSheet(
     liveState: NavigationLiveState,
-    emergencyInfo: DanishEmergencyInfo?,
     onDismiss: () -> Unit,
     nearestAeds: List<com.example.ui.viewmodel.NearbyAed> = emptyList()
 ) {
-    val sosHaptics = com.example.ui.components.rememberHaptics()
-    val context = LocalContext.current
-    val danskStiColors = DanskStiTheme.colors
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = danskStiColors.danger.copy(alpha = 0.15f),
-                modifier = Modifier.size(56.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Call,
-                        contentDescription = null,
-                        tint = danskStiColors.danger,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-            }
-
-            Text(
-                text = stringResource(R.string.ui_navigationscreen_dansk_n_dkald_112_74),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = danskStiColors.danger
-            )
-
-            Card(
-                shape = com.example.ui.theme.TileShape,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text(
-                        text = stringResource(R.string.ui_navigationscreen_din_n_jagtige_gps_position_75),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    val coordsText = emergencyInfo?.decimalCoords
-                        ?: if (liveState.currentLat != null && liveState.currentLng != null) {
-                            "${liveState.currentLat}, ${liveState.currentLng}"
-                        } else {
-                            stringResource(R.string.nav_sos_waiting_gps)
-                        }
-                    Text(
-                        text = coordsText,
-                        style = MaterialTheme.typography.titleMedium.merge(
-                            TabularBodyStyle.copy(
-                                fontWeight = FontWeight.Bold
-                            )
-                        ),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    emergencyInfo?.spokenWgs84?.let { spoken ->
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = stringResource(R.string.ui_navigationscreen_l_ses_h_jt_til_alarmcent_76, spoken),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Normal,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            Button(
-                onClick = {
-                    sosHaptics(com.example.ui.components.HapticKind.HEAVY, "sos_112")
-                    val dialIntent = Intent(Intent.ACTION_DIAL).apply {
-                        data = Uri.parse("tel:112")
-                    }
-                    try {
-                        context.startActivity(dialIntent)
-                    } catch (_: android.content.ActivityNotFoundException) {
-                        android.widget.Toast.makeText(
-                            context,
-                            context.getString(R.string.nav_sos_no_phone_app),
-                            android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                    } catch (_: Exception) {
-                        android.widget.Toast.makeText(
-                            context,
-                            context.getString(R.string.nav_sos_phone_app_error),
-                            android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                },
-                shape = com.example.ui.theme.CardShape,
-                colors = ButtonDefaults.buttonColors(containerColor = danskStiColors.danger),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp)
-                    .testTag("call_112_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Call,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onError
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.ui_navigationscreen_ring_112_nu_77),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onError
-                )
-            }
-
-            NavigationSosAedSection(aeds = nearestAeds)
-
-            OutlinedButton(
-                onClick = onDismiss,
-                shape = com.example.ui.theme.CardShape,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-            ) {
-                Text(stringResource(R.string.ui_navigationscreen_luk_n_dsystem_78))
-            }
-        }
-    }
+    EmergencySosSheet(
+        lat = liveState.currentLat,
+        lng = liveState.currentLng,
+        accuracyM = liveState.accuracyM,
+        fixTimeMs = liveState.lastFixTimestampMs.takeIf { it > 0L },
+        onDismiss = onDismiss,
+        nearestAeds = nearestAeds
+    )
 }
-
 @Composable
 fun NavigationCampAndContinuePrompts(
     viewModel: NavigationViewModel,

@@ -1690,4 +1690,9 @@ Gesendet von Dansk Sti</string>
     <string name="nav_replace_trip_confirm">Beenden und neu starten</string>
     <string name="nav_replace_trip_keep">Aktive Tour fortsetzen</string>
     <string name="nav_dim_screen_when_idle">Bildschirm nach 30 s dimmen</string>
+    <string name="sos_decimal_coords_fmt">%1$s° N, %2$s° O</string>
+    <string name="sos_fix_age_now">gerade eben</string>
+    <string name="sos_fix_age_min_fmt">%1$d Min. alt</string>
+    <string name="sos_fix_quality_fmt">±%1$d m · %2$s</string>
+    <string name="map_tool_sos">112 / SOS</string>
 </resources>

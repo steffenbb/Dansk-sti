@@ -2545,7 +2545,7 @@ class DanskStiRepository(
     // --- Danish 112 SOS (Enhancement 14) ---
     fun getEmergencyInfo(lat: Double, lng: Double): DanishEmergencyInfo {
         val spoken = GeoUtils.formatDanishSpokenWgs84(lat, lng)
-        val decimal = String.format(java.util.Locale.US, "%.5f° N, %.5f° Ø", lat, lng)
+        val decimal = GeoUtils.formatDecimalWgs84(lat, lng)
         return DanishEmergencyInfo(
             decimalCoords = decimal,
             spokenWgs84 = spoken

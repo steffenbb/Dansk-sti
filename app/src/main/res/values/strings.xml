@@ -1712,4 +1712,9 @@
     <string name="nav_replace_trip_confirm">Afslut og start ny</string>
     <string name="nav_replace_trip_keep">Fortsæt aktiv tur</string>
     <string name="nav_dim_screen_when_idle">Dæmp skærmen efter 30 sek.</string>
+    <string name="sos_decimal_coords_fmt">%1$s° N, %2$s° Ø</string>
+    <string name="sos_fix_age_now">lige nu</string>
+    <string name="sos_fix_age_min_fmt">%1$d min gammel</string>
+    <string name="sos_fix_quality_fmt">±%1$d m · %2$s</string>
+    <string name="map_tool_sos">112 / SOS</string>
 </resources>
