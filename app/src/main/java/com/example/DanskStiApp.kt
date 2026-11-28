@@ -138,7 +138,8 @@ class DanskStiApp : Application() {
             val startupCutoffMs = System.currentTimeMillis() - 1000L
             val db = DanskStiDatabase.getInstance(this)
             databaseField = db
-            repositoryField = DanskStiRepository(db.dao(), this)
+            val startupRepository = DanskStiRepository(db.dao(), this)
+            repositoryField = startupRepository
             _databaseError.value = null
             _databaseOpenFinished.value = false
             activeInitJob?.cancel()
@@ -155,11 +156,14 @@ class DanskStiApp : Application() {
                     _databaseOpenFinished.value = true
                 }
                 try {
+                    // Use the instances this job was started with: the `repository` getter goes back
+                    // through DanskStiDatabase.getInstance, which may cancel this very job and close
+                    // the database when the instance is being replaced.
                     migrateLegacyWaypointPhotosInDb(db.dao())
-                    repository.initializePreseededDataIfEmpty()
+                    startupRepository.initializePreseededDataIfEmpty()
                     // Run orphan clean-up after WorkManager has re-queued pending work.
-                    repository.requeuePendingOfflineDownloads()
-                    repository.cleanupOrphanFiles(filesDir, maxLastModifiedEpochMs = startupCutoffMs)
+                    startupRepository.requeuePendingOfflineDownloads()
+                    startupRepository.cleanupOrphanFiles(filesDir, maxLastModifiedEpochMs = startupCutoffMs)
                 } catch (t: Throwable) {
                     Log.e("DanskStiApp", "Failed to preseed database: ${t.message}", t)
                 }
