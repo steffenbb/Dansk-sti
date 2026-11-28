@@ -11,7 +11,6 @@ import com.example.data.model.TrailSegmentDto
 import com.example.data.model.TrailSegmentType
 import com.example.util.network.applyDanskStiDefaults
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,7 +36,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 class TrailGeometryRepository(private val context: Context) {
-    private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+    private val moshi = com.example.data.remote.AppMoshi.instance
     private val geometryAdapter = moshi.adapter(TrailGeometryDto::class.java)
 
     companion object {
@@ -124,7 +123,7 @@ class TrailGeometryRepository(private val context: Context) {
 
     val downloadProgress: StateFlow<Map<String, TrailDownloadProgress>> = globalDownloadProgress
 
-    private val client = OkHttpClient.Builder()
+    private val client = com.example.util.network.sharedClientBuilder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .callTimeout(20, TimeUnit.SECONDS)

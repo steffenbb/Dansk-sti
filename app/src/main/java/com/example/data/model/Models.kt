@@ -203,6 +203,7 @@ data class TrailEntity(
 }
 
 @Entity(tableName = "shelters")
+@JsonClass(generateAdapter = true)
 data class ShelterEntity(
     @PrimaryKey val id: String,
     val name: String,
@@ -262,6 +263,7 @@ data class FriTeltningEntity(
 )
 
 @Entity(tableName = "pois")
+@JsonClass(generateAdapter = true)
 data class PoiEntity(
     @PrimaryKey val id: String,
     val type: String, // "toilet", "water", "shop", "station", "ferry", "bus_stop"

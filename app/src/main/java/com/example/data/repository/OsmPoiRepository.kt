@@ -7,18 +7,18 @@ import com.example.data.model.GeoPointDto
 import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
+@com.squareup.moshi.JsonClass(generateAdapter = true)
 data class OsmPoiResult(
     val shelters: List<ShelterEntity> = emptyList(),
     val pois: List<PoiEntity> = emptyList()
 )
 
 class OsmPoiRepository(private val context: Context) {
-    private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+    private val moshi = com.example.data.remote.AppMoshi.instance
 
     private val cacheDir: File
         get() = File(context.filesDir, "osm_pois").apply { if (!exists()) mkdirs() }

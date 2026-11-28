@@ -689,7 +689,10 @@ fun KortScreen(
                     onClick = {
                         val finalName = areaDownloadName.trim().ifBlank { defaultAreaName }
                         val areaId = "area:${UUID.randomUUID()}"
-                        val res = com.example.util.OfflineDownloadManager.enqueueDownload(
+                        val startedMsg = context.getString(R.string.offline_area_download_started_fmt, finalName)
+                        // Free-space check, database row and WorkManager off the main thread (audit fix batch 4)
+                        coroutineScope.launch {
+                        val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.example.util.OfflineDownloadManager.enqueueDownload(
                             context = context,
                             trailId = areaId,
                             trailName = finalName,
@@ -701,12 +704,11 @@ fun KortScreen(
                             areaMaxLat = areaMaxLat,
                             areaMinLng = areaMinLng,
                             areaMaxLng = areaMaxLng
-                        )
+                        ) }
                         if (res.isAllowed) {
                             showAreaDownloadDialog = false
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar("Henter '$finalName' i baggrunden")
-                            }
+                            snackbarHostState.showSnackbar(startedMsg)
+                        }
                         }
                     },
                     enabled = est?.isAllowed == true,

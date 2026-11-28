@@ -39,6 +39,51 @@ class ReleaseMoshiKeepRulesTest {
         wholePackageKeeps.any { pkg == it || pkg.startsWith("$it.") } ||
             Regex("""-keep (class|enum) ${Regex.escape("$pkg.$name")}\b""").containsMatchIn(proguard)
 
+    /**
+     * Audit fix batch 4: every class Moshi reads or writes (adapter targets, List/Map element types,
+     * Retrofit responses and everything reachable from them) has a generated adapter, so AppMoshi's
+     * reflection fallback is never used and could be removed.
+     */
+    @Test
+    fun everySerialisedClassHasAGeneratedAdapter() {
+        val annotated = HashSet<String>()
+        val enums = HashSet<String>()
+        root.resolve("java").walkTopDown().filter { it.extension == "kt" }.forEach { f ->
+            val text = f.readText()
+            Regex("""((?:@[\w.]+(?:\([^)]*\))?\s*)*)(data class|enum class|class) (\w+)""").findAll(text).forEach { m ->
+                if (m.groupValues[2] == "enum class") enums.add(m.groupValues[3])
+                if (m.groupValues[1].contains("generateAdapter = true")) annotated.add(m.groupValues[3])
+            }
+        }
+        val files = root.resolve("java").walkTopDown().filter { it.extension == "kt" }.toList()
+        val targets = HashSet<String>()
+        files.forEach { f ->
+            val t = f.readText()
+            Regex("""adapter(?:<[^>]*>)?\(\s*([\w.]+)::class\.java""").findAll(t).forEach { targets.add(it.groupValues[1].substringAfterLast('.')) }
+            Regex("""newParameterizedType\(([^)]*)\)""").findAll(t).forEach { m ->
+                Regex("""([\w.]+)::class\.java""").findAll(m.groupValues[1]).forEach { targets.add(it.groupValues[1].substringAfterLast('.')) }
+            }
+        }
+        // Retrofit: response types of the weather service
+        Regex("""suspend fun \w+\([^)]*\)\s*:\s*([\w.<>]+)""", RegexOption.DOT_MATCHES_ALL)
+            .findAll(root.resolve("java/com/example/data/remote/WeatherApiService.kt").readText())
+            .forEach { m -> Regex("""[A-Z]\w*""").findAll(m.groupValues[1]).forEach { targets.add(it.value) } }
+        targets.removeAll(setOf("Map", "List", "Set", "String", "Any", "Long", "Int", "Double", "Boolean"))
+        assertTrue(targets.contains("TideStationCache") && targets.contains("OpenMeteoResponse"))
+
+        val missing = sortedSetOf<String>()
+        val seen = HashSet<String>()
+        fun visit(name: String) {
+            if (!seen.add(name)) return
+            val (pkg, types) = declarations[name] ?: return
+            if (!pkg.startsWith("com.example")) return
+            if (name !in enums && name !in annotated) missing.add("$pkg.$name")
+            types.forEach { visit(it) }
+        }
+        targets.forEach { visit(it) }
+        assertTrue("Add @JsonClass(generateAdapter = true) to: $missing", missing.isEmpty())
+    }
+
     @Test
     fun everyMoshiReflectionClassIsKeptForRelease() {
         val targets = root.resolve("java").walkTopDown().filter { it.extension == "kt" }

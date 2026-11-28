@@ -108,6 +108,7 @@ internal fun RouteBuilderViewModel.computeSingleLeg(from: RouteWaypoint, to: Rou
                 }
             }
 
+            if (!isLegRequestCurrent(from, to)) return@launch
             if (fromEle != null || toEle != null) {
                 val pts = listOf(
                     RoutePoint3D(from.lat, from.lng, fromEle),
@@ -154,6 +155,8 @@ internal fun RouteBuilderViewModel.computeSingleLeg(from: RouteWaypoint, to: Rou
             val options = _uiState.value.options
 
             val result = routingEngine.routeLeg(fromCoord, toCoord, options, alternative = 0)
+            // A newer request is on its way if a pin moved meanwhile: drop this answer
+            if (!isLegRequestCurrent(from, to)) return@launch
 
             val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet()
             updatedLoading.remove(legKey)
@@ -215,6 +218,8 @@ internal fun RouteBuilderViewModel.computeSingleLeg(from: RouteWaypoint, to: Rou
                 }
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            if (!isLegRequestCurrent(from, to)) return@launch
             val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet()
             updatedLoading.remove(legKey)
             val daMsg = BRouterOnlineEngine.translateBRouterError(e.message)
@@ -616,6 +621,7 @@ internal suspend fun RouteBuilderViewModel.computeSingleLegSuspend(from: RouteWa
     _uiState.update { current -> current.copy(loadingLegKeys = current.loadingLegKeys.toMutableSet().apply { add(legKey) }) }
     try {
         val result = routingEngine.routeLeg(LatLng(from.lat, from.lng), LatLng(to.lat, to.lng), _uiState.value.options, alternative = 0)
+        if (!isLegRequestCurrent(from, to)) return
         val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet().apply { remove(legKey) }
         when (result) {
             is RouteLegResult.Success -> {
@@ -644,9 +650,25 @@ internal suspend fun RouteBuilderViewModel.computeSingleLegSuspend(from: RouteWa
             is RouteLegResult.Failure -> recordFailedLeg(legKey, result.message, updatedLoading)
         }
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
+        if (!isLegRequestCurrent(from, to)) return
         val updatedLoading = _uiState.value.loadingLegKeys.toMutableSet().apply { remove(legKey) }
         recordFailedLeg(legKey, BRouterOnlineEngine.translateBRouterError(e.message), updatedLoading)
     }
+}
+
+/**
+ * True while both ends of a leg request are still where they were when it was sent (same position
+ * and leg mode). A pin dragged twice quickly sends two requests for the same leg; without this the
+ * slower, older answer could win and draw the leg to the pin's old position (audit fix batch 4).
+ * Ends that no longer exist count as current, so other code keeps deciding what to do with them.
+ */
+internal fun RouteBuilderViewModel.isLegRequestCurrent(from: RouteWaypoint, to: RouteWaypoint): Boolean {
+    val wps = _uiState.value.waypoints
+    val nowFrom = wps.firstOrNull { it.id == from.id } ?: return true
+    val nowTo = wps.firstOrNull { it.id == to.id } ?: return true
+    return nowFrom.lat == from.lat && nowFrom.lng == from.lng && nowTo.lat == to.lat && nowTo.lng == to.lng &&
+        nowFrom.legModeToNext == from.legModeToNext
 }
 
 

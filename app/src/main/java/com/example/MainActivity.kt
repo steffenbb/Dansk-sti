@@ -119,7 +119,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Launch screen with the app icon, then Theme.MyApplication (must run before super.onCreate)
-        installSplashScreen()
+        val splashStartedMs = android.os.SystemClock.uptimeMillis()
+        installSplashScreen().setKeepOnScreenCondition {
+            // Keep the splash while the database opens in the background, at most 2 s
+            !DanskStiApp.instance.databaseOpenFinished.value && android.os.SystemClock.uptimeMillis() - splashStartedMs < 2_000L
+        }
         super.onCreate(savedInstanceState)
         handleNavigationIntent(intent)
         val app = application as DanskStiApp

@@ -29,7 +29,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -142,14 +141,9 @@ class DanskStiTileSource(
                 }
             }
 
-            // Ensure pixel recolouring always runs on a background thread
-            if (isDarkMode && Looper.myLooper() == Looper.getMainLooper()) {
-                runBlocking(Dispatchers.Default) {
-                    processBlock()
-                }
-            } else {
-                processBlock()
-            }
+            // osmdroid's tile loader threads call this; runBlocking on the main thread only made the
+            // main thread wait for the same work (audit fix batch 4), so it runs directly
+            processBlock()
         } catch (e: Exception) {
             Log.w("DanskStiTileSource", "Failed to decode/recolour Skærmkort tile: ${e.message}")
             null
@@ -264,11 +258,7 @@ class DanskStiFriluftskortTileSource(
                     ReusableBitmapDrawable(recolored)
                 }
             }
-            if (isDarkMode && Looper.myLooper() == Looper.getMainLooper()) {
-                runBlocking(Dispatchers.Default) { block() }
-            } else {
-                block()
-            }
+            block()
         } catch (_: Exception) {
             null
         }
@@ -350,11 +340,7 @@ class DanskStiDhmHillshadeTileSource(
                     ReusableBitmapDrawable(processed)
                 }
             }
-            if (Looper.myLooper() == Looper.getMainLooper()) {
-                runBlocking(Dispatchers.Default) { block() }
-            } else {
-                block()
-            }
+            block()
         } catch (e: Exception) {
             Log.w("DanskStiTileSource", "Failed to process DHM hillshade tile: ${e.message}")
             null
@@ -675,7 +661,7 @@ object DanskStiTileSourceHelper {
     private val capabilitiesScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val httpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        com.example.util.network.sharedClientBuilder()
             .connectTimeout(12, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .applyDanskStiDefaults()

@@ -20,6 +20,15 @@ object MapIconUtils {
     private val iconCache = ConcurrentHashMap<Int, Drawable>()
     private val clusterIconCache = ConcurrentHashMap<String, Drawable>()
 
+    /**
+     * Cluster count bubbles, one bitmap per number. Bounded (audit fix batch 4): panning over the
+     * country creates hundreds of distinct counts, which used to stay in memory for good.
+     */
+    private val clusterCountCache = android.util.LruCache<Int, Drawable>(CLUSTER_COUNT_CACHE_SIZE)
+    const val CLUSTER_COUNT_CACHE_SIZE = 64
+
+    internal fun clusterCountCacheSizeForTesting(): Int = clusterCountCache.size()
+
     fun getShelterIcon(context: Context): Drawable {
         return getClusterPoiIcon(context, "shelter", isSelected = false)
     }
@@ -196,8 +205,8 @@ object MapIconUtils {
      * Draws a clustered count circle (below zoom 12).
      */
     fun getClusterCountDrawable(context: Context, count: Int): Drawable {
-        val key = "cluster_count_${count}"
-        return clusterIconCache.getOrPut(key) {
+        clusterCountCache.get(count)?.let { return it }
+        return run {
             val density = context.resources.displayMetrics.density
             val sizeDp = when {
                 count < 10 -> 36
@@ -247,7 +256,7 @@ object MapIconUtils {
             canvas.drawText(countStr, center, yOffset, textPaint)
 
             BitmapDrawable(context.resources, bitmap)
-        }
+        }.also { clusterCountCache.put(count, it) }
     }
 
     private fun getCachedBitmapDrawable(

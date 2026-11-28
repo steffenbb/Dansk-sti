@@ -6,7 +6,6 @@ import com.example.data.model.FriTeltningEntity
 import com.example.data.model.PoiEntity
 import com.example.data.model.ShelterEntity
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import com.example.util.network.applyDanskStiDefaults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -19,8 +18,8 @@ import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 
 class GeoFaRepository(private val context: Context) {
-    private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-    private val client = OkHttpClient.Builder()
+    private val moshi = com.example.data.remote.AppMoshi.instance
+    private val client = com.example.util.network.sharedClientBuilder()
         .connectTimeout(25, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .applyDanskStiDefaults()
@@ -498,7 +497,7 @@ object GeoFaFieldParser {
     private val ENGLISH_MONTHS = arrayOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
     private val DANISH_MONTHS = arrayOf("jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec")
     private val DATE_MD_REGEX = Regex("""(\d{4})-(\d{2})-(\d{2})""")
-    private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+    private val moshi = com.example.data.remote.AppMoshi.instance
 
     fun isActiveStatus(status: String?): Boolean {
         if (status.isNullOrBlank()) return true

@@ -5,7 +5,6 @@ import com.example.util.network.applyDanskStiDefaults
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -164,15 +163,13 @@ interface WeatherApiService {
         private const val BASE_URL = "https://api.open-meteo.com/"
 
         fun create(): WeatherApiService {
-            val client = OkHttpClient.Builder()
+            val client = com.example.util.network.sharedClientBuilder()
                 .applyDanskStiDefaults()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
                 .build()
 
-            val moshi = Moshi.Builder()
-                .add(KotlinJsonAdapterFactory())
-                .build()
+            val moshi = com.example.data.remote.AppMoshi.instance
 
             return Retrofit.Builder()
                 .baseUrl(BASE_URL)
@@ -206,7 +203,7 @@ object WeatherInterpreter {
     }
 
     private val moshi: Moshi by lazy {
-        Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+        com.example.data.remote.AppMoshi.instance
     }
 
     fun roundCoord005(value: Double): Double {

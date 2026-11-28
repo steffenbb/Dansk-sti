@@ -11,7 +11,6 @@ import com.example.data.remote.OverpassApiService
 import com.example.data.remote.OverpassElement
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -32,7 +31,7 @@ class WaterLayerRepository(
     private val dao: DanskStiDao,
     private val overpassService: OverpassApiService = OverpassApiService.create()
 ) {
-    private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+    private val moshi = com.example.data.remote.AppMoshi.instance
     private val pointsListType = Types.newParameterizedType(List::class.java, GeoPointDto::class.java)
     private val pointsAdapter = moshi.adapter<List<GeoPointDto>>(pointsListType)
     @Volatile

@@ -43,6 +43,10 @@ class DanskStiApp : Application() {
     lateinit var settingsRepository: com.example.data.local.SettingsRepository
         private set
 
+    private val _databaseOpenFinished = MutableStateFlow(false)
+    /** True once the first database open (with any migrations) has finished or failed; the splash waits for it. */
+    val databaseOpenFinished: StateFlow<Boolean> = _databaseOpenFinished.asStateFlow()
+
     private val _databaseError = MutableStateFlow<String?>(null)
     val databaseError: StateFlow<String?> = _databaseError.asStateFlow()
 
@@ -53,8 +57,6 @@ class DanskStiApp : Application() {
         super.onCreate()
         instance = this
         com.example.data.remote.OverpassClient.init(this)
-
-        migrateLegacyWaypointPhotosFiles()
 
         settingsRepository = com.example.data.local.SettingsRepository(this)
         settingsRepository.ensureLoadedBeforeFirstFrame()
@@ -135,12 +137,23 @@ class DanskStiApp : Application() {
         try {
             val startupCutoffMs = System.currentTimeMillis() - 1000L
             val db = DanskStiDatabase.getInstance(this)
-            db.openHelper.writableDatabase
             databaseField = db
             repositoryField = DanskStiRepository(db.dao(), this)
             _databaseError.value = null
+            _databaseOpenFinished.value = false
             activeInitJob?.cancel()
             activeInitJob = CoroutineScope(Dispatchers.IO).launch {
+                // Open (and migrate) off the main thread (audit fix batch 4): this used to run in
+                // Application.onCreate, so the first launch after an update could hang on the splash.
+                try {
+                    db.openHelper.writableDatabase
+                } catch (e: Throwable) {
+                    Log.e("DanskStiApp", "Database open failed (never deleting database): ${e.message}", e)
+                    _databaseError.value = e.message ?: e.javaClass.simpleName
+                    return@launch
+                } finally {
+                    _databaseOpenFinished.value = true
+                }
                 try {
                     migrateLegacyWaypointPhotosInDb(db.dao())
                     repository.initializePreseededDataIfEmpty()

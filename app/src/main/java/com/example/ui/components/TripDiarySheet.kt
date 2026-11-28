@@ -1,7 +1,6 @@
 package com.example.ui.components
 
 import kotlinx.coroutines.launch
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -364,14 +363,7 @@ fun DiaryPhotoThumbnail(
     onRemove: (() -> Unit)? = null,
     testTag: String = "diary_photo_thumb"
 ) {
-    val bitmap = remember(photoPath) {
-        runCatching {
-            val file = File(photoPath)
-            if (file.exists()) {
-                BitmapFactory.decodeFile(file.absolutePath)
-            } else null
-        }.getOrNull()
-    }
+    val bitmap = rememberPhotoThumbnail(photoPath, maxSizePx = 320)
 
     Box(
         modifier = Modifier

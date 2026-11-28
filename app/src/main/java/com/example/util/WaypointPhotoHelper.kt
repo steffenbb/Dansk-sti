@@ -87,6 +87,18 @@ object WaypointPhotoHelper {
         }
     }
 
+    /** Decodes [path] sampled to about [maxSizePx] on the long side; null if missing or unreadable. Blocking. */
+    fun decodeSampled(path: String, maxSizePx: Int): Bitmap? = runCatching {
+        val file = File(path)
+        if (!file.exists()) return@runCatching null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+        BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply {
+            inSampleSize = sampleSizeFor(bounds.outWidth, bounds.outHeight, maxSizePx)
+        })
+    }.getOrNull()
+
     /** [compressCapturedPhotoFile] on the IO dispatcher. */
     suspend fun compressInBackground(photoFile: File): Boolean =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { compressCapturedPhotoFile(photoFile) }

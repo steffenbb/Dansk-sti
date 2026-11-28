@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import com.example.util.network.applyDanskStiDefaults
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -18,6 +17,7 @@ import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
 /** Phase E1: a DMI tide-water station. [lowAstronomicalTide] is DMI's reference level for the station. */
+@com.squareup.moshi.JsonClass(generateAdapter = true)
 data class TideStation(
     val stationId: String,
     val name: String,
@@ -27,9 +27,12 @@ data class TideStation(
 )
 
 /** One predicted high or low water. [levelCm] is always in centimetres. */
+@com.squareup.moshi.JsonClass(generateAdapter = true)
 data class TideEvent(val timeMs: Long, val isHigh: Boolean, val levelCm: Double)
 
+@com.squareup.moshi.JsonClass(generateAdapter = true)
 data class TideStationCache(val fetchedAt: Long, val stations: List<TideStation>)
+@com.squareup.moshi.JsonClass(generateAdapter = true)
 data class TideDayCache(val fetchedAt: Long, val events: List<TideEvent>)
 
 /**
@@ -45,7 +48,7 @@ class TideRepository(private val context: Context) {
         private val COPENHAGEN: TimeZone = TimeZone.getTimeZone("Europe/Copenhagen")
         private val UTC: TimeZone = TimeZone.getTimeZone("UTC")
 
-        private val moshi: Moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+        private val moshi: Moshi = com.example.data.remote.AppMoshi.instance
 
         @Suppress("UNCHECKED_CAST")
         private fun features(json: String): List<Map<String, Any>>? = runCatching {
@@ -112,7 +115,7 @@ class TideRepository(private val context: Context) {
     }
 
     private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder().applyDanskStiDefaults().connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
+        com.example.util.network.sharedClientBuilder().applyDanskStiDefaults().connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
     }
 
     /** Test hook: replaces the HTTP GET (returns the body, or throws). */

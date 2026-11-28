@@ -33,7 +33,7 @@ class AccessLandRepository(
         var isAccessDataUnavailable: Boolean = false
 
         fun defaultClient(): OkHttpClient {
-            return OkHttpClient.Builder()
+            return com.example.util.network.sharedClientBuilder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(25, TimeUnit.SECONDS)
                 .applyDanskStiDefaults()

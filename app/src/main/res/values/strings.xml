@@ -1717,4 +1717,5 @@
     <string name="sos_fix_age_min_fmt">%1$d min gammel</string>
     <string name="sos_fix_quality_fmt">±%1$d m · %2$s</string>
     <string name="map_tool_sos">112 / SOS</string>
+    <string name="offline_area_download_started_fmt">Henter ”%1$s” i baggrunden</string>
 </resources>

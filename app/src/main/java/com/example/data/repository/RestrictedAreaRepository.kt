@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import com.example.data.model.GeoPointDto
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -13,12 +12,14 @@ import java.io.File
 
 enum class RestrictedAreaKind { MILITARY, WILDLIFE_RESERVE }
 
+@com.squareup.moshi.JsonClass(generateAdapter = true)
 data class AreaBbox(val minLat: Double, val minLng: Double, val maxLat: Double, val maxLng: Double) {
     fun contains(lat: Double, lng: Double, marginDeg: Double = 0.0): Boolean =
         lat >= minLat - marginDeg && lat <= maxLat + marginDeg && lng >= minLng - marginDeg && lng <= maxLng + marginDeg
 }
 
 /** Phase D1: a military area or wildlife reserve from OpenStreetMap (outer rings only). */
+@com.squareup.moshi.JsonClass(generateAdapter = true)
 data class RestrictedArea(
     val id: String,
     val kind: RestrictedAreaKind,
@@ -30,6 +31,7 @@ data class RestrictedArea(
     val source: String = "osm"
 )
 
+@com.squareup.moshi.JsonClass(generateAdapter = true)
 data class RestrictedAreaCache(val fetchedAt: Long, val areas: List<RestrictedArea>)
 
 /**
@@ -39,7 +41,7 @@ data class RestrictedAreaCache(val fetchedAt: Long, val areas: List<RestrictedAr
  */
 class RestrictedAreaRepository(private val context: Context) {
 
-    private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+    private val moshi = com.example.data.remote.AppMoshi.instance
     // Lazy: a JSON adapter problem must never stop the repository (and the app) from starting
     private val cacheAdapter by lazy { moshi.adapter(RestrictedAreaCache::class.java) }
     private val refreshMutex = Mutex()

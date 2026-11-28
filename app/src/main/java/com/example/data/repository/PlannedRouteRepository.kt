@@ -11,7 +11,6 @@ import com.example.data.model.TrailSegmentType
 import com.example.data.model.TripStage
 import com.example.util.GeoUtils
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okio.buffer
@@ -26,9 +25,7 @@ import kotlin.math.min
 
 class PlannedRouteRepository(private val context: Context) {
 
-    private val moshi = Moshi.Builder()
-        .addLast(KotlinJsonAdapterFactory())
-        .build()
+    private val moshi = com.example.data.remote.AppMoshi.instance
 
     private val plannedRouteAdapter = moshi.adapter(PlannedRoute::class.java)
 

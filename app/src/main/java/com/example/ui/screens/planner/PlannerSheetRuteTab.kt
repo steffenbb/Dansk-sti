@@ -1,7 +1,6 @@
 package com.example.ui.screens.planner
 
 import androidx.compose.animation.animateContentSize
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -468,13 +467,7 @@ fun CustomWaypointRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (!waypoint.photoPath.isNullOrBlank()) {
-                val bitmap = remember(waypoint.photoPath) {
-                    try {
-                        if (File(waypoint.photoPath).exists()) BitmapFactory.decodeFile(waypoint.photoPath) else null
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
+                val bitmap = com.example.ui.components.rememberPhotoThumbnail(waypoint.photoPath, maxSizePx = 160)
                 if (bitmap != null) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),

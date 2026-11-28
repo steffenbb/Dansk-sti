@@ -156,7 +156,7 @@ class PhotonPlaceSearchService(private val context: Context) {
         )
     }
 
-    private val client = OkHttpClient.Builder()
+    private val client = com.example.util.network.sharedClientBuilder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .applyDanskStiDefaults()

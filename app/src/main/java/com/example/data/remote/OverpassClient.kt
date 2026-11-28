@@ -9,7 +9,6 @@ import com.example.util.DLog
 import com.example.util.network.NetworkConstants
 import com.example.util.network.applyDanskStiDefaults
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -278,7 +277,7 @@ object OverpassClient {
     }
 
     private val okHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        com.example.util.network.sharedClientBuilder()
             .connectTimeout(CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             .readTimeout(45, TimeUnit.SECONDS)
             .applyDanskStiDefaults()
@@ -289,9 +288,7 @@ object OverpassClient {
     internal fun okHttpConnectTimeoutMillis(): Int = okHttpClient.connectTimeoutMillis
 
     private val moshi: Moshi by lazy {
-        Moshi.Builder()
-            .add(KotlinJsonAdapterFactory())
-            .build()
+        com.example.data.remote.AppMoshi.instance
     }
 
     private val responseAdapter by lazy {

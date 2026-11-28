@@ -193,14 +193,9 @@ class BRouterStorageManager private constructor(context: Context) {
     }
 
     private val defaultHeadClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        com.example.util.network.sharedClientBuilder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
-            .apply {
-                if (com.example.BuildConfig.DEBUG) {
-                    addInterceptor(com.example.util.network.MainThreadNetworkInterceptor())
-                }
-            }
             .build()
     }
 

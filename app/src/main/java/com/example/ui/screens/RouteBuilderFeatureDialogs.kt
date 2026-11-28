@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import android.content.Context
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -622,13 +621,7 @@ internal fun RouteBuilderFeatureDialogsHost(
                     )
 
                     if (!customWpPhotoPath.isNullOrBlank() && File(customWpPhotoPath).exists()) {
-                        val bitmap = remember(customWpPhotoPath) {
-                            try {
-                                BitmapFactory.decodeFile(customWpPhotoPath)
-                            } catch (_: Exception) {
-                                null
-                            }
-                        }
+                        val bitmap = com.example.ui.components.rememberPhotoThumbnail(customWpPhotoPath, maxSizePx = 640)
                         if (bitmap != null) {
                             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                                 Image(
@@ -706,9 +699,7 @@ internal fun RouteBuilderFeatureDialogsHost(
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!wp.photoPath.isNullOrBlank()) {
-                        val bitmap = remember(wp.photoPath) {
-                            runCatching { if (File(wp.photoPath).exists()) BitmapFactory.decodeFile(wp.photoPath) else null }.getOrNull()
-                        }
+                        val bitmap = com.example.ui.components.rememberPhotoThumbnail(wp.photoPath, maxSizePx = 1024)
                         if (bitmap != null) {
                             Image(
                                 bitmap = bitmap.asImageBitmap(),
