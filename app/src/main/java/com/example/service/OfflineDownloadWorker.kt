@@ -36,12 +36,18 @@ class OfflineDownloadWorker(
         val settingsRepo = DanskStiApp.getSettingsRepository(context)
         createNotificationChannel(context, notificationManager)
         try {
-            setForeground(createForegroundInfo(context, inputData.getString(KEY_TRAIL_NAME) ?: "Vandrerute", 0, 100))
+            setForeground(
+                createForegroundInfo(
+                    context, inputData.getString(KEY_TRAIL_ID), inputData.getString(KEY_TRAIL_NAME).orEmpty(), 0, 100,
+                    androidx.work.WorkManager.getInstance(context).createCancelPendingIntent(id)
+                )
+            )
         } catch (_: Exception) {}
         return executeDownload(
             context = context,
             trailId = inputData.getString(KEY_TRAIL_ID),
-            trailName = inputData.getString(KEY_TRAIL_NAME) ?: "Vandrerute",
+            trailName = inputData.getString(KEY_TRAIL_NAME).orEmpty(),
+            cancelIntent = androidx.work.WorkManager.getInstance(context).createCancelPendingIntent(id),
             corridorKm = inputData.getDouble(KEY_CORRIDOR_KM, 1.0),
             wifiOnly = inputData.getBoolean(
                 KEY_WIFI_ONLY,
@@ -64,7 +70,6 @@ class OfflineDownloadWorker(
 
     companion object {
         const val CHANNEL_ID = "dansk_sti_offline_downloads"
-        const val NOTIFICATION_ID = 2001
 
         const val KEY_TRAIL_ID = "trail_id"
         const val KEY_TRAIL_NAME = "trail_name"
@@ -131,7 +136,7 @@ class OfflineDownloadWorker(
         internal suspend fun executeDownload(
             context: Context,
             trailId: String?,
-            trailName: String = "Vandrerute",
+            trailName: String = "",
             corridorKm: Double = 1.0,
             wifiOnly: Boolean = false,
             includeAerial: Boolean = false,
@@ -142,7 +147,8 @@ class OfflineDownloadWorker(
             areaMaxLng: Double? = null,
             isStoppedProvider: () -> Boolean = { false },
             onSetProgress: suspend (androidx.work.Data) -> Unit = {},
-            connectionFactory: ((URL) -> HttpURLConnection)? = null
+            connectionFactory: ((URL) -> HttpURLConnection)? = null,
+            cancelIntent: android.app.PendingIntent? = null
         ): Result = withContext(Dispatchers.IO) {
             if (trailId.isNullOrBlank()) return@withContext Result.failure()
 
@@ -152,6 +158,10 @@ class OfflineDownloadWorker(
             }
 
             val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(context)
+            // One notification per trail, so two downloads don't overwrite each other's progress
+            val notificationId = notificationIdFor(trailId)
+            @Suppress("NAME_SHADOWING")
+            val trailName = trailName.ifBlank { localizedCtx.getString(R.string.offline_download_fallback_name) }
             val notificationManager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             createNotificationChannel(localizedCtx, notificationManager)
@@ -517,8 +527,8 @@ class OfflineDownloadWorker(
                         ))
                         try {
                             notificationManager.notify(
-                                NOTIFICATION_ID,
-                                buildProgressNotification(localizedCtx, trailName, index + 1, totalTiles, percent)
+                                notificationId,
+                                buildProgressNotification(localizedCtx, trailName, index + 1, totalTiles, percent, cancelIntent)
                             )
                         } catch (_: Exception) {}
                     }
@@ -556,7 +566,7 @@ class OfflineDownloadWorker(
                 try {
                     val mbStr = String.format(com.example.util.AppLocaleHelper.getAppLocale(context), "%.1f", finalBytes / (1024.0 * 1024.0))
                     notificationManager.notify(
-                        NOTIFICATION_ID,
+                        notificationId,
                         NotificationCompat.Builder(localizedCtx, CHANNEL_ID)
                             .setSmallIcon(R.drawable.ic_notif_navigation)
                             .setContentTitle(localizedCtx.getString(R.string.notif_offline_ready_title, trailName))
@@ -591,7 +601,7 @@ class OfflineDownloadWorker(
                 val friendlyErr = com.example.util.userMessageFor(e)
                 try {
                     notificationManager.notify(
-                        NOTIFICATION_ID,
+                        notificationId,
                         NotificationCompat.Builder(localizedCtx, CHANNEL_ID)
                             .setSmallIcon(R.drawable.ic_notif_navigation)
                             .setContentTitle(localizedCtx.getString(R.string.notif_offline_error_title))
@@ -605,18 +615,31 @@ class OfflineDownloadWorker(
             }
         }
 
-        private fun createForegroundInfo(context: Context, trailName: String, progress: Int, total: Int): ForegroundInfo {
+        /** Per-trail notification id (20000–24095), clear of the app's other notification ids. */
+        internal fun notificationIdFor(trailId: String?): Int = 20_000 + ((trailId?.hashCode() ?: 0) and 0x0FFF)
+
+        private fun createForegroundInfo(
+            context: Context, trailId: String?, trailName: String, progress: Int, total: Int, cancelIntent: android.app.PendingIntent?
+        ): ForegroundInfo {
             val localizedCtx = com.example.util.AppLocaleHelper.createLocalizedContext(context)
-            val notification = buildProgressNotification(localizedCtx, trailName, progress, total, 0)
+            val name = trailName.ifBlank { localizedCtx.getString(R.string.offline_download_fallback_name) }
+            val notification = buildProgressNotification(localizedCtx, name, progress, total, 0, cancelIntent)
+            val id = notificationIdFor(trailId)
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                ForegroundInfo(id, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             } else {
-                ForegroundInfo(NOTIFICATION_ID, notification)
+                ForegroundInfo(id, notification)
             }
         }
 
-        private fun buildProgressNotification(context: Context, trailName: String, current: Int, total: Int, percent: Int) =
+        internal fun buildProgressNotification(
+            context: Context, trailName: String, current: Int, total: Int, percent: Int, cancelIntent: android.app.PendingIntent? = null
+        ) =
             NotificationCompat.Builder(context, CHANNEL_ID)
+                .apply {
+                    // "Annuller" stops the download (WorkManager cancels the work)
+                    if (cancelIntent != null) addAction(0, context.getString(R.string.dialog_cancel), cancelIntent)
+                }
                 .setSmallIcon(R.drawable.ic_notif_navigation)
                 .setContentTitle(context.getString(R.string.notif_offline_downloading_title, trailName))
                 .setContentText(context.getString(R.string.notif_offline_downloading_text, current, total, percent))

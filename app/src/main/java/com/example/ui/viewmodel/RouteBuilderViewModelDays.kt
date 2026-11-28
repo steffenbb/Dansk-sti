@@ -177,8 +177,9 @@ fun RouteBuilderViewModel.suggestOvernightStops() {
             val localizedCtx = com.example.util.AppLocaleHelper.getLocalizedContext(getApplication())
             _uiState.update { it.copy(isFindingOvernight = false) }
             _userMessage.emit(
-                localizedCtx.getString(
-                    com.example.R.string.planner_overnights_suggested_fmt,
+                localizedCtx.resources.getQuantityString(
+                    com.example.R.plurals.planner_overnights_suggested,
+                    intermediateStages.size,
                     intermediateStages.size,
                     intermediateStages.size + 1
                 )

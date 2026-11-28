@@ -170,7 +170,6 @@ data class MapLayersState(
 
 data class AppSettings(
     val mitTempoKmh: Double = 4.0,
-    val units: String = "metric",
     val startTime: String = "09:00",
     val maxDetourKm: Double = 1.5,
     val dailyTargetKm: Double = 15.0,
@@ -315,7 +314,6 @@ class SettingsRepository(context: Context) {
         private val memoryPrefsFlow = MutableStateFlow(emptyPreferences())
 
         val KEY_MIT_TEMPO = doublePreferencesKey("mit_tempo_kmh")
-        val KEY_UNITS = stringPreferencesKey("units")
         val KEY_START_TIME = stringPreferencesKey("start_time")
         val KEY_MAX_DETOUR = doublePreferencesKey("max_detour_km")
         val KEY_DAILY_TARGET = doublePreferencesKey("daily_target_km")
@@ -358,7 +356,6 @@ class SettingsRepository(context: Context) {
         )
 
         private val STRING_KEYS = listOf(
-            KEY_UNITS,
             KEY_START_TIME,
             KEY_BASE_MAP,
             KEY_MAP_DARK_MODE,
@@ -583,7 +580,6 @@ class SettingsRepository(context: Context) {
         val layers = parseMapLayers(prefs)
         return AppSettings(
             mitTempoKmh = tempo,
-            units = prefs[KEY_UNITS] ?: "metric",
             startTime = prefs[KEY_START_TIME] ?: "09:00",
             maxDetourKm = prefs[KEY_MAX_DETOUR] ?: 1.5,
             dailyTargetKm = prefs[KEY_DAILY_TARGET] ?: 15.0,
@@ -716,9 +712,6 @@ class SettingsRepository(context: Context) {
         updatePref(KEY_MIT_TEMPO, clamped)
     }
 
-    suspend fun setUnits(units: String) {
-        updatePref(KEY_UNITS, units)
-    }
 
     suspend fun setStartTime(time: String) {
         val normalized = HikingSettingsRanges.normalizeStartTime(time)

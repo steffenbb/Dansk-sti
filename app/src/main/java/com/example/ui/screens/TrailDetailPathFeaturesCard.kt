@@ -87,7 +87,7 @@ fun PathFeaturesAlongTrailCard(
 
     val summaryLines = buildList {
         if (summary.stepsCount > 0) {
-            add("steps" to stringResource(R.string.path_summary_steps_fmt, summary.stepsCount))
+            add("steps" to androidx.compose.ui.res.pluralStringResource(R.plurals.path_summary_steps, summary.stepsCount, summary.stepsCount))
         }
         if (summary.fordCount > 0) {
             add("fords" to stringResource(R.string.path_summary_fords_fmt, summary.fordCount))

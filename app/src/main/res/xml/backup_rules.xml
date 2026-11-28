@@ -10,6 +10,8 @@
     <exclude domain="file" path="trails" />
     <exclude domain="file" path="geofa" />
     <exclude domain="file" path="osm_pois" />
+    <exclude domain="file" path="tides" />
+    <exclude domain="file" path="restricted_areas" />
     <exclude domain="file" path="offline" />
     <exclude domain="file" path="brouter" />
     <exclude domain="file" path="osmdroid" />
