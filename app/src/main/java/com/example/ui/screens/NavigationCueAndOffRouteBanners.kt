@@ -734,7 +734,8 @@ internal fun ObserveCompassSensorHeading(
     activity: Activity?,
     onHeadingDegrees: (Float) -> Unit
 ) {
-    DisposableEffect(context, activity) {
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    DisposableEffect(context, activity, lifecycleOwner) {
         val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
         val rotationSensor = sensorManager?.getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR)
         val listener = object : android.hardware.SensorEventListener {
@@ -763,15 +764,32 @@ internal fun ObserveCompassSensorHeading(
 
             override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
         }
-        if (rotationSensor != null) {
-            try {
+        // Only while the screen is visible (audit fix batch 2): the sensor used to keep running in the
+        // pocket with the screen off for the whole hike.
+        var registered = false
+        fun register() {
+            if (registered || rotationSensor == null) return
+            registered = runCatching {
                 sensorManager.registerListener(listener, rotationSensor, android.hardware.SensorManager.SENSOR_DELAY_UI)
-            } catch (_: Exception) {}
+            }.getOrDefault(false)
         }
+        fun unregister() {
+            if (!registered) return
+            runCatching { sensorManager?.unregisterListener(listener) }
+            registered = false
+        }
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> register()
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> unregister()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) register()
         onDispose {
-            try {
-                sensorManager?.unregisterListener(listener)
-            } catch (_: Exception) {}
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            unregister()
         }
     }
 }

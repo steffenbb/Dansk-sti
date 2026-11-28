@@ -178,6 +178,8 @@ data class AppSettings(
     val mapFollowsApp: Boolean = true,
     val mapThemeOverride: MapThemeOverride = MapThemeOverride.LIGHT,
     val keepScreenOn: Boolean = true,
+    /** Dim the navigation screen after 30 s without touch (off by default; audit fix batch 2). */
+    val dimScreenWhenIdle: Boolean = false,
     val voiceGuidance: Boolean = false,
     val plannerCoachMarksSeen: Boolean = false,
     val hasSeenHowToGuide: Boolean = false,
@@ -318,6 +320,7 @@ class SettingsRepository(context: Context) {
         val KEY_MAX_DETOUR = doublePreferencesKey("max_detour_km")
         val KEY_DAILY_TARGET = doublePreferencesKey("daily_target_km")
         val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
+        val KEY_DIM_SCREEN_WHEN_IDLE = booleanPreferencesKey("dim_screen_when_idle")
         val KEY_VOICE_GUIDANCE = booleanPreferencesKey("voice_guidance")
         val KEY_PLANNER_COACH_MARKS_SEEN = booleanPreferencesKey("planner_coach_marks_seen")
         val KEY_HAS_SEEN_HOW_TO_GUIDE = booleanPreferencesKey("has_seen_how_to_guide")
@@ -365,6 +368,7 @@ class SettingsRepository(context: Context) {
 
         private val BOOLEAN_KEYS = listOf(
             KEY_KEEP_SCREEN_ON,
+            KEY_DIM_SCREEN_WHEN_IDLE,
             KEY_VOICE_GUIDANCE,
             KEY_PLANNER_COACH_MARKS_SEEN,
             KEY_HAS_SEEN_HOW_TO_GUIDE,
@@ -587,6 +591,7 @@ class SettingsRepository(context: Context) {
             mapFollowsApp = layers.mapFollowsApp,
             mapThemeOverride = layers.mapThemeOverride,
             keepScreenOn = prefs[KEY_KEEP_SCREEN_ON] ?: true,
+            dimScreenWhenIdle = prefs[KEY_DIM_SCREEN_WHEN_IDLE] ?: false,
             voiceGuidance = prefs[KEY_VOICE_GUIDANCE] ?: false,
             plannerCoachMarksSeen = coachSeen,
             hasSeenHowToGuide = guideSeen,
@@ -733,6 +738,10 @@ class SettingsRepository(context: Context) {
 
     suspend fun setKeepScreenOn(enabled: Boolean) {
         updatePref(KEY_KEEP_SCREEN_ON, enabled)
+    }
+
+    suspend fun setDimScreenWhenIdle(enabled: Boolean) {
+        updatePref(KEY_DIM_SCREEN_WHEN_IDLE, enabled)
     }
 
     val offlineDownloadsWifiOnlyFlow: Flow<Boolean> = safeDataFlow.map { prefs ->

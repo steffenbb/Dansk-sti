@@ -1683,4 +1683,11 @@ Gesendet von Dansk Sti</string>
     <string name="credit_dmi_desc">Gezeitenvorhersagen aus den offenen Daten des DMI (oceanObs). Nur nahe Gezeitenküsten wie dem Wattenmeer angezeigt.</string>
     <string name="trail_offline_confirm_question_fmt">Offline-Karten für %1$s herunterladen (%2$s · %3$d Kartenkacheln)?</string>
     <string name="nav_progress_camp_label">Lager</string>
+    <string name="nav_follow_me">Mir folgen</string>
+    <string name="nav_replace_trip_title">Du hast eine aktive Tour</string>
+    <string name="nav_replace_trip_text_fmt">%1$s wird gerade aufgezeichnet. Möchtest du sie beenden und die neue Tour starten?</string>
+    <string name="nav_replace_trip_unnamed">Die aktive Tour</string>
+    <string name="nav_replace_trip_confirm">Beenden und neu starten</string>
+    <string name="nav_replace_trip_keep">Aktive Tour fortsetzen</string>
+    <string name="nav_dim_screen_when_idle">Bildschirm nach 30 s dimmen</string>
 </resources>

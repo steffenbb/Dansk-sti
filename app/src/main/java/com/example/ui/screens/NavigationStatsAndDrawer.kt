@@ -288,6 +288,7 @@ fun NavigationBottomOrSideControlsAndStats(
                         onClick = { viewModel.setKeepScreenOn(!keepScreenOn) },
                         modifier = Modifier.testTag("nav_keep_screen_on_menu_item")
                     )
+                    NavigationDimScreenMenuItem(enabledByKeepScreenOn = keepScreenOn)
                     DropdownMenuItem(
                         text = {
                             Row(

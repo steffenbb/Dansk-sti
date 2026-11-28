@@ -168,11 +168,17 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
 
     var customBackToRouteRouter: (suspend (LatLng, LatLng) -> RouteLegResult?)? = null
 
+    internal val _replaceTripPrompt = MutableStateFlow<ReplaceTripPrompt?>(null)
+    val replaceTripPrompt: StateFlow<ReplaceTripPrompt?> = _replaceTripPrompt.asStateFlow()
     private val _deviceHeadingDegrees = MutableStateFlow<Float?>(null)
     val deviceHeadingDegrees: StateFlow<Float?> = _deviceHeadingDegrees.asStateFlow()
 
+    /** Publishes the compass heading; changes under [HEADING_MIN_CHANGE_DEG] are ignored (see there). */
     fun updateDeviceHeading(headingDegrees: Float?) {
-        _deviceHeadingDegrees.value = headingDegrees?.let { ((it % 360f) + 360f) % 360f }
+        val next = headingDegrees?.let { ((it % 360f) + 360f) % 360f }
+        val current = _deviceHeadingDegrees.value
+        if (next != null && current != null && headingDeltaDegrees(current, next) < HEADING_MIN_CHANGE_DEG) return
+        _deviceHeadingDegrees.value = next
     }
 
     fun clearRouteBackErrorMessage() {
@@ -530,7 +536,7 @@ class NavigationViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch(Dispatchers.IO) {
             val targetId = if (planId != null && planId > 0L) planId
             else plannedRouteRepo.getLastActivePlanId().takeIf { it > 0L } ?: return@launch
-
+            replaceTripPromptFor(targetId, NavigationTrackingService.liveState.value)?.let { _replaceTripPrompt.value = it; return@launch }
             repository.getTripPlanById(targetId)?.let { _activePlan.value = it }
             val stages = repository.getStagesForPlan(targetId)
             if (stages.isNotEmpty()) _activeStages.value = stages

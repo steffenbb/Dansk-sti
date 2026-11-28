@@ -1683,4 +1683,11 @@ Sent from Dansk Sti</string>
     <string name="credit_dmi_desc">Tide predictions from DMI open data (oceanObs). Shown only near tidal coasts such as the Wadden Sea.</string>
     <string name="trail_offline_confirm_question_fmt">Download offline maps for %1$s (%2$s · %3$d map tiles)?</string>
     <string name="nav_progress_camp_label">Camp</string>
+    <string name="nav_follow_me">Follow me</string>
+    <string name="nav_replace_trip_title">You have an active trip</string>
+    <string name="nav_replace_trip_text_fmt">%1$s is being tracked right now. Do you want to end it and start the new trip?</string>
+    <string name="nav_replace_trip_unnamed">The active trip</string>
+    <string name="nav_replace_trip_confirm">End and start new</string>
+    <string name="nav_replace_trip_keep">Keep active trip</string>
+    <string name="nav_dim_screen_when_idle">Dim screen after 30 s</string>
 </resources>

@@ -143,6 +143,7 @@ class RouteTracker(
 
         var snappedProj: SegmentProjection? = null
         var shouldVibrate = false
+        globalProjectionThisFix = null
 
         if (isAccurate) {
             // 2. Search window: [lastWalkKm - 0.3 km, lastWalkKm + 2.0 km]
@@ -159,8 +160,9 @@ class RouteTracker(
                 val targetKm = min(plannedRoute.totalWalkKm, max(currentWalkKm - 0.05, windowBest.walkKm))
                 currentWalkKm = targetKm
             } else {
-                // Nothing within 60m in the window -> Search whole route!
-                val globalBest = projectOntoWindow(lat, lng, 0.0, plannedRoute.totalWalkKm)
+                // Nothing within 60m in the window -> Search whole route (via the coarse index)
+                val globalBest = projectGlobal(lat, lng)
+                globalProjectionThisFix = globalBest
 
                 if (globalBest != null && globalBest.distanceM <= 60.0) {
                     // Check if candidate agrees with previous jump candidates
@@ -186,7 +188,7 @@ class RouteTracker(
             // 3. Off-route warning evaluation
             // Off route = distance to route > max(40m, 1.5 * accuracy) for 3 consecutive accurate fixes
             val distToRoute = snappedProj?.distanceM
-                ?: projectOntoWindow(lat, lng, 0.0, plannedRoute.totalWalkKm)?.distanceM
+                ?: (globalProjectionThisFix ?: projectGlobal(lat, lng))?.distanceM
                 ?: 0.0
 
             val offRouteThreshold = max(40.0, 1.5 * accuracy.toDouble())
@@ -368,6 +370,40 @@ class RouteTracker(
     /**
      * Projects a lat/lng onto segments of the planned route that fall within [minKm, maxKm].
      */
+    /** Set during one fix so the off-route check reuses the global search instead of repeating it. */
+    private var globalProjectionThisFix: SegmentProjection? = null
+
+    /** walkKm never decreases along the points (true for planned routes); enables binary search. */
+    private val pointsAreMonotonic: Boolean by lazy {
+        val pts = plannedRoute.points
+        (1 until pts.size).all { pts[it].walkKm >= pts[it - 1].walkKm }
+    }
+
+    /**
+     * Nearest projection on the whole route. Uses the route's coarse index (about one point per
+     * 100 m) to find the right km first, then the exact projection in a small window around it
+     * (audit fix batch 2: this used to project onto every segment, every fix, while off route).
+     */
+    private fun projectGlobal(lat: Double, lng: Double): SegmentProjection? {
+        if (plannedRoute.points.size < 2) return null
+        val (km, _) = plannedRoute.projectPoint(lat, lng)
+        return projectOntoWindow(lat, lng, km - 0.25, km + 0.25)
+            ?: projectOntoWindow(lat, lng, 0.0, plannedRoute.totalWalkKm)
+    }
+
+    /** First segment index whose end reaches [minKm] (binary search on monotonic walkKm). */
+    private fun firstSegmentReaching(minKm: Double): Int {
+        val pts = plannedRoute.points
+        if (!pointsAreMonotonic) return 0
+        var lo = 0
+        var hi = pts.size - 2
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (pts[mid + 1].walkKm < minKm) lo = mid + 1 else hi = mid
+        }
+        return lo
+    }
+
     private fun projectOntoWindow(
         lat: Double,
         lng: Double,
@@ -380,9 +416,10 @@ class RouteTracker(
         var bestProjection: SegmentProjection? = null
         var bestDistM = Double.MAX_VALUE
 
-        for (i in 0 until pts.size - 1) {
+        for (i in firstSegmentReaching(minKm) until pts.size - 1) {
             val p1 = pts[i]
             val p2 = pts[i + 1]
+            if (pointsAreMonotonic && p1.walkKm > maxKm) break
 
             // Skip gap between separate segments
             if (p1.segmentIndex != p2.segmentIndex) {
@@ -449,8 +486,22 @@ class RouteTracker(
      * Searches points with walkKm >= currentWalkKm and finds the one with minimum distance to (lat, lng).
      */
     private fun findNearestPointAhead(lat: Double, lng: Double, currentKm: Double): RoutePoint? {
-        val ptsAhead = plannedRoute.points.filter { it.walkKm >= currentKm }
-        val searchSet = if (ptsAhead.isNotEmpty()) ptsAhead else plannedRoute.points
+        val pts = plannedRoute.points
+        // Points ahead start at the first index with walkKm >= currentKm (no list copy per fix)
+        val start = if (pointsAreMonotonic) {
+            (firstSegmentReaching(currentKm) until pts.size).firstOrNull { pts[it].walkKm >= currentKm } ?: pts.size
+        } else -1
+        if (start in 0 until pts.size) {
+            var best: RoutePoint? = null
+            var bestD = Double.MAX_VALUE
+            for (i in start until pts.size) {
+                val d = GeoUtils.distanceMeters(lat, lng, pts[i].lat, pts[i].lng)
+                if (d < bestD) { bestD = d; best = pts[i] }
+            }
+            return best
+        }
+        val ptsAhead = pts.filter { it.walkKm >= currentKm }
+        val searchSet = if (ptsAhead.isNotEmpty()) ptsAhead else pts
         return searchSet.minByOrNull { GeoUtils.distanceMeters(lat, lng, it.lat, it.lng) }
     }
 }

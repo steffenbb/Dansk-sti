@@ -651,3 +651,15 @@ internal fun NavigationViewModel.applyTonightCampWeatherResult(
 
 
 
+
+/**
+ * Smallest compass change (degrees) published to the UI. The sensor reports many times a second and
+ * every published value redraws the navigation screen and moves the map (audit fix batch 2).
+ */
+const val HEADING_MIN_CHANGE_DEG = 2f
+
+/** Shortest angle between two headings, 0..180. */
+fun headingDeltaDegrees(a: Float, b: Float): Float {
+    val d = kotlin.math.abs(a - b) % 360f
+    return if (d > 180f) 360f - d else d
+}

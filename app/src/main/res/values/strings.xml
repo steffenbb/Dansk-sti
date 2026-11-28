@@ -1705,4 +1705,11 @@
     <string name="credit_dmi_desc">Tidevandsprognoser fra DMI\'s frie data (oceanObs). Vises kun nær tidevandskyster som Vadehavet.</string>
     <string name="trail_offline_confirm_question_fmt">Hent offline-kort for %1$s (%2$s · %3$d kortfliser)?</string>
     <string name="nav_progress_camp_label">Lejr</string>
+    <string name="nav_follow_me">Følg mig</string>
+    <string name="nav_replace_trip_title">Du har en aktiv tur</string>
+    <string name="nav_replace_trip_text_fmt">%1$s spores lige nu. Vil du afslutte den og starte den nye tur?</string>
+    <string name="nav_replace_trip_unnamed">Den aktive tur</string>
+    <string name="nav_replace_trip_confirm">Afslut og start ny</string>
+    <string name="nav_replace_trip_keep">Fortsæt aktiv tur</string>
+    <string name="nav_dim_screen_when_idle">Dæmp skærmen efter 30 sek.</string>
 </resources>

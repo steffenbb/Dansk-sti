@@ -1,5 +1,8 @@
 package com.example.ui.screens
 
+import kotlinx.coroutines.flow.map
+import com.example.ui.viewmodel.confirmReplaceTrip
+import com.example.ui.viewmodel.keepActiveTrip
 import android.Manifest
 import android.app.Activity
 import android.content.Context
@@ -62,7 +65,6 @@ import com.example.ui.viewmodel.NavigationMapMode
 import com.example.ui.viewmodel.NavigationViewModel
 import com.example.util.routing.TurnCueGenerator
 import kotlinx.coroutines.delay
-import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import java.util.Locale
@@ -110,6 +112,10 @@ fun NavigationScreen(
     val sunsetTime by viewModel.sunsetTime.collectAsState()
     val corridorPoisErrorMessage by viewModel.corridorPoisErrorMessage.collectAsState()
     val militaryAreaBanner by viewModel.militaryAreaBanner.collectAsState()
+    val replaceTripPrompt by viewModel.replaceTripPrompt.collectAsState()
+    replaceTripPrompt?.let { prompt ->
+        NavigationReplaceTripDialog(prompt, onReplace = { viewModel.confirmReplaceTrip() }, onKeepActive = { viewModel.keepActiveTrip() })
+    }
 
     // Read device heading from the rotation vector sensor
     // and remap coordinate system according to display rotation.
@@ -160,22 +166,30 @@ fun NavigationScreen(
     }
 
     var nowClockMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(isActivelyNavigating, keepScreenOn) {
+    val navSettingsRepo = remember(context) { com.example.DanskStiApp.getSettingsRepository(context) }
+    val dimWhenIdle by remember(navSettingsRepo) { navSettingsRepo.settingsFlow.map { it.dimScreenWhenIdle } }
+        .collectAsState(initial = remember(navSettingsRepo) { navSettingsRepo.currentSettingsSnapshot().dimScreenWhenIdle })
+    LaunchedEffect(isActivelyNavigating, keepScreenOn, dimWhenIdle) {
+        if (!dimWhenIdle) restoreWindowBrightness(activity?.window)
         while (true) {
             delay(5_000L)
             nowClockMs = System.currentTimeMillis()
             val win = activity?.window
-            if (win != null && isActivelyNavigating && keepScreenOn) {
+            if (win != null && isActivelyNavigating && keepScreenOn && dimWhenIdle) {
                 val idleMs = nowClockMs - lastTouchTimeMs
                 val params = win.attributes
-                if (idleMs >= 30_000L) {
-                    if (params.screenBrightness != 0.15f) {
-                        params.screenBrightness = 0.15f
-                        win.attributes = params
-                    }
+                if (idleMs >= NAV_IDLE_DIM_AFTER_MS && params.screenBrightness != NAV_IDLE_DIM_BRIGHTNESS) {
+                    params.screenBrightness = NAV_IDLE_DIM_BRIGHTNESS
+                    win.attributes = params
                 }
             }
         }
+    }
+    // A turn cue, off-route warning or camp arrival brings full brightness back, as a touch would
+    LaunchedEffect(navWakeKey(liveState)) {
+        if (navWakeKey(liveState) == null) return@LaunchedEffect
+        lastTouchTimeMs = System.currentTimeMillis()
+        restoreWindowBrightness(activity?.window)
     }
 
     var ttsRef by remember { mutableStateOf<TextToSpeech?>(null) }
@@ -286,69 +300,20 @@ fun NavigationScreen(
         if (nearCue || liveState.speedKmh < 2.0) 17.0 else 16.0
     }
 
-    LaunchedEffect(
-        mapMode,
-        liveState.currentLat,
-        liveState.currentLng,
-        unifiedHeadingDegrees,
-        liveState.bearing,
-        targetAutoZoom,
-        plannedRoute,
-        currentDay
-    ) {
-        val mv = mapViewRef ?: return@LaunchedEffect
-        when (mapMode) {
-            NavigationMapMode.FOLLOW_NORTH_UP -> {
-                isFollowingUser = true
-                mv.mapOrientation = 0f
-                if (kotlin.math.abs(mv.zoomLevelDouble - targetAutoZoom) >= 0.4) {
-                    mv.controller.setZoom(targetAutoZoom)
-                }
-                val lat = liveState.currentLat
-                val lng = liveState.currentLng
-                if (lat != null && lng != null) {
-                    mv.controller.animateTo(GeoPoint(lat, lng))
-                }
-            }
-            NavigationMapMode.FOLLOW_HEADING_UP -> {
-                isFollowingUser = true
-                val heading = unifiedHeadingDegrees ?: liveState.bearing
-                mv.mapOrientation = -heading
-                if (kotlin.math.abs(mv.zoomLevelDouble - targetAutoZoom) >= 0.4) {
-                    mv.controller.setZoom(targetAutoZoom)
-                }
-                val lat = liveState.currentLat
-                val lng = liveState.currentLng
-                if (lat != null && lng != null) {
-                    mv.controller.animateTo(GeoPoint(lat, lng))
-                }
-            }
-            NavigationMapMode.OVERVIEW -> {
-                isFollowingUser = false
-                mv.mapOrientation = 0f
-                val route = plannedRoute ?: liveState.plannedRoute
-                val stage = liveState.currentStage
-                    ?: route?.stages?.getOrNull(currentDay - 1)
-                    ?: route?.stages?.firstOrNull()
-                val stagePts = if (route != null && stage != null) {
-                    route.points.filter { it.walkKm in stage.startWalkKm..stage.endWalkKm }
-                        .ifEmpty { route.points }
-                } else {
-                    route?.points ?: emptyList()
-                }
-                if (stagePts.size >= 2) {
-                    val minLat = stagePts.minOf { it.lat } - 0.005
-                    val maxLat = stagePts.maxOf { it.lat } + 0.005
-                    val minLng = stagePts.minOf { it.lng } - 0.005
-                    val maxLng = stagePts.maxOf { it.lng } + 0.005
-                    runCatching {
-                        mv.zoomToBoundingBox(BoundingBox(maxLat, maxLng, minLat, minLng), true, 64)
-                    }
-                }
-            }
-        }
-        mv.invalidate()
-    }
+    NavigationCameraEffects(
+        mapView = mapViewRef,
+        mapMode = mapMode,
+        lat = liveState.currentLat,
+        lng = liveState.currentLng,
+        headingDegrees = unifiedHeadingDegrees ?: liveState.bearing,
+        targetAutoZoom = targetAutoZoom,
+        plannedRoute = plannedRoute ?: liveState.plannedRoute,
+        currentStage = liveState.currentStage,
+        currentDay = currentDay,
+        isFollowingUser = isFollowingUser,
+        lastTouchTimeMs = lastTouchTimeMs,
+        onFollowingChange = { isFollowingUser = it }
+    )
 
     LaunchedEffect(backToRoutePoints, isRoutingBackToRoute) {
         val ptsToShow = if (isRoutingBackToRoute) emptyList() else backToRoutePoints
@@ -527,9 +492,11 @@ fun NavigationScreen(
                 routeFriTeltning.map { it.first }
             }
             var selectedNavigationPoi by remember { mutableStateOf<PoiInfoSheetData?>(null) }
+            val lastOverlayPoiInputs = remember { arrayOfNulls<List<Any?>>(1) }
 
             val navigationMapSection: @Composable (androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp) -> Unit =
                 { topPad, endPad, bottomAttrPad ->
+                    Box(modifier = Modifier.fillMaxSize()) {
                     DanskStiMap(
                         modifier = Modifier.fillMaxSize(),
                         mapTestTag = "navigation_map_view",
@@ -610,6 +577,10 @@ fun NavigationScreen(
                         },
                         updateOverlaysKey = Triple(plannedRoute, liveState, isFollowingUser to backToRoutePoints),
                         onUpdateOverlays = { _, _, isDarkMap ->
+                            // Route and POIs only when they changed (by reference); position every fix
+                            val poiInputs = listOf<Any?>(overlayManagerRef, plannedRoute, isDarkMap, routeShelters, routeToilets, routeWaters, routeShops, routeHazards, routeFriTeltning, liveState.currentStage, backToRoutePoints)
+                            if (!sameRefs(poiInputs, lastOverlayPoiInputs[0])) {
+                            lastOverlayPoiInputs[0] = poiInputs
                             plannedRoute?.let { route ->
                                 overlayManagerRef?.setPlannedRoute(route, isDarkMap)
                             }
@@ -629,9 +600,16 @@ fun NavigationScreen(
                             )
                             overlayManagerRef?.updateTonightCamp(liveState.currentStage, emptyList())
                             overlayManagerRef?.setBackToRoutePoints(backToRoutePoints)
+                            }
                             overlayManagerRef?.onLocationTick(liveState, isFollowingUser)
                         }
                     )
+                    NavigationFollowMeChip(
+                        visible = !isFollowingUser && mapMode != NavigationMapMode.OVERVIEW && hasGpsFix,
+                        onClick = { isFollowingUser = true },
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomAttrPad + 28.dp)
+                    )
+                    }
                 }
 
             val topCueOverlay: @Composable (Modifier) -> Unit = { cueMod ->
