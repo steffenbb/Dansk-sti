@@ -27,16 +27,23 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 // GPX import (moved out of RouteBuilderViewModelLegs to keep that file under the 800-line limit)
-fun RouteBuilderViewModel.importGpx(inputStream: InputStream) {
+/**
+ * Imports a GPX file. [openStream] is called on the IO thread and the stream is closed here after
+ * parsing; the caller must not open (and close) it itself, since parsing happens after this returns.
+ */
+fun RouteBuilderViewModel.importGpx(openStream: () -> InputStream?) {
     gpxRoutingJob?.cancel()
     viewModelScope.launch {
         try {
             val result = withContext(Dispatchers.IO) {
-                GpxImporter.parseAndSimplifyGpx(
-                    inputStream = inputStream,
-                    targetSpacingMeters = 500.0,
-                    maxViaPoints = GpxImporter.MAX_VIA_POINTS
-                )
+                val stream = openStream() ?: throw java.io.FileNotFoundException("GPX")
+                stream.use {
+                    GpxImporter.parseAndSimplifyGpx(
+                        inputStream = it,
+                        targetSpacingMeters = 500.0,
+                        maxViaPoints = GpxImporter.MAX_VIA_POINTS
+                    )
+                }
             }
 
             if (result.waypoints.size < 2) {

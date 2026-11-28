@@ -1151,13 +1151,12 @@ Gesendet von Dansk Sti</string>
     <string name="trail_dl_assembling_geometry">Routengeometrie wird zusammengesetzt…</string>
     <string name="trail_dl_finished_km_fmt">Fertig (%1$s km)</string>
     <string name="trail_dl_fetching_elevation_km_fmt">Lade Höhenprofil (%1$s km)…</string>
-    <string name="toast_could_not_read_file">Ausgewählte Datei konnte nicht gelesen werden</string>
     <string name="toast_photo_attached">Foto an Punkt angehängt</string>
-    <string name="toast_could_not_save_photo">Foto konnte nicht gespeichert werden</string>
-    <string name="toast_could_not_load_photo">Foto konnte nicht geladen werden</string>
+    <string name="toast_could_not_save_photo">Foto konnte nicht gespeichert werden: %1$s</string>
+    <string name="toast_could_not_load_photo">Foto konnte nicht geladen werden: %1$s</string>
     <string name="toast_gps_unavailable">GPS-Position noch nicht verfügbar</string>
     <string name="toast_map_position_not_ready">Kartenposition noch nicht bereit</string>
-    <string name="toast_could_not_open_camera">Kamera konnte nicht geöffnet werden</string>
+    <string name="toast_could_not_open_camera">Kamera konnte nicht geöffnet werden: %1$s</string>
     <string name="explore_length_all">Alle Längen</string>
     <string name="explore_overnight_all">Alle</string>
     <string name="explore_error_load_trails">Routen konnten nicht geladen werden. Prüfe deine Verbindung und versuche es erneut.</string>

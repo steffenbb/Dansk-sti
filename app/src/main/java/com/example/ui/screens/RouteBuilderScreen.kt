@@ -75,7 +75,6 @@ import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import java.io.File
-import java.io.FileOutputStream
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RouteBuilderScreen(
@@ -126,13 +125,10 @@ fun RouteBuilderScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
-            try {
-                context.contentResolver.openInputStream(it)?.use { stream ->
-                    viewModel.importGpx(stream)
-                }
-            } catch (e: Exception) {
-                com.example.ui.components.AppMessages.show(context.getString(R.string.toast_could_not_read_file, com.example.util.userMessageFor(e)), long = true)
-            }
+            // The viewmodel opens the stream on the IO thread and closes it after parsing;
+            // read errors are reported there (planner_gpx_import_error_fmt)
+            val resolver = context.contentResolver
+            viewModel.importGpx { resolver.openInputStream(it) }
         }
     }
 
@@ -147,13 +143,15 @@ fun RouteBuilderScreen(
         val path = pendingCameraPhotoPath
         pendingCameraPhotoPath = null
         if (saved && !path.isNullOrBlank()) {
-            try {
-                val photoFile = File(path)
-                if (com.example.util.WaypointPhotoHelper.compressCapturedPhotoFile(photoFile)) {
-                    customWpPhotoPath = photoFile.absolutePath
+            coroutineScope.launch {
+                try {
+                    val photoFile = File(path)
+                    if (com.example.util.WaypointPhotoHelper.compressInBackground(photoFile)) {
+                        customWpPhotoPath = photoFile.absolutePath
+                    }
+                } catch (e: Exception) {
+                    com.example.ui.components.AppMessages.show(context.getString(R.string.toast_could_not_save_photo, com.example.util.userMessageFor(e)))
                 }
-            } catch (e: Exception) {
-                com.example.ui.components.AppMessages.show(context.getString(R.string.toast_could_not_save_photo, com.example.util.userMessageFor(e)))
             }
         } else if (!path.isNullOrBlank()) {
             runCatching { File(path).delete() }
@@ -164,17 +162,12 @@ fun RouteBuilderScreen(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            try {
-                context.contentResolver.openInputStream(it)?.use { input ->
-                    val photoFile = com.example.util.WaypointPhotoHelper.createPhotoFile(context)
-                    FileOutputStream(photoFile).use { out ->
-                        input.copyTo(out)
-                    }
-                    com.example.util.WaypointPhotoHelper.compressCapturedPhotoFile(photoFile)
-                    customWpPhotoPath = photoFile.absolutePath
+            coroutineScope.launch {
+                try {
+                    customWpPhotoPath = com.example.util.WaypointPhotoHelper.importPickedPhoto(context, it).absolutePath
+                } catch (e: Exception) {
+                    com.example.ui.components.AppMessages.show(context.getString(R.string.toast_could_not_load_photo, com.example.util.userMessageFor(e)))
                 }
-            } catch (e: Exception) {
-                com.example.ui.components.AppMessages.show(context.getString(R.string.toast_could_not_load_photo, com.example.util.userMessageFor(e)))
             }
         }
     }

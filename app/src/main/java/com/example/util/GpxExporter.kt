@@ -21,7 +21,7 @@ object GpxExporter {
         hazards: List<UserHazardNoteEntity> = emptyList(),
         customWaypoints: List<com.example.data.model.UserCustomWaypointEntity> = emptyList()
     ): String {
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") } // the Z means UTC
         val nowIso = dateFormat.format(Date())
 
         val sb = StringBuilder()
@@ -146,7 +146,7 @@ object GpxExporter {
         overnightWaypoints: List<com.example.util.routing.RouteWaypoint> = emptyList(),
         customWaypoints: List<com.example.data.model.UserCustomWaypointEntity> = emptyList()
     ): String {
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") } // the Z means UTC
         val nowIso = dateFormat.format(Date())
 
         val sb = StringBuilder()
@@ -222,7 +222,7 @@ object GpxExporter {
         points: List<com.example.data.model.RecordedTrackPointEntity>,
         dayStats: List<com.example.data.model.RecordedDayStatEntity> = emptyList()
     ): String {
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") } // the Z means UTC
         val nowIso = dateFormat.format(Date())
 
         val sb = StringBuilder()

@@ -248,6 +248,8 @@ class NavigationTrackingService : Service() {
 
         when (action) {
             ACTION_START -> {
+                // Foreground first: the route load below can take longer than Android's start deadline
+                if (!enterForeground()) return START_NOT_STICKY
                 val intentPlanId = intent?.getLongExtra(EXTRA_PLAN_ID, 0L) ?: 0L
                 val targetPlanId = if (intentPlanId != 0L) {
                     intentPlanId
@@ -678,8 +680,13 @@ class NavigationTrackingService : Service() {
         applyGpsPowerProfile(targetProfile)
     }
 
-    @SuppressLint("MissingPermission")
-    internal fun startForegroundLocationTracking() {
+    /**
+     * Goes foreground with the navigation notification. Called as the very first step of ACTION_START,
+     * because Android requires startForeground within a few seconds of startForegroundService,
+     * before the (possibly slow) route load; called again once the route is loaded to refresh the text.
+     * Returns false (and stops the service) when Android refuses.
+     */
+    internal fun enterForeground(): Boolean {
         val route = currentPlannedRoute
         val notification = buildNotification(
             trailName = route?.trailName ?: getString(com.example.R.string.app_name),
@@ -708,8 +715,20 @@ class NavigationTrackingService : Service() {
                 locationPermissionMissing = true
             )
             stopSelf()
-            return
+            return false
+        } catch (e: IllegalStateException) {
+            // e.g. ForegroundServiceStartNotAllowedException when restarted from the background
+            Log.e("NavService", "startForeground not allowed; stopping cleanly", e)
+            _liveState.value = _liveState.value.copy(isTracking = false)
+            stopSelf()
+            return false
         }
+        return true
+    }
+
+    @SuppressLint("MissingPermission")
+    internal fun startForegroundLocationTracking() {
+        if (!enterForeground()) return
 
         registerScreenReceiverIfNeeded()
 

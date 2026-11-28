@@ -1173,13 +1173,12 @@
     <string name="trail_dl_assembling_geometry">Sammensætter rutegeometri...</string>
     <string name="trail_dl_finished_km_fmt">Færdig (%1$s km)</string>
     <string name="trail_dl_fetching_elevation_km_fmt">Henter højdeprofil (%1$s km)...</string>
-    <string name="toast_could_not_read_file">Kunne ikke læse den valgte fil</string>
     <string name="toast_photo_attached">Foto vedhæftet til punkt</string>
-    <string name="toast_could_not_save_photo">Kunne ikke gemme foto</string>
-    <string name="toast_could_not_load_photo">Kunne ikke indlæse foto</string>
+    <string name="toast_could_not_save_photo">Kunne ikke gemme foto: %1$s</string>
+    <string name="toast_could_not_load_photo">Kunne ikke indlæse foto: %1$s</string>
     <string name="toast_gps_unavailable">GPS-position ikke tilgængelig endnu</string>
     <string name="toast_map_position_not_ready">Kortposition ikke klar endnu</string>
-    <string name="toast_could_not_open_camera">Kunne ikke åbne kamera</string>
+    <string name="toast_could_not_open_camera">Kunne ikke åbne kamera: %1$s</string>
     <string name="explore_length_all">Alle længder</string>
     <string name="explore_overnight_all">Alle</string>
     <string name="explore_error_load_trails">Kunne ikke indlæse ruter. Tjek din forbindelse og prøv igen.</string>

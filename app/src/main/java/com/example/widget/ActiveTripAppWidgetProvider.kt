@@ -17,6 +17,7 @@ import com.example.service.NavigationLiveState
 import com.example.service.NavigationTrackingService
 import com.example.util.AppLocaleHelper
 import com.example.util.SunCalculator
+import kotlinx.coroutines.launch
 
 data class ActiveTripWidgetDisplayData(
     val isActive: Boolean,
@@ -36,12 +37,24 @@ class ActiveTripAppWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
-        updateAllWidgets(context, appWidgetManager, appWidgetIds)
+        // The paused-trip fallback reads Room, which is not allowed on the main thread (the
+        // broadcast's thread); goAsync keeps the receiver alive while the IO work finishes.
+        val pending = goAsync()
+        widgetScope.launch {
+            try {
+                updateAllWidgetsNow(context, appWidgetManager, appWidgetIds)
+            } finally {
+                pending.finish()
+            }
+        }
     }
 
     companion object {
         const val WIDGET_UPDATE_MIN_INTERVAL_MS = 5 * 60_000L
 
+        private val widgetScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
+        /** Blocking when no trip is live (reads Room): call off the main thread. */
         fun resolveWidgetDisplayData(
             context: Context,
             liveState: NavigationLiveState = NavigationTrackingService.liveState.value,
@@ -177,7 +190,27 @@ class ActiveTripAppWidgetProvider : AppWidgetProvider() {
             return views
         }
 
+        /**
+         * Refreshes all widgets. Safe from any thread: on the main thread the work (which may read
+         * Room for a paused trip) moves to a background thread, with the live state captured now.
+         */
         fun updateAllWidgets(
+            context: Context,
+            appWidgetManager: AppWidgetManager? = AppWidgetManager.getInstance(context),
+            appWidgetIds: IntArray? = null,
+            liveState: NavigationLiveState = NavigationTrackingService.liveState.value,
+            nowMs: Long = System.currentTimeMillis()
+        ) {
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                val appContext = context.applicationContext ?: context
+                widgetScope.launch { updateAllWidgetsNow(appContext, appWidgetManager, appWidgetIds, liveState, nowMs) }
+            } else {
+                updateAllWidgetsNow(context, appWidgetManager, appWidgetIds, liveState, nowMs)
+            }
+        }
+
+        /** Blocking: must run off the main thread (Room). */
+        internal fun updateAllWidgetsNow(
             context: Context,
             appWidgetManager: AppWidgetManager? = AppWidgetManager.getInstance(context),
             appWidgetIds: IntArray? = null,

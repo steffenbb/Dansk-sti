@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import kotlinx.coroutines.launch
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
@@ -210,6 +211,10 @@ fun TripDiaryEditorSection(
 ) {
     val context = LocalContext.current
     var pendingCameraPath by remember { mutableStateOf<String?>(null) }
+    // Photo decoding/compression runs off the main thread; read the latest paths when it finishes
+    val photoScope = androidx.compose.runtime.rememberCoroutineScope()
+    val latestPhotoPaths by androidx.compose.runtime.rememberUpdatedState(photoPaths)
+    val latestOnPhotoPathsChange by androidx.compose.runtime.rememberUpdatedState(onPhotoPathsChange)
 
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
@@ -217,14 +222,16 @@ fun TripDiaryEditorSection(
         val path = pendingCameraPath
         pendingCameraPath = null
         if (saved && !path.isNullOrBlank()) {
-            try {
-                val file = File(path)
-                if (WaypointPhotoHelper.compressCapturedPhotoFile(file)) {
-                    if (photoPaths.size < TripDiaryPhotoParser.MAX_PHOTOS_PER_DAY) {
-                        onPhotoPathsChange((photoPaths + file.absolutePath).distinct().take(TripDiaryPhotoParser.MAX_PHOTOS_PER_DAY))
+            photoScope.launch {
+                try {
+                    val file = File(path)
+                    if (WaypointPhotoHelper.compressInBackground(file)) {
+                        if (latestPhotoPaths.size < TripDiaryPhotoParser.MAX_PHOTOS_PER_DAY) {
+                            latestOnPhotoPathsChange((latestPhotoPaths + file.absolutePath).distinct().take(TripDiaryPhotoParser.MAX_PHOTOS_PER_DAY))
+                        }
                     }
+                } catch (_: Exception) {
                 }
-            } catch (_: Exception) {
             }
         } else if (!path.isNullOrBlank()) {
             runCatching { File(path).delete() }
@@ -236,17 +243,13 @@ fun TripDiaryEditorSection(
     ) { uri: Uri? ->
         uri?.let {
             if (photoPaths.size >= TripDiaryPhotoParser.MAX_PHOTOS_PER_DAY) return@let
-            try {
-                context.contentResolver.openInputStream(it)?.use { input ->
-                    val photoFile = WaypointPhotoHelper.createPhotoFile(context, "diary_photo")
-                    FileOutputStream(photoFile).use { out ->
-                        input.copyTo(out)
-                    }
-                    WaypointPhotoHelper.compressCapturedPhotoFile(photoFile)
-                    onPhotoPathsChange((photoPaths + photoFile.absolutePath).distinct().take(TripDiaryPhotoParser.MAX_PHOTOS_PER_DAY))
+            photoScope.launch {
+                try {
+                    val photoFile = WaypointPhotoHelper.importPickedPhoto(context, it, "diary_photo")
+                    latestOnPhotoPathsChange((latestPhotoPaths + photoFile.absolutePath).distinct().take(TripDiaryPhotoParser.MAX_PHOTOS_PER_DAY))
+                } catch (_: Exception) {
+                    Toast.makeText(context, context.getString(R.string.diary_photo_load_error), Toast.LENGTH_SHORT).show()
                 }
-            } catch (_: Exception) {
-                Toast.makeText(context, context.getString(R.string.diary_photo_load_error), Toast.LENGTH_SHORT).show()
             }
         }
     }

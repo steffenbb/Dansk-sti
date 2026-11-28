@@ -1151,13 +1151,12 @@ Sent from Dansk Sti</string>
     <string name="trail_dl_assembling_geometry">Assembling route geometry…</string>
     <string name="trail_dl_finished_km_fmt">Finished (%1$s km)</string>
     <string name="trail_dl_fetching_elevation_km_fmt">Fetching elevation profile (%1$s km)…</string>
-    <string name="toast_could_not_read_file">Could not read selected file</string>
     <string name="toast_photo_attached">Photo attached to point</string>
-    <string name="toast_could_not_save_photo">Could not save photo</string>
-    <string name="toast_could_not_load_photo">Could not load photo</string>
+    <string name="toast_could_not_save_photo">Could not save photo: %1$s</string>
+    <string name="toast_could_not_load_photo">Could not load photo: %1$s</string>
     <string name="toast_gps_unavailable">GPS location not available yet</string>
     <string name="toast_map_position_not_ready">Map position not ready yet</string>
-    <string name="toast_could_not_open_camera">Could not open camera</string>
+    <string name="toast_could_not_open_camera">Could not open camera: %1$s</string>
     <string name="explore_length_all">All lengths</string>
     <string name="explore_overnight_all">All</string>
     <string name="explore_error_load_trails">Could not load trails. Check your connection and try again.</string>

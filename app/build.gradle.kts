@@ -49,6 +49,13 @@ android {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
   }
+  // The in-app language picker (Dansk/English/Deutsch) needs every language in the install;
+  // Play would otherwise split by language and ship only the phone's own.
+  bundle {
+    language {
+      enableSplit = false
+    }
+  }
   buildFeatures {
     compose = true
     buildConfig = true
